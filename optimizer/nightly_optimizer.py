@@ -3,7 +3,7 @@ import argparse
 import os
 import time
 from datetime import datetime
-from multiprocessing import Pool, cpu_count
+from joblib import Parallel, delayed
 from dotenv import load_dotenv
 from data_fetcher import fetch_historical_data, save_data, load_data
 from parameter_optimizer import ParameterOptimizer
@@ -103,13 +103,7 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True):
     }
 
 
-def _optimize_ticker_worker(args):
-    """Worker function for multiprocessing pool - optimizes a single ticker."""
-    symbol, timeframe, param_grid = args
-    return optimize_ticker(symbol, timeframe, param_grid=param_grid, use_cache=True)
-
-
-def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, num_workers=None):
+def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jobs=None):
     """
     Run nightly optimization for multiple tickers in parallel.
 
@@ -117,20 +111,22 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, num_
         tickers:    List of symbols to optimize
         timeframe:  Bar timeframe (reads TRADING_TIMEFRAME env var, defaults to '1Hour')
         param_grid: Override param grid (defaults to timeframe preset)
-        num_workers: Number of parallel workers (default: min(num_tickers, cpu_count))
+        n_jobs:     Number of parallel jobs (default: -1 for all CPUs)
     """
 
     if tickers is None:
         tickers = ['SPY', 'QQQ', 'IWM']
     if timeframe is None:
         timeframe = os.getenv('TRADING_TIMEFRAME', '1Hour')
+    if n_jobs is None:
+        n_jobs = -1  # Use all available CPUs
 
     print(f"\n{'='*70}")
     print(f"NIGHTLY OPTIMIZER RUN")
     print(f"Timestamp: {datetime.now().isoformat()}")
     print(f"Tickers: {', '.join(tickers)}")
     print(f"Timeframe: {timeframe}")
-    print(f"{'='*70}")
+    print(f"{'='*70}\n")
 
     db = StrategyDB()
 
@@ -140,18 +136,11 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, num_
     results = []
     total_time = time.time()
 
-    # Set number of workers: min(number of tickers, CPU count)
-    if num_workers is None:
-        num_workers = min(len(tickers), cpu_count())
-
-    print(f"Using {num_workers} parallel workers for {len(tickers)} tickers\n")
-
-    # Prepare worker arguments
-    worker_args = [(symbol, timeframe, param_grid) for symbol in tickers]
-
-    # Run optimizations in parallel
-    with Pool(num_workers) as pool:
-        results = pool.map(_optimize_ticker_worker, worker_args)
+    # Run optimizations in parallel using joblib
+    results = Parallel(n_jobs=n_jobs, verbose=10)(
+        delayed(optimize_ticker)(symbol, timeframe, param_grid=param_grid, use_cache=True)
+        for symbol in tickers
+    )
 
     # Filter out failed optimizations and save results to database
     results = [r for r in results if r is not None]
