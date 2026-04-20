@@ -3,6 +3,7 @@ import argparse
 import os
 import time
 from datetime import datetime
+from multiprocessing import Pool, cpu_count
 from dotenv import load_dotenv
 from data_fetcher import fetch_historical_data, save_data, load_data
 from parameter_optimizer import ParameterOptimizer
@@ -102,14 +103,21 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True):
     }
 
 
-def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None):
+def _optimize_ticker_worker(args):
+    """Worker function for multiprocessing pool - optimizes a single ticker."""
+    symbol, timeframe, param_grid = args
+    return optimize_ticker(symbol, timeframe, param_grid=param_grid, use_cache=True)
+
+
+def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, num_workers=None):
     """
-    Run nightly optimization for multiple tickers.
+    Run nightly optimization for multiple tickers in parallel.
 
     Args:
-        tickers:   List of symbols to optimize
-        timeframe: Bar timeframe (reads TRADING_TIMEFRAME env var, defaults to '1Hour')
+        tickers:    List of symbols to optimize
+        timeframe:  Bar timeframe (reads TRADING_TIMEFRAME env var, defaults to '1Hour')
         param_grid: Override param grid (defaults to timeframe preset)
+        num_workers: Number of parallel workers (default: min(num_tickers, cpu_count))
     """
 
     if tickers is None:
@@ -132,18 +140,29 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None):
     results = []
     total_time = time.time()
 
-    for symbol in tickers:
-        result = optimize_ticker(symbol, timeframe, param_grid=param_grid, use_cache=True)
+    # Set number of workers: min(number of tickers, CPU count)
+    if num_workers is None:
+        num_workers = min(len(tickers), cpu_count())
 
-        if result:
-            db.save_best_params(result['symbol'], result['params'], result['metrics'])
-            db.log_optimization_run(
-                result['symbol'],
-                result['metrics'],
-                result['combos'],
-                int(result['runtime'])
-            )
-            results.append(result)
+    print(f"Using {num_workers} parallel workers for {len(tickers)} tickers\n")
+
+    # Prepare worker arguments
+    worker_args = [(symbol, timeframe, param_grid) for symbol in tickers]
+
+    # Run optimizations in parallel
+    with Pool(num_workers) as pool:
+        results = pool.map(_optimize_ticker_worker, worker_args)
+
+    # Filter out failed optimizations and save results to database
+    results = [r for r in results if r is not None]
+    for result in results:
+        db.save_best_params(result['symbol'], result['params'], result['metrics'])
+        db.log_optimization_run(
+            result['symbol'],
+            result['metrics'],
+            result['combos'],
+            int(result['runtime'])
+        )
 
     total_time = time.time() - total_time
 
