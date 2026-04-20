@@ -28,3 +28,6 @@ optimizer/optimized_params/strategy_params.db
 # OS
 .DS_Store
 Thumbs.db
+
+# Not used / archived
+NotUsed/
