@@ -81,7 +81,7 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True):
 
     combos = 3 ** len(param_grid)
     print(f"Testing {combos} parameter combinations...")
-    optimizer = ParameterOptimizer(df)
+    optimizer = ParameterOptimizer(df, symbol=symbol)
     results = optimizer.optimize(param_grid)
 
     best_result = results[0]

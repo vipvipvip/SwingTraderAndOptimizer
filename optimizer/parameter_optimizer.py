@@ -10,10 +10,11 @@ from strategies import SPYSwingTradingStrategy
 class ParameterOptimizer:
     """Grid search optimizer for strategy parameters"""
 
-    def __init__(self, data_df, initial_capital=100000):
+    def __init__(self, data_df, initial_capital=100000, symbol=None):
         self.data = data_df.copy()
         self.initial_capital = initial_capital
         self.results = []
+        self.symbol = symbol  # For progress tracking (e.g., 'SPY')
 
     def optimize(self, param_grid):
         """
@@ -59,7 +60,8 @@ class ParameterOptimizer:
 
             # Progress indicator
             if (idx + 1) % 10 == 0:
-                print(f"  Tested {idx + 1}/{len(combinations)} combinations...")
+                ticker_label = f"[{self.symbol}] " if self.symbol else ""
+                print(f"  {ticker_label}Tested {idx + 1}/{len(combinations)} combinations...")
 
         # Sort by Sharpe ratio (descending)
         self.results.sort(
