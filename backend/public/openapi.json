@@ -1,0 +1,399 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Swing Trading Dashboard API",
+    "description": "REST API for swing trading strategy management, backtesting, and live trading execution",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Trading Dashboard Team"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Development Server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Tickers",
+      "description": "Manage trading tickers and their optimized strategy parameters"
+    },
+    {
+      "name": "Strategies",
+      "description": "Query optimized strategy parameters and optimization history"
+    },
+    {
+      "name": "Account",
+      "description": "Account equity, buying power, and positions from Alpaca"
+    },
+    {
+      "name": "Orders",
+      "description": "Place and cancel trading orders"
+    },
+    {
+      "name": "Equity & P&L",
+      "description": "Equity curves, trades, and P&L summaries"
+    },
+    {
+      "name": "Admin",
+      "description": "Administrative operations (optimizer trigger, backtest imports)"
+    }
+  ],
+  "paths": {
+    "/api/v1/tickers": {
+      "get": {
+        "operationId": "getTickers",
+        "tags": ["Tickers"],
+        "summary": "List all tickers with optimized parameters",
+        "description": "Returns a list of all trading tickers with their latest optimized strategy parameters",
+        "responses": {
+          "200": {
+            "description": "List of tickers with parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "integer" },
+                      "symbol": { "type": "string" },
+                      "enabled": { "type": "boolean" },
+                      "params": {
+                        "type": "object",
+                        "properties": {
+                          "sharpe_ratio": { "type": "number" },
+                          "win_rate": { "type": "number" },
+                          "total_return": { "type": "number" },
+                          "macd_fast": { "type": "integer" },
+                          "macd_slow": { "type": "integer" },
+                          "macd_signal": { "type": "integer" },
+                          "sma_short": { "type": "integer" },
+                          "sma_long": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account": {
+      "get": {
+        "operationId": "getAccount",
+        "tags": ["Account"],
+        "summary": "Get Alpaca account information",
+        "description": "Returns account equity, buying power, cash, and other account details",
+        "responses": {
+          "200": {
+            "description": "Account details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "equity": { "type": "string" },
+                    "buying_power": { "type": "string" },
+                    "cash": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "API error"
+          }
+        }
+      }
+    },
+    "/api/v1/account/positions": {
+      "get": {
+        "operationId": "getPositions",
+        "tags": ["Account"],
+        "summary": "Get open positions",
+        "description": "Returns all currently open positions from Alpaca",
+        "responses": {
+          "200": {
+            "description": "List of open positions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "symbol": { "type": "string" },
+                      "qty": { "type": "string" },
+                      "avg_entry_price": { "type": "string" },
+                      "current_price": { "type": "string" },
+                      "unrealized_pnl": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/strategies": {
+      "get": {
+        "operationId": "getStrategies",
+        "tags": ["Strategies"],
+        "summary": "List all strategy parameters",
+        "description": "Returns optimized strategy parameters for all tickers",
+        "responses": {
+          "200": {
+            "description": "List of strategies with parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/strategies/{symbol}": {
+      "get": {
+        "operationId": "getStrategy",
+        "tags": ["Strategies"],
+        "summary": "Get strategy for a symbol",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy parameters"
+          },
+          "404": {
+            "description": "Strategy not found"
+          }
+        }
+      }
+    },
+    "/api/v1/strategies/{symbol}/history": {
+      "get": {
+        "operationId": "getOptimizationHistory",
+        "tags": ["Strategies"],
+        "summary": "Get optimization history",
+        "description": "Returns last 10 optimization runs for a symbol",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Optimization history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/equity/{symbol}": {
+      "get": {
+        "operationId": "getEquityCurve",
+        "tags": ["Equity & P&L"],
+        "summary": "Get equity curve for a symbol",
+        "description": "Returns backtest and live equity curves",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Equity curves",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "backtest": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": { "type": "string" },
+                          "value": { "type": "number" }
+                        }
+                      }
+                    },
+                    "live": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": { "type": "string" },
+                          "value": { "type": "number" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trades/live": {
+      "get": {
+        "operationId": "getLiveTrades",
+        "tags": ["Equity & P&L"],
+        "summary": "Get all executed trades",
+        "responses": {
+          "200": {
+            "description": "List of trades",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "integer" },
+                      "symbol": { "type": "string" },
+                      "entry_price": { "type": "number" },
+                      "exit_price": { "type": "number" },
+                      "status": { "type": "string" },
+                      "pnl_dollar": { "type": "number" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trades/pnl": {
+      "get": {
+        "operationId": "getPnlSummary",
+        "tags": ["Equity & P&L"],
+        "summary": "Get P&L summary",
+        "description": "Returns cumulative P&L and win rate for all closed trades",
+        "responses": {
+          "200": {
+            "description": "P&L summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total_pnl": { "type": "number" },
+                    "win_rate": { "type": "number" },
+                    "closed_trades": { "type": "integer" },
+                    "winning_trades": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/optimize/trigger": {
+      "post": {
+        "operationId": "triggerOptimizer",
+        "tags": ["Admin"],
+        "summary": "Trigger strategy optimizer",
+        "description": "Starts the nightly parameter optimizer for all enabled tickers",
+        "responses": {
+          "200": {
+            "description": "Optimizer triggered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" },
+                    "status": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to trigger optimizer"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/import-backtest": {
+      "post": {
+        "operationId": "importBacktestCsvs",
+        "tags": ["Admin"],
+        "summary": "Import backtest CSV data",
+        "description": "Imports equity curve and trade data from backtest CSV files",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "symbol": { "type": "string" },
+                  "csv_path": { "type": "string" }
+                },
+                "required": ["symbol", "csv_path"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Backtest data imported successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" },
+                    "rows_imported": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or file not found"
+          },
+          "500": {
+            "description": "Failed to import backtest data"
+          }
+        }
+      }
+    }
+  }
+}

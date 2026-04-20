@@ -1,0 +1,30 @@
+# Python
+optimizer/venv/
+optimizer/__pycache__/
+optimizer/*.pyc
+optimizer/data/
+optimizer/backtest_results/
+
+# Secrets
+optimizer/.env
+backend/.env
+
+# Laravel
+backend/vendor/
+backend/storage/logs/
+backend/storage/framework/cache/
+backend/storage/framework/sessions/
+backend/storage/framework/views/
+backend/bootstrap/cache/
+backend/.phpunit.cache/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# SQLite DB (contains live trade data — back up separately)
+optimizer/optimized_params/strategy_params.db
+
+# OS
+.DS_Store
+Thumbs.db

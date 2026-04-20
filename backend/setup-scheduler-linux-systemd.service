@@ -1,0 +1,14 @@
+[Unit]
+Description=Laravel Scheduler Service for Swing Trading
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/home/user/swing-trader-web/backend
+ExecStart=/usr/bin/php /home/user/swing-trader-web/backend/artisan schedule:run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
