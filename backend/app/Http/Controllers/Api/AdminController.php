@@ -45,7 +45,8 @@ class AdminController extends Controller
 
             $output = [];
             $returnCode = 0;
-            exec("\"$pythonPath\" \"$scriptPath\" 2>&1", $output, $returnCode);
+            $command = escapeshellarg($pythonPath) . ' ' . escapeshellarg($scriptPath) . ' 2>&1';
+            exec($command, $output, $returnCode);
 
             if ($returnCode !== 0) {
                 return response()->json(['error' => 'Optimizer failed', 'output' => implode("\n", $output)], 500);
@@ -62,7 +63,12 @@ class AdminController extends Controller
         try {
             $output = [];
             $returnCode = 0;
-            exec("php " . base_path('artisan') . " trades:execute-daily 2>&1", $output, $returnCode);
+            $phpPath = PHP_BINDIR . DIRECTORY_SEPARATOR . 'php';
+            $artisanPath = base_path('artisan');
+
+            // Use escapeshellarg for proper path escaping on Windows/Unix
+            $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' trades:execute-daily 2>&1';
+            exec($command, $output, $returnCode);
 
             if ($returnCode !== 0) {
                 return response()->json(['error' => 'Trade execution failed', 'output' => implode("\n", $output)], 500);

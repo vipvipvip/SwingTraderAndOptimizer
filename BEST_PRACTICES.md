@@ -2,19 +2,30 @@
 
 Based on session work from 2026-04-20/21, implementing allocation weights system and API endpoints.
 
-## 1. Configuration & Cache Management
+## 1. Configuration & Cache Management + Server Restart
 
-**Rule:** After ANY code changes, always clear config/cache and restart the full app stack.
+**Rule:** After ANY code changes, YOU (the agent) must clear config/cache AND restart the servers. Never ask the user to test without doing this first.
 
 **How to apply:**
 ```bash
+# 1. Clear cache
 php artisan config:clear && php artisan cache:clear
-# Kill old processes and restart both backend and frontend servers
+
+# 2. Kill old backend process (Ctrl+C in terminal)
+# 3. Restart backend fresh
+cd backend
+php artisan serve --host=127.0.0.1 --port=8000
+
+# 4. THEN tell user "Ready to test" — don't ask them to restart
 ```
 
-**Why:** Laravel caches configuration in memory. Without clearing, old routes, controllers, and config values remain cached. Frontend also caches API responses. Changes appear to fail when the code is actually correct but cache is stale.
+**Why:** 
+- Laravel caches routes and config in memory. Old code persists until process restarts
+- Frontend caches API responses. Stale data causes apparent failures
+- The user shouldn't have to restart — that's your job after making changes
+- Asking "restart and try again" adds friction and means you forgot step 2-3
 
-**Evidence:** Multiple instances where endpoints didn't work until servers were restarted after cache clear.
+**Evidence:** Implemented trigger endpoints, cleared cache, but forgot to restart server. User had to remind: "always restart after each change before u ask me to test"
 
 ---
 
