@@ -11,27 +11,22 @@ class YahooFinanceService
         try {
             // Get script path - backend/app/Services -> backend -> parent (SwingTraderAndOptimizer)
             $projectRoot = dirname(dirname(dirname(__DIR__)));
-            $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'optimizer' . DIRECTORY_SEPARATOR . 'get_bars.py';
+            $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'optimizer' . DIRECTORY_SEPARATOR . 'get_bars_alpaca.py';
+            $pythonPath = $projectRoot . DIRECTORY_SEPARATOR . 'optimizer' . DIRECTORY_SEPARATOR . 'venv' . DIRECTORY_SEPARATOR . 'Scripts' . DIRECTORY_SEPARATOR . 'python.exe';
 
             if (!file_exists($scriptPath)) {
                 throw new Exception('Script not found at: ' . $scriptPath);
             }
 
-            $interval = $this->getYahooInterval($timeframe);
-
-            // Try to use PYTHON_PATH from env first, fall back to just 'python'
-            $pythonPath = env('PYTHON_PATH', 'python');
-
-            // If relative path, resolve from backend directory
-            if (!preg_match('#^[a-z]:#i', $pythonPath) && !preg_match('#^/#', $pythonPath) && $pythonPath !== 'python') {
-                $resolved = realpath(base_path() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $pythonPath));
-                if ($resolved && file_exists($resolved)) {
-                    $pythonPath = $resolved;
-                }
+            if (!file_exists($pythonPath)) {
+                throw new Exception('Python venv not found at: ' . $pythonPath);
             }
 
-            // Build command with proper Windows escaping
+            $interval = $this->getYahooInterval($timeframe);
+
+            // Use full paths with backslashes for Windows shell_exec
             $command = "\"$pythonPath\" \"$scriptPath\" $symbol $interval $start $end 2>&1";
+
             $output = shell_exec($command);
 
             if (!$output) {
