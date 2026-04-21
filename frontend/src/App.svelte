@@ -5,6 +5,7 @@
   import EquityCurveChart from './lib/components/EquityCurveChart.svelte'
   import LivePositionsPanel from './lib/components/LivePositionsPanel.svelte'
   import PnlTable from './lib/components/PnlTable.svelte'
+  import TradesHistoryTable from './lib/components/TradesHistoryTable.svelte'
 
   let strategies = []
   let loading = true
@@ -154,6 +155,11 @@
       <div class="chart-section">
         <h2>P&L Summary</h2>
         <PnlTable />
+      </div>
+
+      <div class="chart-section">
+        <h2>Trade History</h2>
+        <TradesHistoryTable />
       </div>
     </div>
   {/if}
