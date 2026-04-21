@@ -87,9 +87,7 @@ class AlpacaService
             if ($start) $query['start'] = $start;
             if ($end) $query['end'] = $end;
 
-            // Alpaca data API uses data.alpaca.markets, not paper-api.alpaca.markets
-            $dataApiUrl = 'https://data.alpaca.markets/v1beta3';
-            $response = $this->client->get($dataApiUrl . "/stocks/bars", [
+            $response = $this->client->get("{$this->baseUrl}/stocks/bars", [
                 'headers' => $this->headers,
                 'query' => $query
             ]);
