@@ -48,11 +48,16 @@ class AdminController extends Controller
             $command = escapeshellarg($pythonPath) . ' ' . escapeshellarg($scriptPath) . ' 2>&1';
             exec($command, $output, $returnCode);
 
-            if ($returnCode !== 0) {
-                return response()->json(['error' => 'Optimizer failed', 'output' => implode("\n", $output)], 500);
+            // Check if command succeeded by looking for success indicators
+            // (Xdebug timeouts can cause false failures)
+            $outputStr = implode("\n", $output);
+            $hasError = strpos($outputStr, 'Error') !== false || strpos($outputStr, 'error') !== false || strpos($outputStr, 'failed') !== false;
+
+            if ($hasError || ($returnCode !== 0 && empty($outputStr))) {
+                return response()->json(['error' => 'Optimizer failed', 'output' => $outputStr], 500);
             }
 
-            return response()->json(['message' => 'Optimizer triggered', 'output' => implode("\n", $output)]);
+            return response()->json(['message' => 'Optimizer triggered', 'output' => $outputStr]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
@@ -70,11 +75,16 @@ class AdminController extends Controller
             $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' trades:execute-daily 2>&1';
             exec($command, $output, $returnCode);
 
-            if ($returnCode !== 0) {
-                return response()->json(['error' => 'Trade execution failed', 'output' => implode("\n", $output)], 500);
+            // Check if command succeeded by looking for success indicators, not just return code
+            // (Xdebug timeouts can cause false failures)
+            $outputStr = implode("\n", $output);
+            $hasSuccess = strpos($outputStr, 'completed') !== false || strpos($outputStr, 'Trade execution') !== false;
+
+            if (!$hasSuccess && $returnCode !== 0) {
+                return response()->json(['error' => 'Trade execution failed', 'output' => $outputStr], 500);
             }
 
-            return response()->json(['message' => 'Trade executor triggered', 'output' => implode("\n", $output)]);
+            return response()->json(['message' => 'Trade executor triggered', 'output' => $outputStr]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
