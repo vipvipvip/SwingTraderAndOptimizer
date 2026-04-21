@@ -15,6 +15,56 @@
   let tradesRunning = false
   let optimizerMessage = ''
   let tradesMessage = ''
+  let nextTradeTime = ''
+  let nextTradeDay = ''
+
+  function calculateNextTradeTime() {
+    const now = new Date()
+    const estTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const dayOfWeek = estTime.getDay()
+    const hours = estTime.getHours()
+    const minutes = estTime.getMinutes()
+
+    const marketOpen = 9
+    const marketClose = 16
+    const firstTradeHour = 9
+    const firstTradeMin = 35
+
+    let nextExec = new Date(estTime)
+
+    if (dayOfWeek === 0) {
+      nextExec.setDate(nextExec.getDate() + 1)
+      nextExec.setHours(firstTradeHour, firstTradeMin, 0, 0)
+    } else if (dayOfWeek === 6) {
+      nextExec.setDate(nextExec.getDate() + 2)
+      nextExec.setHours(firstTradeHour, firstTradeMin, 0, 0)
+    } else {
+      if (hours < marketOpen || (hours === marketOpen && minutes < firstTradeMin)) {
+        nextExec.setHours(firstTradeHour, firstTradeMin, 0, 0)
+      } else if (hours >= marketClose) {
+        nextExec.setDate(nextExec.getDate() + 1)
+        nextExec.setHours(firstTradeHour, firstTradeMin, 0, 0)
+        if (nextExec.getDay() === 6) nextExec.setDate(nextExec.getDate() + 2)
+      } else {
+        const nextMin = Math.ceil(minutes / 30) * 30
+        if (nextMin >= 60) {
+          nextExec.setHours(hours + 1, 0, 0, 0)
+          if (nextExec.getHours() >= marketClose) {
+            nextExec.setDate(nextExec.getDate() + 1)
+            nextExec.setHours(firstTradeHour, firstTradeMin, 0, 0)
+            if (nextExec.getDay() === 6) nextExec.setDate(nextExec.getDate() + 2)
+          }
+        } else {
+          nextExec.setMinutes(nextMin, 0, 0)
+        }
+      }
+    }
+
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    const timeStr = nextExec.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' })
+    nextTradeDay = daysOfWeek[nextExec.getDay()]
+    nextTradeTime = `${nextTradeDay} ${timeStr} ET`
+  }
 
   async function triggerOptimizer() {
     optimizerRunning = true
@@ -47,6 +97,9 @@
   }
 
   onMount(async () => {
+    calculateNextTradeTime()
+    setInterval(calculateNextTradeTime, 60000)
+
     try {
       const res = await fetch('/api/v1/strategies')
       if (!res.ok) throw new Error('Failed to load strategies')
@@ -254,7 +307,7 @@
         <AccountBalance />
         <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
           <h3 style="margin: 0 0 16px 0;">Next Trade Execution</h3>
-          <p style="margin: 0 0 8px 0; color: #666;">Monday 9:35 AM ET</p>
+          <p style="margin: 0 0 8px 0; color: #666;">{nextTradeTime}</p>
           <p style="margin: 0; font-size: 12px; color: #999;">Market opens at 9:30 AM ET</p>
         </div>
       </div>
