@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Ticker extends Model
 {
     public $timestamps = false;
-    protected $fillable = ['symbol', 'enabled'];
+    protected $fillable = ['symbol', 'enabled', 'allocation_weight'];
 
     public function strategyParameter()
     {

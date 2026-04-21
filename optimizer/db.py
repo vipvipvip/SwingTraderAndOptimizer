@@ -249,6 +249,24 @@ class StrategyDB:
 
         conn.commit()
 
+    def get_laravel_allocation_weight(self, symbol, default=10):
+        """Fetch allocation_weight for a symbol from Laravel database (default 10% if not found)"""
+        try:
+            laravel_db_path = Path(__file__).parent.parent / 'backend' / 'database' / 'database.sqlite'
+            if not laravel_db_path.exists():
+                return default
+
+            with sqlite3.connect(str(laravel_db_path)) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT allocation_weight FROM tickers WHERE symbol = ?', (symbol,))
+                row = cursor.fetchone()
+                if row and row[0] is not None:
+                    return float(row[0])
+        except Exception:
+            pass
+
+        return default
+
     def close(self):
         """Close database connection"""
         if self.conn:

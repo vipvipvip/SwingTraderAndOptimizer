@@ -60,6 +60,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/tickers', [TickerController::class, 'index']);
     Route::post('/tickers', [AdminController::class, 'addTicker']);
     Route::delete('/tickers/{symbol}', [AdminController::class, 'removeTicker']);
+    Route::put('/tickers/{symbol}/allocation', [TickerController::class, 'updateAllocation']);
 
     Route::get('/strategies', [StrategyController::class, 'index']);
     Route::get('/strategies/{symbol}', [StrategyController::class, 'show']);

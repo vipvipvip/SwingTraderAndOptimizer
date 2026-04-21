@@ -63,7 +63,13 @@ class TradeExecutorService
 
         if ($signal === 1 && !$position) {
             // BUY signal
-            $qty = intval(env('POSITION_SIZE', 1));
+            $ticker = Ticker::where('symbol', $symbol)->first();
+            $account = $this->alpacaService->getAccount();
+            $accountEquity = $account['equity'] ?? 100000;
+            $allocationWeight = ($ticker?->allocation_weight ?? 33.33) / 100;
+            $allocatedCapital = $accountEquity * $allocationWeight;
+            $qty = intval($allocatedCapital / $currentPrice);
+
             $order = $this->alpacaService->placeOrder($symbol, 'buy', $qty);
 
             LiveTrade::create([

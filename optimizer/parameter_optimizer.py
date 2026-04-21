@@ -10,11 +10,12 @@ from strategies import SPYSwingTradingStrategy
 class ParameterOptimizer:
     """Grid search optimizer for strategy parameters"""
 
-    def __init__(self, data_df, initial_capital=100000, symbol=None):
+    def __init__(self, data_df, initial_capital=100000, symbol=None, allocation_weight=10):
         self.data = data_df.copy()
         self.initial_capital = initial_capital
         self.results = []
         self.symbol = symbol  # For progress tracking (e.g., 'SPY')
+        self.allocation_weight = allocation_weight  # Capital allocation percentage per trade (default 10%)
 
     def optimize(self, param_grid):
         """
@@ -144,7 +145,7 @@ class ParameterOptimizer:
             if (signal == -1 or i == len(signals) - 1) and position_active:
                 exit_price = price
                 pnl = (exit_price - entry_price) / entry_price
-                shares = (self.initial_capital * 0.1) / entry_price
+                shares = (self.initial_capital * (self.allocation_weight / 100)) / entry_price
                 pnl_dollar = shares * (exit_price - entry_price)
 
                 trades.append({

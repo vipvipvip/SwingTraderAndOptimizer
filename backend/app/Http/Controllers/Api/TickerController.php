@@ -104,4 +104,54 @@ class TickerController extends Controller
         $ticker->update(['enabled' => 0]);
         return response()->json(['message' => 'Ticker disabled']);
     }
+
+    /**
+     * @OA\Put(
+     *      path="/api/v1/tickers/{symbol}/allocation",
+     *      operationId="updateAllocation",
+     *      tags={"Tickers"},
+     *      summary="Update ticker capital allocation weight",
+     *      @OA\Parameter(
+     *          name="symbol",
+     *          in="path",
+     *          description="Ticker symbol (e.g., SPY)",
+     *          required=true,
+     *          @OA\Schema(type="string")
+     *      ),
+     *      @OA\RequestBody(
+     *          required=true,
+     *          @OA\JsonContent(
+     *              type="object",
+     *              @OA\Property(property="allocation_weight", type="number", example=50, description="Capital allocation percentage (0-100)")
+     *          )
+     *      ),
+     *      @OA\Response(
+     *          response=200,
+     *          description="Allocation updated successfully",
+     *          @OA\JsonContent(
+     *              type="object",
+     *              @OA\Property(property="message", type="string", example="Allocation updated to 50%"),
+     *              @OA\Property(property="ticker", type="object")
+     *          )
+     *      ),
+     *      @OA\Response(response=404, description="Ticker not found")
+     * )
+     */
+    public function updateAllocation(Request $request, $symbol)
+    {
+        $validated = $request->validate([
+            'allocation_weight' => 'required|numeric|min:0|max:100'
+        ]);
+
+        $ticker = Ticker::where('symbol', $symbol)->first();
+        if (!$ticker) {
+            return response()->json(['error' => 'Ticker not found'], 404);
+        }
+
+        $ticker->update(['allocation_weight' => $validated['allocation_weight']]);
+        return response()->json([
+            'message' => "Allocation updated to {$validated['allocation_weight']}%",
+            'ticker' => $ticker
+        ]);
+    }
 }
