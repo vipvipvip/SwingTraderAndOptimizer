@@ -4,6 +4,7 @@ optimizer/__pycache__/
 optimizer/*.pyc
 optimizer/data/
 optimizer/backtest_results/
+optimizer/logs/
 
 # Secrets
 optimizer/.env

@@ -106,10 +106,13 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
     }
 
 
-def _optimize_with_ticker_label(symbol, timeframe, param_grid, db):
+def _optimize_with_ticker_label(symbol, timeframe, param_grid):
     """Wrapper to show ticker label in parallel output."""
     print(f"\n[{symbol}] Starting optimization...")
+    # Create DB connection inside worker to avoid pickle issues
+    db = StrategyDB()
     allocation_weight = db.get_laravel_allocation_weight(symbol, default=10)
+    db.close()
     return optimize_ticker(symbol, timeframe, param_grid=param_grid, use_cache=True, allocation_weight=allocation_weight)
 
 
@@ -148,7 +151,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     # Run optimizations in parallel using joblib
     results = Parallel(n_jobs=n_jobs, verbose=10)(
-        delayed(_optimize_with_ticker_label)(symbol, timeframe, param_grid, db)
+        delayed(_optimize_with_ticker_label)(symbol, timeframe, param_grid)
         for symbol in tickers
     )
 
