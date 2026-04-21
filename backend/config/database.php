@@ -37,9 +37,26 @@ return [
             'url' => env('DB_URL'),
             'database' => env('DB_DATABASE')
                 ? (function() {
-                    $path = dirname(base_path()) . DIRECTORY_SEPARATOR . env('DB_DATABASE');
-                    $path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path);
-                    return realpath($path) ?: $path;
+                    $envPath = env('DB_DATABASE');
+
+                    if (str_starts_with($envPath, '..') || str_starts_with($envPath, '.')) {
+                        $basePath = base_path();
+                        $absolutePath = $basePath . DIRECTORY_SEPARATOR . $envPath;
+                        $absolutePath = str_replace('\\', '/', $absolutePath);
+
+                        $parts = explode('/', $absolutePath);
+                        $normalized = [];
+                        foreach ($parts as $part) {
+                            if ($part === '..' && !empty($normalized)) {
+                                array_pop($normalized);
+                            } elseif ($part && $part !== '.') {
+                                $normalized[] = $part;
+                            }
+                        }
+                        return implode('/', $normalized);
+                    }
+
+                    return $envPath;
                 })()
                 : database_path('database.sqlite'),
             'prefix' => '',
