@@ -20,14 +20,32 @@ class TradeExecutorService
     public function executeForAllTickers()
     {
         $tickers = $this->strategyService->getAllTickers();
+        $results = [
+            'total' => 0,
+            'buys' => [],
+            'sells' => [],
+            'errors' => []
+        ];
 
         foreach ($tickers as $ticker) {
             try {
-                $this->executeForTicker($ticker['symbol']);
+                $result = $this->executeForTicker($ticker['symbol']);
+                $results['total']++;
+                if ($result === 'buy') {
+                    $results['buys'][] = $ticker['symbol'];
+                } elseif ($result === 'sell') {
+                    $results['sells'][] = $ticker['symbol'];
+                }
             } catch (\Exception $e) {
                 \Log::error("Trade execution failed for {$ticker['symbol']}: " . $e->getMessage());
+                $results['errors'][] = [
+                    'symbol' => $ticker['symbol'],
+                    'error' => $e->getMessage()
+                ];
             }
         }
+
+        return $results;
     }
 
     public function executeForTicker($symbol)
@@ -35,12 +53,11 @@ class TradeExecutorService
         $strategy = $this->strategyService->getStrategyForSymbol($symbol);
         if (!$strategy || !$strategy['params']) {
             \Log::warning("No strategy params found for $symbol");
-            return false;
+            return null;
         }
 
         $params = $strategy['params'];
 
-        // Fetch enough bars for the longest indicator (SMA 200 at hourly ≈ 60 days)
         $timeframe = env('TRADING_TIMEFRAME', '1Hour');
         $end = date('Y-m-d');
         $start = date('Y-m-d', strtotime('-60 days'));
@@ -48,21 +65,20 @@ class TradeExecutorService
 
         if (empty($bars)) {
             \Log::warning("No bars fetched for $symbol");
-            return false;
+            return null;
         }
 
         $closes = array_column($bars, 'c');
         $signal = $this->computeSignal($closes, $params);
 
         if ($signal === 0) {
-            return false;
+            return null;
         }
 
         $position = PositionCache::where('symbol', $symbol)->first();
         $currentPrice = end($closes);
 
         if ($signal === 1 && !$position) {
-            // BUY signal
             $ticker = Ticker::where('symbol', $symbol)->first();
             $account = $this->alpacaService->getAccount();
             $accountEquity = $account['equity'] ?? 100000;
@@ -85,9 +101,8 @@ class TradeExecutorService
             ]);
 
             \Log::info("BUY signal for $symbol at $currentPrice");
-            return true;
+            return 'buy';
         } elseif ($signal === -1 && $position) {
-            // SELL signal
             $qty = $position->qty;
             $order = $this->alpacaService->placeOrder($symbol, 'sell', $qty);
 
@@ -105,10 +120,10 @@ class TradeExecutorService
             $position->delete();
 
             \Log::info("SELL signal for $symbol at $currentPrice (PnL: $pnlDollar)");
-            return true;
+            return 'sell';
         }
 
-        return false;
+        return null;
     }
 
     public function computeSignal($closes, $params)
