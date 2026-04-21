@@ -3,13 +3,12 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Mail;
-use App\Mail\LogErrorAlert;
+use GuzzleHttp\Client;
 
 class CheckLogsAndAlert extends Command
 {
     protected $signature = 'logs:check-and-alert';
-    protected $description = 'Check recent logs for errors and send email alert if found';
+    protected $description = 'Check recent logs for errors and send Slack alert if found';
 
     public function handle()
     {
@@ -22,8 +21,8 @@ class CheckLogsAndAlert extends Command
         $recentErrors = $this->parseRecentErrors($logFile);
 
         if (count($recentErrors) > 0) {
-            $this->sendAlert($recentErrors);
-            $this->info('Alert email sent with ' . count($recentErrors) . ' error(s)');
+            $this->sendSlackAlert($recentErrors);
+            $this->info('Slack alert sent with ' . count($recentErrors) . ' error(s)');
         } else {
             $this->info('No errors found in recent logs');
         }
@@ -35,11 +34,10 @@ class CheckLogsAndAlert extends Command
     {
         $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         $errors = [];
-        $lookbackHours = 4; // Check logs from last 4 hours
+        $lookbackHours = 4;
         $cutoffTime = now()->subHours($lookbackHours);
 
         foreach (array_reverse($lines) as $line) {
-            // Stop if we've gone past the cutoff time
             if (preg_match('/\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/', $line, $matches)) {
                 $logTime = \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $matches[1]);
                 if ($logTime < $cutoffTime) {
@@ -47,19 +45,50 @@ class CheckLogsAndAlert extends Command
                 }
             }
 
-            // Capture ERROR, CRITICAL, failed messages
             if (preg_match('/ERROR|CRITICAL|failed|Failed|error|Error/', $line)) {
-                array_unshift($errors, $line);
+                // Truncate long lines for Slack readability
+                $truncated = strlen($line) > 200 ? substr($line, 0, 200) . '...' : $line;
+                array_unshift($errors, $truncated);
             }
         }
 
-        return array_slice($errors, 0, 20); // Return last 20 errors max
+        return array_slice($errors, 0, 20);
     }
 
-    private function sendAlert($errors)
+    private function sendSlackAlert($errors)
     {
-        $recipient = env('LOG_ALERT_EMAIL', 'dikeshchokshi@gmail.com');
+        $webhookUrl = env('SLACK_WEBHOOK_URL');
 
-        Mail::send(new LogErrorAlert($errors, $recipient));
+        if (!$webhookUrl) {
+            $this->error('SLACK_WEBHOOK_URL not configured in .env');
+            return;
+        }
+
+        $errorText = implode("\n", array_map(fn($e) => "• " . $e, $errors));
+
+        $payload = [
+            'text' => ':warning: SwingTrader Alert: ' . count($errors) . ' error(s)',
+            'blocks' => [
+                [
+                    'type' => 'section',
+                    'text' => [
+                        'type' => 'mrkdwn',
+                        'text' => "*SwingTrader Error Alert*\n" .
+                                 count($errors) . " error(s) in logs (last 4 hours)\n\n" .
+                                 "```" . $errorText . "```\n" .
+                                 "_Check logs: `backend/storage/logs/laravel.log`_"
+                    ]
+                ]
+            ]
+        ];
+
+        try {
+            $client = new Client();
+            $client->post($webhookUrl, [
+                'json' => $payload
+            ]);
+        } catch (\Exception $e) {
+            $this->error('Failed to send Slack alert: ' . $e->getMessage());
+        }
     }
 }
