@@ -33,10 +33,13 @@ class LogErrorAlert extends Mailable
 
     public function content(): Content
     {
+        $errorList = implode("\n", array_map(fn($err) => "• " . $err, $this->errors));
+
         return new Content(
-            view: 'emails.log-error-alert',
+            text: "emails.log-error-alert",
             with: [
                 'errors' => $this->errors,
+                'errorList' => $errorList,
                 'timestamp' => $this->timestamp,
                 'count' => count($this->errors),
             ],

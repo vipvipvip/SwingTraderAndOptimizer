@@ -35,8 +35,8 @@ class CheckLogsAndAlert extends Command
     {
         $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         $errors = [];
-        $lookbackMinutes = 30; // Check logs from last 30 minutes
-        $cutoffTime = now()->subMinutes($lookbackMinutes);
+        $lookbackHours = 4; // Check logs from last 4 hours
+        $cutoffTime = now()->subHours($lookbackHours);
 
         foreach (array_reverse($lines) as $line) {
             // Stop if we've gone past the cutoff time
