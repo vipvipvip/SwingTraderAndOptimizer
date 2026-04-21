@@ -27,6 +27,19 @@ class Kernel extends ConsoleKernel
             ->everyFiveMinutes()
             ->between('09:30', '16:05')
             ->timezone('America/New_York');
+
+        // Check logs for errors and alert via email
+        // Runs after market close to catch trade execution errors
+        $schedule->command('logs:check-and-alert')
+            ->dailyAt('16:10')
+            ->timezone('America/New_York')
+            ->weekdays();
+
+        // Morning check before trading starts
+        $schedule->command('logs:check-and-alert')
+            ->dailyAt('09:15')
+            ->timezone('America/New_York')
+            ->weekdays();
     }
 
     protected function commands()
