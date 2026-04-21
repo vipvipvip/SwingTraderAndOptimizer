@@ -36,7 +36,11 @@ return [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
             'database' => env('DB_DATABASE')
-                ? realpath(dirname(base_path()) . DIRECTORY_SEPARATOR . env('DB_DATABASE'))
+                ? (function() {
+                    $path = dirname(base_path()) . DIRECTORY_SEPARATOR . env('DB_DATABASE');
+                    $path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path);
+                    return realpath($path) ?: $path;
+                })()
                 : database_path('database.sqlite'),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
