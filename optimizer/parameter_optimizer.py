@@ -54,6 +54,7 @@ class ParameterOptimizer:
             result = {
                 'params': params,
                 'metrics': metrics,
+                'trades': trades,
                 'trades_count': len(trades) if trades is not None else 0
             }
             self.results.append(result)
@@ -149,8 +150,11 @@ class ParameterOptimizer:
                 trades.append({
                     'entry_price': entry_price,
                     'exit_price': exit_price,
+                    'entry_at': str(data.index[entry_idx]),
+                    'exit_at': str(data.index[i]),
                     'return': pnl,
-                    'pnl_dollar': pnl_dollar
+                    'pnl_dollar': pnl_dollar,
+                    'pnl_pct': pnl
                 })
 
                 current_equity = equity_curve[-1] * (1 + pnl)

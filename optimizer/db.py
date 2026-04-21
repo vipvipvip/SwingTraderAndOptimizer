@@ -214,6 +214,41 @@ class StrategyDB:
 
         return [dict(row) for row in cursor.fetchall()]
 
+    def save_backtest_trades(self, symbol, trades, optimization_run=None):
+        """Save backtest trades for a ticker"""
+        if not trades:
+            return
+
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        ticker_id = self.get_ticker_id(symbol)
+        if not ticker_id:
+            return
+
+        # Clear previous backtest trades for this ticker
+        cursor.execute('DELETE FROM backtest_trades WHERE symbol = ?', (symbol,))
+
+        # Insert new trades
+        for trade in trades:
+            cursor.execute('''
+                INSERT INTO backtest_trades
+                (ticker_id, symbol, entry_price, exit_price, entry_at, exit_at, pnl_dollar, pnl_pct, optimization_run)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                ticker_id,
+                symbol,
+                float(trade['entry_price']),
+                float(trade['exit_price']),
+                trade['entry_at'],
+                trade['exit_at'],
+                float(trade['pnl_dollar']),
+                float(trade['pnl_pct']),
+                optimization_run or datetime.now().isoformat()
+            ))
+
+        conn.commit()
+
     def close(self):
         """Close database connection"""
         if self.conn:

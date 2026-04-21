@@ -54,6 +54,7 @@ use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\EquityController;
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\BacktestTradesController;
 
 Route::prefix('v1')->group(function () {
     Route::get('/tickers', [TickerController::class, 'index']);
@@ -72,6 +73,7 @@ Route::prefix('v1')->group(function () {
 
     Route::get('/equity/{symbol}', [EquityController::class, 'curve']);
     Route::get('/trades/live', [EquityController::class, 'liveTrades']);
+    Route::get('/trades/backtest', [BacktestTradesController::class, 'index']);
     Route::get('/trades/pnl', [EquityController::class, 'pnlSummary']);
 
     Route::post('/admin/optimize/trigger', [AdminController::class, 'triggerOptimizer']);

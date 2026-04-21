@@ -1,22 +1,34 @@
 <script>
   import { onMount } from 'svelte'
 
-  let trades = []
+  let liveTrades = []
+  let backtestTrades = []
   let loading = true
   let error = ''
+  let filterType = 'all'
 
   onMount(async () => {
     try {
-      const res = await fetch('/api/v1/trades/live')
-      if (!res.ok) throw new Error('Failed to load trades')
-      const data = await res.json()
-      trades = data.filter(t => t.status === 'closed').sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
+      const liveRes = await fetch('/api/v1/trades/live')
+      if (!liveRes.ok) throw new Error('Failed to load live trades')
+      const liveData = await liveRes.json()
+      liveTrades = liveData.filter(t => t.status === 'closed').sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
+
+      const backtestRes = await fetch('/api/v1/trades/backtest')
+      if (backtestRes.ok) {
+        const backtestData = await backtestRes.json()
+        backtestTrades = backtestData.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load trades'
     } finally {
       loading = false
     }
   })
+
+  $: displayTrades = filterType === 'all' ? [...backtestTrades, ...liveTrades] :
+                     filterType === 'backtest' ? backtestTrades :
+                     liveTrades
 
   function formatDate(dateStr) {
     if (!dateStr) return '-'
@@ -30,6 +42,10 @@
   function getPnlColor(pnl) {
     if (!pnl) return '#666'
     return pnl > 0 ? '#22c55e' : '#ef4444'
+  }
+
+  function getTradeType(trade) {
+    return trade.status ? 'live' : 'backtest'
   }
 </script>
 
@@ -118,6 +134,53 @@
     padding: 32px;
     color: #666;
   }
+
+  .filter-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .filter-btn {
+    padding: 6px 12px;
+    border: 1px solid #d1d5db;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .filter-btn:hover {
+    border-color: #9ca3af;
+  }
+
+  .filter-btn.active {
+    background: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+  }
+
+  .trade-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .trade-type-backtest {
+    background: #f3e8ff;
+    color: #6d28d9;
+  }
+
+  .trade-type-live {
+    background: #dcfce7;
+    color: #166534;
+  }
 </style>
 
 <div>
@@ -127,46 +190,64 @@
 
   {#if loading}
     <div class="loading">Loading trades...</div>
-  {:else if trades.length === 0}
-    <div class="no-trades">No closed trades yet</div>
   {:else}
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>Side</th>
-            <th>Qty</th>
-            <th>Entry Price</th>
-            <th>Exit Price</th>
-            <th>Entry Date</th>
-            <th>Exit Date</th>
-            <th>P&L $</th>
-            <th>P&L %</th>
-            <th>Signal</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each trades as trade (trade.id)}
-            <tr>
-              <td><span class="symbol">{trade.symbol}</span></td>
-              <td>{trade.side}</td>
-              <td>{trade.quantity}</td>
-              <td>${formatPrice(trade.entry_price)}</td>
-              <td>${formatPrice(trade.exit_price)}</td>
-              <td>{formatDate(trade.entry_at)}</td>
-              <td>{formatDate(trade.exit_at)}</td>
-              <td class={trade.pnl_dollar > 0 ? 'pnl-positive' : 'pnl-negative'}>
-                ${formatPrice(trade.pnl_dollar)}
-              </td>
-              <td class={trade.pnl_pct > 0 ? 'pnl-positive' : 'pnl-negative'}>
-                {(trade.pnl_pct * 100).toFixed(2)}%
-              </td>
-              <td>{trade.strategy_signal || '-'}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+    <div class="filter-controls">
+      <button class="filter-btn" class:active={filterType === 'all'} on:click={() => filterType = 'all'}>
+        All ({backtestTrades.length + liveTrades.length})
+      </button>
+      <button class="filter-btn" class:active={filterType === 'backtest'} on:click={() => filterType = 'backtest'}>
+        Backtest ({backtestTrades.length})
+      </button>
+      <button class="filter-btn" class:active={filterType === 'live'} on:click={() => filterType = 'live'}>
+        Live ({liveTrades.length})
+      </button>
     </div>
+
+    {#if displayTrades.length === 0}
+      <div class="no-trades">No trades yet</div>
+    {:else}
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Symbol</th>
+              <th>Side</th>
+              <th>Qty</th>
+              <th>Entry Price</th>
+              <th>Exit Price</th>
+              <th>Entry Date</th>
+              <th>Exit Date</th>
+              <th>P&L $</th>
+              <th>P&L %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each displayTrades as trade (trade.id || Math.random())}
+              <tr>
+                <td>
+                  <span class="trade-type-badge" class:trade-type-backtest={!trade.status} class:trade-type-live={trade.status}>
+                    {trade.status ? 'Live' : 'Backtest'}
+                  </span>
+                </td>
+                <td><span class="symbol">{trade.symbol}</span></td>
+                <td>{trade.side || '-'}</td>
+                <td>{trade.quantity || '-'}</td>
+                <td>${formatPrice(trade.entry_price)}</td>
+                <td>${formatPrice(trade.exit_price)}</td>
+                <td>{formatDate(trade.entry_at)}</td>
+                <td>{formatDate(trade.exit_at)}</td>
+                <td class={trade.pnl_dollar > 0 ? 'pnl-positive' : 'pnl-negative'}>
+                  ${formatPrice(trade.pnl_dollar)}
+                </td>
+                <td class={trade.pnl_pct > 0 ? 'pnl-positive' : 'pnl-negative'}>
+                  {(trade.pnl_pct * 100).toFixed(2)}%
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
   {/if}
 </div>
