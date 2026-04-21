@@ -12,10 +12,11 @@ class TradeExecutorService
     private $strategyService;
     private $dataService;
 
-    public function __construct(AlpacaService $alpaca, StrategyService $strategy)
+    public function __construct(AlpacaService $alpaca, StrategyService $strategy, YahooFinanceService $dataService)
     {
         $this->alpacaService = $alpaca;
         $this->strategyService = $strategy;
+        $this->dataService = $dataService;
     }
 
     public function executeForAllTickers()
@@ -62,7 +63,7 @@ class TradeExecutorService
         $timeframe = env('TRADING_TIMEFRAME', '1Hour');
         $end = date('Y-m-d');
         $start = date('Y-m-d', strtotime('-60 days'));
-        $bars = $this->alpacaService->getBars($symbol, $timeframe, $start, $end);
+        $bars = $this->dataService->getBars($symbol, $timeframe, $start, $end);
 
         if (empty($bars)) {
             \Log::warning("No bars fetched for $symbol");

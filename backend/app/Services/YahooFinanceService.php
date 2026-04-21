@@ -12,20 +12,15 @@ class YahooFinanceService
             // Get script path - backend/app/Services -> backend -> parent (SwingTraderAndOptimizer)
             $projectRoot = dirname(dirname(dirname(__DIR__)));
             $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'optimizer' . DIRECTORY_SEPARATOR . 'get_bars_alpaca.py';
-            $pythonPath = $projectRoot . DIRECTORY_SEPARATOR . 'optimizer' . DIRECTORY_SEPARATOR . 'venv' . DIRECTORY_SEPARATOR . 'Scripts' . DIRECTORY_SEPARATOR . 'python.exe';
 
             if (!file_exists($scriptPath)) {
                 throw new Exception('Script not found at: ' . $scriptPath);
             }
 
-            if (!file_exists($pythonPath)) {
-                throw new Exception('Python venv not found at: ' . $pythonPath);
-            }
-
             $interval = $this->getYahooInterval($timeframe);
 
-            // Use full paths with backslashes for Windows shell_exec
-            $command = "\"$pythonPath\" \"$scriptPath\" $symbol $interval $start $end 2>&1";
+            // Use system Python which has alpaca-py installed
+            $command = "python \"$scriptPath\" $symbol $interval $start $end 2>&1";
 
             $output = shell_exec($command);
 
