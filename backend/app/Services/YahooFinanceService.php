@@ -9,10 +9,26 @@ class YahooFinanceService
     public function getBars($symbol, $timeframe, $start, $end)
     {
         try {
-            $pythonPath = env('PYTHON_PATH', 'python');
+            // Get script path - backend/app/Services -> backend -> parent (SwingTraderAndOptimizer)
             $projectRoot = dirname(dirname(dirname(__DIR__)));
-            $scriptPath = $projectRoot . '/optimizer/get_bars.py';
+            $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'optimizer' . DIRECTORY_SEPARATOR . 'get_bars.py';
+
+            if (!file_exists($scriptPath)) {
+                throw new Exception('Script not found at: ' . $scriptPath);
+            }
+
             $interval = $this->getYahooInterval($timeframe);
+
+            // Try to use PYTHON_PATH from env first, fall back to just 'python'
+            $pythonPath = env('PYTHON_PATH', 'python');
+
+            // If relative path, resolve from backend directory
+            if (!preg_match('#^[a-z]:#i', $pythonPath) && !preg_match('#^/#', $pythonPath) && $pythonPath !== 'python') {
+                $resolved = realpath(base_path() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $pythonPath));
+                if ($resolved && file_exists($resolved)) {
+                    $pythonPath = $resolved;
+                }
+            }
 
             // Build command with proper Windows escaping
             $command = "\"$pythonPath\" \"$scriptPath\" $symbol $interval $start $end 2>&1";
@@ -25,7 +41,7 @@ class YahooFinanceService
             $result = json_decode($output, true);
 
             if (!$result || !isset($result['success'])) {
-                throw new Exception('Invalid response from Python script: ' . $output);
+                throw new Exception('Invalid response from Python script: ' . trim($output));
             }
 
             if (!$result['success']) {
