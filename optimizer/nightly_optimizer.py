@@ -1,6 +1,7 @@
 """Nightly optimizer - runs parameter optimization for all tickers"""
 import argparse
 import os
+import sys
 import time
 from datetime import datetime
 from joblib import Parallel, delayed
@@ -189,18 +190,25 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Nightly parameter optimizer')
-    parser.add_argument(
-        '--timeframe',
-        default=os.getenv('TRADING_TIMEFRAME', '1Hour'),
-        help='Bar timeframe: 1Hour, 1Day, 30Min, etc. (default: TRADING_TIMEFRAME env or 1Hour)'
-    )
-    parser.add_argument(
-        '--tickers',
-        nargs='+',
-        default=['SPY', 'QQQ', 'IWM'],
-        help='Symbols to optimize (default: SPY QQQ IWM)'
-    )
-    args = parser.parse_args()
+    try:
+        parser = argparse.ArgumentParser(description='Nightly parameter optimizer')
+        parser.add_argument(
+            '--timeframe',
+            default=os.getenv('TRADING_TIMEFRAME', '1Hour'),
+            help='Bar timeframe: 1Hour, 1Day, 30Min, etc. (default: TRADING_TIMEFRAME env or 1Hour)'
+        )
+        parser.add_argument(
+            '--tickers',
+            nargs='+',
+            default=['SPY', 'QQQ', 'IWM'],
+            help='Symbols to optimize (default: SPY QQQ IWM)'
+        )
+        args = parser.parse_args()
 
-    run_nightly_optimization(tickers=args.tickers, timeframe=args.timeframe)
+        run_nightly_optimization(tickers=args.tickers, timeframe=args.timeframe)
+        sys.exit(0)
+    except Exception as e:
+        print(f"\nFATAL ERROR: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
