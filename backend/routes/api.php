@@ -78,5 +78,6 @@ Route::prefix('v1')->group(function () {
     Route::get('/trades/pnl', [EquityController::class, 'pnlSummary']);
 
     Route::post('/admin/optimize/trigger', [AdminController::class, 'triggerOptimizer']);
+    Route::post('/admin/trades/trigger', [AdminController::class, 'triggerTrades']);
     Route::post('/admin/import-backtest', [AdminController::class, 'importBacktestCsvs']);
 });

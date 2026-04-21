@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Swing Trading API - Swagger UI</title>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@3/swagger-ui.css">
+    <link rel="stylesheet" href="/swagger-ui.css">
     <style>
         html {
             box-sizing: border-box;
@@ -24,9 +24,9 @@
 </head>
 <body>
     <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@3/swagger-ui.js" charset="UTF-8"></script>
-    <script src="https://unpkg.com/swagger-ui-dist@3/swagger-ui-bundle.js" charset="UTF-8"></script>
-    <script src="https://unpkg.com/swagger-ui-dist@3/swagger-ui-standalone-preset.js" charset="UTF-8"></script>
+    <script src="/swagger-ui.js" charset="UTF-8"></script>
+    <script src="/swagger-ui-bundle.js" charset="UTF-8"></script>
+    <script src="/swagger-ui-standalone-preset.js" charset="UTF-8"></script>
     <script>
         window.onload = function() {
             SwaggerUIBundle({

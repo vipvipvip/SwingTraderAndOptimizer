@@ -57,6 +57,23 @@ class AdminController extends Controller
         }
     }
 
+    public function triggerTrades()
+    {
+        try {
+            $output = [];
+            $returnCode = 0;
+            exec("php " . base_path('artisan') . " trades:execute-daily 2>&1", $output, $returnCode);
+
+            if ($returnCode !== 0) {
+                return response()->json(['error' => 'Trade execution failed', 'output' => implode("\n", $output)], 500);
+            }
+
+            return response()->json(['message' => 'Trade executor triggered', 'output' => implode("\n", $output)]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
     public function importBacktestCsvs(Request $request)
     {
         $validated = $request->validate([

@@ -11,6 +11,40 @@
   let loading = true
   let error = ''
   let selectedSymbol = 'SPY'
+  let optimizerRunning = false
+  let tradesRunning = false
+  let optimizerMessage = ''
+  let tradesMessage = ''
+
+  async function triggerOptimizer() {
+    optimizerRunning = true
+    optimizerMessage = 'Running optimizer...'
+    try {
+      const res = await fetch('/api/v1/admin/optimize/trigger', { method: 'POST' })
+      const data = await res.json()
+      optimizerMessage = res.ok ? '✓ Optimizer completed' : `✗ Error: ${data.error}`
+    } catch (e) {
+      optimizerMessage = `✗ Error: ${e instanceof Error ? e.message : 'Unknown error'}`
+    } finally {
+      optimizerRunning = false
+      setTimeout(() => optimizerMessage = '', 3000)
+    }
+  }
+
+  async function triggerTrades() {
+    tradesRunning = true
+    tradesMessage = 'Executing trades...'
+    try {
+      const res = await fetch('/api/v1/admin/trades/trigger', { method: 'POST' })
+      const data = await res.json()
+      tradesMessage = res.ok ? '✓ Trade executor completed' : `✗ Error: ${data.error}`
+    } catch (e) {
+      tradesMessage = `✗ Error: ${e instanceof Error ? e.message : 'Unknown error'}`
+    } finally {
+      tradesRunning = false
+      setTimeout(() => tradesMessage = '', 3000)
+    }
+  }
 
   onMount(async () => {
     try {
@@ -101,9 +135,80 @@
     color: #333;
   }
 
+  .control-panel {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .control-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .control-btn {
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .optimizer-btn {
+    background: #4f46e5;
+    color: white;
+  }
+
+  .optimizer-btn:hover:not(:disabled) {
+    background: #4338ca;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+  }
+
+  .trades-btn {
+    background: #059669;
+    color: white;
+  }
+
+  .trades-btn:hover:not(:disabled) {
+    background: #047857;
+    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+  }
+
+  .control-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .status-message {
+    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .status-message.error {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
   @media (max-width: 768px) {
     .top-row {
       grid-template-columns: 1fr;
+    }
+
+    .control-panel {
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .control-buttons {
+      width: 100%;
     }
   }
 </style>
@@ -122,6 +227,29 @@
     <div class="loading">Loading...</div>
   {:else}
     <div class="dashboard">
+      <div class="control-panel">
+        <div class="control-buttons">
+          <button on:click={triggerOptimizer} disabled={optimizerRunning} class="control-btn optimizer-btn">
+            {optimizerRunning ? 'Running...' : '⚙️ Trigger Optimizer'}
+          </button>
+          {#if optimizerMessage}
+            <div class="status-message" class:error={optimizerMessage.startsWith('✗')}>
+              {optimizerMessage}
+            </div>
+          {/if}
+        </div>
+        <div class="control-buttons">
+          <button on:click={triggerTrades} disabled={tradesRunning} class="control-btn trades-btn">
+            {tradesRunning ? 'Executing...' : '📈 Execute Trades'}
+          </button>
+          {#if tradesMessage}
+            <div class="status-message" class:error={tradesMessage.startsWith('✗')}>
+              {tradesMessage}
+            </div>
+          {/if}
+        </div>
+      </div>
+
       <div class="top-row">
         <AccountBalance />
         <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">

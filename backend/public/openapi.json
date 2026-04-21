@@ -82,6 +82,66 @@
         }
       }
     },
+    "/api/v1/tickers/{symbol}/allocation": {
+      "put": {
+        "operationId": "updateAllocation",
+        "tags": ["Tickers"],
+        "summary": "Update ticker capital allocation weight",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "description": "Ticker symbol (e.g., SPY)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "allocation_weight": {
+                    "type": "number",
+                    "description": "Capital allocation percentage (0-100)",
+                    "example": 50
+                  }
+                },
+                "required": ["allocation_weight"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Allocation updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Allocation updated to 50%"
+                    },
+                    "ticker": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ticker not found"
+          }
+        }
+      }
+    },
     "/api/v1/account": {
       "get": {
         "operationId": "getAccount",

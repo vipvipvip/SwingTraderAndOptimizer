@@ -9,8 +9,9 @@ class Kernel extends ConsoleKernel
 {
     protected function schedule(Schedule $schedule)
     {
-        $schedule->command('optimize:nightly')
-            ->dailyAt('02:00');
+        // Nightly optimizer is now managed by OS scheduler (Windows Task Scheduler / cron)
+        // See scripts/setup-optimizer-wts.ps1 (Windows) or scripts/setup-optimizer-cron.sh (Linux)
+        // Manual trigger: php artisan optimize:nightly
 
         $schedule->command('trades:execute-daily')
             ->everyThirtyMinutes()

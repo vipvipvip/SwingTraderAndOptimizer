@@ -28,12 +28,12 @@ return [
                 /*
                  * File name of the generated json documentation file
                  */
-                'docs_json' => 'api-docs.json',
+                'docs_json' => 'openapi.json',
 
                 /*
                  * File name of the generated YAML documentation file
                  */
-                'docs_yaml' => 'api-docs.yaml',
+                'docs_yaml' => 'openapi.yaml',
 
                 /*
                  * Set this to `json` or `yaml` to determine which documentation file to use in UI
@@ -81,7 +81,7 @@ return [
             /*
              * Absolute path to location where parsed annotations will be stored
              */
-            'docs' => storage_path('api-docs'),
+            'docs' => public_path(),
 
             /*
              * Absolute path to directory where to export views
