@@ -464,10 +464,12 @@ ALPACA_BASE_URL=https://api.alpaca.markets  # (WARNING: Real money!)
 
 ### Add a New Ticker
 
-1. **Create Ticker** → `php artisan tinker`
+1. **Launch Laravel REPL** → `php artisan tinker`
    ```php
    Ticker::create(['symbol' => 'AAPL']);
+   exit  # or Ctrl+D to quit tinker
    ```
+   (`tinker` is Laravel's interactive shell where you can run PHP code directly)
 
 2. **Verify Optimizer** can fetch data for it (test manually first)
    ```bash
