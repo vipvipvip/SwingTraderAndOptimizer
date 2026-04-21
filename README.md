@@ -43,18 +43,18 @@ A full-stack algorithmic swing trading system that automatically optimizes tradi
 
 ```bash
 # Python optimizer
-cd "C:/data/Program Files/SwingTraderAndOptimizer/optimizer"
+cd optimizer
 python -m venv venv
 source venv/Scripts/activate  # Windows
 pip install -r requirements.txt
 
 # Laravel backend
-cd "C:/data/Program Files/SwingTraderAndOptimizer/backend"
+cd ../backend
 composer install --ignore-platform-req=ext-fileinfo
 cp .env.example .env  # Already exists with correct config
 
 # Svelte frontend
-cd "C:/data/Program Files/SwingTraderAndOptimizer/frontend"
+cd ../frontend
 npm install  # Ensure Node 18 is active
 ```
 
@@ -67,8 +67,12 @@ $taskName = "SwingTrader-LaravelScheduler"
 $taskExists = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($taskExists) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false }
 
-$action = New-ScheduledTaskAction -Execute "C:\path\to\php.exe" `
-  -Argument "C:\path\to\backend\artisan schedule:run"
+# Replace paths with your actual installation directory
+$phpPath = "C:\path\to\php.exe"  # e.g., C:\tools\php82\php.exe
+$projectRoot = "C:\path\to\SwingTraderAndOptimizer"  # Your installation directory
+$artisanPath = "$projectRoot\backend\artisan"
+
+$action = New-ScheduledTaskAction -Execute $phpPath -Argument "$artisanPath schedule:run"
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 365)
 $principal = New-ScheduledTaskPrincipal -UserID "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal
@@ -78,15 +82,16 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Pr
 
 ```bash
 # Terminal 1: Laravel backend (port 8000)
-cd "C:/data/Program Files/SwingTraderAndOptimizer/backend"
+cd backend
 php artisan serve --host=127.0.0.1 --port=8000
 
 # Terminal 2: Svelte frontend (port 5173) — must use Node 18
-cd "C:/data/Program Files/SwingTraderAndOptimizer/frontend"
-PATH="/c/Users/dikes/AppData/Roaming/nvm/v18.20.8:$PATH" npm run dev
+cd frontend
+npm run dev
+# If Node 18 is not your default, activate it first via nvm or path prefix
 
 # Terminal 3 (optional): Watch optimizer logs
-cd "C:/data/Program Files/SwingTraderAndOptimizer/backend"
+cd backend
 tail -f storage/logs/laravel.log
 ```
 
@@ -162,16 +167,16 @@ ALPACA_SECRET_KEY=EXWwpUnfkGYjdWp8w5Q1ijddkRjSvnBwHyJXvpyoJmie
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 FRONTEND_URL=http://localhost:5173
 
-# Database (shared between Python and Laravel)
-DB_DATABASE="C:/data/Program Files/SwingTraderAndOptimizer/optimizer/optimized_params/strategy_params.db"
+# Database (shared between Python and Laravel) — use relative paths for portability
+DB_DATABASE="../optimizer/optimized_params/strategy_params.db"
 
 # Optimizer timeframe (controls both Python and PHP)
 # Change to "1Day" for daily bars (slower but more data per bar)
 TRADING_TIMEFRAME=1Hour
 
-# Python interpreter path (for Laravel to call optimizer)
-PYTHON_PATH="C:/data/Program Files/SwingTraderAndOptimizer/optimizer/venv/Scripts/python.exe"
-NIGHTLY_SCRIPT="C:/data/Program Files/SwingTraderAndOptimizer/optimizer/nightly_optimizer.py"
+# Python interpreter path (for Laravel to call optimizer) — use relative paths for portability
+PYTHON_PATH="../optimizer/venv/Scripts/python.exe"
+NIGHTLY_SCRIPT="../optimizer/nightly_optimizer.py"
 ```
 
 ---
@@ -369,9 +374,9 @@ The system has **two layers** of protection to avoid after-hours or holiday trad
 
 ### Dashboard Shows "Failed to load strategies"
 
-1. Check Laravel is running: `php artisan tinker` (should start REPL)
-2. Verify database exists: `ls optimizer/optimized_params/strategy_params.db`
-3. Check database has data: `sqlite3 optimizer/optimized_params/strategy_params.db "SELECT * FROM strategy_parameters LIMIT 1;"`
+1. Check Laravel is running: `cd backend && php artisan tinker` (should start REPL)
+2. Verify database exists: `ls ../optimizer/optimized_params/strategy_params.db`
+3. Check database has data: `sqlite3 ../optimizer/optimized_params/strategy_params.db "SELECT * FROM strategy_parameters LIMIT 1;"`
 4. Verify API endpoint: `curl http://localhost:8000/api/v1/tickers`
 
 ### Optimizer Not Finding Data
@@ -426,7 +431,7 @@ php artisan trades:validate IWM
 ### Inspect Database
 
 ```bash
-sqlite3 "optimizer/optimized_params/strategy_params.db"
+sqlite3 "../optimizer/optimized_params/strategy_params.db"
 .mode column
 .headers on
 
