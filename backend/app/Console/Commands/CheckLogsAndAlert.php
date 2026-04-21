@@ -64,20 +64,24 @@ class CheckLogsAndAlert extends Command
             return;
         }
 
-        $errorText = implode("\n", array_map(fn($e) => "• " . $e, $errors));
+        // Simple text format (no blocks to avoid JSON encoding issues)
+        $errorList = implode("\n", array_map(fn($e) => "• " . $e, $errors));
 
         $payload = [
-            'text' => ':warning: SwingTrader Alert: ' . count($errors) . ' error(s)',
-            'blocks' => [
+            'text' => ':warning: SwingTrader Alert: ' . count($errors) . ' error(s) in logs',
+            'attachments' => [
                 [
-                    'type' => 'section',
-                    'text' => [
-                        'type' => 'mrkdwn',
-                        'text' => "*SwingTrader Error Alert*\n" .
-                                 count($errors) . " error(s) in logs (last 4 hours)\n\n" .
-                                 "```" . $errorText . "```\n" .
-                                 "_Check logs: `backend/storage/logs/laravel.log`_"
-                    ]
+                    'color' => 'danger',
+                    'title' => 'SwingTrader Error Alert',
+                    'text' => count($errors) . " error(s) found in last 4 hours",
+                    'fields' => [
+                        [
+                            'title' => 'Errors',
+                            'value' => $errorList,
+                            'short' => false
+                        ]
+                    ],
+                    'footer' => 'Check logs: backend/storage/logs/laravel.log'
                 ]
             ]
         ];
