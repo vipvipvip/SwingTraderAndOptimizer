@@ -21,8 +21,8 @@ class ExecuteDailyTrades extends Command
         $equityService = app(EquityService::class);
 
         try {
-            // $clock = $alpacaService->getClock();
-            $clock['is_open'] = true;
+            $clock = $alpacaService->getClock();
+            // $clock['is_open'] = true;
 
             if (!$clock['is_open']) {
                 $this->info('Market is closed. No trades executed.');

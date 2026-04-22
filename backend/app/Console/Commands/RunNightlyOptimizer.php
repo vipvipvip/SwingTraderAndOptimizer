@@ -17,22 +17,16 @@ class RunNightlyOptimizer extends Command
 
     public function handle()
     {
-        $pythonPath = env('PYTHON_PATH');
+        $pythonPath = env('PYTHON_PATH', 'python');
         $scriptPath = env('NIGHTLY_SCRIPT');
 
-        // Resolve relative paths from project root (parent of backend/)
-        $projectRoot = dirname(base_path());
-
-        // Convert relative paths to absolute
-        if (strpos($pythonPath, '..') === 0 || strpos($pythonPath, '.') === 0) {
-            $pythonPath = realpath($projectRoot . DIRECTORY_SEPARATOR . $pythonPath);
-        }
-        if (strpos($scriptPath, '..') === 0 || strpos($scriptPath, '.') === 0) {
-            $scriptPath = realpath($projectRoot . DIRECTORY_SEPARATOR . $scriptPath);
+        // Resolve relative paths from backend directory
+        if (strpos($scriptPath, '..') === 0) {
+            $scriptPath = realpath(base_path() . DIRECTORY_SEPARATOR . $scriptPath);
         }
 
-        if (!file_exists($pythonPath) || !file_exists($scriptPath)) {
-            $this->error("Python or script path not found:\n  Python: {$pythonPath}\n  Script: {$scriptPath}");
+        if (!$scriptPath || !file_exists($scriptPath)) {
+            $this->error("Script path not found");
             return 1;
         }
 
