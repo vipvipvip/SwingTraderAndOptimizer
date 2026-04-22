@@ -82,19 +82,27 @@ class AlpacaService
             $query = [
                 'symbols' => $symbol,
                 'timeframe' => $timeframe,
-                'feed' => 'iex'
+                'feed' => 'iex',
+                'limit' => 10000,
             ];
             if ($start) $query['start'] = $start;
             if ($end) $query['end'] = $end;
 
-            // Alpaca data API uses data.alpaca.markets, not paper-api.alpaca.markets
-            $dataApiUrl = 'https://data.alpaca.markets/v1beta3';
-            $response = $this->client->get($dataApiUrl . "/stocks/bars", [
-                'headers' => $this->headers,
-                'query' => $query
-            ]);
-            $data = json_decode($response->getBody(), true);
-            return $data['bars'][$symbol] ?? [];
+            // Alpaca stock data API: data.alpaca.markets/v2/stocks/bars
+            $dataApiUrl = 'https://data.alpaca.markets/v2';
+            $bars = [];
+            do {
+                $response = $this->client->get($dataApiUrl . "/stocks/bars", [
+                    'headers' => $this->headers,
+                    'query' => $query,
+                ]);
+                $data = json_decode($response->getBody(), true);
+                if (!empty($data['bars'][$symbol])) {
+                    $bars = array_merge($bars, $data['bars'][$symbol]);
+                }
+                $query['page_token'] = $data['next_page_token'] ?? null;
+            } while (!empty($query['page_token']));
+            return $bars;
         } catch (Exception $e) {
             throw new Exception('Failed to fetch bars: ' . $e->getMessage());
         }
