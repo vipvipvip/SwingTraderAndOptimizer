@@ -14,7 +14,7 @@ class Kernel extends ConsoleKernel
         // Manual trigger: php artisan optimize:nightly
 
         $schedule->command('trades:execute-daily')
-            ->everyFiveMinutes()
+            ->everyThirtyMinutes()
             ->weekdays()
             ->between('09:30', '16:00')
             ->timezone('America/New_York');
