@@ -38,7 +38,9 @@ class AdminController extends Controller
         try {
             $phpPath = PHP_BINDIR . DIRECTORY_SEPARATOR . 'php';
             $artisanPath = base_path('artisan');
-            $logFile = base_path('storage/logs/optimizer-bg.log');
+            $logDir = base_path('../optimizer/logs');
+            @mkdir($logDir, 0777, true);
+            $logFile = $logDir . DIRECTORY_SEPARATOR . 'nightly.log';
 
             if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
                 $command = "start /B " . escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' optimize:nightly >> ' . escapeshellarg($logFile) . ' 2>&1';
@@ -49,7 +51,7 @@ class AdminController extends Controller
                 exec($command);
             }
 
-            return response()->json(['message' => 'Optimizer started in background. Check data/ folder and storage/logs/optimizer-bg.log for progress']);
+            return response()->json(['message' => 'Optimizer started in background. Check optimizer/logs/nightly.log and backend/data/ for progress']);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
