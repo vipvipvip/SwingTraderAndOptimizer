@@ -132,7 +132,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     if timeframe is None:
         timeframe = os.getenv('TRADING_TIMEFRAME', '1Hour')
     if n_jobs is None:
-        n_jobs = -1  # Use all available CPUs
+        n_jobs = 1  # Sequential on Windows (Loky backend issues with -1)
 
     print(f"\n{'='*70}")
     print(f"NIGHTLY OPTIMIZER RUN")
