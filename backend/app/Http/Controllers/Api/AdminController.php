@@ -36,22 +36,18 @@ class AdminController extends Controller
     public function triggerOptimizer()
     {
         try {
-            $output = [];
-            $returnCode = 0;
             $phpPath = PHP_BINDIR . DIRECTORY_SEPARATOR . 'php';
             $artisanPath = base_path('artisan');
 
-            $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' optimize:nightly 2>&1';
-            exec($command, $output, $returnCode);
-
-            $outputStr = implode("\n", $output);
-            $hasSuccess = strpos($outputStr, 'completed') !== false || strpos($outputStr, 'Optimization') !== false;
-
-            if (!$hasSuccess && $returnCode !== 0) {
-                return response()->json(['error' => 'Optimizer failed', 'output' => $outputStr], 500);
+            if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+                $command = "start /B " . escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' optimize:nightly';
+                pclose(popen($command, 'r'));
+            } else {
+                $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' optimize:nightly > /dev/null 2>&1 &';
+                exec($command);
             }
 
-            return response()->json(['message' => 'Optimizer triggered', 'output' => $outputStr]);
+            return response()->json(['message' => 'Optimizer started in background (check data/ folder for results in ~90 min)']);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
