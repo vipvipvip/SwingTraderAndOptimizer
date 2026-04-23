@@ -267,6 +267,52 @@ class StrategyDB:
 
         return default
 
+    def save_equity_curve(self, symbol, metrics, equity_curve):
+        """Save equity curve to Laravel backend database (EquitySnapshot table)"""
+        if not equity_curve or len(equity_curve) < 2:
+            return
+
+        try:
+            laravel_db_path = Path(__file__).parent.parent / 'backend' / 'optimized_params' / 'strategy_params.db'
+            if not laravel_db_path.exists():
+                return
+
+            with sqlite3.connect(str(laravel_db_path)) as conn:
+                cursor = conn.cursor()
+
+                # Get ticker_id from Laravel database
+                cursor.execute('SELECT id FROM tickers WHERE symbol = ?', (symbol,))
+                row = cursor.fetchone()
+                if not row:
+                    return
+                ticker_id = row[0]
+
+                # Clear previous backtest equity snapshots for this ticker
+                cursor.execute(
+                    'DELETE FROM equity_snapshots WHERE ticker_id = ? AND snapshot_type = ?',
+                    (ticker_id, 'backtest')
+                )
+
+                # Save equity curve points
+                for idx, equity_value in enumerate(equity_curve):
+                    snapshot_date = datetime.now().isoformat()
+                    cursor.execute('''
+                        INSERT INTO equity_snapshots
+                        (ticker_id, snapshot_date, equity_value, snapshot_type, source)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        ticker_id,
+                        snapshot_date,
+                        float(equity_value),
+                        'backtest',
+                        'optimizer'
+                    ))
+
+                conn.commit()
+        except Exception as e:
+            # Silently fail if backend DB not available
+            pass
+
     def close(self):
         """Close database connection"""
         if self.conn:

@@ -160,6 +160,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     for result in results:
         db.save_best_params(result['symbol'], result['params'], result['metrics'])
         db.save_backtest_trades(result['symbol'], result['trades'])
+        db.save_equity_curve(result['symbol'], result.get('metrics', {}), result.get('equity_curve', []))
         db.log_optimization_run(
             result['symbol'],
             result['metrics'],

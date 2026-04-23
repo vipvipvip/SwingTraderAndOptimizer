@@ -56,6 +56,7 @@ class ParameterOptimizer:
                 'params': params,
                 'metrics': metrics,
                 'trades': trades,
+                'equity_curve': equity_curve,
                 'trades_count': len(trades) if trades is not None else 0
             }
             self.results.append(result)
