@@ -10,15 +10,25 @@ class TradeExecutorService
 {
     private $alpacaService;
     private $strategyService;
+    private $priceAcquisitionService;
 
-    public function __construct(AlpacaService $alpaca, StrategyService $strategy)
+    public function __construct(AlpacaService $alpaca, StrategyService $strategy, PriceAcquisitionService $priceAcquisition)
     {
         $this->alpacaService = $alpaca;
         $this->strategyService = $strategy;
+        $this->priceAcquisitionService = $priceAcquisition;
     }
 
     public function executeForAllTickers()
     {
+        // Fetch fresh prices for all tickers before executing trades
+        try {
+            $this->priceAcquisitionService->fetchLatestPrices();
+            \Log::info("Fetched latest prices for all tickers");
+        } catch (\Exception $e) {
+            \Log::warning("Failed to fetch latest prices: " . $e->getMessage());
+        }
+
         $tickers = $this->strategyService->getAllTickers();
         $results = [
             'total' => 0,
