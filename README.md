@@ -107,6 +107,41 @@ chmod +x setup-optimizer-cron.sh
 - Trade executor needs quick iteration (every 30 min, market hours) — Laravel scheduler handles this
 - Nightly optimizer takes ~87 minutes — OS scheduler bypasses PHP's 60s timeout limit
 
+### 3.1 Verify Nightly Optimizer Setup
+
+**Windows (Task Scheduler):**
+
+```powershell
+# Verify task exists and is ready
+schtasks query /tn "SwingTrader-NightlyOptimizer"
+# Should show State: Ready
+
+# Manually trigger to test (optional)
+schtasks run /tn "SwingTrader-NightlyOptimizer"
+
+# Check logs after run completes
+Get-Content "C:\path\to\SwingTraderAndOptimizer\optimizer\logs\nightly.log" -Tail 20
+```
+
+**Linux/WSL (cron):**
+
+```bash
+# Verify cron job exists
+crontab -l | grep run_nightly
+
+# Check logs after it runs (2 AM daily)
+tail -f /path/to/SwingTraderAndOptimizer/optimizer/logs/nightly.log
+```
+
+**What to look for in logs:**
+```
+[2026-04-23 02:00:00] Nightly optimizer starting...
+[2026-04-23 02:01:15] Optimizing SPY [1Hour]...
+[2026-04-23 02:45:30] Optimizer finished (exit: 0)
+```
+
+Exit code 0 = success. Non-zero = check Python package imports and Alpaca API key.
+
 ### 4. Run the Application
 
 ```bash
