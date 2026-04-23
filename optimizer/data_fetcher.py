@@ -1,23 +1,23 @@
-"""Fetch OHLCV data from Alpaca"""
+"""Fetch OHLCV data from Alpaca using modern alpaca-py SDK"""
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-import alpaca_trade_api as tradeapi
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
 import pandas as pd
 
-load_dotenv()
+# Load .env from backend directory
+env_path = os.path.join(os.path.dirname(__file__), '..', 'backend', '.env')
+load_dotenv(env_path)
 
 api_key = os.getenv('ALPACA_API_KEY')
 secret_key = os.getenv('ALPACA_SECRET_KEY')
-base_url = os.getenv('ALPACA_BASE_URL')
-
-# Initialize SDK
-api = tradeapi.REST(api_key, secret_key, base_url)
 
 
 def fetch_historical_data(symbol, timeframe='1Day', years=2):
     """
-    Fetch historical OHLCV data from Alpaca
+    Fetch historical OHLCV data from Alpaca using /v2/stocks/bars API
 
     Args:
         symbol: Stock symbol (e.g., 'SPY')
@@ -34,37 +34,73 @@ def fetch_historical_data(symbol, timeframe='1Day', years=2):
     print(f"Fetching {symbol} data from {start_date.date()} to {end_date.date()}")
 
     try:
-        # Use the REST API get_bars method with IEX feed (free tier)
-        bars = api.get_bars(
-            symbol,
-            timeframe,
-            start=start_date.strftime('%Y-%m-%d'),
-            end=end_date.strftime('%Y-%m-%d'),
-            adjustment='raw',  # Use raw data without dividends/splits
-            feed='iex'  # Use IEX feed which is free tier
+        # Map timeframe string to TimeFrame enum
+        tf_map = {
+            '1Hour': TimeFrame.Hour,
+            '1Day': TimeFrame.Day,
+            '1Week': TimeFrame.Week,
+            '1Month': TimeFrame.Month,
+        }
+        tf = tf_map.get(timeframe, TimeFrame.Day)
+
+        # Use modern alpaca-py SDK
+        client = StockHistoricalDataClient(api_key, secret_key)
+        request_params = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=tf,
+            start=start_date,
+            end=end_date,
+            feed='iex',  # Free tier with IEX data
+            limit=10000
         )
 
+        bars_dict = client.get_stock_bars(request_params)
+
+        if not bars_dict or symbol not in bars_dict.data:
+            print(f"No data returned for {symbol}")
+            return None
+
+        # Paginate through results if needed
+        all_bars = list(bars_dict.data[symbol])
+        page_token = getattr(bars_dict, 'next_page_token', None)
+
+        while page_token:
+            request_params = StockBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=tf,
+                start=start_date,
+                end=end_date,
+                feed='iex',
+                limit=10000,
+                page_token=page_token
+            )
+            bars_dict = client.get_stock_bars(request_params)
+            if symbol in bars_dict.data:
+                all_bars.extend(bars_dict.data[symbol])
+            page_token = getattr(bars_dict, 'next_page_token', None)
+
         # Convert to DataFrame
-        df = bars.df
+        data = []
+        for bar in all_bars:
+            data.append({
+                'timestamp': bar.timestamp,
+                'open': bar.open,
+                'high': bar.high,
+                'low': bar.low,
+                'close': bar.close,
+                'volume': bar.volume
+            })
 
-        # Select only OHLCV columns
-        if 'vwap' in df.columns:
-            df = df[['open', 'high', 'low', 'close', 'volume']]
-        else:
-            # Rename if necessary
-            df.columns = ['open', 'high', 'low', 'close', 'volume', 'trade_count', 'vwap'] if len(df.columns) > 5 else ['open', 'high', 'low', 'close', 'volume']
-            df = df[['open', 'high', 'low', 'close', 'volume']]
-
-        # Ensure index is datetime
-        df.index = pd.to_datetime(df.index)
+        df = pd.DataFrame(data)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df.set_index('timestamp', inplace=True)
         df = df.sort_index()
 
         print(f"Fetched {len(df)} bars for {symbol}")
-
         return df
 
     except Exception as e:
-        print(f"Error fetching data: {e}")
+        print(f"Error fetching data for {symbol}: {e}")
         import traceback
         traceback.print_exc()
         return None
