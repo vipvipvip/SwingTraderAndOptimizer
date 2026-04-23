@@ -10,11 +10,7 @@ LOG="$SCRIPT_DIR/logs/nightly.log"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Nightly optimizer starting..." >> "$LOG"
 
-# Use venv python if it exists, otherwise fall back to system python3
-if [ -f "$SCRIPT_DIR/venv/bin/python" ]; then
-    "$SCRIPT_DIR/venv/bin/python" nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM >> "$LOG" 2>&1
-else
-    python3 nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM >> "$LOG" 2>&1
-fi
+# Use Windows Python via WSL interop (has all required packages)
+/mnt/c/Python/Python3143/python.exe nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM >> "$LOG" 2>&1
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Optimizer finished (exit: $?)" >> "$LOG"

@@ -1,70 +1,91 @@
-# Setup Nightly Optimizer on Windows Task Scheduler
-# RUN AS ADMINISTRATOR
+# Setup Windows Task Scheduler for nightly optimizer
+# Run as Administrator: powershell -ExecutionPolicy Bypass -File scripts/setup-optimizer-wts.ps1
+# Remove task: powershell -ExecutionPolicy Bypass -File scripts/setup-optimizer-wts.ps1 -Remove
 
 param(
-    [switch]$Remove
+    [switch]$Remove = $false
 )
 
-$ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$OptimizerDir = Join-Path $ProjectRoot "optimizer"
-$RunScript = Join-Path $OptimizerDir "run_nightly.ps1"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = Split-Path -Parent $ScriptDir
+$OptimizerScript = Join-Path $ProjectRoot "optimizer\run_nightly.ps1"
 $TaskName = "SwingTrader-NightlyOptimizer"
+$TaskPath = "\SwingTrader\"
 
 if ($Remove) {
-    Write-Host "Removing $TaskName..." -ForegroundColor Yellow
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-    Write-Host "Task removed." -ForegroundColor Green
-    exit
+    Write-Host "[*] Removing scheduled task '$TaskName'..."
+    try {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
+        Write-Host "[OK] Task removed"
+    } catch {
+        Write-Host "[!] Task not found or error: $_"
+    }
+    exit 0
 }
 
-Write-Host "Setting up $TaskName..." -ForegroundColor Cyan
-Write-Host "Project root: $ProjectRoot" -ForegroundColor Gray
-Write-Host "Optimizer dir: $OptimizerDir" -ForegroundColor Gray
-Write-Host "Run script: $RunScript" -ForegroundColor Gray
+# Check if already registered
+$existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if ($existingTask) {
+    Write-Host "[OK] Task already registered: $TaskName"
+    Write-Host "  Schedule: $($existingTask.Triggers)"
+    Write-Host ""
+    Write-Host "To remove: powershell -ExecutionPolicy Bypass -File scripts/setup-optimizer-wts.ps1 -Remove"
+    exit 0
+}
+
+Write-Host "[*] Registering scheduled task: $TaskName"
 
 # Verify script exists
-if (-not (Test-Path $RunScript)) {
-    Write-Host "ERROR: $RunScript not found!" -ForegroundColor Red
+if (-not (Test-Path $OptimizerScript)) {
+    Write-Error "Optimizer script not found: $OptimizerScript"
     exit 1
 }
 
-# Create action: run PowerShell non-interactively with the script
-$Argument = "-NonInteractive -NoProfile -File `"$RunScript`""
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $Argument
+# Create task action: run PowerShell script non-interactively
+$action = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NonInteractive -NoProfile -File ""$OptimizerScript"""
 
-# Create trigger: daily at 2:00 AM local time
-$Trigger = New-ScheduledTaskTrigger `
-    -Daily `
-    -At "02:00"
+# Create task trigger: daily at 2:00 AM
+$trigger = New-ScheduledTaskTrigger -Daily -At 02:00AM
 
-# Create principal: SYSTEM with highest privileges (no timeout)
-$Principal = New-ScheduledTaskPrincipal `
-    -UserID "SYSTEM" `
+# Create task principal: SYSTEM user with highest privilege
+$principal = New-ScheduledTaskPrincipal `
+    -UserId "SYSTEM" `
     -LogonType ServiceAccount `
     -RunLevel Highest
 
-# Create settings: no timeout, allow on battery
-$Settings = New-ScheduledTaskSettingsSet `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
+# Create task settings: allow task to run even if not logged in
+$settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -RunOnlyIfNetworkAvailable:$true
 
 # Register the task
-Register-ScheduledTask `
-    -TaskName $TaskName `
-    -Action $Action `
-    -Trigger $Trigger `
-    -Principal $Principal `
-    -Settings $Settings `
-    -Force | Out-Null
+try {
+    Register-ScheduledTask `
+        -TaskName $TaskName `
+        -Action $action `
+        -Trigger $trigger `
+        -Principal $principal `
+        -Settings $settings `
+        -Description "Nightly optimizer for swing trading strategy parameters" `
+        -Force | Out-Null
 
-Write-Host ""
-Write-Host "Task created successfully!" -ForegroundColor Green
-Write-Host ""
-Write-Host "Task Details:" -ForegroundColor Cyan
-Get-ScheduledTask -TaskName $TaskName | Format-List TaskName, State, NextRunTime
+    Write-Host "[OK] Task registered successfully"
+    Write-Host ""
+    Write-Host "Task Details:"
+    Write-Host "  Name: $TaskName"
+    Write-Host "  Script: $OptimizerScript"
+    Write-Host "  Schedule: Daily at 02:00 AM"
+    Write-Host "  Principal: SYSTEM (Highest privilege)"
+    Write-Host ""
+    Write-Host "To verify: schtasks query /tn ""$TaskName"""
+    Write-Host "To manually trigger: schtasks run /tn ""$TaskName"""
+    Write-Host "To remove: powershell -ExecutionPolicy Bypass -File scripts/setup-optimizer-wts.ps1 -Remove"
 
-Write-Host ""
-Write-Host "Manual trigger (anytime): schtasks /run /tn $TaskName" -ForegroundColor Gray
-Write-Host "View logs: tail -f '$OptimizerDir\logs\nightly.log'" -ForegroundColor Gray
-Write-Host "Remove: .\setup-optimizer-wts.ps1 -Remove" -ForegroundColor Gray
+} catch {
+    Write-Error "Failed to register task: $_"
+    exit 1
+}
