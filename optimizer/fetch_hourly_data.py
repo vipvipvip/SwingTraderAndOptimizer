@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fetch hourly data from Alpaca and update database"""
 import os
+import sqlite3
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from alpaca.data.historical import StockHistoricalDataClient
@@ -24,6 +25,15 @@ if not api_key or not secret_key:
 client = StockHistoricalDataClient(api_key, secret_key)
 db = BarsDB()
 
+# Get ticker IDs from database
+conn = sqlite3.connect(db.db_path)
+cursor = conn.cursor()
+ticker_map = {}
+cursor.execute("SELECT id, symbol FROM tickers")
+for ticker_id, symbol in cursor.fetchall():
+    ticker_map[symbol] = ticker_id
+conn.close()
+
 # Tickers
 tickers = ['SPY', 'QQQ', 'IWM']
 end_date = datetime.now()
@@ -31,13 +41,19 @@ end_date = datetime.now()
 print("Fetching latest hourly data from Alpaca\n")
 
 for symbol in tickers:
+    if symbol not in ticker_map:
+        print(f"[{symbol}] Ticker not found in database")
+        continue
+
+    ticker_id = ticker_map[symbol]
+
     # Check DB for latest bar timestamp
-    latest = db.get_latest_timestamp(symbol)
+    latest = db.get_latest_timestamp(ticker_id)
 
     if latest:
         # Fetch from 1 hour before latest (overlap to catch any gaps)
         start_date = latest - timedelta(hours=1)
-        db_count = db.bar_count(symbol)
+        db_count = db.bar_count(ticker_id)
         print(f"[{symbol}] Fetching from {start_date.isoformat()}...", end='', flush=True)
     else:
         # First time: fetch 60 days of history
@@ -99,8 +115,8 @@ for symbol in tickers:
         df = df.sort_index()
 
         # Insert into database
-        inserted = db.insert_bars(symbol, df)
-        new_db_count = db.bar_count(symbol)
+        inserted = db.insert_bars(ticker_id, df, symbol=symbol)
+        new_db_count = db.bar_count(ticker_id)
 
         print(f" {inserted} new bars ({new_db_count} total, was {db_count})")
 

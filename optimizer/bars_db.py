@@ -7,48 +7,20 @@ from pathlib import Path
 class BarsDB:
     """SQLite database for historical OHLCV bars"""
 
-    def __init__(self, db_path='optimized_params/strategy_params.db'):
+    def __init__(self, db_path='optimized_params/strategy_params.db', ticker_id=None):
         self.db_path = db_path
+        self.ticker_id = ticker_id
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.init_db()
 
-    def init_db(self):
-        """Initialize database schema"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
 
-            # Bars table: symbol, timestamp, OHLCV
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS bars (
-                    id INTEGER PRIMARY KEY,
-                    symbol TEXT NOT NULL,
-                    timestamp DATETIME NOT NULL,
-                    open REAL NOT NULL,
-                    high REAL NOT NULL,
-                    low REAL NOT NULL,
-                    close REAL NOT NULL,
-                    volume INTEGER NOT NULL,
-                    source TEXT DEFAULT 'alpaca',
-                    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(symbol, timestamp)
-                )
-            ''')
-
-            # Index for fast queries
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_symbol_timestamp
-                ON bars(symbol, timestamp DESC)
-            ''')
-
-            conn.commit()
-
-    def insert_bars(self, symbol, bars_df):
+    def insert_bars(self, ticker_id, bars_df, symbol=None):
         """Insert bars from DataFrame into database
 
         Args:
-            symbol: Stock symbol
+            ticker_id: Ticker ID from tickers table
             bars_df: DataFrame with columns: open, high, low, close, volume
                     and index as timestamp
+            symbol: Stock symbol (optional, for logging)
         """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -57,10 +29,10 @@ class BarsDB:
             for timestamp, row in bars_df.iterrows():
                 try:
                     cursor.execute('''
-                        INSERT INTO bars (symbol, timestamp, open, high, low, close, volume)
+                        INSERT INTO bars (ticker_id, timestamp, open, high, low, close, volume)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                     ''', (
-                        symbol,
+                        ticker_id,
                         timestamp.isoformat(),
                         float(row['open']),
                         float(row['high']),
@@ -76,8 +48,8 @@ class BarsDB:
             conn.commit()
             return count
 
-    def get_latest_timestamp(self, symbol):
-        """Get the most recent bar timestamp for a symbol
+    def get_latest_timestamp(self, ticker_id):
+        """Get the most recent bar timestamp for a ticker
 
         Returns:
             datetime or None if no data exists
@@ -85,19 +57,19 @@ class BarsDB:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT MAX(timestamp) FROM bars WHERE symbol = ?',
-                (symbol,)
+                'SELECT MAX(timestamp) FROM bars WHERE ticker_id = ?',
+                (ticker_id,)
             )
             result = cursor.fetchone()[0]
             if result:
                 return datetime.fromisoformat(result)
             return None
 
-    def get_bars(self, symbol, start=None, end=None):
-        """Retrieve bars for a symbol within date range
+    def get_bars(self, ticker_id, start=None, end=None):
+        """Retrieve bars for a ticker within date range
 
         Args:
-            symbol: Stock symbol
+            ticker_id: Ticker ID from tickers table
             start: datetime or None
             end: datetime or None
 
@@ -111,29 +83,29 @@ class BarsDB:
             if start and end:
                 cursor.execute('''
                     SELECT * FROM bars
-                    WHERE symbol = ? AND timestamp >= ? AND timestamp <= ?
+                    WHERE ticker_id = ? AND timestamp >= ? AND timestamp <= ?
                     ORDER BY timestamp
-                ''', (symbol, start.isoformat(), end.isoformat()))
+                ''', (ticker_id, start.isoformat(), end.isoformat()))
             elif start:
                 cursor.execute('''
                     SELECT * FROM bars
-                    WHERE symbol = ? AND timestamp >= ?
+                    WHERE ticker_id = ? AND timestamp >= ?
                     ORDER BY timestamp
-                ''', (symbol, start.isoformat()))
+                ''', (ticker_id, start.isoformat()))
             else:
                 cursor.execute('''
                     SELECT * FROM bars
-                    WHERE symbol = ?
+                    WHERE ticker_id = ?
                     ORDER BY timestamp
-                ''', (symbol,))
+                ''', (ticker_id,))
 
             return [dict(row) for row in cursor.fetchall()]
 
-    def bar_count(self, symbol):
-        """Get total bar count for a symbol"""
+    def bar_count(self, ticker_id):
+        """Get total bar count for a ticker"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM bars WHERE symbol = ?', (symbol,))
+            cursor.execute('SELECT COUNT(*) FROM bars WHERE ticker_id = ?', (ticker_id,))
             return cursor.fetchone()[0]
 
     def close(self):
