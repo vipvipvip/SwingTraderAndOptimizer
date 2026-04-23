@@ -48,6 +48,57 @@ class TradeExecutorService
         return $results;
     }
 
+    public function forceTestAllTickers($qty = 1)
+    {
+        $tickers = $this->strategyService->getAllTickers();
+        $results = [
+            'total' => 0,
+            'buys' => [],
+            'sells' => [],
+            'errors' => [],
+        ];
+
+        foreach ($tickers as $ticker) {
+            $symbol = $ticker['symbol'];
+            $results['total']++;
+            try {
+                $buy = $this->alpacaService->placeOrder($symbol, 'buy', $qty);
+                \Log::info("FORCE-TEST BUY {$symbol} qty={$qty} order=" . ($buy['id'] ?? 'n/a'));
+                $results['buys'][] = $symbol;
+
+                LiveTrade::create([
+                    'ticker_id' => Ticker::where('symbol', $symbol)->first()?->id,
+                    'symbol' => $symbol,
+                    'side' => 'BUY',
+                    'quantity' => $qty,
+                    'entry_price' => 0,
+                    'entry_at' => now(),
+                    'status' => 'open',
+                    'alpaca_order_id' => $buy['id'] ?? null,
+                    'strategy_signal' => 'FORCE_TEST',
+                ]);
+
+                $sell = $this->alpacaService->placeOrder($symbol, 'sell', $qty);
+                \Log::info("FORCE-TEST SELL {$symbol} qty={$qty} order=" . ($sell['id'] ?? 'n/a'));
+                $results['sells'][] = $symbol;
+
+                LiveTrade::where('symbol', $symbol)
+                    ->where('strategy_signal', 'FORCE_TEST')
+                    ->where('status', 'open')
+                    ->update([
+                        'exit_price' => 0,
+                        'exit_at' => now(),
+                        'status' => 'closed',
+                    ]);
+            } catch (\Exception $e) {
+                \Log::error("Force-test failed for {$symbol}: " . $e->getMessage());
+                $results['errors'][] = ['symbol' => $symbol, 'error' => $e->getMessage()];
+            }
+        }
+
+        return $results;
+    }
+
     public function executeForTicker($symbol)
     {
         $strategy = $this->strategyService->getStrategyForSymbol($symbol);

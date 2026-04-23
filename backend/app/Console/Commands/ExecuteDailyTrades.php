@@ -10,7 +10,7 @@ use GuzzleHttp\Client;
 
 class ExecuteDailyTrades extends Command
 {
-    protected $signature = 'trades:execute-daily';
+    protected $signature = 'trades:execute-daily {--force-test : Force a buy+sell round-trip per ticker (paper account test mode)}';
 
     protected $description = 'Execute daily trades for all enabled tickers';
 
@@ -19,6 +19,7 @@ class ExecuteDailyTrades extends Command
         $alpacaService = app(AlpacaService::class);
         $tradeExecutor = app(TradeExecutorService::class);
         $equityService = app(EquityService::class);
+        $forceTest = $this->option('force-test');
 
         try {
             $clock = $alpacaService->getClock();
@@ -29,8 +30,13 @@ class ExecuteDailyTrades extends Command
                 return 0;
             }
 
-            $this->info('Market is open. Executing trades...');
-            $results = $tradeExecutor->executeForAllTickers();
+            if ($forceTest) {
+                $this->info('FORCE-TEST mode: placing buy+sell round-trip for each ticker...');
+                $results = $tradeExecutor->forceTestAllTickers(1);
+            } else {
+                $this->info('Market is open. Executing trades...');
+                $results = $tradeExecutor->executeForAllTickers();
+            }
             $equity = $equityService->snapshotAccountEquity($alpacaService);
 
             $this->info('Trade execution completed');

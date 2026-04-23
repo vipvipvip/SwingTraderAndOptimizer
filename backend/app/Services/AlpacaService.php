@@ -102,9 +102,32 @@ class AlpacaService
                 }
                 $query['page_token'] = $data['next_page_token'] ?? null;
             } while (!empty($query['page_token']));
+
+            $this->writeBarsCsv($symbol, $timeframe, $bars);
             return $bars;
         } catch (Exception $e) {
             throw new Exception('Failed to fetch bars: ' . $e->getMessage());
+        }
+    }
+
+    private function writeBarsCsv($symbol, $timeframe, $bars)
+    {
+        try {
+            if (empty($bars)) return;
+            $dir = base_path('data');
+            if (!is_dir($dir)) @mkdir($dir, 0777, true);
+            $stamp = date('Ymd_His');
+            $file = $dir . DIRECTORY_SEPARATOR . "{$symbol}_{$timeframe}_{$stamp}.csv";
+            $fh = fopen($file, 'w');
+            if (!$fh) return;
+            fputcsv($fh, ['timestamp', 'open', 'high', 'low', 'close', 'volume']);
+            foreach ($bars as $b) {
+                fputcsv($fh, [$b['t'] ?? '', $b['o'] ?? '', $b['h'] ?? '', $b['l'] ?? '', $b['c'] ?? '', $b['v'] ?? '']);
+            }
+            fclose($fh);
+            \Log::info("Wrote " . count($bars) . " bars for {$symbol} to data/" . basename($file) . ", last=" . (end($bars)['t'] ?? 'n/a'));
+        } catch (Exception $e) {
+            \Log::warning("Failed to write bars CSV for {$symbol}: " . $e->getMessage());
         }
     }
 

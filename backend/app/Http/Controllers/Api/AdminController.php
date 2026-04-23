@@ -72,7 +72,7 @@ class AdminController extends Controller
             $artisanPath = base_path('artisan');
 
             // Use escapeshellarg for proper path escaping on Windows/Unix
-            $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' trades:execute-daily 2>&1';
+            $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' trades:execute-daily --force-test 2>&1';
             exec($command, $output, $returnCode);
 
             // Check if command succeeded by looking for success indicators, not just return code
