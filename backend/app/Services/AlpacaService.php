@@ -2,144 +2,253 @@
 
 namespace App\Services;
 
-use GuzzleHttp\Client;
-use Exception;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class AlpacaService
 {
-    private $client;
+    private $apiKey;
+    private $secretKey;
     private $baseUrl;
-    private $headers;
+    private $dataUrl;
 
     public function __construct()
     {
-        $this->baseUrl = env('ALPACA_BASE_URL') . '/v2';
-        $this->client = new Client();
-        $this->headers = [
-            'APCA-API-KEY-ID' => env('ALPACA_API_KEY'),
-            'APCA-API-SECRET-KEY' => env('ALPACA_SECRET_KEY'),
-        ];
+        $this->apiKey = env('ALPACA_API_KEY');
+        $this->secretKey = env('ALPACA_SECRET_KEY');
+        $this->baseUrl = env('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets');
+        $this->dataUrl = 'https://data.alpaca.markets';
     }
 
+    /**
+     * Get account information
+     */
     public function getAccount()
     {
         try {
-            $response = $this->client->get("{$this->baseUrl}/account", [
-                'headers' => $this->headers
-            ]);
-            return json_decode($response->getBody(), true);
-        } catch (Exception $e) {
-            throw new Exception('Failed to fetch account: ' . $e->getMessage());
+            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
+                ->get("{$this->baseUrl}/v2/account");
+
+            if ($response->failed()) {
+                throw new \Exception("Alpaca API error: " . $response->body());
+            }
+
+            $data = $response->json();
+            return [
+                'equity' => $data['equity'] ?? 0,
+                'buying_power' => $data['buying_power'] ?? 0,
+                'cash' => $data['cash'] ?? 0,
+                'portfolio_value' => $data['portfolio_value'] ?? 0,
+            ];
+        } catch (\Exception $e) {
+            Log::error('AlpacaService::getAccount error: ' . $e->getMessage());
+            throw $e;
         }
     }
 
+    /**
+     * Get open positions from Alpaca
+     */
     public function getPositions()
     {
         try {
-            $response = $this->client->get("{$this->baseUrl}/positions", [
-                'headers' => $this->headers
-            ]);
-            return json_decode($response->getBody(), true);
-        } catch (Exception $e) {
-            throw new Exception('Failed to fetch positions: ' . $e->getMessage());
+            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
+                ->get("{$this->baseUrl}/v2/positions");
+
+            if ($response->failed()) {
+                throw new \Exception("Alpaca API error: " . $response->body());
+            }
+
+            $positions = $response->json();
+            if (!is_array($positions)) {
+                $positions = [];
+            }
+
+            return array_map(function ($pos) {
+                $qty = floatval($pos['qty'] ?? 0);
+                $entry_price = floatval($pos['avg_entry_price'] ?? 0);
+                $current_price = floatval($pos['current_price'] ?? 0);
+                $market_value = floatval($pos['market_value'] ?? 0);
+
+                // Calculate unrealized P&L if Alpaca didn't provide it
+                $unrealized_pnl = $pos['unrealized_pnl'] ?? (($current_price - $entry_price) * $qty);
+
+                return [
+                    'symbol' => $pos['symbol'] ?? null,
+                    'qty' => $qty,
+                    'avg_entry_price' => $entry_price,
+                    'current_price' => $current_price,
+                    'market_value' => $market_value,
+                    'unrealized_pnl' => $unrealized_pnl,
+                    'unrealized_plpc' => $pos['unrealized_plpc'] ?? 0,
+                ];
+            }, $positions);
+        } catch (\Exception $e) {
+            Log::error('AlpacaService::getPositions error: ' . $e->getMessage());
+            throw $e;
         }
     }
 
-    public function placeOrder($symbol, $side, $qty)
+    /**
+     * Get bars for a symbol
+     */
+    public function getBars($symbol, $timeframe = '1Hour', $start = null, $end = null, $limit = 1000)
     {
         try {
-            $response = $this->client->post("{$this->baseUrl}/orders", [
-                'headers' => $this->headers,
-                'json' => [
-                    'symbol' => $symbol,
-                    'qty' => $qty,
-                    'side' => $side,
-                    'type' => 'market',
-                    'time_in_force' => 'day'
-                ]
-            ]);
-            return json_decode($response->getBody(), true);
-        } catch (Exception $e) {
-            throw new Exception('Failed to place order: ' . $e->getMessage());
+            $params = [
+                'timeframe' => $timeframe,
+                'limit' => $limit,
+            ];
+
+            if ($start) {
+                $params['start'] = $start->toIso8601String();
+            }
+            if ($end) {
+                $params['end'] = $end->toIso8601String();
+            }
+
+            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
+                ->get("{$this->dataUrl}/v2/stocks/{$symbol}/bars", $params);
+
+            if ($response->failed()) {
+                throw new \Exception("Alpaca API error: " . $response->body());
+            }
+
+            $data = $response->json();
+            $bars = $data['bars'] ?? [];
+
+            // Handle pagination
+            while (isset($data['next_page_token']) && $data['next_page_token']) {
+                $params['page_token'] = $data['next_page_token'];
+                $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
+                    ->get("{$this->dataUrl}/v2/stocks/{$symbol}/bars", $params);
+
+                if ($response->failed()) {
+                    break;
+                }
+
+                $data = $response->json();
+                $bars = array_merge($bars, $data['bars'] ?? []);
+            }
+
+            return $bars;
+        } catch (\Exception $e) {
+            Log::error("AlpacaService::getBars({$symbol}) error: " . $e->getMessage());
+            throw $e;
         }
     }
 
+    /**
+     * Place an order
+     */
+    public function placeOrder($symbol, $qty, $side, $type = 'market', $timeInForce = 'day')
+    {
+        try {
+            $payload = [
+                'symbol' => $symbol,
+                'qty' => $qty,
+                'side' => $side,
+                'type' => $type,
+                'time_in_force' => $timeInForce,
+            ];
+
+            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
+                ->post("{$this->baseUrl}/v2/orders", $payload);
+
+            if ($response->failed()) {
+                throw new \Exception("Alpaca API error: " . $response->body());
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error("AlpacaService::placeOrder({$symbol}, {$qty}, {$side}) error: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Get orders from Alpaca
+     */
+    public function getOrders($status = 'all', $limit = 500)
+    {
+        try {
+            $params = [
+                'status' => $status,
+                'limit' => $limit,
+            ];
+
+            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
+                ->get("{$this->baseUrl}/v2/orders", $params);
+
+            if ($response->failed()) {
+                throw new \Exception("Alpaca API error: " . $response->body());
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error("AlpacaService::getOrders error: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Cancel an order
+     */
     public function cancelOrder($orderId)
     {
         try {
-            $this->client->delete("{$this->baseUrl}/orders/{$orderId}", [
-                'headers' => $this->headers
-            ]);
-            return true;
-        } catch (Exception $e) {
-            throw new Exception('Failed to cancel order: ' . $e->getMessage());
-        }
-    }
+            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
+                ->delete("{$this->baseUrl}/v2/orders/{$orderId}");
 
-    public function getBars($symbol, $timeframe, $start, $end)
-    {
-        try {
-            $query = [
-                'symbols' => $symbol,
-                'timeframe' => $timeframe,
-                'feed' => 'iex',
-                'limit' => 10000,
-            ];
-            if ($start) $query['start'] = $start;
-            if ($end) $query['end'] = $end;
-
-            // Alpaca stock data API: data.alpaca.markets/v2/stocks/bars
-            $dataApiUrl = 'https://data.alpaca.markets/v2';
-            $bars = [];
-            do {
-                $response = $this->client->get($dataApiUrl . "/stocks/bars", [
-                    'headers' => $this->headers,
-                    'query' => $query,
-                ]);
-                $data = json_decode($response->getBody(), true);
-                if (!empty($data['bars'][$symbol])) {
-                    $bars = array_merge($bars, $data['bars'][$symbol]);
-                }
-                $query['page_token'] = $data['next_page_token'] ?? null;
-            } while (!empty($query['page_token']));
-
-            $this->writeBarsCsv($symbol, $timeframe, $bars);
-            return $bars;
-        } catch (Exception $e) {
-            throw new Exception('Failed to fetch bars: ' . $e->getMessage());
-        }
-    }
-
-    private function writeBarsCsv($symbol, $timeframe, $bars)
-    {
-        try {
-            if (empty($bars)) return;
-            $dir = base_path('data');
-            if (!is_dir($dir)) @mkdir($dir, 0777, true);
-            $stamp = date('Ymd_His');
-            $file = $dir . DIRECTORY_SEPARATOR . "{$symbol}_{$timeframe}_{$stamp}.csv";
-            $fh = fopen($file, 'w');
-            if (!$fh) return;
-            fputcsv($fh, ['timestamp', 'open', 'high', 'low', 'close', 'volume']);
-            foreach ($bars as $b) {
-                fputcsv($fh, [$b['t'] ?? '', $b['o'] ?? '', $b['h'] ?? '', $b['l'] ?? '', $b['c'] ?? '', $b['v'] ?? '']);
+            if ($response->failed()) {
+                throw new \Exception("Alpaca API error: " . $response->body());
             }
-            fclose($fh);
-            \Log::info("Wrote " . count($bars) . " bars for {$symbol} to data/" . basename($file) . ", last=" . (end($bars)['t'] ?? 'n/a'));
-        } catch (Exception $e) {
-            \Log::warning("Failed to write bars CSV for {$symbol}: " . $e->getMessage());
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error("AlpacaService::cancelOrder({$orderId}) error: " . $e->getMessage());
+            throw $e;
         }
     }
 
-    public function getClock()
+    /**
+     * Write bars to CSV file
+     */
+    public function writeBarsCsv($symbol, $bars)
     {
         try {
-            $response = $this->client->get("{$this->baseUrl}/clock", [
-                'headers' => $this->headers
-            ]);
-            return json_decode($response->getBody(), true);
-        } catch (Exception $e) {
-            throw new Exception('Failed to fetch market clock: ' . $e->getMessage());
+            if (empty($bars)) {
+                return null;
+            }
+
+            $timestamp = now()->format('YmdHis');
+            $filename = "data/{$symbol}_1Hour_{$timestamp}.csv";
+            $filepath = storage_path("../data/{$symbol}_1Hour_{$timestamp}.csv");
+
+            // Ensure directory exists
+            @mkdir(dirname($filepath), 0755, true);
+
+            $file = fopen($filepath, 'w');
+            fputcsv($file, ['timestamp', 'open', 'high', 'low', 'close', 'volume']);
+
+            foreach ($bars as $bar) {
+                fputcsv($file, [
+                    $bar['t'] ?? $bar['timestamp'] ?? '',
+                    $bar['o'] ?? $bar['open'] ?? 0,
+                    $bar['h'] ?? $bar['high'] ?? 0,
+                    $bar['l'] ?? $bar['low'] ?? 0,
+                    $bar['c'] ?? $bar['close'] ?? 0,
+                    $bar['v'] ?? $bar['volume'] ?? 0,
+                ]);
+            }
+
+            fclose($file);
+
+            Log::info("Wrote {$symbol} bars to {$filepath}");
+            return $filepath;
+        } catch (\Exception $e) {
+            Log::error("AlpacaService::writeBarsCsv error: " . $e->getMessage());
+            throw $e;
         }
     }
 }

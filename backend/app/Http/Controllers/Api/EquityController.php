@@ -5,14 +5,17 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\LiveTrade;
 use App\Services\EquityService;
+use App\Services\AlpacaService;
 
 class EquityController extends Controller
 {
     private $equityService;
+    private $alpacaService;
 
-    public function __construct(EquityService $equityService)
+    public function __construct(EquityService $equityService, AlpacaService $alpacaService)
     {
         $this->equityService = $equityService;
+        $this->alpacaService = $alpacaService;
     }
 
     /**
@@ -83,6 +86,12 @@ class EquityController extends Controller
      */
     public function liveTrades()
     {
+        try {
+            $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+        } catch (\Exception $e) {
+            \Log::warning('Failed to sync live trades from Alpaca: ' . $e->getMessage());
+        }
+
         $trades = LiveTrade::orderBy('entry_at', 'desc')->get();
         return response()->json($trades);
     }

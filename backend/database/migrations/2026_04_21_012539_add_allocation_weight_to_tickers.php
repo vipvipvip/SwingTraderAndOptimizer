@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('tickers', function (Blueprint $table) {
-            $table->decimal('allocation_weight', 5, 2)->default(33.33)->after('enabled');
+            if (!Schema::hasColumn('tickers', 'allocation_weight')) {
+                $table->decimal('allocation_weight', 5, 2)->default(33.33)->after('enabled');
+            }
         });
     }
 
