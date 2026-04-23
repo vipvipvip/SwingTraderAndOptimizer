@@ -36,24 +36,18 @@ class AdminController extends Controller
     public function triggerOptimizer()
     {
         try {
-            $pythonPath = env('PYTHON_PATH');
-            $scriptPath = env('NIGHTLY_SCRIPT');
-
-            if (!file_exists($pythonPath) || !file_exists($scriptPath)) {
-                return response()->json(['error' => 'Python or script path invalid'], 500);
-            }
-
             $output = [];
             $returnCode = 0;
-            $command = escapeshellarg($pythonPath) . ' ' . escapeshellarg($scriptPath) . ' 2>&1';
+            $phpPath = PHP_BINDIR . DIRECTORY_SEPARATOR . 'php';
+            $artisanPath = base_path('artisan');
+
+            $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' optimize:nightly 2>&1';
             exec($command, $output, $returnCode);
 
-            // Check if command succeeded by looking for success indicators
-            // (Xdebug timeouts can cause false failures)
             $outputStr = implode("\n", $output);
-            $hasError = strpos($outputStr, 'Error') !== false || strpos($outputStr, 'error') !== false || strpos($outputStr, 'failed') !== false;
+            $hasSuccess = strpos($outputStr, 'completed') !== false || strpos($outputStr, 'Optimization') !== false;
 
-            if ($hasError || ($returnCode !== 0 && empty($outputStr))) {
+            if (!$hasSuccess && $returnCode !== 0) {
                 return response()->json(['error' => 'Optimizer failed', 'output' => $outputStr], 500);
             }
 
