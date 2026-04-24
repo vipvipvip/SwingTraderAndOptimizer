@@ -4,105 +4,134 @@ Startup and utility scripts for the SwingTrader application.
 
 ## Quick Start
 
-### Linux/WSL/macOS
+### First Time Setup
+```bash
+bash scripts/setup.sh
+```
+Installs dependencies, configures .env, runs migrations.
+
+### Start Application
+```bash
+bash scripts/start.sh
+```
+Starts Laravel dev server on http://localhost:8000
+
+## Scripts
+
+### `setup.sh` — One-time initialization
+Checks prerequisites and configures the application:
+- Verifies PHP and Composer installed
+- Creates required directories
+- Runs `composer install`
+- Sets up `.env` file
+- Generates APP_KEY
+- Runs database migrations
+
+**Run once:**
+```bash
+bash scripts/setup.sh
+```
+
+### `start.sh` — Start the application
+Minimal startup script. Assumes setup already complete.
+
+**Run daily:**
 ```bash
 bash scripts/start.sh
 ```
 
-### Windows
-```cmd
-scripts\start.bat
-```
-
-## What Each Script Does
-
-### `start.sh` / `start.bat`
-**Startup script for the application**
-
-Checks prerequisites, installs dependencies, initializes database, and starts Laravel dev server.
-
-**Automatically:**
-- Checks for PHP and Composer
-- Creates necessary directories
-- Installs PHP dependencies
-- Sets up `.env` if missing
-- Generates APP_KEY
-- Runs database migrations
-- Displays API endpoints and log locations
-- Starts Laravel server on `http://localhost:8000`
-
-### `setup-optimizer-cron.sh`
-**Install nightly optimizer on WSL/Linux**
-
-Adds cron job for the nightly optimizer (8:18 AM ET daily).
-
-```bash
-bash scripts/setup-optimizer-cron.sh
-```
-
-### `setup-optimizer-wts.ps1`
-**Install nightly optimizer on Windows Task Scheduler**
-
-Adds Windows Task Scheduler job for the nightly optimizer.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/setup-optimizer-wts.ps1
-```
-
-### `daily-check.sh` / `daily-check.ps1`
-**Health check for the trading system**
-
-Verifies optimizer and trade executor are running correctly.
-
-```bash
-bash scripts/daily-check.sh
-```
+Starts Laravel development server on `http://localhost:8000`
 
 ## After Startup
 
-Once the server is running:
+**API Documentation (Swagger UI):**
+```
+http://localhost:8000/api/documentation
+```
 
-1. **API Documentation:** http://localhost:8000/api/documentation (Swagger UI)
-2. **Manual Triggers:**
-   ```bash
-   # Execute trades now
-   curl -X POST http://localhost:8000/api/v1/admin/trades/trigger
-   
-   # Run optimizer now
-   curl -X POST http://localhost:8000/api/v1/admin/optimize/trigger
-   
-   # Check market status
-   curl http://localhost:8000/api/v1/admin/market-status
-   ```
+**Manual API Triggers:**
+```bash
+# Execute trades now
+curl -X POST http://localhost:8000/api/v1/admin/trades/trigger
 
-3. **Monitor Logs:**
-   - Backend: `backend/storage/logs/laravel.log`
-   - Trade Executor: `backend/storage/logs/trade_executor.log`
-   - Optimizer: `optimizer/logs/nightly.log`
+# Run optimizer now
+curl -X POST http://localhost:8000/api/v1/admin/optimize/trigger
 
-4. **Verify Cron (WSL/Linux):**
-   ```bash
-   crontab -l | grep SwingTrader
-   ```
+# Check market status
+curl http://localhost:8000/api/v1/admin/market-status
+```
+
+**Monitor Logs:**
+```bash
+tail -f backend/storage/logs/laravel.log
+tail -f backend/storage/logs/trade_executor.log
+tail -f optimizer/logs/nightly.log
+```
+
+## Cron Setup
+
+Cron jobs for automated trading are installed separately via:
+- **WSL/Linux:** `crontab -e` (manually add entries from memory)
+- **Windows Task Scheduler:** Use Windows built-in scheduler
+
+Scheduled tasks:
+- **8:18 AM ET daily:** Nightly optimizer
+- **9:30 AM - 4:00 PM (every 30 min, weekdays):** Trade executor
+
+## Requirements
+
+- **PHP 8.1+** with CLI
+- **Composer** (for setup only)
+- **SQLite** (default, automatic)
+- **Alpaca API credentials** (in .env)
 
 ## Troubleshooting
 
 **PHP not found:**
-- Ensure PHP is installed and in PATH
-- On Windows, check that PHP path is in system environment variables
+```bash
+# Install PHP
+apt-get install php-cli php-sqlite3  # Ubuntu/Debian/WSL
+
+# Verify
+php -v
+```
 
 **Composer not found:**
-- Install from https://getcomposer.org/download/
-- Or use `php -r "copy('https://getcomposer.org/installer', 'composer-setup.php'); php('composer-setup.php');")`
+```bash
+# Install Composer
+curl -sS https://getcomposer.org/installer | php
+sudo mv composer.phar /usr/local/bin/composer
 
-**Database errors:**
-- Ensure `backend/storage/logs` directory is writable
-- Check `.env` database configuration (defaults to SQLite at `database/database.sqlite`)
-
-**Alpaca API errors:**
-- Update `.env` with your Alpaca API credentials
-- Verify `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` are set
+# Verify
+composer --version
+```
 
 **Port 8000 already in use:**
-- Change the port in the start script (modify `--port=8000`)
-- Or stop the process using port 8000
+Edit `scripts/start.sh` and change `--port=8000` to another port.
+
+**Database locked:**
+```bash
+# Reset database
+rm backend/database/database.sqlite
+bash scripts/setup.sh
+```
+
+## Environment
+
+For Alpaca API access, set in `backend/.env`:
+```
+ALPACA_API_KEY=your_key_here
+ALPACA_SECRET_KEY=your_secret_here
+```
+
+Get credentials from: https://app.alpaca.markets/
+
+## Linux Compatibility
+
+✓ Tested on:
+- WSL2 (Windows Subsystem for Linux)
+- Ubuntu 20.04+
+- Debian 11+
+- Any Linux with PHP 8.1+ and Composer
+
+All paths use forward slashes. No Windows-specific code.
