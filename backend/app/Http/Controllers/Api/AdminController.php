@@ -33,6 +33,29 @@ class AdminController extends Controller
         return response()->json(['message' => 'Ticker disabled']);
     }
 
+    /**
+     * @OA\Post(
+     *      path="/admin/optimize/trigger",
+     *      operationId="triggerOptimizer",
+     *      tags={"Admin"},
+     *      summary="Manually trigger nightly optimizer",
+     *      description="Run parameter optimization for all tickers immediately (normally runs at 8:18 AM ET daily)",
+     *      @OA\Response(
+     *          response=200,
+     *          description="Optimizer started successfully",
+     *          @OA\JsonContent(
+     *              @OA\Property(property="message", type="string", example="Optimizer started in background. Check optimizer/logs/nightly.log for progress")
+     *          )
+     *      ),
+     *      @OA\Response(
+     *          response=500,
+     *          description="Optimizer failed to start",
+     *          @OA\JsonContent(
+     *              @OA\Property(property="error", type="string")
+     *          )
+     *      )
+     * )
+     */
     public function triggerOptimizer()
     {
         try {
@@ -57,6 +80,30 @@ class AdminController extends Controller
         }
     }
 
+    /**
+     * @OA\Post(
+     *      path="/admin/trades/trigger",
+     *      operationId="triggerTrades",
+     *      tags={"Admin"},
+     *      summary="Manually trigger trade execution",
+     *      description="Execute trades for all tickers immediately (normally runs every 30 min via cron)",
+     *      @OA\Response(
+     *          response=200,
+     *          description="Trade execution started successfully",
+     *          @OA\JsonContent(
+     *              @OA\Property(property="message", type="string", example="Trade executor triggered"),
+     *              @OA\Property(property="output", type="string", example="Market is open. Executing trades...")
+     *          )
+     *      ),
+     *      @OA\Response(
+     *          response=500,
+     *          description="Trade execution failed",
+     *          @OA\JsonContent(
+     *              @OA\Property(property="error", type="string")
+     *          )
+     *      )
+     * )
+     */
     public function triggerTrades()
     {
         try {
@@ -99,23 +146,38 @@ class AdminController extends Controller
         }
     }
 
-    public function getPositions()
-    {
-        try {
-            $alpacaService = app('App\Services\AlpacaService');
-            $positions = $alpacaService->getPositions();
-            $account = $alpacaService->getAccount();
-
-            return response()->json([
-                'success' => true,
-                'positions' => $positions,
-                'account' => $account,
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
-        }
-    }
-
+    /**
+     * @OA\Get(
+     *      path="/admin/market-status",
+     *      operationId="getMarketStatus",
+     *      tags={"Admin"},
+     *      summary="Get market status and account info",
+     *      description="Check if market is open/closed and get current account details",
+     *      @OA\Response(
+     *          response=200,
+     *          description="Successfully retrieved market status",
+     *          @OA\JsonContent(
+     *              @OA\Property(property="success", type="boolean", example=true),
+     *              @OA\Property(
+     *                  property="market",
+     *                  type="object",
+     *                  @OA\Property(property="is_open", type="boolean", example=true),
+     *                  @OA\Property(property="next_open", type="string", example="2026-04-27T09:30:00Z"),
+     *                  @OA\Property(property="next_close", type="string", example="2026-04-24T20:00:00Z")
+     *              ),
+     *              @OA\Property(
+     *                  property="account",
+     *                  type="object",
+     *                  @OA\Property(property="equity", type="number", example=100001.71),
+     *                  @OA\Property(property="buying_power", type="number", example=50000),
+     *                  @OA\Property(property="cash", type="number", example=50000),
+     *                  @OA\Property(property="portfolio_value", type="number", example=100001.71)
+     *              )
+     *          )
+     *      ),
+     *      @OA\Response(response=500, description="Failed to retrieve market status")
+     * )
+     */
     public function getMarketStatus()
     {
         try {
