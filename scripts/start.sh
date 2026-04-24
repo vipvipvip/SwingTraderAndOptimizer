@@ -68,9 +68,14 @@ echo -e "${GREEN}✓ Directories created${NC}"
 echo ""
 echo -e "${YELLOW}Installing PHP dependencies...${NC}"
 cd "$BACKEND_DIR"
-composer install --quiet 2>/dev/null || {
+
+# Get composer path
+COMPOSER_PATH=$(which composer 2>/dev/null || echo "/mnt/c/ProgramData/ComposerSetup/bin/composer")
+
+# Use explicit PHP path with Composer (fixes WSL PATH issues)
+$PHP_CMD "$COMPOSER_PATH" install --quiet 2>/dev/null || {
     echo -e "${YELLOW}Composer install in progress (this may take a minute)...${NC}"
-    composer install
+    $PHP_CMD "$COMPOSER_PATH" install
 }
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 
