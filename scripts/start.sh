@@ -48,8 +48,13 @@ if ! command -v composer &> /dev/null; then
 fi
 echo -e "${GREEN}✓ Composer installed${NC}"
 
-# Export PHP command for use in rest of script
+# Export PHP command and add PHP directory to PATH so Composer can find it
 export PHP_CMD
+if [ -f "$PHP_CMD" ]; then
+    PHP_DIR=$(dirname "$PHP_CMD")
+    export PATH="$PHP_DIR:$PATH"
+    echo -e "${GREEN}✓ Added PHP to PATH: $PHP_DIR${NC}"
+fi
 
 # Create necessary directories
 echo ""
