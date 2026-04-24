@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from joblib import Parallel, delayed
 from dotenv import load_dotenv
 from data_fetcher import fetch_historical_data, save_data, load_data
@@ -137,7 +138,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     print(f"\n{'='*70}")
     print(f"NIGHTLY OPTIMIZER RUN")
-    print(f"Timestamp: {datetime.now().isoformat()}")
+    print(f"Timestamp: {datetime.now(ZoneInfo('America/New_York')).isoformat()}")
     print(f"Tickers: {', '.join(tickers)}")
     print(f"Timeframe: {timeframe}")
     print(f"{'='*70}\n")

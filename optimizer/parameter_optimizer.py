@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from strategies import SPYSwingTradingStrategy
 
 
@@ -259,7 +260,7 @@ class ParameterOptimizer:
                 return obj
 
         output = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(ZoneInfo('America/New_York')).isoformat(),
             'best_params': convert_to_native(best['params']),
             'best_metrics': convert_to_native(best['metrics']),
             'top_10_results': [

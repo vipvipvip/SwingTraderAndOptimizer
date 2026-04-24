@@ -2,6 +2,7 @@
 import sqlite3
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 
@@ -244,7 +245,7 @@ class StrategyDB:
                 trade['exit_at'],
                 float(trade['pnl_dollar']),
                 float(trade['pnl_pct']),
-                optimization_run or datetime.now().isoformat()
+                optimization_run or datetime.now(ZoneInfo('America/New_York')).isoformat()
             ))
 
         conn.commit()
@@ -297,7 +298,7 @@ class StrategyDB:
 
                 # Save equity curve points
                 for idx, equity_value in enumerate(equity_curve):
-                    snapshot_date = datetime.now().isoformat()
+                    snapshot_date = datetime.now(ZoneInfo('America/New_York')).isoformat()
                     cursor.execute('''
                         INSERT INTO equity_snapshots
                         (ticker_id, snapshot_date, equity_value, snapshot_type, source)

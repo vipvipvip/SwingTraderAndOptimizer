@@ -21,6 +21,32 @@ class AlpacaService
     }
 
     /**
+     * Get market clock status
+     */
+    public function getClock()
+    {
+        try {
+            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
+                ->get("{$this->baseUrl}/v2/clock");
+
+            if ($response->failed()) {
+                throw new \Exception("Alpaca API error: " . $response->body());
+            }
+
+            $data = $response->json();
+            return [
+                'is_open' => $data['is_open'] ?? false,
+                'next_open' => $data['next_open'] ?? null,
+                'next_close' => $data['next_close'] ?? null,
+                'timestamp' => $data['timestamp'] ?? null,
+            ];
+        } catch (\Exception $e) {
+            Log::error('AlpacaService::getClock error: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
      * Get account information
      */
     public function getAccount()
@@ -101,10 +127,10 @@ class AlpacaService
             ];
 
             if ($start) {
-                $params['start'] = $start->toIso8601String();
+                $params['start'] = is_string($start) ? $start : $start->toIso8601String();
             }
             if ($end) {
-                $params['end'] = $end->toIso8601String();
+                $params['end'] = is_string($end) ? $end : $end->toIso8601String();
             }
 
             $response = Http::withBasicAuth($this->apiKey, $this->secretKey)

@@ -3,6 +3,7 @@
 import sys
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 env_path = os.path.join(os.path.dirname(__file__), '..', 'backend', '.env')
@@ -18,7 +19,7 @@ def run_nightly_lite(tickers=None):
     
     print(f"\n{'='*70}")
     print(f"NIGHTLY OPTIMIZER LITE (Testing Mode)")
-    print(f"Timestamp: {datetime.now().isoformat()}")
+    print(f"Timestamp: {datetime.now(ZoneInfo('America/New_York')).isoformat()}")
     print(f"Tickers: {', '.join(tickers)}")
     print(f"{'='*70}\n", flush=True)
     

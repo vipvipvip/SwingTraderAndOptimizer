@@ -1,6 +1,7 @@
 """Fetch OHLCV data from Alpaca using modern alpaca-py SDK"""
 import os
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
@@ -28,7 +29,7 @@ def fetch_historical_data(symbol, timeframe='1Day', years=2):
         DataFrame with OHLCV data, indexed by timestamp
     """
 
-    end_date = datetime.now()
+    end_date = datetime.now(ZoneInfo('America/New_York'))
     start_date = end_date - timedelta(days=365 * years)
 
     print(f"Fetching {symbol} data from {start_date.date()} to {end_date.date()}")
@@ -111,7 +112,7 @@ def save_data(df, symbol, timeframe='1Day'):
     if not os.path.exists('data'):
         os.makedirs('data')
 
-    filename = f"data/{symbol}_{timeframe}_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"data/{symbol}_{timeframe}_{datetime.now(ZoneInfo('America/New_York')).strftime('%Y%m%d')}.csv"
     df.to_csv(filename)
     print(f"Data saved to {filename}")
     return filename
