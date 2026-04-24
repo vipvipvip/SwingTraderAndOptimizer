@@ -41,19 +41,11 @@ fi
 PHP_VERSION=$($PHP_CMD -v 2>/dev/null | head -1)
 echo -e "${GREEN}✓ $PHP_VERSION${NC}"
 
-if ! command -v composer &> /dev/null; then
-    echo -e "${RED}✗ Composer not found${NC}"
-    echo "   Install from: https://getcomposer.org/download/"
-    exit 1
-fi
-echo -e "${GREEN}✓ Composer installed${NC}"
-
-# Export PHP command and add PHP directory to PATH so Composer can find it
+# Export PHP command and add PHP directory to PATH
 export PHP_CMD
 if [ -f "$PHP_CMD" ]; then
     PHP_DIR=$(dirname "$PHP_CMD")
     export PATH="$PHP_DIR:$PATH"
-    echo -e "${GREEN}✓ Added PHP to PATH: $PHP_DIR${NC}"
 fi
 
 # Create necessary directories
@@ -64,20 +56,25 @@ mkdir -p "$BACKEND_DIR/storage/app"
 mkdir -p "$OPTIMIZER_DIR/logs"
 echo -e "${GREEN}✓ Directories created${NC}"
 
-# Install dependencies
-echo ""
-echo -e "${YELLOW}Installing PHP dependencies...${NC}"
-cd "$BACKEND_DIR"
+# Check if dependencies are installed
+if [ ! -d "$BACKEND_DIR/vendor" ]; then
+    echo ""
+    echo -e "${YELLOW}Installing PHP dependencies...${NC}"
 
-# Get composer path
-COMPOSER_PATH=$(which composer 2>/dev/null || echo "/mnt/c/ProgramData/ComposerSetup/bin/composer")
+    if ! command -v composer &> /dev/null; then
+        echo -e "${RED}✗ Composer not found - needed to install dependencies${NC}"
+        echo "   Install from: https://getcomposer.org/download/"
+        echo "   Or run: php composer-setup.php"
+        exit 1
+    fi
 
-# Use explicit PHP path with Composer (fixes WSL PATH issues)
-$PHP_CMD "$COMPOSER_PATH" install --quiet 2>/dev/null || {
-    echo -e "${YELLOW}Composer install in progress (this may take a minute)...${NC}"
+    cd "$BACKEND_DIR"
+    COMPOSER_PATH=$(which composer)
     $PHP_CMD "$COMPOSER_PATH" install
-}
-echo -e "${GREEN}✓ Dependencies installed${NC}"
+    echo -e "${GREEN}✓ Dependencies installed${NC}"
+else
+    echo -e "${GREEN}✓ Dependencies already installed${NC}"
+fi
 
 # Check .env file
 echo ""
