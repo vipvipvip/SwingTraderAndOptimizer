@@ -250,13 +250,14 @@ class StrategyDB:
         conn.commit()
 
     def get_laravel_allocation_weight(self, symbol, default=10):
-        """Fetch allocation_weight for a symbol from Laravel database (default 10% if not found)"""
+        """Fetch allocation_weight for a symbol from shared database (default 10% if not found)"""
         try:
-            laravel_db_path = Path(__file__).parent.parent / 'backend' / 'database' / 'database.sqlite'
-            if not laravel_db_path.exists():
+            # Use the same database as the optimizer (already initialized in __init__)
+            db_path = Path(self.db_path)
+            if not db_path.exists():
                 return default
 
-            with sqlite3.connect(str(laravel_db_path)) as conn:
+            with sqlite3.connect(str(db_path)) as conn:
                 cursor = conn.cursor()
                 cursor.execute('SELECT allocation_weight FROM tickers WHERE symbol = ?', (symbol,))
                 row = cursor.fetchone()
@@ -268,16 +269,17 @@ class StrategyDB:
         return default
 
     def save_equity_curve(self, symbol, metrics, equity_curve):
-        """Save equity curve to Laravel backend database (EquitySnapshot table)"""
+        """Save equity curve to shared database (EquitySnapshot table)"""
         if not equity_curve or len(equity_curve) < 2:
             return
 
         try:
-            laravel_db_path = Path(__file__).parent.parent / 'backend' / 'optimized_params' / 'strategy_params.db'
-            if not laravel_db_path.exists():
+            # Use the same database as the optimizer (already initialized in __init__)
+            db_path = Path(self.db_path)
+            if not db_path.exists():
                 return
 
-            with sqlite3.connect(str(laravel_db_path)) as conn:
+            with sqlite3.connect(str(db_path)) as conn:
                 cursor = conn.cursor()
 
                 # Get ticker_id from Laravel database
@@ -310,8 +312,9 @@ class StrategyDB:
 
                 conn.commit()
         except Exception as e:
-            # Silently fail if backend DB not available
-            pass
+            print(f"[ERROR] Failed to save equity curve: {e}")
+            import traceback
+            traceback.print_exc()
 
     def close(self):
         """Close database connection"""

@@ -101,6 +101,7 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
         'params': best_result['params'],
         'metrics': best_result['metrics'],
         'trades': best_result.get('trades', []),
+        'equity_curve': best_result.get('equity_curve', []),
         'runtime': runtime,
         'combos': combos,
     }
