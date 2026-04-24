@@ -55,40 +55,41 @@ class PriceAcquisitionService
     }
 
     /**
-     * Fetch current price using multiple free sources (fallback chain)
+     * Fetch current price from Alpaca latest quote endpoint
      */
     private function fetchWSJPrice($symbol)
     {
-        // Try IEX API (free tier)
         try {
-            return $this->fetchIEXPrice($symbol);
+            return $this->fetchAlpacaLatestPrice($symbol);
         } catch (\Exception $e) {
-            Log::debug("IEX fetch failed: " . $e->getMessage());
+            Log::warning("Could not fetch price for {$symbol}: " . $e->getMessage());
+            throw $e;
         }
-
-        // Fallback: return account equity instead of failing
-        throw new \Exception("Could not fetch price from any source");
     }
 
     /**
-     * Fetch from IEX Cloud (free tier available)
+     * Fetch latest quote from Alpaca (current price)
      */
-    private function fetchIEXPrice($symbol)
+    private function fetchAlpacaLatestPrice($symbol)
     {
-        $token = env('IEX_CLOUD_TOKEN', 'pk_test0123456789');
-        $url = "https://cloud.iexapis.com/v1/data/core_quote/{$symbol}?token={$token}";
+        $apiKey = env('ALPACA_API_KEY');
+        $secretKey = env('ALPACA_SECRET_KEY');
+        $dataUrl = 'https://data.alpaca.markets';
 
-        $response = \Illuminate\Support\Facades\Http::timeout(5)->get($url);
+        $response = \Illuminate\Support\Facades\Http::withBasicAuth($apiKey, $secretKey)
+            ->timeout(5)
+            ->get("{$dataUrl}/v2/stocks/{$symbol}/quotes/latest");
 
         if ($response->failed()) {
-            throw new \Exception("IEX API error: " . $response->status());
+            throw new \Exception("Alpaca API error: " . $response->status() . " - " . $response->body());
         }
 
         $data = $response->json();
-        $price = $data[0]['latestPrice'] ?? $data['latestPrice'] ?? null;
+        $quote = $data['quote'] ?? $data;
+        $price = $quote['ap'] ?? $quote['ask'] ?? $quote['bid'] ?? null;
 
         if (!$price || $price === 0) {
-            throw new \Exception("No valid price in IEX response");
+            throw new \Exception("No valid price in Alpaca response");
         }
 
         return floatval($price);
