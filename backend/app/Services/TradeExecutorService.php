@@ -469,14 +469,19 @@ class TradeExecutorService
             return 0; // Not enough data
         }
 
-        // Extract parameters with defaults
-        $smaShortPeriod = $params['sma_short_period'] ?? 20;
-        $smaLongPeriod = $params['sma_long_period'] ?? 200;
-        $macdFast = $params['macd_fast'] ?? 12;
-        $macdSlow = $params['macd_slow'] ?? 26;
-        $macdSignal = $params['macd_signal'] ?? 9;
-        $bbPeriod = $params['bb_period'] ?? 20;
-        $bbStdDev = $params['bb_stddev'] ?? 2;
+        if (!$params) {
+            \Log::warning("$symbol: No parameters available for signal calculation");
+            return 0;
+        }
+
+        // Extract nightly-optimized parameters from database
+        $macdFast = intval($params['macd_fast'] ?? 12);
+        $macdSlow = intval($params['macd_slow'] ?? 26);
+        $macdSignal = intval($params['macd_signal'] ?? 9);
+        $smaShortPeriod = intval($params['sma_short'] ?? 20);
+        $smaLongPeriod = intval($params['sma_long'] ?? 200);
+        $bbPeriod = intval($params['bb_period'] ?? 20);
+        $bbStdDev = floatval($params['bb_std'] ?? 2);
 
         // Validate we have enough data for longest period needed
         if (count($closes) < $smaLongPeriod) {
@@ -523,7 +528,7 @@ class TradeExecutorService
         $prevPriceAboveBB = $prevPrice >= $currentBBLower;
         $bbBreak = $priceBelowBB && $prevPriceAboveBB;
 
-        \Log::debug("$symbol signal calc: price=$currentPrice, smaShort=$currentSmaShort, smaLong=$currentSmaLong, macd=$currentMacd, signal=$currentSignal, bbLower=$currentBBLower, bbUpper=$currentBBUpper");
+        \Log::debug("$symbol signal calc: params=(MACD:$macdFast/$macdSlow/$macdSignal, SMA:$smaShortPeriod/$smaLongPeriod, BB:$bbPeriod/$bbStdDev), price=$currentPrice, smaShort=$currentSmaShort, smaLong=$currentSmaLong, macd=$currentMacd, signal=$currentSignal, bbLower=$currentBBLower, bbUpper=$currentBBUpper");
 
         // BUY: MACD bullish + price above SMAs + near lower BB
         if ($macdBullishCross && $priceAboveSMAs && $priceNearLowerBB) {
