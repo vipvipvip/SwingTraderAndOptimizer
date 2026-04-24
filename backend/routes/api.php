@@ -11,7 +11,7 @@
  * )
  *
  * @OA\Server(
- *      url="http://localhost:8000",
+ *      url="http://localhost:9000",
  *      description="Development Server"
  * )
  *
@@ -55,6 +55,8 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\EquityController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\BacktestTradesController;
+
+Route::get('/health', fn () => response()->json(['status' => 'ok']));
 
 Route::prefix('v1')->group(function () {
     Route::get('/tickers', [TickerController::class, 'index']);

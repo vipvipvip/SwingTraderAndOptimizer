@@ -7,7 +7,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $OptimizerDir = Join-Path $ProjectRoot "optimizer"
 $BackendDir = Join-Path $ProjectRoot "backend"
-$BackendUrl = "http://localhost:8000"
+$BackendUrl = "http://localhost:9000"
 
 # Colors
 $Red = "Red"

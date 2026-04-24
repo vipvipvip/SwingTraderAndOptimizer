@@ -14,7 +14,7 @@ php artisan config:clear && php artisan cache:clear
 # 2. Kill old backend process (Ctrl+C in terminal)
 # 3. Restart backend fresh
 cd backend
-php artisan serve --host=127.0.0.1 --port=8000
+php artisan serve --host=127.0.0.1 --port=9000
 
 # 4. THEN tell user "Ready to test" — don't ask them to restart
 ```
@@ -78,7 +78,7 @@ DB_DATABASE=../optimizer/optimized_params/strategy_params.db
 **How to apply:**
 ```bash
 # Create endpoint → implement method → test via curl
-curl -X PUT http://localhost:8000/api/v1/tickers/SPY/allocation \
+curl -X PUT http://localhost:9000/api/v1/tickers/SPY/allocation \
   -H "Content-Type: application/json" \
   -d '{"allocation_weight": 50}'
 ```

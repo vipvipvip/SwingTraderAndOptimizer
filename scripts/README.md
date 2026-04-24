@@ -40,15 +40,15 @@ bash scripts/start-all.sh
 ```
 
 **Starts:**
-- Backend API on http://localhost:8000
+- Backend API on http://localhost:9000
 - Frontend dashboard on http://localhost:5173
 - Auto-installs frontend dependencies if needed
 - Handles cleanup on Ctrl+C
 
 **Access:**
 - Dashboard: http://localhost:5173
-- API: http://localhost:8000
-- API Docs: http://localhost:8000/api/documentation
+- API: http://localhost:9000
+- API Docs: http://localhost:9000/api/documentation
 
 ### `setup.sh` — One-time initialization
 Checks prerequisites and configures the application:
@@ -72,25 +72,25 @@ Minimal startup script. Assumes setup already complete.
 bash scripts/start.sh
 ```
 
-Starts Laravel development server on `http://localhost:8000`
+Starts Laravel development server on `http://localhost:9000`
 
 ## After Startup
 
 **API Documentation (Swagger UI):**
 ```
-http://localhost:8000/api/documentation
+http://localhost:9000/api/documentation
 ```
 
 **Manual API Triggers:**
 ```bash
 # Execute trades now
-curl -X POST http://localhost:8000/api/v1/admin/trades/trigger
+curl -X POST http://localhost:9000/api/v1/admin/trades/trigger
 
 # Run optimizer now
-curl -X POST http://localhost:8000/api/v1/admin/optimize/trigger
+curl -X POST http://localhost:9000/api/v1/admin/optimize/trigger
 
 # Check market status
-curl http://localhost:8000/api/v1/admin/market-status
+curl http://localhost:9000/api/v1/admin/market-status
 ```
 
 **Monitor Logs:**
@@ -138,8 +138,8 @@ sudo mv composer.phar /usr/local/bin/composer
 composer --version
 ```
 
-**Port 8000 already in use:**
-Edit `scripts/start.sh` and change `--port=8000` to another port.
+**Port 9000 already in use:**
+Edit `scripts/start.sh` and change `--port=9000` to another port.
 
 **Database locked:**
 ```bash

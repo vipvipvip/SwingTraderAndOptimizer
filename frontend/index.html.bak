@@ -73,7 +73,7 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:8000/api/v1';
+        const API_BASE = 'http://localhost:9000/api/v1';
 
         async function fetchAPI(endpoint) {
             try {

@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 OPTIMIZER_DIR="$PROJECT_ROOT/optimizer"
 BACKEND_DIR="$PROJECT_ROOT/backend"
-BACKEND_URL="http://localhost:8000"
+BACKEND_URL="http://localhost:9000"
 
 # Colors for output
 RED='\033[0;31m'

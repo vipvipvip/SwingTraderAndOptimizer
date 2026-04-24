@@ -145,9 +145,9 @@ Exit code 0 = success. Non-zero = check Python package imports and Alpaca API ke
 ### 4. Run the Application
 
 ```bash
-# Terminal 1: Laravel backend (port 8000)
+# Terminal 1: Laravel backend (port 9000)
 cd backend
-php artisan serve --host=127.0.0.1 --port=8000
+php artisan serve --host=127.0.0.1 --port=9000
 
 # Terminal 2: Svelte frontend (port 5173) — must use Node 18
 cd frontend
@@ -269,7 +269,7 @@ NIGHTLY_SCRIPT="../optimizer/nightly_optimizer.py"
 Each ticker has a configurable allocation weight (percentage of portfolio to allocate):
 ```bash
 # Via API:
-curl -X PUT http://localhost:8000/api/v1/tickers/SPY/allocation \
+curl -X PUT http://localhost:9000/api/v1/tickers/SPY/allocation \
   -H "Content-Type: application/json" \
   -d '{"allocation_weight": 50}'
 
@@ -498,7 +498,7 @@ The system has **two layers** of protection to avoid after-hours or holiday trad
 1. Check Laravel is running: `cd backend && php artisan tinker` (should start REPL)
 2. Verify database exists: `ls ../optimizer/optimized_params/strategy_params.db`
 3. Check database has data: `sqlite3 ../optimizer/optimized_params/strategy_params.db "SELECT * FROM strategy_parameters LIMIT 1;"`
-4. Verify API endpoint: `curl http://localhost:8000/api/v1/tickers`
+4. Verify API endpoint: `curl http://localhost:9000/api/v1/tickers`
 
 ### Optimizer Not Finding Data
 
@@ -574,7 +574,7 @@ tail -f ../optimizer/logs/nightly.log
 
 ```bash
 # Via API:
-curl -X PUT http://localhost:8000/api/v1/tickers/SPY/allocation \
+curl -X PUT http://localhost:9000/api/v1/tickers/SPY/allocation \
   -H "Content-Type: application/json" \
   -d '{"allocation_weight": 40}'
 
@@ -584,13 +584,13 @@ curl -X PUT http://localhost:8000/api/v1/tickers/SPY/allocation \
 ### View Backtest Trades (from nightly optimizer)
 
 ```bash
-curl http://localhost:8000/api/v1/trades/backtest
+curl http://localhost:9000/api/v1/trades/backtest
 ```
 
 ### View Live Trades (executed orders)
 
 ```bash
-curl http://localhost:8000/api/v1/trades/pnl
+curl http://localhost:9000/api/v1/trades/pnl
 ```
 
 ### Inspect Database
@@ -619,7 +619,7 @@ ORDER BY bt.entry_date DESC LIMIT 20;
 ```bash
 php artisan config:clear
 php artisan cache:clear
-php artisan serve --host=127.0.0.1 --port=8000  # Restart backend
+php artisan serve --host=127.0.0.1 --port=9000  # Restart backend
 ```
 
 ---

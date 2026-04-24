@@ -15,8 +15,8 @@ Run this every morning to verify overnight optimizer run:
 Or manually:
 ```bash
 tail -5 optimizer/logs/nightly.log
-curl http://localhost:8000/api/v1/tickers | jq '.[0].params.updated_at'
-curl http://localhost:8000/api/v1/trades/pnl | jq '{trades: (.recent_trades | length), return: .total_return}'
+curl http://localhost:9000/api/v1/tickers | jq '.[0].params.updated_at'
+curl http://localhost:9000/api/v1/trades/pnl | jq '{trades: (.recent_trades | length), return: .total_return}'
 ```
 
 ---
@@ -36,7 +36,7 @@ tail -100 optimizer/logs/nightly.log | tail -5
 # [2026-04-21 03:54:33] Optimizer finished (exit: 0)
 
 # 2. Verify all 3 tickers updated
-curl http://localhost:8000/api/v1/tickers | jq '.[].params | {symbol: input.symbol, updated_at, sharpe: sharpe_ratio}'
+curl http://localhost:9000/api/v1/tickers | jq '.[].params | {symbol: input.symbol, updated_at, sharpe: sharpe_ratio}'
 
 # 3. Check for errors in Laravel logs
 tail -50 backend/storage/logs/laravel.log | grep -i "error\|exception" | head -10
@@ -65,7 +65,7 @@ tail -20 backend/storage/logs/laravel.log | grep "ExecuteDailyTrades"
 # Expected: Every ~30 minutes during market hours
 
 # 2. View current account equity
-curl http://localhost:8000/api/v1/account | jq '{
+curl http://localhost:9000/api/v1/account | jq '{
   equity: .equity,
   buying_power: .buying_power,
   cash: .cash,
@@ -73,7 +73,7 @@ curl http://localhost:8000/api/v1/account | jq '{
 }'
 
 # 3. Check if positions are open
-curl http://localhost:8000/api/v1/trades/pnl | jq '{
+curl http://localhost:9000/api/v1/trades/pnl | jq '{
   recent_trades: (.recent_trades | length),
   open_positions: .positions | length,
   today_return: .total_return
@@ -86,7 +86,7 @@ grep "PositionsSync" backend/storage/logs/laravel.log | tail -3
 
 **If no trades during market hours:**
 - Is market actually open? Check: `curl -s https://paper-api.alpaca.markets/v2/clock | jq .is_open`
-- Check trade signals: `curl http://localhost:8000/api/v1/equity/SPY | jq '.signal'`
+- Check trade signals: `curl http://localhost:9000/api/v1/equity/SPY | jq '.signal'`
 - Verify Laravel scheduler is running: Check `SwingTrader-LaravelScheduler` WTS task
 - Check for database locks: `tail -50 backend/storage/logs/laravel.log | grep -i "locked\|error"`
 
@@ -98,10 +98,10 @@ grep "PositionsSync" backend/storage/logs/laravel.log | tail -3
 
 ```bash
 # 1. Check equity snapshot was recorded
-curl http://localhost:8000/api/v1/equity/SPY | jq '.daily_snapshots[-1]'
+curl http://localhost:9000/api/v1/equity/SPY | jq '.daily_snapshots[-1]'
 
 # 2. Today's P&L summary
-curl http://localhost:8000/api/v1/trades/pnl | jq '{
+curl http://localhost:9000/api/v1/trades/pnl | jq '{
   total_return: .total_return,
   win_rate: .win_rate,
   sharpe: .sharpe_ratio,
@@ -109,7 +109,7 @@ curl http://localhost:8000/api/v1/trades/pnl | jq '{
 }'
 
 # 3. Check all tickers' current parameters
-curl http://localhost:8000/api/v1/tickers | jq '.[] | {
+curl http://localhost:9000/api/v1/tickers | jq '.[] | {
   symbol,
   allocation_weight,
   sharpe: .params.sharpe_ratio,
@@ -138,19 +138,19 @@ curl http://localhost:8000/api/v1/tickers | jq '.[] | {
 
 ```bash
 # 1. Win rate trend (should stay 70%+)
-curl http://localhost:8000/api/v1/trades/pnl | jq '.win_rate'
+curl http://localhost:9000/api/v1/trades/pnl | jq '.win_rate'
 
 # 2. Sharpe ratio per ticker (should be 15+)
-curl http://localhost:8000/api/v1/tickers | jq '.[] | {symbol, sharpe: .params.sharpe_ratio}'
+curl http://localhost:9000/api/v1/tickers | jq '.[] | {symbol, sharpe: .params.sharpe_ratio}'
 
 # 3. Cumulative P&L
-curl http://localhost:8000/api/v1/trades/pnl | jq '.total_return'
+curl http://localhost:9000/api/v1/trades/pnl | jq '.total_return'
 
 # 4. Allocation weight review
-curl http://localhost:8000/api/v1/tickers | jq '.[] | {symbol, allocation: .allocation_weight}'
+curl http://localhost:9000/api/v1/tickers | jq '.[] | {symbol, allocation: .allocation_weight}'
 
 # 5. Recent backtest trades quality
-curl http://localhost:8000/api/v1/trades/backtest | jq '[limit(10; .[]) | {symbol, pnl_dollar, allocation_weight}]'
+curl http://localhost:9000/api/v1/trades/backtest | jq '[limit(10; .[]) | {symbol, pnl_dollar, allocation_weight}]'
 ```
 
 **If performance drops below thresholds:**
@@ -266,7 +266,7 @@ curl -H "Authorization: Bearer $(grep ALPACA_API_KEY backend/.env | cut -d= -f2)
 fuser ../optimizer/optimized_params/strategy_params.db 2>/dev/null || echo "Database not locked"
 
 # 5. Restart services
-php artisan serve --port=8000 &
+php artisan serve --port=9000 &
 cd ../frontend && npm run dev &
 ```
 
@@ -290,7 +290,7 @@ php artisan config:clear
 php artisan cache:clear
 
 # Restart backend
-php artisan serve --port=8000
+php artisan serve --port=9000
 
 # Hard refresh frontend (Ctrl+Shift+R in browser)
 ```

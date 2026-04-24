@@ -36,7 +36,7 @@ trap cleanup SIGINT SIGTERM
 echo -e "${GREEN}Starting Backend API...${NC}"
 mkdir -p "$BACKEND_DIR/storage/logs"
 cd "$BACKEND_DIR"
-php artisan serve --host=0.0.0.0 --port=8000 > /tmp/backend.log 2>&1 &
+php artisan serve --host=127.0.0.1 --port=9000 > /tmp/backend.log 2>&1 &
 BACKEND_PID=$!
 echo -e "${GREEN}✓ Backend PID: $BACKEND_PID${NC}"
 
@@ -64,8 +64,8 @@ echo "Swing Trader Running"
 echo "==========================================${NC}"
 echo ""
 echo -e "${GREEN}Dashboard UI:${NC}      ${YELLOW}http://localhost:5173${NC}"
-echo -e "${GREEN}API Server:${NC}       ${YELLOW}http://localhost:8000${NC}"
-echo -e "${GREEN}API Docs:${NC}         ${YELLOW}http://localhost:8000/api/documentation${NC}"
+echo -e "${GREEN}API Server:${NC}       ${YELLOW}http://localhost:9000${NC}"
+echo -e "${GREEN}API Docs:${NC}         ${YELLOW}http://localhost:9000/api/documentation${NC}"
 echo ""
 echo -e "${YELLOW}Logs:${NC}"
 echo "  Backend:  tail -f /tmp/backend.log"
