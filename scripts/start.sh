@@ -22,17 +22,34 @@ NC='\033[0m' # No Color
 # Check prerequisites
 echo -e "${YELLOW}Checking prerequisites...${NC}"
 
+# Find PHP executable (handle WSL/Windows paths)
+PHP_CMD="php"
 if ! command -v php &> /dev/null; then
-    echo -e "${RED}✗ PHP not found${NC}"
-    exit 1
+    # Try WSL Windows PHP paths
+    if [ -f "/mnt/c/php/php.exe" ]; then
+        PHP_CMD="/mnt/c/php/php.exe"
+    elif [ -f "/mnt/c/Program Files/php/php.exe" ]; then
+        PHP_CMD="/mnt/c/Program Files/php/php.exe"
+    else
+        echo -e "${RED}✗ PHP not found${NC}"
+        echo "   Add PHP to PATH or check:"
+        echo "   - /mnt/c/php/php.exe (WSL)"
+        echo "   - /usr/bin/php (Linux)"
+        exit 1
+    fi
 fi
-echo -e "${GREEN}✓ PHP $(php -v | head -1)${NC}"
+PHP_VERSION=$($PHP_CMD -v 2>/dev/null | head -1)
+echo -e "${GREEN}✓ $PHP_VERSION${NC}"
 
 if ! command -v composer &> /dev/null; then
     echo -e "${RED}✗ Composer not found${NC}"
+    echo "   Install from: https://getcomposer.org/download/"
     exit 1
 fi
 echo -e "${GREEN}✓ Composer installed${NC}"
+
+# Export PHP command for use in rest of script
+export PHP_CMD
 
 # Create necessary directories
 echo ""
@@ -69,7 +86,7 @@ fi
 if ! grep -q "APP_KEY=" "$BACKEND_DIR/.env" || grep -q "APP_KEY=$" "$BACKEND_DIR/.env"; then
     echo -e "${YELLOW}Generating APP_KEY...${NC}"
     cd "$BACKEND_DIR"
-    php artisan key:generate
+    $PHP_CMD artisan key:generate
     echo -e "${GREEN}✓ APP_KEY generated${NC}"
 fi
 
@@ -77,7 +94,7 @@ fi
 echo ""
 echo -e "${YELLOW}Running database migrations...${NC}"
 cd "$BACKEND_DIR"
-php artisan migrate --force --quiet 2>/dev/null || true
+$PHP_CMD artisan migrate --force --quiet 2>/dev/null || true
 echo -e "${GREEN}✓ Database ready${NC}"
 
 # Verify cron setup
@@ -122,4 +139,4 @@ echo "  GET  /api/v1/account/positions         - Open positions"
 echo ""
 
 # Start the server
-php artisan serve --host=0.0.0.0 --port=8000
+$PHP_CMD artisan serve --host=0.0.0.0 --port=8000
