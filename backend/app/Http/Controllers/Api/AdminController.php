@@ -98,4 +98,38 @@ class AdminController extends Controller
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
+
+    public function getPositions()
+    {
+        try {
+            $alpacaService = app('App\Services\AlpacaService');
+            $positions = $alpacaService->getPositions();
+            $account = $alpacaService->getAccount();
+
+            return response()->json([
+                'success' => true,
+                'positions' => $positions,
+                'account' => $account,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getMarketStatus()
+    {
+        try {
+            $alpacaService = app('App\Services\AlpacaService');
+            $clock = $alpacaService->getClock();
+            $account = $alpacaService->getAccount();
+
+            return response()->json([
+                'success' => true,
+                'market' => $clock,
+                'account' => $account,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
 }
