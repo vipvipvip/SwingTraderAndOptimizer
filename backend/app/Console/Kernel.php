@@ -13,6 +13,15 @@ class Kernel extends ConsoleKernel
         // See scripts/setup-optimizer-wts.ps1 (Windows) or scripts/setup-optimizer-cron.sh (Linux)
         // Manual trigger: php artisan optimize:nightly
 
+        // Fetch prices: 9:30 AM, then hourly 10 AM - 4 PM ET (weekdays only)
+        $schedule->command('prices:fetch')
+            ->cron('30 9 * * 1-5')
+            ->timezone('America/New_York');
+
+        $schedule->command('prices:fetch')
+            ->cron('0 10,11,12,13,14,15,16 * * 1-5')
+            ->timezone('America/New_York');
+
         $schedule->command('trades:execute-daily')
             ->everyThirtyMinutes()
             ->weekdays()

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Ticker;
 use App\Models\LiveTrade;
 use App\Models\PositionCache;
+use App\Models\IntraDayPrice;
 
 class TradeExecutorService
 {
@@ -56,6 +57,110 @@ class TradeExecutorService
         }
 
         return $results;
+    }
+
+    /**
+     * Manual buy for testing
+     */
+    public function manualBuy($symbol, $qty = null)
+    {
+        $ticker = Ticker::where('symbol', $symbol)->first();
+        if (!$ticker) {
+            throw new \Exception("Ticker {$symbol} not found");
+        }
+
+        $account = $this->alpacaService->getAccount();
+        $accountEquity = $account['equity'] ?? 100000;
+
+        if (!$qty) {
+            // Use allocation weight to calculate qty
+            $allocationWeight = ($ticker->allocation_weight ?? 33.33) / 100;
+            $allocatedCapital = $accountEquity * $allocationWeight;
+            // Use average price estimate
+            $qty = max(1, intval($allocatedCapital / 150));
+        }
+
+        $order = $this->alpacaService->placeOrder($symbol, $qty, 'buy');
+
+        LiveTrade::create([
+            'ticker_id' => $ticker->id,
+            'symbol' => $symbol,
+            'side' => 'BUY',
+            'quantity' => $qty,
+            'entry_price' => 0,
+            'entry_at' => now(),
+            'status' => 'open',
+            'alpaca_order_id' => $order['id'] ?? null,
+            'strategy_signal' => 'MANUAL_BUY',
+        ]);
+
+        \Log::info("MANUAL BUY {$symbol} qty={$qty}");
+        return ['success' => true, 'symbol' => $symbol, 'qty' => $qty, 'order_id' => $order['id'] ?? null];
+    }
+
+    /**
+     * Manual sell for testing
+     */
+    public function manualSell($symbol, $qty = null)
+    {
+        // For manual testing, qty is required or get from open position
+        $sellQty = $qty;
+
+        if (!$sellQty) {
+            try {
+                $position = PositionCache::where('symbol', $symbol)->first();
+                if ($position) {
+                    $sellQty = $position->qty;
+                }
+            } catch (\Exception $e) {
+                // PositionCache table may not exist
+                \Log::debug("PositionCache lookup failed: " . $e->getMessage());
+            }
+        }
+
+        // Fallback to LiveTrade if PositionCache unavailable
+        if (!$sellQty) {
+            try {
+                $openTrade = LiveTrade::where('symbol', $symbol)
+                    ->where('status', 'open')
+                    ->first();
+                if ($openTrade) {
+                    $sellQty = $openTrade->quantity;
+                }
+            } catch (\Exception $e) {
+                \Log::debug("LiveTrade lookup failed: " . $e->getMessage());
+            }
+        }
+
+        if (!$sellQty) {
+            throw new \Exception("No quantity specified and no position found for {$symbol}");
+        }
+
+        $order = $this->alpacaService->placeOrder($symbol, $sellQty, 'sell');
+
+        try {
+            $position = PositionCache::where('symbol', $symbol)->first();
+            if ($position) {
+                $position->delete();
+            }
+        } catch (\Exception $e) {
+            \Log::debug("Could not delete position: " . $e->getMessage());
+        }
+
+        try {
+            LiveTrade::where('symbol', $symbol)
+                ->where('status', 'open')
+                ->update([
+                    'exit_price' => 0,
+                    'exit_at' => now(),
+                    'status' => 'closed',
+                ]);
+        } catch (\Exception $e) {
+            \Log::debug("Could not update live trades: " . $e->getMessage());
+        }
+
+        \Log::info("MANUAL SELL {$symbol} qty={$sellQty}");
+        return ['success' => true, 'symbol' => $symbol, 'qty' => $sellQty, 'order_id' => $order['id'] ?? null];
     }
 
     public function forceTestAllTickers($qty = 1)
@@ -119,38 +224,171 @@ class TradeExecutorService
 
         $params = $strategy['params'];
 
-        $timeframe = env('TRADING_TIMEFRAME', '1Hour');
-        $end = date('Y-m-d');
-        $start = date('Y-m-d', strtotime('-60 days'));
-        $bars = $this->alpacaService->getBars($symbol, $timeframe, $start, $end);
-
-        if (empty($bars)) {
-            \Log::warning("No bars fetched for $symbol");
+        // Get current price: primary from bars, fallback to intra_day_prices
+        $currentPrice = $this->getCurrentPrice($symbol);
+        if (!$currentPrice) {
+            \Log::warning("No current price available for $symbol, skipping signal");
             return null;
         }
 
-        $closes = array_column($bars, 'c');
-        $signal = $this->computeSignal($closes, $params);
+        // Build price series: bars + intra_day prices combined
+        $closes = $this->getPriceClosesForSignal($symbol);
+        if (empty($closes) || count($closes) < 26) {
+            // Need at least 26 periods for MACD calculation
+            \Log::warning("$symbol: Not enough price data for signal (have " . count($closes) . ", need 26+)");
+            return null;
+        }
+
+        $signal = $this->computeSignal($closes, $params, $symbol);
 
         if ($signal === 0) {
             return null;
         }
 
-        $position = PositionCache::where('symbol', $symbol)->first();
-        $currentPrice = end($closes);
+        if ($signal === 1) {
+            return $this->handleBuySignal($symbol, $currentPrice);
+        } elseif ($signal === -1) {
+            return $this->handleSellSignal($symbol, $currentPrice);
+        }
 
-        if ($signal === 1 && !$position) {
-            $ticker = Ticker::where('symbol', $symbol)->first();
-            $account = $this->alpacaService->getAccount();
-            $accountEquity = $account['equity'] ?? 100000;
-            $allocationWeight = ($ticker?->allocation_weight ?? 33.33) / 100;
-            $allocatedCapital = $accountEquity * $allocationWeight;
-            $qty = intval($allocatedCapital / $currentPrice);
+        return null;
+    }
 
-            $order = $this->alpacaService->placeOrder($symbol, 'buy', $qty);
+    /**
+     * Get price series from bars + intra_day prices, sorted chronologically
+     */
+    private function getPriceClosesForSignal($symbol)
+    {
+        $closes = [];
+
+        // Get bars (historical hourly data)
+        try {
+            $timeframe = env('TRADING_TIMEFRAME', '1Hour');
+            $end = date('Y-m-d');
+            $start = date('Y-m-d', strtotime('-60 days'));
+            $bars = $this->alpacaService->getBars($symbol, $timeframe, $start, $end);
+
+            if (!empty($bars)) {
+                // Sort by timestamp ascending
+                usort($bars, function ($a, $b) {
+                    return strtotime($a['t'] ?? $a['timestamp'] ?? 0) <=> strtotime($b['t'] ?? $b['timestamp'] ?? 0);
+                });
+
+                foreach ($bars as $bar) {
+                    $closes[] = floatval($bar['c'] ?? $bar['close'] ?? 0);
+                }
+                \Log::debug("$symbol: Loaded " . count($bars) . " bars from Alpaca");
+            }
+        } catch (\Exception $e) {
+            \Log::debug("Could not fetch bars for $symbol: " . $e->getMessage());
+        }
+
+        // Add intra_day prices for today (after the last bar)
+        try {
+            $today = date('Y-m-d');
+            $intraDayPrices = IntraDayPrice::where('symbol', $symbol)
+                ->whereDate('price_time', $today)
+                ->orderBy('price_time', 'asc')
+                ->get(['close', 'price_time'])
+                ->toArray();
+
+            foreach ($intraDayPrices as $price) {
+                $closes[] = floatval($price['close'] ?? 0);
+            }
+
+            if (!empty($intraDayPrices)) {
+                \Log::debug("$symbol: Added " . count($intraDayPrices) . " intra-day prices for today");
+            }
+        } catch (\Exception $e) {
+            \Log::debug("Could not fetch intra-day prices for $symbol: " . $e->getMessage());
+        }
+
+        return $closes;
+    }
+
+    /**
+     * Get current price: bars first, then intra_day, then skip
+     */
+    private function getCurrentPrice($symbol)
+    {
+        // Try to get from bars data (most recent close)
+        try {
+            $bar = \DB::table('bars')
+                ->where('symbol', $symbol)
+                ->orderBy('timestamp', 'desc')
+                ->first();
+
+            if ($bar) {
+                return floatval($bar->close);
+            }
+        } catch (\Exception $e) {
+            \Log::debug("Could not fetch from bars: " . $e->getMessage());
+        }
+
+        // Fallback: Get latest intra_day price for today
+        try {
+            $today = date('Y-m-d');
+            $intraday = IntraDayPrice::where('symbol', $symbol)
+                ->whereDate('price_time', $today)
+                ->orderBy('price_time', 'desc')
+                ->first();
+
+            if ($intraday) {
+                return floatval($intraday->close);
+            }
+        } catch (\Exception $e) {
+            \Log::debug("Could not fetch from intra_day_prices: " . $e->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * Handle buy signal with position reconciliation
+     */
+    private function handleBuySignal($symbol, $currentPrice)
+    {
+        $ticker = Ticker::where('symbol', $symbol)->first();
+        if (!$ticker) {
+            \Log::warning("Ticker {$symbol} not found");
+            return null;
+        }
+
+        $account = $this->alpacaService->getAccount();
+        $accountEquity = $account['equity'] ?? 100000;
+        $allocationWeight = ($ticker->allocation_weight ?? 33.33) / 100;
+        $allocatedCapital = $accountEquity * $allocationWeight;
+
+        // Get current position from Alpaca
+        $alpacaPosition = $this->getPositionForSymbol($symbol);
+        $amountInvested = 0;
+
+        if ($alpacaPosition) {
+            $amountInvested = floatval($alpacaPosition['market_value']);
+            \Log::info("$symbol: Current position value: \${$amountInvested}");
+        }
+
+        // Calculate remaining allocation
+        $remainingAllocation = $allocatedCapital - $amountInvested;
+
+        if ($remainingAllocation <= 0) {
+            \Log::info("$symbol: No remaining allocation (allocated: \${$allocatedCapital}, invested: \${$amountInvested})");
+            return null;
+        }
+
+        // Calculate quantity to buy with remaining allocation
+        $qty = intval($remainingAllocation / $currentPrice);
+
+        if ($qty < 1) {
+            \Log::info("$symbol: Remaining allocation \${$remainingAllocation} too small for 1 share at \${$currentPrice}");
+            return null;
+        }
+
+        try {
+            $order = $this->alpacaService->placeOrder($symbol, $qty, 'buy');
 
             LiveTrade::create([
-                'ticker_id' => Ticker::where('symbol', $symbol)->first()?->id,
+                'ticker_id' => $ticker->id,
                 'symbol' => $symbol,
                 'side' => 'BUY',
                 'quantity' => $qty,
@@ -161,14 +399,35 @@ class TradeExecutorService
                 'strategy_signal' => 'MACD_CROSS_BUY',
             ]);
 
-            \Log::info("BUY signal for $symbol at $currentPrice");
+            \Log::info("BUY signal for $symbol: qty={$qty}, price=\${$currentPrice}, allocation used=\${$remainingAllocation}");
             return 'buy';
-        } elseif ($signal === -1 && $position) {
-            $qty = $position->qty;
-            $order = $this->alpacaService->placeOrder($symbol, 'sell', $qty);
+        } catch (\Exception $e) {
+            \Log::error("Failed to place buy order for $symbol: " . $e->getMessage());
+            return null;
+        }
+    }
 
-            $pnlDollar = ($currentPrice - $position->avg_entry_price) * $qty;
-            $pnlPct = ($currentPrice - $position->avg_entry_price) / $position->avg_entry_price;
+    /**
+     * Handle sell signal
+     */
+    private function handleSellSignal($symbol, $currentPrice)
+    {
+        $openTrade = LiveTrade::where('symbol', $symbol)
+            ->where('status', 'open')
+            ->first();
+
+        if (!$openTrade) {
+            \Log::info("SELL signal for $symbol but no open position");
+            return null;
+        }
+
+        $qty = $openTrade->quantity;
+
+        try {
+            $order = $this->alpacaService->placeOrder($symbol, $qty, 'sell');
+
+            $pnlDollar = ($currentPrice - $openTrade->entry_price) * $qty;
+            $pnlPct = ($currentPrice - $openTrade->entry_price) / $openTrade->entry_price;
 
             LiveTrade::where('symbol', $symbol)->where('status', 'open')->update([
                 'exit_price' => $currentPrice,
@@ -178,98 +437,154 @@ class TradeExecutorService
                 'pnl_pct' => $pnlPct,
             ]);
 
-            $position->delete();
-
-            \Log::info("SELL signal for $symbol at $currentPrice (PnL: $pnlDollar)");
+            \Log::info("SELL signal for $symbol: qty={$qty}, price=\${$currentPrice}, PnL=\${$pnlDollar}");
             return 'sell';
+        } catch (\Exception $e) {
+            \Log::error("Failed to place sell order for $symbol: " . $e->getMessage());
+            return null;
         }
+    }
 
+    /**
+     * Get position for symbol from Alpaca
+     */
+    private function getPositionForSymbol($symbol)
+    {
+        try {
+            $positions = $this->alpacaService->getPositions();
+            foreach ($positions as $pos) {
+                if ($pos['symbol'] === $symbol) {
+                    return $pos;
+                }
+            }
+        } catch (\Exception $e) {
+            \Log::debug("Could not fetch positions from Alpaca: " . $e->getMessage());
+        }
         return null;
     }
 
-    public function computeSignal($closes, $params)
+    public function computeSignal($closes, $params, $symbol = null)
     {
-        if (count($closes) < max(
-            $params['macd_slow'] ?? 26,
-            $params['sma_long'] ?? 200,
-            $params['bb_period'] ?? 20
-        )) {
-            return 0;
+        if (!$symbol || empty($closes) || count($closes) < 26) {
+            return 0; // Not enough data
         }
 
+        // Extract parameters with defaults
+        $smaShortPeriod = $params['sma_short_period'] ?? 20;
+        $smaLongPeriod = $params['sma_long_period'] ?? 200;
         $macdFast = $params['macd_fast'] ?? 12;
         $macdSlow = $params['macd_slow'] ?? 26;
         $macdSignal = $params['macd_signal'] ?? 9;
-        $smaShort = $params['sma_short'] ?? 50;
-        $smaLong = $params['sma_long'] ?? 200;
         $bbPeriod = $params['bb_period'] ?? 20;
-        $bbStd = $params['bb_std'] ?? 2;
+        $bbStdDev = $params['bb_stddev'] ?? 2;
 
-        // Calculate EMA for MACD
-        $emaFast = $this->calculateEMA($closes, $macdFast);
-        $emaSlow = $this->calculateEMA($closes, $macdSlow);
-
-        // MACD line and signal line
-        $macdLine = [];
-        for ($i = 0; $i < count($emaFast); $i++) {
-            if ($emaFast[$i] !== null && $emaSlow[$i] !== null) {
-                $macdLine[] = $emaFast[$i] - $emaSlow[$i];
-            }
-        }
-
-        if (count($macdLine) < $macdSignal) {
+        // Validate we have enough data for longest period needed
+        if (count($closes) < $smaLongPeriod) {
             return 0;
         }
 
-        $signalLine = $this->calculateEMA($macdLine, $macdSignal);
+        // Calculate indicators
+        $smaShort = $this->calculateSMA($closes, $smaShortPeriod);
+        $smaLong = $this->calculateSMA($closes, $smaLongPeriod);
+        $macd = $this->calculateMACD($closes, $macdFast, $macdSlow, $macdSignal);
+        $bb = $this->calculateBollingerBands($closes, $bbPeriod, $bbStdDev);
 
-        // MACD histogram
-        $histogram = [];
-        for ($i = 0; $i < count($macdLine); $i++) {
-            if (isset($signalLine[$i]) && $signalLine[$i] !== null) {
-                $histogram[] = $macdLine[$i] - $signalLine[$i];
+        $lastIdx = count($closes) - 1;
+        $currentPrice = $closes[$lastIdx];
+        $currentSmaShort = $smaShort[$lastIdx];
+        $currentSmaLong = $smaLong[$lastIdx];
+        $currentMacd = $macd['macd'][$lastIdx];
+        $currentSignal = $macd['signal'][$lastIdx];
+        $currentBBLower = $bb['lower'][count($bb['lower']) - 1];
+        $currentBBUpper = $bb['upper'][count($bb['upper']) - 1];
+        $currentBBMiddle = $bb['middle'][$lastIdx];
+
+        // Get previous values for crossover detection
+        $prevIdx = $lastIdx - 1;
+        $prevMacd = $prevIdx >= 0 ? $macd['macd'][$prevIdx] : $currentMacd;
+        $prevSignal = $prevIdx >= 0 ? $macd['signal'][$prevIdx] : $currentSignal;
+        $prevPrice = $prevIdx >= 0 ? $closes[$prevIdx] : $currentPrice;
+
+        // Check for MACD bullish crossover
+        $macdBullishCross = ($currentMacd > $currentSignal) && ($prevMacd <= $prevSignal);
+
+        // Check for MACD bearish crossover
+        $macdBearishCross = ($currentMacd < $currentSignal) && ($prevMacd >= $prevSignal);
+
+        // Check price vs SMAs
+        $priceAboveSMAs = ($currentPrice > $currentSmaShort) && ($currentSmaShort > $currentSmaLong);
+
+        // Check if price is near lower Bollinger Band (within 5% of lower band)
+        $bbRange = $currentBBUpper - $currentBBLower;
+        $priceNearLowerBB = $currentPrice < ($currentBBLower + $bbRange * 0.05);
+
+        // Check if price breaks below lower BB
+        $priceBelowBB = $currentPrice < $currentBBLower;
+        $prevPriceAboveBB = $prevPrice >= $currentBBLower;
+        $bbBreak = $priceBelowBB && $prevPriceAboveBB;
+
+        \Log::debug("$symbol signal calc: price=$currentPrice, smaShort=$currentSmaShort, smaLong=$currentSmaLong, macd=$currentMacd, signal=$currentSignal, bbLower=$currentBBLower, bbUpper=$currentBBUpper");
+
+        // BUY: MACD bullish + price above SMAs + near lower BB
+        if ($macdBullishCross && $priceAboveSMAs && $priceNearLowerBB) {
+            \Log::info("$symbol BUY SIGNAL: MACD bullish cross, price above SMAs, near lower BB");
+            return 1;
+        }
+
+        // SELL: MACD bearish OR price breaks below BB
+        if ($macdBearishCross || $bbBreak) {
+            $reason = $macdBearishCross ? "MACD bearish cross" : "price breaks below BB";
+            \Log::info("$symbol SELL SIGNAL: $reason");
+            return -1;
+        }
+
+        return 0; // Hold
+    }
+
+    /**
+     * Calculate MACD (Moving Average Convergence Divergence)
+     * Returns array with 'macd' and 'signal' arrays
+     */
+    private function calculateMACD($data, $fastPeriod = 12, $slowPeriod = 26, $signalPeriod = 9)
+    {
+        $fastEMA = $this->calculateEMA($data, $fastPeriod);
+        $slowEMA = $this->calculateEMA($data, $slowPeriod);
+
+        // MACD line = fast EMA - slow EMA
+        $macd = [];
+        for ($i = 0; $i < count($data); $i++) {
+            if ($fastEMA[$i] !== null && $slowEMA[$i] !== null) {
+                $macd[$i] = $fastEMA[$i] - $slowEMA[$i];
+            } else {
+                $macd[$i] = null;
             }
         }
 
-        // Check for MACD cross (entry condition)
-        if (count($histogram) < 2) {
-            return 0;
+        // Signal line = EMA of valid MACD values
+        // Filter to only values where MACD is calculated
+        $validMACD = [];
+        $validIndices = [];
+        for ($i = 0; $i < count($macd); $i++) {
+            if ($macd[$i] !== null) {
+                $validMACD[] = $macd[$i];
+                $validIndices[] = $i;
+            }
         }
 
-        $prevHistogram = $histogram[count($histogram) - 2];
-        $currHistogram = $histogram[count($histogram) - 1];
+        $signalValues = $this->calculateEMA($validMACD, $signalPeriod);
 
-        // BUY: histogram crosses above 0
-        // SELL: histogram crosses below 0
-        $macdCrossAbove = ($prevHistogram <= 0 && $currHistogram > 0);
-        $macdCrossBelow = ($prevHistogram >= 0 && $currHistogram < 0);
-
-        // Calculate SMA for uptrend filter
-        $smaShortVals = $this->calculateSMA($closes, $smaShort);
-        $smaLongVals = $this->calculateSMA($closes, $smaLong);
-
-        $currentPrice = end($closes);
-        $currentSmartShort = end($smaShortVals);
-        $currentSmaLong = end($smaLongVals);
-
-        // Uptrend filter: price > SMA50 > SMA200
-        $inUptrend = ($currentPrice > $currentSmartShort) && ($currentSmartShort > $currentSmaLong);
-
-        // Calculate Bollinger Bands
-        $bb = $this->calculateBollingerBands($closes, $bbPeriod, $bbStd);
-        $bbLower = end($bb['lower']);
-
-        // Entry: MACD cross above 0 AND price near lower BB AND uptrend
-        if ($macdCrossAbove && $currentPrice <= ($bbLower * 1.05) && $inUptrend) {
-            return 1; // BUY
+        // Reconstruct signal array with nulls for invalid indices
+        $signal = array_fill(0, count($macd), null);
+        foreach ($validIndices as $idx => $origIdx) {
+            if (isset($signalValues[$idx])) {
+                $signal[$origIdx] = $signalValues[$idx];
+            }
         }
 
-        // Exit: MACD cross below 0
-        if ($macdCrossBelow) {
-            return -1; // SELL
-        }
-
-        return 0; // No signal
+        return [
+            'macd' => $macd,
+            'signal' => $signal,
+        ];
     }
 
     private function calculateEMA($data, $period)
