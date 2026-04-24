@@ -10,13 +10,45 @@ bash scripts/setup.sh
 ```
 Installs dependencies, configures .env, runs migrations.
 
-### Start Application
+### Start Everything (Recommended)
+```bash
+bash scripts/start-all.sh
+```
+Starts both backend API and frontend dashboard in one command.
+
+### Or Start Separately
+
+**Backend only:**
 ```bash
 bash scripts/start.sh
 ```
-Starts Laravel dev server on http://localhost:8000
+
+**Frontend only (after backend is running):**
+```bash
+cd frontend
+npm run dev
+```
 
 ## Scripts
+
+### `start-all.sh` — Start backend + frontend together
+Convenient single command to start both servers.
+
+**Run:**
+```bash
+bash scripts/start-all.sh
+```
+
+**Starts:**
+- Backend API on http://localhost:8000
+- Frontend dashboard on http://localhost:5173
+- Auto-installs frontend dependencies if needed
+- Handles cleanup on Ctrl+C
+
+**Access:**
+- Dashboard: http://localhost:5173
+- API: http://localhost:8000
+- API Docs: http://localhost:8000/api/documentation
 
 ### `setup.sh` — One-time initialization
 Checks prerequisites and configures the application:
