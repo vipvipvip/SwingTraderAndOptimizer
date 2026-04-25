@@ -1,5 +1,6 @@
 """Fetch OHLCV data from Alpaca using modern alpaca-py SDK"""
 import os
+import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
@@ -14,6 +15,7 @@ load_dotenv(env_path)
 
 api_key = os.getenv('ALPACA_API_KEY')
 secret_key = os.getenv('ALPACA_SECRET_KEY')
+db_path = os.path.join(os.path.dirname(__file__), 'optimized_params', 'strategy_params.db')
 
 
 def fetch_historical_data(symbol, timeframe='1Day', years=2):
@@ -132,3 +134,118 @@ def load_data(symbol, timeframe='1Day'):
     print(f"Loaded {len(df)} bars from {latest_file}")
 
     return df
+
+
+def load_data_from_db(symbol):
+    """Load OHLCV data for a symbol from bars table"""
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Get ticker_id
+        cursor.execute('SELECT id FROM tickers WHERE symbol = ?', (symbol,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        ticker_id = row[0]
+
+        # Load all bars
+        cursor.execute('''
+            SELECT timestamp, open, high, low, close, volume
+            FROM bars
+            WHERE ticker_id = ?
+            ORDER BY timestamp
+        ''', (ticker_id,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return None
+
+        # Convert to DataFrame
+        data = []
+        for row in rows:
+            data.append({
+                'timestamp': row[0],
+                'open': row[1],
+                'high': row[2],
+                'low': row[3],
+                'close': row[4],
+                'volume': row[5]
+            })
+
+        df = pd.DataFrame(data)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df.set_index('timestamp', inplace=True)
+        df = df.sort_index()
+
+        print(f"Loaded {len(df)} bars for {symbol} from database")
+        return df
+    except Exception as e:
+        print(f"Error loading data from database: {e}")
+        return None
+
+
+def append_bars_to_db(symbol, new_bars):
+    """Append new bars to the database (called after fetching fresh data)"""
+    if new_bars is None or len(new_bars) == 0:
+        return 0
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Get ticker_id
+        cursor.execute('SELECT id FROM tickers WHERE symbol = ?', (symbol,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return 0
+
+        ticker_id = row[0]
+
+        # Get last timestamp in database
+        cursor.execute(
+            'SELECT MAX(timestamp) FROM bars WHERE ticker_id = ?',
+            (ticker_id,)
+        )
+        row = cursor.fetchone()
+        last_timestamp = row[0] if row and row[0] else None
+        last_ts = pd.to_datetime(last_timestamp) if last_timestamp else None
+
+        # Append only new bars (after last_timestamp)
+        inserted = 0
+        now = datetime.now(ZoneInfo('America/New_York')).isoformat()
+
+        for timestamp, row_data in new_bars.iterrows():
+            if last_ts is None or timestamp > last_ts:
+                cursor.execute('''
+                    INSERT INTO bars
+                    (ticker_id, timestamp, open, high, low, close, volume, source, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    ticker_id,
+                    timestamp.isoformat(),
+                    float(row_data['open']),
+                    float(row_data['high']),
+                    float(row_data['low']),
+                    float(row_data['close']),
+                    int(row_data['volume']),
+                    'alpaca',
+                    now
+                ))
+                inserted += 1
+
+        conn.commit()
+        conn.close()
+
+        if inserted > 0:
+            print(f"Appended {inserted} new bars for {symbol} to database")
+
+        return inserted
+    except Exception as e:
+        print(f"Error appending bars to database: {e}")
+        return 0

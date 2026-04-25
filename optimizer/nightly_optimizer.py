@@ -8,7 +8,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from joblib import Parallel, delayed
 from dotenv import load_dotenv
-from data_fetcher import fetch_historical_data, save_data, load_data
+from data_fetcher import fetch_historical_data, save_data, load_data, load_data_from_db, append_bars_to_db
 from parameter_optimizer import ParameterOptimizer
 from db import StrategyDB
 
@@ -70,18 +70,28 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
     if param_grid is None:
         param_grid = get_param_grid(timeframe)
 
-    # Fetch or load data
-    df = load_data(symbol, timeframe) if use_cache else None
+    # Load existing data from database
+    df = load_data_from_db(symbol)
 
     if df is None or len(df) == 0:
-        print(f"Fetching fresh data for {symbol}...")
+        # Bootstrap: fetch full 2 years if database is empty
+        print(f"Database empty for {symbol}, fetching 2 years of data...")
         df = fetch_historical_data(symbol, timeframe=timeframe, years=2)
         if df is None:
             print(f"Failed to fetch data for {symbol}")
             return None
-        save_data(df, symbol, timeframe)
+        # Save to database
+        append_bars_to_db(symbol, df)
     else:
-        print(f"Using cached data ({len(df)} bars)")
+        # Database has data: fetch new bars since last timestamp
+        print(f"Database has {len(df)} bars, fetching new data since {df.index[-1].date()}...")
+        new_df = fetch_historical_data(symbol, timeframe=timeframe, years=2)
+        if new_df is not None:
+            # Append new bars to database
+            append_bars_to_db(symbol, new_df)
+            # Reload to get complete dataset
+            df = load_data_from_db(symbol)
+            print(f"Updated to {len(df)} bars total")
 
     combos = 3 ** len(param_grid)
     print(f"Testing {combos} parameter combinations...")
