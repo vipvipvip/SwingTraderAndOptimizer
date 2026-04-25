@@ -6,6 +6,169 @@ Complete guide for setting up the trading system on **native Ubuntu/Linux** (not
 
 ---
 
+## Quick Start (Copy & Paste Everything)
+
+**For a pristine Ubuntu server, copy and paste this entire block:**
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+echo "=========================================="
+echo "SwingTrader Ubuntu Setup - Full Automation"
+echo "=========================================="
+
+# 1. UPDATE SYSTEM
+echo "Step 1: Updating system..."
+sudo apt-get update
+sudo apt-get upgrade -y
+
+# 2. INSTALL ALL DEPENDENCIES
+echo "Step 2: Installing dependencies..."
+sudo apt-get install -y \
+  php-cli php-sqlite3 php-xml php-dom php-mbstring php-curl php-json php-fileinfo \
+  nodejs npm \
+  python3 python3-venv python3-pip \
+  git curl
+
+# 3. INSTALL COMPOSER
+echo "Step 3: Installing Composer..."
+curl -sS https://getcomposer.org/installer | php
+sudo mv composer.phar /usr/local/bin/composer
+sudo chmod +x /usr/local/bin/composer
+
+# 4. CONFIGURE GIT
+echo "Step 4: Configuring Git..."
+git config --global user.name "Dikesh"
+git config --global user.email "dikeshchokshi@gmail.com"
+
+# 5. CLONE PROJECT
+echo "Step 5: Cloning project..."
+cd ~
+rm -rf SwingTraderAndOptimizer 2>/dev/null || true
+git clone https://github.com/vipvipvip/SwingTraderAndOptimizer.git
+cd SwingTraderAndOptimizer
+git checkout STO-Ubuntu-v1
+
+# 6. SETUP BACKEND
+echo "Step 6: Setting up backend..."
+cd backend
+cp .env.example .env
+
+# Set database path (absolute)
+PROJECT_ROOT="$(cd ../.. && pwd)/SwingTraderAndOptimizer"
+DB_PATH="$PROJECT_ROOT/optimizer/optimized_params/strategy_params.db"
+sed -i "s|DB_DATABASE=.*|DB_DATABASE=$DB_PATH|" .env
+
+composer install
+php artisan key:generate
+
+# 7. SETUP FRONTEND
+echo "Step 7: Setting up frontend..."
+cd ../frontend
+npm install
+npm run build
+
+# 8. SETUP PYTHON OPTIMIZER
+echo "Step 8: Setting up Python optimizer..."
+cd ../optimizer
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+deactivate
+
+# 9. MAKE SCRIPTS EXECUTABLE
+echo "Step 9: Making scripts executable..."
+cd ../scripts
+chmod +x *.sh
+
+# 10. SETUP CRONTAB
+echo "Step 10: Setting up crontab..."
+PHP_PATH="/usr/bin/php"
+PROJECT_ROOT="$(pwd)/.."
+ARTISAN_PATH="$PROJECT_ROOT/backend/artisan"
+NIGHTLY_SCRIPT="$PROJECT_ROOT/optimizer/run_nightly.sh"
+
+# Add nightly optimizer cron (2 AM daily)
+CRON_NIGHTLY="0 2 * * * $NIGHTLY_SCRIPT"
+if ! crontab -l 2>/dev/null | grep -q "run_nightly"; then
+    (crontab -l 2>/dev/null || true; echo "$CRON_NIGHTLY") | crontab -
+    echo "✓ Nightly optimizer cron added"
+fi
+
+# Add trade executor cron (every minute)
+CRON_TRADES="* * * * * $PHP_PATH $ARTISAN_PATH schedule:run >> /dev/null 2>&1"
+if ! crontab -l 2>/dev/null | grep -q "schedule:run"; then
+    (crontab -l 2>/dev/null || true; echo "$CRON_TRADES") | crontab -
+    echo "✓ Trade executor cron added"
+fi
+
+# 11. VERIFY INSTALLATION
+echo ""
+echo "=========================================="
+echo "Verification"
+echo "=========================================="
+echo "PHP: $(php -v | head -1)"
+echo "Node: $(node -v)"
+echo "npm: $(npm -v)"
+echo "Python: $(python3 --version)"
+echo "Composer: $(composer --version)"
+echo "Git: $(git --version)"
+echo ""
+echo "Crontab jobs:"
+crontab -l
+echo ""
+echo "=========================================="
+echo "✓ Installation Complete!"
+echo "=========================================="
+echo ""
+echo "NEXT STEPS:"
+echo "1. Edit backend/.env with your Alpaca credentials"
+echo "2. Run: cd SwingTraderAndOptimizer && bash scripts/start-all.sh"
+echo "3. Open dashboard: http://localhost:5173"
+echo ""
+```
+
+### Option A: Automated Setup (Recommended)
+
+**One-liner from GitHub:**
+```bash
+curl -sS https://raw.githubusercontent.com/vipvipvip/SwingTraderAndOptimizer/STO-Ubuntu-v1/scripts/full-setup.sh | bash
+```
+
+**Or save and run locally:**
+```bash
+curl -sS https://raw.githubusercontent.com/vipvipvip/SwingTraderAndOptimizer/STO-Ubuntu-v1/scripts/full-setup.sh > setup.sh
+chmod +x setup.sh
+./setup.sh
+```
+
+**From this repository:**
+```bash
+bash scripts/full-setup.sh
+```
+
+**What the script does:**
+- ✅ Updates system packages
+- ✅ Installs all dependencies (PHP, Node, Python, Composer)
+- ✅ Clones repository and checks out Ubuntu branch
+- ✅ Sets up backend (Laravel + Composer)
+- ✅ Sets up frontend (Svelte + npm)
+- ✅ Sets up Python optimizer with venv
+- ✅ Configures crontab for scheduling
+- ✅ Verifies everything works
+- ✅ Shows next steps
+
+**Time to complete:** ~10-15 minutes depending on internet speed
+
+---
+
+### Option B: Manual Setup (Step by Step)
+
+If you prefer to understand each step, follow the sections below and copy-paste each command block.
+
+---
+
 ## Prerequisites
 
 Before starting, ensure you have:
@@ -30,10 +193,15 @@ uname -m            # Show architecture (x86_64 or ARM)
 
 ### 1.1 Update System Packages
 
+**Copy & Paste:**
 ```bash
-sudo apt-get update
-sudo apt-get upgrade -y
+sudo apt-get update && sudo apt-get upgrade -y
 ```
+
+**What it does:**
+- Updates package lists from repositories
+- Upgrades all installed packages to latest versions
+- Takes 2-5 minutes depending on system
 
 ### 1.2 Install PHP 8.4 + SQLite
 
