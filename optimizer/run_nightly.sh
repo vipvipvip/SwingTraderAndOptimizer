@@ -10,7 +10,9 @@ LOG="$SCRIPT_DIR/logs/nightly.log"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Nightly optimizer starting..." >> "$LOG"
 
-# Use Windows Python via WSL interop (has all required packages)
-/mnt/c/Python/Python3143/python.exe nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM >> "$LOG" 2>&1
+# Use explicit path to venv's python (cron doesn't inherit shell aliases/functions)
+PYTHON="$SCRIPT_DIR/venv/bin/python"
+"$PYTHON" nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM >> "$LOG" 2>&1
+EXIT_CODE=$?
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Optimizer finished (exit: $?)" >> "$LOG"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Optimizer finished (exit: $EXIT_CODE)" >> "$LOG"
