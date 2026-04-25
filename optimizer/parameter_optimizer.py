@@ -50,7 +50,7 @@ class ParameterOptimizer:
             params = dict(zip(param_names, combo))
 
             # Run backtest with these parameters
-            trades, metrics, equity_curve = self._backtest_with_params(params)
+            trades, metrics, equity_curve, equity_dates = self._backtest_with_params(params)
 
             # Store results
             result = {
@@ -58,6 +58,7 @@ class ParameterOptimizer:
                 'metrics': metrics,
                 'trades': trades,
                 'equity_curve': equity_curve,
+                'equity_dates': equity_dates,
                 'trades_count': len(trades) if trades is not None else 0
             }
             self.results.append(result)
@@ -131,6 +132,7 @@ class ParameterOptimizer:
         # Simulate trades
         trades = []
         equity_curve = [self.initial_capital]
+        equity_dates = [str(data.index[0])]
         position_active = False
         entry_price = None
         entry_idx = None
@@ -162,6 +164,7 @@ class ParameterOptimizer:
 
                 current_equity = equity_curve[-1] * (1 + pnl)
                 equity_curve.append(current_equity)
+                equity_dates.append(str(data.index[i]))
 
                 position_active = False
 
@@ -191,7 +194,7 @@ class ParameterOptimizer:
             }
             trades = []
 
-        return trades, metrics, equity_curve
+        return trades, metrics, equity_curve, equity_dates
 
     @staticmethod
     def _calculate_sharpe(equity_curve):

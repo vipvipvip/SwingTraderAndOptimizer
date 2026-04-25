@@ -269,8 +269,12 @@ class StrategyDB:
 
         return default
 
-    def save_equity_curve(self, symbol, metrics, equity_curve):
-        """Save equity curve to shared database (EquitySnapshot table)"""
+    def save_equity_curve(self, symbol, metrics, equity_curve, equity_dates=None):
+        """Save equity curve to shared database (EquitySnapshot table).
+
+        equity_dates: parallel list of bar timestamps (str) — one per equity_curve point.
+        Falls back to now() per row only if not provided (legacy callers).
+        """
         if not equity_curve or len(equity_curve) < 2:
             return
 
@@ -296,9 +300,12 @@ class StrategyDB:
                     (ticker_id, 'backtest')
                 )
 
-                # Save equity curve points
+                # Save equity curve points with their actual bar dates
                 for idx, equity_value in enumerate(equity_curve):
-                    snapshot_date = datetime.now(ZoneInfo('America/New_York')).isoformat()
+                    if equity_dates and idx < len(equity_dates):
+                        snapshot_date = equity_dates[idx]
+                    else:
+                        snapshot_date = datetime.now(ZoneInfo('America/New_York')).isoformat()
                     cursor.execute('''
                         INSERT INTO equity_snapshots
                         (ticker_id, snapshot_date, equity_value, snapshot_type, source)

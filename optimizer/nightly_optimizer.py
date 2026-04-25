@@ -103,6 +103,7 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
         'metrics': best_result['metrics'],
         'trades': best_result.get('trades', []),
         'equity_curve': best_result.get('equity_curve', []),
+        'equity_dates': best_result.get('equity_dates', []),
         'runtime': runtime,
         'combos': combos,
     }
@@ -162,7 +163,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     for result in results:
         db.save_best_params(result['symbol'], result['params'], result['metrics'])
         db.save_backtest_trades(result['symbol'], result['trades'])
-        db.save_equity_curve(result['symbol'], result.get('metrics', {}), result.get('equity_curve', []))
+        db.save_equity_curve(result['symbol'], result.get('metrics', {}), result.get('equity_curve', []), result.get('equity_dates', []))
         db.log_optimization_run(
             result['symbol'],
             result['metrics'],
