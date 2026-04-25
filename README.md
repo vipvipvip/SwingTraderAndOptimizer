@@ -234,9 +234,9 @@ All configuration lives in `.env` files. Key variables:
 ### `optimizer/.env`
 
 ```bash
-# Alpaca API (paper trading)
-ALPACA_API_KEY=PKGT6G6VWVQHWIYZAZIH6H6TQA
-ALPACA_SECRET_KEY=EXWwpUnfkGYjdWp8w5Q1ijddkRjSvnBwHyJXvpyoJmie
+# Alpaca API (paper trading) — get keys at https://app.alpaca.markets/
+ALPACA_API_KEY=your_api_key_here
+ALPACA_SECRET_KEY=your_secret_key_here
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 
 # Optimizer timeframe (controls parameter grid scaling)
@@ -247,9 +247,9 @@ TRADING_TIMEFRAME=1Hour
 ### `backend/.env`
 
 ```bash
-# Alpaca API (paper trading)
-ALPACA_API_KEY=PKGT6G6VWVQHWIYZAZIH6H6TQA
-ALPACA_SECRET_KEY=EXWwpUnfkGYjdWp8w5Q1ijddkRjSvnBwHyJXvpyoJmie
+# Alpaca API (paper trading) — get keys at https://app.alpaca.markets/
+ALPACA_API_KEY=your_api_key_here
+ALPACA_SECRET_KEY=your_secret_key_here
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 FRONTEND_URL=http://localhost:5173
 
