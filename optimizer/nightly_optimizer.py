@@ -3,6 +3,7 @@ import argparse
 import os
 import sys
 import time
+import platform
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from joblib import Parallel, delayed
@@ -135,7 +136,8 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     if timeframe is None:
         timeframe = os.getenv('TRADING_TIMEFRAME', '1Hour')
     if n_jobs is None:
-        n_jobs = 1  # Sequential on Windows (Loky backend issues with -1)
+        # Use parallel on Linux, sequential on Windows (Loky backend issues)
+        n_jobs = -1 if platform.system() != 'Windows' else 1
 
     print(f"\n{'='*70}")
     print(f"NIGHTLY OPTIMIZER RUN")
