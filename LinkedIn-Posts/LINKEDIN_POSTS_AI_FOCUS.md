@@ -39,13 +39,11 @@ Building this alone would've taken months. We did it in weeks because Claude cou
 
 **But Here's What I Actually Spent:**
 
-- **160 hours** building with Claude (yes, it's fast, but not magic)
-- **40 hours** reviewing and fixing generated code
-- **30 hours** debugging issues Claude created by misunderstanding my spec
-- **20 hours** rethinking architecture when Claude's suggestion seemed good but wasn't
-- **10 hours** writing prompts clearly enough to get good code (this skill wasn't free)
-
-**Total: 260 hours of thinking, reviewing, verifying.**
+- **60%** building with Claude (yes, it's fast, but not magic)
+- **20%** reviewing and fixing generated code
+- **10%** debugging issues Claude created by misunderstanding my spec
+- **5%** rethinking architecture when Claude's suggestion seemed good but wasn't
+- **5%** writing prompts clearly enough to get good code (this skill wasn't free)
 
 Alone, this would've been 360-480 hours (3-4 months for one person). So yes, I saved 100-220 hours. But that's not "work for free"—that's 260 hours of *higher-value work* (architecture, verification, judgment) instead of 360-480 hours of *mixed-value work* (implementation, testing, debugging, refactoring).
 
