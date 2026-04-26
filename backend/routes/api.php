@@ -93,15 +93,78 @@ Route::get('/v1/openapi.json', function () {
             'title' => 'Swing Trading Dashboard API',
             'description' => 'REST API for swing trading strategy management, backtesting, and live trading execution',
             'version' => '1.0.0',
+            'contact' => ['name' => 'Trading Dashboard Team']
         ],
         'servers' => [
             ['url' => 'http://localhost:9000', 'description' => 'Development Server']
         ],
+        'tags' => [
+            ['name' => 'Tickers', 'description' => 'Manage trading tickers'],
+            ['name' => 'Strategies', 'description' => 'Query optimized parameters'],
+            ['name' => 'Account', 'description' => 'Account data from Alpaca'],
+            ['name' => 'Orders', 'description' => 'Place and manage orders'],
+            ['name' => 'Equity & P&L', 'description' => 'Performance metrics'],
+            ['name' => 'Admin', 'description' => 'Administrative operations'],
+        ],
         'paths' => [
-            '/api/v1/tickers' => ['get' => ['summary' => 'List all tickers']],
-            '/api/v1/strategies' => ['get' => ['summary' => 'List all strategies']],
-            '/api/v1/account' => ['get' => ['summary' => 'Get account info']],
-            '/api/v1/trades/backtest' => ['get' => ['summary' => 'Get backtest trades']],
+            '/api/v1/health' => [
+                'get' => ['summary' => 'Health check', 'tags' => ['Admin']]
+            ],
+            '/api/v1/tickers' => [
+                'get' => ['summary' => 'List all tickers', 'tags' => ['Tickers']],
+                'post' => ['summary' => 'Add ticker', 'tags' => ['Tickers']],
+            ],
+            '/api/v1/tickers/{symbol}' => [
+                'delete' => ['summary' => 'Remove ticker', 'tags' => ['Tickers'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
+            ],
+            '/api/v1/tickers/{symbol}/allocation' => [
+                'put' => ['summary' => 'Update allocation', 'tags' => ['Tickers'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
+            ],
+            '/api/v1/strategies' => [
+                'get' => ['summary' => 'List strategies', 'tags' => ['Strategies']],
+            ],
+            '/api/v1/strategies/{symbol}' => [
+                'get' => ['summary' => 'Get strategy for ticker', 'tags' => ['Strategies'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
+            ],
+            '/api/v1/strategies/{symbol}/history' => [
+                'get' => ['summary' => 'Optimization history', 'tags' => ['Strategies'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
+            ],
+            '/api/v1/account' => [
+                'get' => ['summary' => 'Account info', 'tags' => ['Account']],
+            ],
+            '/api/v1/account/positions' => [
+                'get' => ['summary' => 'Current positions', 'tags' => ['Account']],
+            ],
+            '/api/v1/orders' => [
+                'post' => ['summary' => 'Place order', 'tags' => ['Orders']],
+            ],
+            '/api/v1/orders/{orderId}' => [
+                'delete' => ['summary' => 'Cancel order', 'tags' => ['Orders'], 'parameters' => [['name' => 'orderId', 'in' => 'path', 'required' => true]]],
+            ],
+            '/api/v1/equity/{symbol}' => [
+                'get' => ['summary' => 'Equity curve', 'tags' => ['Equity & P&L'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
+            ],
+            '/api/v1/trades/live' => [
+                'get' => ['summary' => 'Live trades', 'tags' => ['Equity & P&L']],
+            ],
+            '/api/v1/trades/backtest' => [
+                'get' => ['summary' => 'Backtest trades', 'tags' => ['Equity & P&L']],
+            ],
+            '/api/v1/trades/pnl' => [
+                'get' => ['summary' => 'P&L summary', 'tags' => ['Equity & P&L']],
+            ],
+            '/api/v1/admin/optimize/trigger' => [
+                'post' => ['summary' => 'Trigger optimizer', 'tags' => ['Admin']],
+            ],
+            '/api/v1/admin/trades/trigger' => [
+                'post' => ['summary' => 'Execute trades', 'tags' => ['Admin']],
+            ],
+            '/api/v1/admin/market-status' => [
+                'get' => ['summary' => 'Market status', 'tags' => ['Admin']],
+            ],
+            '/api/v1/admin/import-backtest' => [
+                'post' => ['summary' => 'Import backtest data', 'tags' => ['Admin']],
+            ],
         ]
     ]);
 });
