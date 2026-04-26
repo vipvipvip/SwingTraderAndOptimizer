@@ -84,3 +84,24 @@ Route::prefix('v1')->group(function () {
     Route::get('/admin/market-status', [AdminController::class, 'getMarketStatus']);
     Route::post('/admin/import-backtest', [AdminController::class, 'importBacktestCsvs']);
 });
+
+// OpenAPI/Swagger spec endpoint
+Route::get('/v1/openapi.json', function () {
+    return response()->json([
+        'openapi' => '3.0.0',
+        'info' => [
+            'title' => 'Swing Trading Dashboard API',
+            'description' => 'REST API for swing trading strategy management, backtesting, and live trading execution',
+            'version' => '1.0.0',
+        ],
+        'servers' => [
+            ['url' => 'http://localhost:9000', 'description' => 'Development Server']
+        ],
+        'paths' => [
+            '/api/v1/tickers' => ['get' => ['summary' => 'List all tickers']],
+            '/api/v1/strategies' => ['get' => ['summary' => 'List all strategies']],
+            '/api/v1/account' => ['get' => ['summary' => 'Get account info']],
+            '/api/v1/trades/backtest' => ['get' => ['summary' => 'Get backtest trades']],
+        ]
+    ]);
+});
