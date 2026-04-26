@@ -85,7 +85,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/admin/import-backtest', [AdminController::class, 'importBacktestCsvs']);
 });
 
-// OpenAPI/Swagger spec endpoint
+// OpenAPI/Swagger spec endpoint with proper schemas
 Route::get('/v1/openapi.json', function () {
     return response()->json([
         'openapi' => '3.0.0',
@@ -107,63 +107,140 @@ Route::get('/v1/openapi.json', function () {
             ['name' => 'Admin', 'description' => 'Administrative operations'],
         ],
         'paths' => [
-            '/api/v1/health' => [
-                'get' => ['summary' => 'Health check', 'tags' => ['Admin']]
-            ],
             '/api/v1/tickers' => [
-                'get' => ['summary' => 'List all tickers', 'tags' => ['Tickers']],
-                'post' => ['summary' => 'Add ticker', 'tags' => ['Tickers']],
-            ],
-            '/api/v1/tickers/{symbol}' => [
-                'delete' => ['summary' => 'Remove ticker', 'tags' => ['Tickers'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
-            ],
-            '/api/v1/tickers/{symbol}/allocation' => [
-                'put' => ['summary' => 'Update allocation', 'tags' => ['Tickers'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
+                'get' => [
+                    'summary' => 'List all tickers',
+                    'tags' => ['Tickers'],
+                    'responses' => [
+                        '200' => [
+                            'description' => 'List of tickers with optimized parameters',
+                            'content' => ['application/json' => []]
+                        ]
+                    ]
+                ],
             ],
             '/api/v1/strategies' => [
-                'get' => ['summary' => 'List strategies', 'tags' => ['Strategies']],
+                'get' => [
+                    'summary' => 'List all strategies',
+                    'tags' => ['Strategies'],
+                    'responses' => [
+                        '200' => ['description' => 'List of strategies']
+                    ]
+                ],
             ],
             '/api/v1/strategies/{symbol}' => [
-                'get' => ['summary' => 'Get strategy for ticker', 'tags' => ['Strategies'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
+                'get' => [
+                    'summary' => 'Get strategy for ticker',
+                    'tags' => ['Strategies'],
+                    'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
+                    'responses' => [
+                        '200' => ['description' => 'Strategy parameters for ticker']
+                    ]
+                ],
             ],
             '/api/v1/strategies/{symbol}/history' => [
-                'get' => ['summary' => 'Optimization history', 'tags' => ['Strategies'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
+                'get' => [
+                    'summary' => 'Optimization history',
+                    'tags' => ['Strategies'],
+                    'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
+                    'responses' => [
+                        '200' => ['description' => 'Historical optimization runs']
+                    ]
+                ],
             ],
             '/api/v1/account' => [
-                'get' => ['summary' => 'Account info', 'tags' => ['Account']],
+                'get' => [
+                    'summary' => 'Get account info from Alpaca',
+                    'tags' => ['Account'],
+                    'responses' => [
+                        '200' => [
+                            'description' => 'Account equity, buying power, cash, portfolio value',
+                            'content' => [
+                                'application/json' => [
+                                    'example' => [
+                                        'equity' => '100000',
+                                        'buying_power' => '200000',
+                                        'cash' => '100000',
+                                        'portfolio_value' => '100000'
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ]
+                ],
             ],
             '/api/v1/account/positions' => [
-                'get' => ['summary' => 'Current positions', 'tags' => ['Account']],
-            ],
-            '/api/v1/orders' => [
-                'post' => ['summary' => 'Place order', 'tags' => ['Orders']],
-            ],
-            '/api/v1/orders/{orderId}' => [
-                'delete' => ['summary' => 'Cancel order', 'tags' => ['Orders'], 'parameters' => [['name' => 'orderId', 'in' => 'path', 'required' => true]]],
+                'get' => [
+                    'summary' => 'Get open positions',
+                    'tags' => ['Account'],
+                    'responses' => [
+                        '200' => ['description' => 'List of open positions']
+                    ]
+                ],
             ],
             '/api/v1/equity/{symbol}' => [
-                'get' => ['summary' => 'Equity curve', 'tags' => ['Equity & P&L'], 'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true]]],
+                'get' => [
+                    'summary' => 'Get equity curve for ticker',
+                    'tags' => ['Equity & P&L'],
+                    'parameters' => [['name' => 'symbol', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
+                    'responses' => [
+                        '200' => ['description' => 'Equity curve data points']
+                    ]
+                ],
             ],
             '/api/v1/trades/live' => [
-                'get' => ['summary' => 'Live trades', 'tags' => ['Equity & P&L']],
+                'get' => [
+                    'summary' => 'Get live trades from Alpaca',
+                    'tags' => ['Equity & P&L'],
+                    'responses' => [
+                        '200' => ['description' => 'List of executed trades']
+                    ]
+                ],
             ],
             '/api/v1/trades/backtest' => [
-                'get' => ['summary' => 'Backtest trades', 'tags' => ['Equity & P&L']],
+                'get' => [
+                    'summary' => 'Get backtest trades',
+                    'tags' => ['Equity & P&L'],
+                    'responses' => [
+                        '200' => ['description' => 'List of backtest trades']
+                    ]
+                ],
             ],
             '/api/v1/trades/pnl' => [
-                'get' => ['summary' => 'P&L summary', 'tags' => ['Equity & P&L']],
+                'get' => [
+                    'summary' => 'Get P&L summary',
+                    'tags' => ['Equity & P&L'],
+                    'responses' => [
+                        '200' => ['description' => 'Profit/loss summary']
+                    ]
+                ],
             ],
             '/api/v1/admin/optimize/trigger' => [
-                'post' => ['summary' => 'Trigger optimizer', 'tags' => ['Admin']],
+                'post' => [
+                    'summary' => 'Trigger nightly optimizer',
+                    'tags' => ['Admin'],
+                    'responses' => [
+                        '200' => ['description' => 'Optimizer triggered successfully']
+                    ]
+                ],
             ],
             '/api/v1/admin/trades/trigger' => [
-                'post' => ['summary' => 'Execute trades', 'tags' => ['Admin']],
+                'post' => [
+                    'summary' => 'Execute trades immediately',
+                    'tags' => ['Admin'],
+                    'responses' => [
+                        '200' => ['description' => 'Trades executed']
+                    ]
+                ],
             ],
             '/api/v1/admin/market-status' => [
-                'get' => ['summary' => 'Market status', 'tags' => ['Admin']],
-            ],
-            '/api/v1/admin/import-backtest' => [
-                'post' => ['summary' => 'Import backtest data', 'tags' => ['Admin']],
+                'get' => [
+                    'summary' => 'Get Alpaca market status',
+                    'tags' => ['Admin'],
+                    'responses' => [
+                        '200' => ['description' => 'Current market status']
+                    ]
+                ],
             ],
         ]
     ]);
