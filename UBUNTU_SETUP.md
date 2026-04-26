@@ -517,16 +517,137 @@ SELECT * FROM strategy_parameters LIMIT 1;
 
 ---
 
-## Key Differences: Ubuntu vs Windows/WSL
+## Unified Codebase: Ubuntu & Windows/WSL
+
+**The codebase is now identical across both platforms.** All three apps (backend, frontend, optimizer) use the same code, same database schema, same API endpoints, and same data flow.
+
+### What's Consistent (Same on Both OS)
+
+| Component | Ubuntu | Windows/WSL | Notes |
+|-----------|--------|-------------|-------|
+| **Backend API** | Laravel 12 | Laravel 12 | `/api/v1/*` endpoints identical |
+| **Frontend** | Svelte 4 | Svelte 4 | http://localhost:5173 on both |
+| **Optimizer** | nightly_optimizer.py | nightly_optimizer.py | Same code, detects platform |
+| **Database Schema** | SQLite | SQLite | Same tables, same structure |
+| **Data Flow** | CSV → bars table → optimizer | CSV → bars table → optimizer | Unified data pipeline |
+| **Alpaca SDK** | alpaca-py | alpaca-py | Modern SDK for both |
+| **Cache** | In-memory (array) | In-memory (array) | Same cache driver |
+| **Configuration** | .env with absolute paths | .env with absolute paths | Same format, same vars |
+
+### What Differs (OS-Specific Only)
 
 | Aspect | Ubuntu (Linux) | Windows/WSL |
 |--------|--------|---|
 | **Scheduler** | Native `crontab` | Windows Task Scheduler |
-| **Python Path** | `venv/bin/python` | `C:\...\python.exe` or WSL interop |
-| **Alpaca SDK** | `alpaca-py` (modern) | `alpaca-trade-api` (legacy) |
-| **Script Execution** | Bash + execution bits | PowerShell or Bash |
-| **Database Path** | `/home/...` (absolute) | `C:\...` (Windows paths) |
+| **Script Shell** | Bash (`run_nightly.sh`) | Bash or PowerShell wrapper |
+| **Python venv Path** | `/path/venv/bin/python` | `C:\path\venv\Scripts\python.exe` |
+| **DB Path Format** | `/home/user/...` (absolute) | `C:\Users\user\...` (absolute) |
 | **Line Endings** | LF | CRLF (auto-converted by Git) |
+
+---
+
+## Data Flow: Identical on Both Platforms
+
+```
+1. Alpaca API
+   ↓
+2. fetch_historical_data() → CSV cache
+   ↓
+3. Import CSV → bars table (SQLite database)
+   ↓
+4. nightly_optimizer.py
+   • Load from bars table
+   • Fetch new data from last timestamp
+   • Append incremental bars to bars table
+   ↓
+5. Save optimized parameters → strategy_parameters table
+   ↓
+6. Backend API queries bars table for optimization data
+   ↓
+7. Frontend dashboard displays results
+```
+
+This flow works identically on Ubuntu, Windows, and WSL.
+
+---
+
+## Windows/WSL Setup (Same Codebase)
+
+For Windows or WSL users, the setup is **identical** except for 3 things:
+
+### 1. Database Path in .env
+
+**Ubuntu:**
+```env
+DB_DATABASE=/home/user/SwingTraderAndOptimizer/optimizer/optimized_params/strategy_params.db
+```
+
+**Windows (PowerShell):**
+```env
+DB_DATABASE=C:\Users\user\SwingTraderAndOptimizer\optimizer\optimized_params\strategy_params.db
+```
+
+**WSL (inside WSL):**
+```env
+DB_DATABASE=/home/user/SwingTraderAndOptimizer/optimizer/optimized_params/strategy_params.db
+```
+
+Git auto-converts line endings, so the file works as-is on both platforms.
+
+### 2. Scheduler Setup (Windows Task Scheduler instead of crontab)
+
+**Ubuntu (crontab):**
+```bash
+# Nightly optimizer at 2 AM
+0 2 * * * /path/to/optimizer/run_nightly.sh
+
+# Trade executor every minute
+* * * * * /usr/bin/php /path/to/backend/artisan schedule:run
+```
+
+**Windows (Task Scheduler):**
+```
+Task 1: Run nightly_optimizer.sh at 02:00
+  Command: C:\path\to\optimizer\run_nightly.sh
+  
+Task 2: Run schedule:run every 1 minute
+  Command: C:\php\php.exe C:\path\to\backend\artisan schedule:run
+```
+
+Or use WSL Task Scheduler:
+```powershell
+$action = New-ScheduledTaskAction -Execute "wsl" -Argument "/path/to/optimizer/run_nightly.sh"
+$trigger = New-ScheduledTaskTrigger -Daily -At 2:00AM
+Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "SwingTrader-Optimizer"
+```
+
+### 3. Python Virtual Environment Path
+
+**Ubuntu:**
+```bash
+source /path/venv/bin/activate
+```
+
+**Windows (PowerShell):**
+```powershell
+& 'C:\path\venv\Scripts\Activate.ps1'
+```
+
+**Windows (CMD):**
+```cmd
+C:\path\venv\Scripts\activate.bat
+```
+
+### Everything Else is Identical
+
+- Backend API code: Same
+- Frontend code: Same
+- Optimizer code: Same
+- Database schema: Same
+- API endpoints: Same
+- Data flow: Same
+
+Simply adjust the 3 items above (paths, scheduler, venv activation) and you have a working system on Windows/WSL.
 
 ---
 
