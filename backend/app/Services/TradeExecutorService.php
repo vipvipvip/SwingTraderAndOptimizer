@@ -177,7 +177,7 @@ class TradeExecutorService
             $symbol = $ticker['symbol'];
             $results['total']++;
             try {
-                $buy = $this->alpacaService->placeOrder($symbol, 'buy', $qty);
+                $buy = $this->alpacaService->placeOrder($symbol, $qty, 'buy');
                 \Log::info("FORCE-TEST BUY {$symbol} qty={$qty} order=" . ($buy['id'] ?? 'n/a'));
                 $results['buys'][] = $symbol;
 
@@ -193,7 +193,7 @@ class TradeExecutorService
                     'strategy_signal' => 'FORCE_TEST',
                 ]);
 
-                $sell = $this->alpacaService->placeOrder($symbol, 'sell', $qty);
+                $sell = $this->alpacaService->placeOrder($symbol, $qty, 'sell');
                 \Log::info("FORCE-TEST SELL {$symbol} qty={$qty} order=" . ($sell['id'] ?? 'n/a'));
                 $results['sells'][] = $symbol;
 
@@ -255,6 +255,58 @@ class TradeExecutorService
     }
 
     /**
+     * Read hourly bars from optimizer's SQLite database
+     * Returns array of close prices in chronological order
+     */
+    private function getBarsFromSQLite($symbol)
+    {
+        $dbPath = base_path('../optimizer/optimized_params/strategy_params.db');
+        if (!file_exists($dbPath)) {
+            \Log::debug("SQLite database not found at {$dbPath}");
+            return [];
+        }
+
+        try {
+            $conn = new \SQLite3($dbPath);
+
+            // Get ticker_id from SQLite tickers table
+            $stmt = $conn->prepare('SELECT id FROM tickers WHERE symbol = ?');
+            $stmt->bindValue(1, $symbol, SQLITE3_TEXT);
+            $result = $stmt->execute();
+            $ticker = $result->fetchArray(SQLITE3_ASSOC);
+
+            if (!$ticker) {
+                \Log::debug("Ticker {$symbol} not found in SQLite");
+                $conn->close();
+                return [];
+            }
+
+            $tickerId = $ticker['id'];
+
+            // Fetch all bars for this ticker, ordered by timestamp
+            $stmt = $conn->prepare('SELECT close FROM bars WHERE ticker_id = ? ORDER BY timestamp ASC');
+            $stmt->bindValue(1, $tickerId, SQLITE3_INTEGER);
+            $result = $stmt->execute();
+
+            $closes = [];
+            while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                $closes[] = floatval($row['close']);
+            }
+
+            $conn->close();
+
+            if (!empty($closes)) {
+                \Log::debug("{$symbol}: Loaded " . count($closes) . " bars from SQLite");
+            }
+
+            return $closes;
+        } catch (\Exception $e) {
+            \Log::debug("Could not fetch bars from SQLite for {$symbol}: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
      * Get price series from bars + intra_day prices, sorted chronologically
      */
     private function getPriceClosesForSignal($symbol)
@@ -311,11 +363,13 @@ class TradeExecutorService
      */
     private function getCurrentPrice($symbol)
     {
-        // Try to get from bars data (most recent close)
+        // Try to get from bars data (most recent close) via ticker_id FK
         try {
             $bar = \DB::table('bars')
-                ->where('symbol', $symbol)
-                ->orderBy('timestamp', 'desc')
+                ->join('tickers', 'bars.ticker_id', '=', 'tickers.id')
+                ->where('tickers.symbol', $symbol)
+                ->orderBy('bars.timestamp', 'desc')
+                ->select('bars.close')
                 ->first();
 
             if ($bar) {
