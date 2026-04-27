@@ -47,7 +47,11 @@ class ExecuteDailyTrades extends Command
                 $this->info("Account equity: \$" . number_format($equity, 2));
             }
 
-            $this->sendSlackReport($results, $equity, true);
+            // Only send Slack report if trades occurred
+            $hasTrades = count($results['buys'] ?? []) > 0 || count($results['sells'] ?? []) > 0;
+            if ($hasTrades) {
+                $this->sendSlackReport($results, $equity, true);
+            }
 
             return 0;
         } catch (\Exception $e) {
