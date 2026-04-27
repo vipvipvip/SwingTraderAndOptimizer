@@ -442,6 +442,16 @@ journalctl -u cron | tail -20
 bash scripts/start-all.sh
 ```
 
+This script performs a **clean restart**:
+- **Cleanup:** Kills any existing PHP, Node, and Vite processes on ports 9000 & 5173
+- **Cache Clear:** Removes Laravel bootstrap cache, config cache, and old log files
+- **Backend Start:** Starts Laravel API server on `http://localhost:9000`
+- **Frontend Start:** Installs dependencies (if needed) and starts Svelte dev server on `http://localhost:5173`
+- **Health Checks:** Verifies both services are responding before returning
+- **Graceful Shutdown:** Press `Ctrl+C` to stop both services cleanly
+
+This ensures a fresh state without stale caches or port conflicts.
+
 **Option B: Manual (3 terminals)**
 
 Terminal 1 - Backend:
@@ -465,9 +475,11 @@ tail -f backend/storage/logs/laravel.log
 ### 5.2 Access the Dashboard
 
 Open your browser:
-- **Dashboard:** http://localhost:5173
-- **API Docs:** http://localhost:9000/api/documentation
-- **API Server:** http://localhost:9000
+- **Dashboard:** http://localhost:5173 (Svelte UI with trades, strategies, equity curves)
+- **API Docs:** http://localhost:9000/api/documentation (Interactive Swagger UI with 19 endpoints)
+- **API Server:** http://localhost:9000 (OpenAPI spec at `/api/v1/openapi.json`)
+
+The API documentation includes all endpoints for account info, tickers, strategies, orders, trades, and administrative operations.
 
 ---
 
@@ -492,7 +504,7 @@ curl -X POST http://localhost:9000/api/v1/admin/optimize/trigger | jq .
 ### 6.2 Test Optimizer
 
 ```bash
-# Run optimizer manually (takes ~90 minutes for 3 tickers)
+# Run optimizer manually (takes ~13 minutes for 3 tickers on Linux with parallel execution)
 cd optimizer
 source venv/bin/activate
 python nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM
@@ -500,6 +512,8 @@ python nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM
 # Watch progress
 tail -f logs/nightly.log
 ```
+
+**Note:** On Linux, the optimizer automatically detects the platform and uses parallel execution (`n_jobs=-1`) which significantly reduces runtime. On Windows/WSL, it uses sequential execution (`n_jobs=1`) due to Loky backend compatibility.
 
 ### 6.3 Check Database
 
@@ -548,26 +562,33 @@ SELECT * FROM strategy_parameters LIMIT 1;
 
 ## Data Flow: Identical on Both Platforms
 
+The system uses the **bars table as the source of truth** for all historical and real-time data:
+
 ```
 1. Alpaca API
    ↓
-2. fetch_historical_data() → CSV cache
+2. fetch_historical_data() → CSV cache (fallback)
    ↓
-3. Import CSV → bars table (SQLite database)
+3. Import CSV → bars table (SQLite database - 2 years of hourly bars)
    ↓
-4. nightly_optimizer.py
-   • Load from bars table
-   • Fetch new data from last timestamp
+4. nightly_optimizer.py (runs at 2:00 AM)
+   • Load entire dataset from bars table (source of truth)
+   • Fetch new data from Alpaca (since last bar timestamp)
    • Append incremental bars to bars table
    ↓
-5. Save optimized parameters → strategy_parameters table
+5. Calculate optimized parameters using full 2-year dataset
    ↓
-6. Backend API queries bars table for optimization data
+6. Save optimized parameters → strategy_parameters table
    ↓
-7. Frontend dashboard displays results
+7. Backend API serves:
+   - /api/v1/trades/live (from Alpaca)
+   - /api/v1/trades/backtest (imported CSVs)
+   - /api/v1/strategies (optimized parameters from DB)
+   ↓
+8. Frontend dashboard displays live trades, backtest results, and equity curves
 ```
 
-This flow works identically on Ubuntu, Windows, and WSL.
+This flow works identically on Ubuntu, Windows, and WSL. The database schema remains the same across all platforms.
 
 ---
 
@@ -638,14 +659,25 @@ source /path/venv/bin/activate
 C:\path\venv\Scripts\activate.bat
 ```
 
+### 4. Cache Configuration
+
+**Both platforms use in-memory caching to avoid filesystem issues:**
+```env
+# backend/.env
+CACHE_STORE=array
+```
+
+This setting prevents cache path validation errors that can occur with file-based caching during development. The array cache is reset on each application restart, which is fine for development and the nightly optimization cycle.
+
 ### Everything Else is Identical
 
 - Backend API code: Same
 - Frontend code: Same
 - Optimizer code: Same
 - Database schema: Same
-- API endpoints: Same
+- API endpoints: Same (19 endpoints documented in OpenAPI spec)
 - Data flow: Same
+- Swagger API documentation: Same (available at `/api/documentation`)
 
 Simply adjust the 3 items above (paths, scheduler, venv activation) and you have a working system on Windows/WSL.
 
@@ -778,6 +810,6 @@ This guide is for the **`STO-Ubuntu-v1`** branch, which contains Ubuntu/Linux-sp
 
 ---
 
-**Last Updated:** 2026-04-25  
+**Last Updated:** 2026-04-27  
 **Status:** Production-ready on Ubuntu 22.04+  
-**Tested:** ✅ Native Linux, ✅ Crontab scheduling, ✅ Alpaca integration
+**Tested:** ✅ Native Linux, ✅ Parallel optimization (13 min), ✅ Crontab scheduling, ✅ Alpaca integration, ✅ Swagger API docs, ✅ 2-year dataset in bars table

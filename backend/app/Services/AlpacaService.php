@@ -11,6 +11,8 @@ class AlpacaService
     private $secretKey;
     private $baseUrl;
     private $dataUrl;
+    private $maxRetries = 3;
+    private $retryDelay = 500; // milliseconds
 
     public function __construct()
     {
@@ -20,19 +22,43 @@ class AlpacaService
         $this->dataUrl = 'https://data.alpaca.markets';
     }
 
+    private function makeRequest($method, $url, $params = null, $payload = null, $retries = 0)
+    {
+        try {
+            $client = Http::withBasicAuth($this->apiKey, $this->secretKey)->timeout(5);
+
+            if ($method === 'get') {
+                $response = $client->get($url, $params);
+            } elseif ($method === 'post') {
+                $response = $client->post($url, $payload);
+            } elseif ($method === 'delete') {
+                $response = $client->delete($url);
+            } else {
+                throw new \Exception("Unknown HTTP method: $method");
+            }
+
+            if ($response->failed()) {
+                throw new \Exception("Alpaca API error: " . $response->body());
+            }
+
+            return $response;
+        } catch (\Exception $e) {
+            // Retry on connection timeouts or 5xx errors
+            if ($retries < $this->maxRetries && (strpos($e->getMessage(), 'timed out') !== false || strpos($e->getMessage(), '5') !== false)) {
+                usleep($this->retryDelay * 1000);
+                return $this->makeRequest($method, $url, $params, $payload, $retries + 1);
+            }
+            throw $e;
+        }
+    }
+
     /**
      * Get market clock status
      */
     public function getClock()
     {
         try {
-            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
-                ->get("{$this->baseUrl}/v2/clock");
-
-            if ($response->failed()) {
-                throw new \Exception("Alpaca API error: " . $response->body());
-            }
-
+            $response = $this->makeRequest('get', "{$this->baseUrl}/v2/clock");
             $data = $response->json();
             return [
                 'is_open' => $data['is_open'] ?? false,
@@ -42,7 +68,12 @@ class AlpacaService
             ];
         } catch (\Exception $e) {
             Log::error('AlpacaService::getClock error: ' . $e->getMessage());
-            throw $e;
+            return [
+                'is_open' => false,
+                'next_open' => null,
+                'next_close' => null,
+                'timestamp' => null,
+            ];
         }
     }
 
@@ -52,13 +83,7 @@ class AlpacaService
     public function getAccount()
     {
         try {
-            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
-                ->get("{$this->baseUrl}/v2/account");
-
-            if ($response->failed()) {
-                throw new \Exception("Alpaca API error: " . $response->body());
-            }
-
+            $response = $this->makeRequest('get', "{$this->baseUrl}/v2/account");
             $data = $response->json();
             return [
                 'equity' => $data['equity'] ?? 0,
@@ -68,7 +93,13 @@ class AlpacaService
             ];
         } catch (\Exception $e) {
             Log::error('AlpacaService::getAccount error: ' . $e->getMessage());
-            throw $e;
+            return [
+                'equity' => 0,
+                'buying_power' => 0,
+                'cash' => 0,
+                'portfolio_value' => 0,
+                'error' => 'Unable to fetch from Alpaca API',
+            ];
         }
     }
 
@@ -78,13 +109,7 @@ class AlpacaService
     public function getPositions()
     {
         try {
-            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
-                ->get("{$this->baseUrl}/v2/positions");
-
-            if ($response->failed()) {
-                throw new \Exception("Alpaca API error: " . $response->body());
-            }
-
+            $response = $this->makeRequest('get', "{$this->baseUrl}/v2/positions");
             $positions = $response->json();
             if (!is_array($positions)) {
                 $positions = [];
@@ -96,7 +121,6 @@ class AlpacaService
                 $current_price = floatval($pos['current_price'] ?? 0);
                 $market_value = floatval($pos['market_value'] ?? 0);
 
-                // Calculate unrealized P&L if Alpaca didn't provide it
                 $unrealized_pnl = $pos['unrealized_pnl'] ?? (($current_price - $entry_price) * $qty);
 
                 return [
@@ -111,7 +135,7 @@ class AlpacaService
             }, $positions);
         } catch (\Exception $e) {
             Log::error('AlpacaService::getPositions error: ' . $e->getMessage());
-            throw $e;
+            return [];
         }
     }
 
@@ -133,28 +157,20 @@ class AlpacaService
                 $params['end'] = is_string($end) ? $end : $end->toIso8601String();
             }
 
-            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
-                ->get("{$this->dataUrl}/v2/stocks/{$symbol}/bars", $params);
-
-            if ($response->failed()) {
-                throw new \Exception("Alpaca API error: " . $response->body());
-            }
-
+            $response = $this->makeRequest('get', "{$this->dataUrl}/v2/stocks/{$symbol}/bars", $params);
             $data = $response->json();
             $bars = $data['bars'] ?? [];
 
-            // Handle pagination
             while (isset($data['next_page_token']) && $data['next_page_token']) {
                 $params['page_token'] = $data['next_page_token'];
-                $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
-                    ->get("{$this->dataUrl}/v2/stocks/{$symbol}/bars", $params);
-
-                if ($response->failed()) {
+                try {
+                    $response = $this->makeRequest('get', "{$this->dataUrl}/v2/stocks/{$symbol}/bars", $params);
+                    $data = $response->json();
+                    $bars = array_merge($bars, $data['bars'] ?? []);
+                } catch (\Exception $e) {
+                    Log::warning("Error fetching next page for {$symbol}: " . $e->getMessage());
                     break;
                 }
-
-                $data = $response->json();
-                $bars = array_merge($bars, $data['bars'] ?? []);
             }
 
             return $bars;
@@ -178,13 +194,7 @@ class AlpacaService
                 'time_in_force' => $timeInForce,
             ];
 
-            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
-                ->post("{$this->baseUrl}/v2/orders", $payload);
-
-            if ($response->failed()) {
-                throw new \Exception("Alpaca API error: " . $response->body());
-            }
-
+            $response = $this->makeRequest('post', "{$this->baseUrl}/v2/orders", null, $payload);
             return $response->json();
         } catch (\Exception $e) {
             Log::error("AlpacaService::placeOrder({$symbol}, {$qty}, {$side}) error: " . $e->getMessage());
@@ -203,13 +213,7 @@ class AlpacaService
                 'limit' => $limit,
             ];
 
-            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
-                ->get("{$this->baseUrl}/v2/orders", $params);
-
-            if ($response->failed()) {
-                throw new \Exception("Alpaca API error: " . $response->body());
-            }
-
+            $response = $this->makeRequest('get', "{$this->baseUrl}/v2/orders", $params);
             return $response->json();
         } catch (\Exception $e) {
             Log::error("AlpacaService::getOrders error: " . $e->getMessage());
@@ -223,13 +227,7 @@ class AlpacaService
     public function cancelOrder($orderId)
     {
         try {
-            $response = Http::withBasicAuth($this->apiKey, $this->secretKey)
-                ->delete("{$this->baseUrl}/v2/orders/{$orderId}");
-
-            if ($response->failed()) {
-                throw new \Exception("Alpaca API error: " . $response->body());
-            }
-
+            $this->makeRequest('delete', "{$this->baseUrl}/v2/orders/{$orderId}");
             return true;
         } catch (\Exception $e) {
             Log::error("AlpacaService::cancelOrder({$orderId}) error: " . $e->getMessage());
