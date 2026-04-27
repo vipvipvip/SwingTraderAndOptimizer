@@ -481,6 +481,52 @@ Open your browser:
 
 The API documentation includes all endpoints for account info, tickers, strategies, orders, trades, and administrative operations.
 
+### 5.3 Network Access (From Other Laptops)
+
+To access the dashboard from another device on the same local network:
+
+1. **Find your server's local IP address:**
+   ```bash
+   hostname -I | awk '{print $1}'
+   # Example output: 192.168.1.232
+   ```
+
+2. **Update hardcoded IPs in configuration files:**
+   
+   The application currently has hardcoded IPs that need to be updated:
+   
+   - **`frontend/vite.config.js` line 18:** API proxy target
+   - **`scripts/start-all.sh` lines 113-116:** Display output messages
+   
+   **Replace `192.168.1.232` with your server's actual IP address:**
+   ```bash
+   # Option 1: Manual edit
+   sed -i 's/192.168.1.232/YOUR_SERVER_IP/g' frontend/vite.config.js
+   sed -i 's/192.168.1.232/YOUR_SERVER_IP/g' scripts/start-all.sh
+   
+   # Option 2: Use a script
+   MYIP=$(hostname -I | awk '{print $1}')
+   sed -i "s/192.168.1.232/$MYIP/g" frontend/vite.config.js
+   sed -i "s/192.168.1.232/$MYIP/g" scripts/start-all.sh
+   ```
+
+3. **Access from another device on the same network:**
+   - **Dashboard:** `http://YOUR_SERVER_IP:5173`
+   - **API Server:** `http://YOUR_SERVER_IP:9000`
+   - **API Docs:** `http://YOUR_SERVER_IP:9000/api/documentation`
+
+4. **Restart services after making changes:**
+   ```bash
+   bash scripts/start-all.sh
+   ```
+
+**Note:** The firewall on the server may need to allow traffic on ports 5173 and 9000. Check with:
+```bash
+sudo ufw status
+sudo ufw allow 5173/tcp
+sudo ufw allow 9000/tcp
+```
+
 ---
 
 ## Part 6: Verify Everything Works

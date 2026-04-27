@@ -104,16 +104,17 @@ fi
 echo ""
 
 # Display info
+# TODO: Update 192.168.1.232 to your server's local network IP address when deployed to a different network
 echo ""
 echo -e "${BLUE}=========================================="
 echo "Swing Trader Running"
 echo "==========================================${NC}"
 echo ""
 echo -e "${GREEN}Dashboard UI:${NC}      ${YELLOW}http://localhost:5173${NC} (local)"
-echo -e "${GREEN}                  ${YELLOW}http://192.168.1.232:5173${NC} (network)"
+echo -e "${GREEN}                  ${YELLOW}http://192.168.1.232:5173${NC} (network) - TODO: Update IP"
 echo -e "${GREEN}API Server:${NC}       ${YELLOW}http://localhost:9000${NC} (local)"
-echo -e "${GREEN}                  ${YELLOW}http://192.168.1.232:9000${NC} (network)"
-echo -e "${GREEN}API Docs:${NC}         ${YELLOW}http://192.168.1.232:9000/api/documentation${NC}"
+echo -e "${GREEN}                  ${YELLOW}http://192.168.1.232:9000${NC} (network) - TODO: Update IP"
+echo -e "${GREEN}API Docs:${NC}         ${YELLOW}http://192.168.1.232:9000/api/documentation${NC} - TODO: Update IP"
 echo ""
 echo -e "${YELLOW}Logs:${NC}"
 echo "  Backend:  tail -f /tmp/backend.log"

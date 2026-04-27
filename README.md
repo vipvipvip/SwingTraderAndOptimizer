@@ -277,6 +277,34 @@ curl -X PUT http://localhost:9000/api/v1/tickers/SPY/allocation \
 # Trade sizing: (account_equity × allocation_weight%) / entry_price
 ```
 
+### Network Access (Hardcoded IP Addresses)
+
+**⚠️ IMPORTANT:** The application contains hardcoded IP addresses (`192.168.1.232`) for local network access. These **must be updated** if you deploy to a different network or machine.
+
+**Files with hardcoded IPs:**
+- `frontend/vite.config.js` — API proxy target (line 18)
+- `scripts/start-all.sh` — Display output messages (lines 113-116)
+
+**To update for your deployment:**
+```bash
+# Get your server's IP address
+MYIP=$(hostname -I | awk '{print $1}')  # Linux
+# or on Windows:
+# $MYIP = (Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias Ethernet).IPAddress
+
+# Replace the hardcoded IP
+sed -i "s/192.168.1.232/$MYIP/g" frontend/vite.config.js
+sed -i "s/192.168.1.232/$MYIP/g" scripts/start-all.sh
+
+# Restart services
+bash scripts/start-all.sh
+```
+
+After updating, access from other devices using:
+- Dashboard: `http://YOUR_SERVER_IP:5173`
+- API: `http://YOUR_SERVER_IP:9000`
+- API Docs: `http://YOUR_SERVER_IP:9000/api/documentation`
+
 ---
 
 ## How It Works

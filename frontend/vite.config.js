@@ -15,6 +15,7 @@ export default defineConfig({
     middlewareMode: false,
     proxy: {
       '/api': {
+        // TODO: Update to your server's local network IP address when deployed
         target: 'http://192.168.1.232:9000',
         changeOrigin: true,
         rewrite: (path) => path
