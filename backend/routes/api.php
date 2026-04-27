@@ -82,6 +82,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/admin/optimize/trigger', [AdminController::class, 'triggerOptimizer']);
     Route::post('/admin/trades/trigger', [AdminController::class, 'triggerTrades']);
     Route::get('/admin/market-status', [AdminController::class, 'getMarketStatus']);
+    Route::get('/admin/last-runs', [AdminController::class, 'getLastRuns']);
     Route::post('/admin/import-backtest', [AdminController::class, 'importBacktestCsvs']);
 });
 
@@ -239,6 +240,25 @@ Route::get('/v1/openapi.json', function () {
                     'tags' => ['Admin'],
                     'responses' => [
                         '200' => ['description' => 'Current market status']
+                    ]
+                ],
+            ],
+            '/api/v1/admin/last-runs' => [
+                'get' => [
+                    'summary' => 'Get last optimizer and trades run times',
+                    'tags' => ['Admin'],
+                    'responses' => [
+                        '200' => [
+                            'description' => 'Last execution times for optimizer and trade executor',
+                            'content' => [
+                                'application/json' => [
+                                    'example' => [
+                                        'last_optimizer_run' => '2026-04-27 14:30:00',
+                                        'last_trades_run' => '2026-04-27 14:35:00'
+                                    ]
+                                ]
+                            ]
+                        ]
                     ]
                 ],
             ],

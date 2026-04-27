@@ -17,6 +17,19 @@
   let tradesMessage = ''
   let nextTradeTime = ''
   let nextTradeDay = ''
+  let lastOptimizerRun = ''
+  let lastTradesRun = ''
+
+  function formatDateTime(dateString) {
+    if (!dateString) return ''
+    const date = new Date(dateString)
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const year = String(date.getFullYear()).slice(-2)
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${month}/${day}/${year} ${hours}:${minutes}`
+  }
 
   function calculateNextTradeTime() {
     const now = new Date()
@@ -72,7 +85,12 @@
     try {
       const res = await fetch('/api/v1/admin/optimize/trigger', { method: 'POST' })
       const data = await res.json()
-      optimizerMessage = res.ok ? '✓ Optimizer completed' : `✗ Error: ${data.error}`
+      if (res.ok) {
+        optimizerMessage = '✓ Optimizer completed'
+        lastOptimizerRun = formatDateTime(new Date().toISOString())
+      } else {
+        optimizerMessage = `✗ Error: ${data.error}`
+      }
     } catch (e) {
       optimizerMessage = `✗ Error: ${e instanceof Error ? e.message : 'Unknown error'}`
     } finally {
@@ -87,7 +105,12 @@
     try {
       const res = await fetch('/api/v1/admin/trades/trigger', { method: 'POST' })
       const data = await res.json()
-      tradesMessage = res.ok ? '✓ Trade executor completed' : `✗ Error: ${data.error}`
+      if (res.ok) {
+        tradesMessage = '✓ Trade executor completed'
+        lastTradesRun = formatDateTime(new Date().toISOString())
+      } else {
+        tradesMessage = `✗ Error: ${data.error}`
+      }
     } catch (e) {
       tradesMessage = `✗ Error: ${e instanceof Error ? e.message : 'Unknown error'}`
     } finally {
@@ -106,6 +129,17 @@
       strategies = await res.json()
       if (strategies.length > 0) {
         selectedSymbol = strategies[0].symbol
+      }
+
+      const lastRunsRes = await fetch('/api/v1/admin/last-runs')
+      if (lastRunsRes.ok) {
+        const lastRuns = await lastRunsRes.json()
+        if (lastRuns.last_optimizer_run) {
+          lastOptimizerRun = formatDateTime(lastRuns.last_optimizer_run)
+        }
+        if (lastRuns.last_trades_run) {
+          lastTradesRun = formatDateTime(lastRuns.last_trades_run)
+        }
       }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error'
@@ -290,6 +324,9 @@
               {optimizerMessage}
             </div>
           {/if}
+          {#if lastOptimizerRun}
+            <div style="font-size: 12px; color: #666; margin-top: 4px;">Last updated: {lastOptimizerRun}</div>
+          {/if}
         </div>
         <div class="control-buttons">
           <button on:click={triggerTrades} disabled={tradesRunning} class="control-btn trades-btn">
@@ -299,6 +336,9 @@
             <div class="status-message" class:error={tradesMessage.startsWith('✗')}>
               {tradesMessage}
             </div>
+          {/if}
+          {#if lastTradesRun}
+            <div style="font-size: 12px; color: #666; margin-top: 4px;">Last updated: {lastTradesRun}</div>
           {/if}
         </div>
       </div>

@@ -194,4 +194,43 @@ class AdminController extends Controller
             return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
         }
     }
+
+    public function getLastRuns()
+    {
+        $dbPath = base_path('../optimizer/optimized_params/strategy_params.db');
+        $lastOptimizerRun = null;
+        $lastTradesRun = null;
+
+        if (file_exists($dbPath)) {
+            try {
+                $sqliteConn = new \SQLite3($dbPath);
+                $result = $sqliteConn->querySingle(
+                    'SELECT MAX(run_date) as latest_run FROM optimization_history',
+                    true
+                );
+                if ($result && $result['latest_run']) {
+                    $lastOptimizerRun = $result['latest_run'];
+                }
+                $sqliteConn->close();
+            } catch (\Exception $e) {
+                // Silently fail
+            }
+        }
+
+        try {
+            $lastTrade = \Illuminate\Support\Facades\DB::table('live_trades')
+                ->selectRaw('MAX(entry_at) as latest_entry')
+                ->first();
+            if ($lastTrade && $lastTrade->latest_entry) {
+                $lastTradesRun = $lastTrade->latest_entry;
+            }
+        } catch (\Exception $e) {
+            // Silently fail
+        }
+
+        return response()->json([
+            'last_optimizer_run' => $lastOptimizerRun,
+            'last_trades_run' => $lastTradesRun,
+        ]);
+    }
 }
