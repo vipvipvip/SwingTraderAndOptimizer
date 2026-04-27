@@ -16,7 +16,7 @@ class Kernel extends ConsoleKernel
         // Price fetching is handled by trade executor (calls fetchLatestPrices internally every 30 min)
 
         $schedule->command('trades:execute-daily')
-            ->everyThirtyMinutes()
+            ->everyMinute()
             ->weekdays()
             ->between('09:30', '16:00')
             ->timezone('America/New_York');
