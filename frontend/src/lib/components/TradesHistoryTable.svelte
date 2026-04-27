@@ -55,7 +55,13 @@
 
   function formatDate(dateStr) {
     if (!dateStr) return '-'
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    const date = new Date(dateStr)
+    const mm = String(date.getMonth() + 1).padStart(2, '0')
+    const dd = String(date.getDate()).padStart(2, '0')
+    const yy = String(date.getFullYear()).slice(-2)
+    const hh = String(date.getHours()).padStart(2, '0')
+    const mi = String(date.getMinutes()).padStart(2, '0')
+    return `${mm}/${dd}/${yy} ${hh}:${mi}`
   }
 
   function formatPrice(price) {
