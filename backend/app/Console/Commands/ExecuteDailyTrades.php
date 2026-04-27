@@ -21,6 +21,9 @@ class ExecuteDailyTrades extends Command
         $equityService = app(EquityService::class);
         $forceTest = $this->option('force-test');
 
+        // Record execution time
+        $this->recordExecutionTime();
+
         try {
             $clock = $alpacaService->getClock();
             // $clock['is_open'] = true;
@@ -51,6 +54,17 @@ class ExecuteDailyTrades extends Command
             $this->error('Trade execution failed: ' . $e->getMessage());
             $this->sendSlackReport(null, null, false, $e->getMessage());
             return 1;
+        }
+    }
+
+    private function recordExecutionTime()
+    {
+        try {
+            $timestamp = now()->format('Y-m-d H:i:s');
+            $statusFile = storage_path('trades_last_run.txt');
+            file_put_contents($statusFile, $timestamp);
+        } catch (\Exception $e) {
+            \Log::warning('Could not record execution time: ' . $e->getMessage());
         }
     }
 

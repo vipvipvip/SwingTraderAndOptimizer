@@ -217,15 +217,28 @@ class AdminController extends Controller
             }
         }
 
-        try {
-            $lastTrade = \Illuminate\Support\Facades\DB::table('live_trades')
-                ->selectRaw('MAX(entry_at) as latest_entry')
-                ->first();
-            if ($lastTrade && $lastTrade->latest_entry) {
-                $lastTradesRun = $lastTrade->latest_entry;
+        // Get last trades execution time from file (updated every command run)
+        $statusFile = storage_path('trades_last_run.txt');
+        if (file_exists($statusFile)) {
+            try {
+                $lastTradesRun = trim(file_get_contents($statusFile));
+            } catch (\Exception $e) {
+                // Silently fail, fall back to DB query
             }
-        } catch (\Exception $e) {
-            // Silently fail
+        }
+
+        // Fallback to DB if file not available
+        if (!$lastTradesRun) {
+            try {
+                $lastTrade = \Illuminate\Support\Facades\DB::table('live_trades')
+                    ->selectRaw('MAX(entry_at) as latest_entry')
+                    ->first();
+                if ($lastTrade && $lastTrade->latest_entry) {
+                    $lastTradesRun = $lastTrade->latest_entry;
+                }
+            } catch (\Exception $e) {
+                // Silently fail
+            }
         }
 
         return response()->json([

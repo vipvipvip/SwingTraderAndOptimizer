@@ -18,8 +18,8 @@ class Kernel extends ConsoleKernel
         $schedule->command('trades:execute-daily')
             ->everyMinute()
             ->weekdays()
-            ->between('09:30', '16:00')
             ->timezone('America/New_York');
+            // ->between('09:30', '16:00');
 
         $schedule->command('equity:snapshot')
             ->dailyAt('16:05')
