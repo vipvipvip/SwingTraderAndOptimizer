@@ -307,35 +307,23 @@ class TradeExecutorService
     }
 
     /**
-     * Get price series from bars + intra_day prices, sorted chronologically
+     * Get price series from SQLite bars + intra_day prices
+     * Primary: SQLite bars from optimizer (2 years, updated nightly)
+     * Fresh data: Intraday prices saved every 30 minutes during market hours
      */
     private function getPriceClosesForSignal($symbol)
     {
         $closes = [];
 
-        // Get bars (historical hourly data)
-        try {
-            $timeframe = env('TRADING_TIMEFRAME', '1Hour');
-            $end = date('Y-m-d');
-            $start = date('Y-m-d', strtotime('-60 days'));
-            $bars = $this->alpacaService->getBars($symbol, $timeframe, $start, $end);
+        // Get historical bars from optimizer's SQLite (never call Alpaca for bars)
+        $closes = $this->getBarsFromSQLite($symbol);
 
-            if (!empty($bars)) {
-                // Sort by timestamp ascending
-                usort($bars, function ($a, $b) {
-                    return strtotime($a['t'] ?? $a['timestamp'] ?? 0) <=> strtotime($b['t'] ?? $b['timestamp'] ?? 0);
-                });
-
-                foreach ($bars as $bar) {
-                    $closes[] = floatval($bar['c'] ?? $bar['close'] ?? 0);
-                }
-                \Log::debug("$symbol: Loaded " . count($bars) . " bars from Alpaca");
-            }
-        } catch (\Exception $e) {
-            \Log::debug("Could not fetch bars for $symbol: " . $e->getMessage());
+        if (empty($closes)) {
+            \Log::warning("$symbol: No bars available in SQLite");
+            return [];
         }
 
-        // Add intra_day prices for today (after the last bar)
+        // Append intra_day prices for today (fresh real-time data)
         try {
             $today = date('Y-m-d');
             $intraDayPrices = IntraDayPrice::where('symbol', $symbol)
