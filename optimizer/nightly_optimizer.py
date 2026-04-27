@@ -8,7 +8,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from joblib import Parallel, delayed
 from dotenv import load_dotenv
-from data_fetcher import fetch_historical_data, save_data, load_data, load_data_from_db, append_bars_to_db
+from data_fetcher import fetch_historical_data, fetch_incremental_data, save_data, load_data, load_data_from_db, append_bars_to_db
 from parameter_optimizer import ParameterOptimizer
 from db import StrategyDB
 
@@ -74,18 +74,19 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
     df = load_data_from_db(symbol)
 
     if df is None or len(df) == 0:
-        # Bootstrap: fetch full 2 years if database is empty
-        print(f"Database empty for {symbol}, fetching 2 years of data...")
-        df = fetch_historical_data(symbol, timeframe=timeframe, years=2)
-        if df is None:
+        # Bootstrap: fetch incremental data (will get 2 years if database is empty)
+        print(f"Database empty for {symbol}, fetching initial data...")
+        new_df = fetch_incremental_data(symbol, timeframe=timeframe)
+        if new_df is None:
             print(f"Failed to fetch data for {symbol}")
             return None
         # Save to database
-        append_bars_to_db(symbol, df)
+        append_bars_to_db(symbol, new_df)
+        df = load_data_from_db(symbol)
     else:
-        # Database has data: fetch new bars since last timestamp
-        print(f"Database has {len(df)} bars, fetching new data since {df.index[-1].date()}...")
-        new_df = fetch_historical_data(symbol, timeframe=timeframe, years=2)
+        # Database has data: fetch only incremental new bars
+        print(f"Database has {len(df)} bars, fetching incremental data since {df.index[-1].date()}...")
+        new_df = fetch_incremental_data(symbol, timeframe=timeframe)
         if new_df is not None:
             # Append new bars to database
             append_bars_to_db(symbol, new_df)

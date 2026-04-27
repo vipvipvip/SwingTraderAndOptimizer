@@ -18,21 +18,62 @@ secret_key = os.getenv('ALPACA_SECRET_KEY')
 db_path = os.path.join(os.path.dirname(__file__), 'optimized_params', 'strategy_params.db')
 
 
-def fetch_historical_data(symbol, timeframe='1Day', years=2):
+def fetch_incremental_data(symbol, timeframe='1Hour'):
+    """
+    Fetch only NEW bars since last timestamp in database.
+    Falls back to 2 years if database is empty.
+    """
+    # Check last timestamp in database
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT id FROM tickers WHERE symbol = ?', (symbol,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            last_timestamp = None
+        else:
+            ticker_id = row[0]
+            cursor.execute('SELECT MAX(timestamp) FROM bars WHERE ticker_id = ?', (ticker_id,))
+            row = cursor.fetchone()
+            last_timestamp = row[0] if row and row[0] else None
+            conn.close()
+    except Exception as e:
+        print(f"Error checking last timestamp: {e}")
+        last_timestamp = None
+
+    # If we have recent data, fetch only from last timestamp
+    if last_timestamp:
+        start_date = pd.to_datetime(last_timestamp)
+        print(f"Fetching {symbol} incremental data since {start_date.date()}")
+    else:
+        # Bootstrap: fetch 2 years if database is empty
+        end_date = datetime.now(ZoneInfo('America/New_York'))
+        start_date = end_date - timedelta(days=730)
+        print(f"Database empty for {symbol}, fetching 2 years from {start_date.date()}")
+
+    return fetch_historical_data(symbol, timeframe=timeframe, start_date=start_date)
+
+
+def fetch_historical_data(symbol, timeframe='1Day', years=2, start_date=None):
     """
     Fetch historical OHLCV data from Alpaca using /v2/stocks/bars API
 
     Args:
         symbol: Stock symbol (e.g., 'SPY')
         timeframe: '1Day', '1Hour', '4Hour', '1Week', etc.
-        years: Number of years of historical data to fetch
+        years: Number of years of historical data to fetch (ignored if start_date provided)
+        start_date: Optional datetime to fetch from (if not provided, uses years parameter)
 
     Returns:
         DataFrame with OHLCV data, indexed by timestamp
     """
 
     end_date = datetime.now(ZoneInfo('America/New_York'))
-    start_date = end_date - timedelta(days=365 * years)
+    if start_date is None:
+        start_date = end_date - timedelta(days=365 * years)
+    else:
+        start_date = pd.to_datetime(start_date)
 
     print(f"Fetching {symbol} data from {start_date.date()} to {end_date.date()}")
 
