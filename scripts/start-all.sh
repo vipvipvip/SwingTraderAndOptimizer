@@ -63,7 +63,7 @@ trap cleanup SIGINT SIGTERM
 echo -e "${BLUE}Starting Backend API on port 9000...${NC}"
 mkdir -p "$BACKEND_DIR/storage/logs"
 cd "$BACKEND_DIR"
-php artisan serve --host=127.0.0.1 --port=9000 > /tmp/backend.log 2>&1 &
+php artisan serve --host=0.0.0.0 --port=9000 > /tmp/backend.log 2>&1 &
 BACKEND_PID=$!
 echo -e "${GREEN}✓ Backend PID: $BACKEND_PID${NC}"
 
@@ -109,9 +109,11 @@ echo -e "${BLUE}=========================================="
 echo "Swing Trader Running"
 echo "==========================================${NC}"
 echo ""
-echo -e "${GREEN}Dashboard UI:${NC}      ${YELLOW}http://localhost:5173${NC}"
-echo -e "${GREEN}API Server:${NC}       ${YELLOW}http://localhost:9000${NC}"
-echo -e "${GREEN}API Docs:${NC}         ${YELLOW}http://localhost:9000/api/documentation${NC}"
+echo -e "${GREEN}Dashboard UI:${NC}      ${YELLOW}http://localhost:5173${NC} (local)"
+echo -e "${GREEN}                  ${YELLOW}http://192.168.1.232:5173${NC} (network)"
+echo -e "${GREEN}API Server:${NC}       ${YELLOW}http://localhost:9000${NC} (local)"
+echo -e "${GREEN}                  ${YELLOW}http://192.168.1.232:9000${NC} (network)"
+echo -e "${GREEN}API Docs:${NC}         ${YELLOW}http://192.168.1.232:9000/api/documentation${NC}"
 echo ""
 echo -e "${YELLOW}Logs:${NC}"
 echo "  Backend:  tail -f /tmp/backend.log"
