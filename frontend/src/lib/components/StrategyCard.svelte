@@ -109,6 +109,10 @@
 
   <div class="params">
     <div class="param-row">
+      <span>PPO:</span>
+      <span>({strategy.params?.ppo_fast || 12}, {strategy.params?.ppo_slow || 26})</span>
+    </div>
+    <div class="param-row">
       <span>MACD:</span>
       <span>
         ({strategy.params?.macd_fast}, {strategy.params?.macd_slow}, {strategy.params?.macd_signal})
