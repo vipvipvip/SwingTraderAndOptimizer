@@ -48,6 +48,7 @@ db_path = os.path.join(os.path.dirname(__file__), 'optimized_params', 'strategy_
 def fetch_incremental_data(symbol, timeframe='1Hour'):
     """
     Fetch only NEW bars since last timestamp in database.
+    Skips API call if we already have today's closing price.
     Falls back to 2 years if database is empty.
     """
     # Check last timestamp in database
@@ -69,10 +70,19 @@ def fetch_incremental_data(symbol, timeframe='1Hour'):
         print(f"Error checking last timestamp: {e}")
         last_timestamp = None
 
-    # If we have recent data, fetch only from last timestamp
+    # Check if we already have today's closing price (4:00 PM ET)
     if last_timestamp:
-        start_date = pd.to_datetime(last_timestamp)
-        print(f"Fetching {symbol} incremental data since {start_date.date()}")
+        last_ts = pd.to_datetime(last_timestamp)
+        today_ny = datetime.now(ZoneInfo('America/New_York')).date()
+        last_date = last_ts.date() if last_ts.tz is None else last_ts.astimezone(ZoneInfo('America/New_York')).date()
+
+        # If last bar is from today and at or after 4:00 PM, we have the closing price
+        if last_date == today_ny and last_ts.hour >= 16:
+            print(f"{symbol}: Already have today's closing price (last: {last_ts})")
+            return None  # No need to fetch
+
+        start_date = last_ts
+        print(f"Fetching {symbol} incremental data since {last_date}")
     else:
         # Bootstrap: fetch 2 years if database is empty
         end_date = datetime.now(ZoneInfo('America/New_York'))

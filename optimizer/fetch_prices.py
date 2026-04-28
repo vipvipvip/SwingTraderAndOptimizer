@@ -26,8 +26,8 @@ def fetch_and_update_ticker(symbol, timeframe='1Hour'):
         new_df = fetch_incremental_data(symbol, timeframe=timeframe)
 
         if new_df is None:
-            print(f"Failed to fetch data for {symbol}")
-            return False
+            print(f"No new data to fetch for {symbol}")
+            return True  # Not a failure, just no new data
 
         # Append to database
         print(f"Appending {len(new_df)} bars to database...")
