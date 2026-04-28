@@ -8,7 +8,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from joblib import Parallel, delayed
 from dotenv import load_dotenv
-from data_fetcher import fetch_historical_data, fetch_incremental_data, save_data, load_data, load_data_from_db, append_bars_to_db
+from data_fetcher import load_data_from_db
 from parameter_optimizer import ParameterOptimizer
 from db import StrategyDB
 
@@ -70,29 +70,11 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
     if param_grid is None:
         param_grid = get_param_grid(timeframe)
 
-    # Load existing data from database
+    # Load data from database (already fetched in run_nightly_optimization)
     df = load_data_from_db(symbol)
-
     if df is None or len(df) == 0:
-        # Bootstrap: fetch incremental data (will get 2 years if database is empty)
-        print(f"Database empty for {symbol}, fetching initial data...")
-        new_df = fetch_incremental_data(symbol, timeframe=timeframe)
-        if new_df is None:
-            print(f"Failed to fetch data for {symbol}")
-            return None
-        # Save to database
-        append_bars_to_db(symbol, new_df)
-        df = load_data_from_db(symbol)
-    else:
-        # Database has data: fetch only incremental new bars
-        print(f"Database has {len(df)} bars, fetching incremental data since {df.index[-1].date()}...")
-        new_df = fetch_incremental_data(symbol, timeframe=timeframe)
-        if new_df is not None:
-            # Append new bars to database
-            append_bars_to_db(symbol, new_df)
-            # Reload to get complete dataset
-            df = load_data_from_db(symbol)
-            print(f"Updated to {len(df)} bars total")
+        print(f"Failed to load data for {symbol}")
+        return None
 
     combos = 3 ** len(param_grid)
     print(f"Testing {combos} parameter combinations...")
@@ -161,6 +143,19 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     for symbol in tickers:
         db.add_ticker(symbol)
+
+    # Step 1: Fetch incremental prices for each ticker
+    print(f"\n{'='*70}")
+    print("STEP 1: FETCHING INCREMENTAL PRICES")
+    print(f"{'='*70}")
+    from fetch_prices import fetch_and_update_ticker
+
+    # Get all tickers from database
+    all_tickers = db.get_all_tickers()
+    all_ticker_symbols = all_tickers if all_tickers else tickers
+
+    for symbol in all_ticker_symbols:
+        fetch_and_update_ticker(symbol, timeframe=timeframe)
 
     results = []
     total_time = time.time()

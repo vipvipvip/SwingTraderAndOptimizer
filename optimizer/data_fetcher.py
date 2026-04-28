@@ -9,6 +9,33 @@ from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 import pandas as pd
 
+
+def filter_market_hours(df):
+    """Keep only bars from regular market hours (9:30 AM - 4:00 PM ET)
+
+    Assumes timestamps are in America/New_York timezone
+    """
+    if df is None or len(df) == 0:
+        return df
+
+    # Extract hour and minute from index (assumes America/New_York timezone)
+    df_copy = df.copy()
+
+    # Convert index to time if it has timezone info
+    if df_copy.index.tz is not None:
+        # Already timezone-aware, use the time directly
+        df_copy['_time_str'] = df_copy.index.strftime('%H:%M')
+    else:
+        # No timezone info, assume NY time
+        df_copy['_time_str'] = df_copy.index.strftime('%H:%M')
+
+    # Keep only 9:30 AM (09:30) to 4:00 PM (16:00) ET
+    market_hours = (df_copy['_time_str'] >= '09:30') & (df_copy['_time_str'] <= '16:00')
+
+    result = df_copy[market_hours].drop(columns=['_time_str'])
+    print(f"Filtered to market hours: {len(df)} -> {len(result)} bars")
+    return result
+
 # Load .env from backend directory
 env_path = os.path.join(os.path.dirname(__file__), '..', 'backend', '.env')
 load_dotenv(env_path)
@@ -137,10 +164,17 @@ def fetch_historical_data(symbol, timeframe='1Day', years=2, start_date=None):
 
         df = pd.DataFrame(data)
         df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+        # Convert to America/New_York timezone
+        if df['timestamp'].dt.tz is None:
+            # Assume UTC if no timezone
+            df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
+        df['timestamp'] = df['timestamp'].dt.tz_convert('America/New_York')
+
         df.set_index('timestamp', inplace=True)
         df = df.sort_index()
 
-        print(f"Fetched {len(df)} bars for {symbol}")
+        print(f"Fetched {len(df)} bars for {symbol} (timestamped in America/New_York)")
         return df
 
     except Exception as e:
@@ -233,6 +267,12 @@ def load_data_from_db(symbol):
 def append_bars_to_db(symbol, new_bars):
     """Append new bars to the database (called after fetching fresh data)"""
     if new_bars is None or len(new_bars) == 0:
+        return 0
+
+    # Filter to market hours only (9:30 AM - 4:00 PM ET)
+    new_bars = filter_market_hours(new_bars)
+    if new_bars is None or len(new_bars) == 0:
+        print(f"No market hours data for {symbol}")
         return 0
 
     try:
