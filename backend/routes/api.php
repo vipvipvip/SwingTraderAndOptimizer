@@ -87,7 +87,8 @@ Route::prefix('v1')->group(function () {
 });
 
 // OpenAPI/Swagger spec endpoint with proper schemas
-Route::get('/v1/openapi.json', function () {
+Route::get('/v1/openapi.json', function (Request $request) {
+    $baseUrl = $request->getScheme() . '://' . $request->getHost() . ':9000';
     return response()->json([
         'openapi' => '3.0.0',
         'info' => [
@@ -97,7 +98,7 @@ Route::get('/v1/openapi.json', function () {
             'contact' => ['name' => 'Trading Dashboard Team']
         ],
         'servers' => [
-            ['url' => 'http://localhost:9000', 'description' => 'Development Server']
+            ['url' => $baseUrl, 'description' => 'Development Server']
         ],
         'tags' => [
             ['name' => 'Tickers', 'description' => 'Manage trading tickers'],
