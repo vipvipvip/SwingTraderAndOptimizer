@@ -260,6 +260,7 @@ class StrategyDB:
         cursor = conn.cursor()
 
         ticker_id = self.get_ticker_id(symbol)
+        print(f"[DEBUG] save_equity_curve for {symbol}: ticker_id={ticker_id}, equity_curve len={len(equity_curve) if equity_curve else 0}, equity_dates len={len(equity_dates) if equity_dates else 0}")
         if not ticker_id or not equity_curve or len(equity_curve) == 0:
             return
 
