@@ -1,6 +1,7 @@
 """Fetch OHLCV data from Alpaca using modern alpaca-py SDK"""
 import os
 import sqlite3
+import psycopg2
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
@@ -222,13 +223,19 @@ def load_data(symbol, timeframe='1Day'):
 
 
 def load_data_from_db(symbol):
-    """Load OHLCV data for a symbol from bars table"""
+    """Load OHLCV data for a symbol from PostgreSQL bars table"""
     try:
-        conn = sqlite3.connect(db_path)
+        conn = psycopg2.connect(
+            host='127.0.0.1',
+            port=5432,
+            database='swingtrader',
+            user='swingtrader',
+            password='swingtrader_dev_password'
+        )
         cursor = conn.cursor()
 
         # Get ticker_id
-        cursor.execute('SELECT id FROM tickers WHERE symbol = ?', (symbol,))
+        cursor.execute('SELECT id FROM tickers WHERE symbol = %s', (symbol,))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -240,7 +247,7 @@ def load_data_from_db(symbol):
         cursor.execute('''
             SELECT timestamp, open, high, low, close, volume
             FROM bars
-            WHERE ticker_id = ?
+            WHERE ticker_id = %s
             ORDER BY timestamp
         ''', (ticker_id,))
 
@@ -263,19 +270,19 @@ def load_data_from_db(symbol):
             })
 
         df = pd.DataFrame(data)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
         df.set_index('timestamp', inplace=True)
         df = df.sort_index()
 
-        print(f"Loaded {len(df)} bars for {symbol} from database")
+        print(f"Loaded {len(df)} bars for {symbol} from PostgreSQL")
         return df
     except Exception as e:
-        print(f"Error loading data from database: {e}")
+        print(f"Error loading data from PostgreSQL: {e}")
         return None
 
 
 def append_bars_to_db(symbol, new_bars):
-    """Append new bars to the database (called after fetching fresh data)"""
+    """Append new bars to PostgreSQL database (called after fetching fresh data)"""
     if new_bars is None or len(new_bars) == 0:
         return 0
 
@@ -286,11 +293,17 @@ def append_bars_to_db(symbol, new_bars):
         return 0
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = psycopg2.connect(
+            host='127.0.0.1',
+            port=5432,
+            database='swingtrader',
+            user='swingtrader',
+            password='swingtrader_dev_password'
+        )
         cursor = conn.cursor()
 
         # Get ticker_id
-        cursor.execute('SELECT id FROM tickers WHERE symbol = ?', (symbol,))
+        cursor.execute('SELECT id FROM tickers WHERE symbol = %s', (symbol,))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -300,26 +313,28 @@ def append_bars_to_db(symbol, new_bars):
 
         # Get last timestamp in database
         cursor.execute(
-            'SELECT MAX(timestamp) FROM bars WHERE ticker_id = ?',
+            'SELECT MAX(timestamp) FROM bars WHERE ticker_id = %s',
             (ticker_id,)
         )
         row = cursor.fetchone()
         last_timestamp = row[0] if row and row[0] else None
-        last_ts = pd.to_datetime(last_timestamp) if last_timestamp else None
+        last_ts = pd.to_datetime(last_timestamp, utc=True) if last_timestamp else None
 
         # Append only new bars (after last_timestamp)
         inserted = 0
         now = datetime.now(ZoneInfo('America/New_York')).isoformat()
 
         for timestamp, row_data in new_bars.iterrows():
-            if last_ts is None or timestamp > last_ts:
+            ts_utc = pd.to_datetime(timestamp, utc=True) if not timestamp.tzinfo else timestamp
+            if last_ts is None or ts_utc > last_ts:
                 cursor.execute('''
                     INSERT INTO bars
                     (ticker_id, timestamp, open, high, low, close, volume, source, fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT DO NOTHING
                 ''', (
                     ticker_id,
-                    timestamp.isoformat(),
+                    timestamp,
                     float(row_data['open']),
                     float(row_data['high']),
                     float(row_data['low']),
@@ -334,9 +349,11 @@ def append_bars_to_db(symbol, new_bars):
         conn.close()
 
         if inserted > 0:
-            print(f"Appended {inserted} new bars for {symbol} to database")
+            print(f"Appended {inserted} new bars for {symbol} to PostgreSQL")
 
         return inserted
     except Exception as e:
-        print(f"Error appending bars to database: {e}")
+        print(f"Error appending bars to PostgreSQL: {e}")
+        import traceback
+        traceback.print_exc()
         return 0
