@@ -1,6 +1,5 @@
 """Fetch OHLCV data from Alpaca using modern alpaca-py SDK"""
 import os
-import sqlite3
 import psycopg2
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -43,7 +42,6 @@ load_dotenv(env_path)
 
 api_key = os.getenv('ALPACA_API_KEY')
 secret_key = os.getenv('ALPACA_SECRET_KEY')
-db_path = os.path.join(os.path.dirname(__file__), 'optimized_params', 'strategy_params.db')
 
 
 def fetch_incremental_data(symbol, timeframe='1Hour'):
