@@ -50,21 +50,25 @@ def fetch_incremental_data(symbol, timeframe='1Hour'):
     Skips API call if we already have today's closing price.
     Falls back to 2 years if database is empty.
     """
-    # Check last timestamp in database
+    # Check last timestamp in database using PostgreSQL
+    last_timestamp = None
     try:
-        conn = sqlite3.connect(db_path)
+        conn = psycopg2.connect(
+            host='127.0.0.1',
+            port=5432,
+            database='swingtrader',
+            user='swingtrader',
+            password='swingtrader_dev_password'
+        )
         cursor = conn.cursor()
-        cursor.execute('SELECT id FROM tickers WHERE symbol = ?', (symbol,))
+        cursor.execute('SELECT id FROM tickers WHERE symbol = %s', (symbol,))
         row = cursor.fetchone()
-        if not row:
-            conn.close()
-            last_timestamp = None
-        else:
+        if row:
             ticker_id = row[0]
-            cursor.execute('SELECT MAX(timestamp) FROM bars WHERE ticker_id = ?', (ticker_id,))
+            cursor.execute('SELECT MAX(timestamp) FROM bars WHERE ticker_id = %s', (ticker_id,))
             row = cursor.fetchone()
             last_timestamp = row[0] if row and row[0] else None
-            conn.close()
+        conn.close()
     except Exception as e:
         print(f"Error checking last timestamp: {e}")
         last_timestamp = None

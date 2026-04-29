@@ -173,7 +173,7 @@ class StrategyDB:
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT symbol FROM tickers WHERE enabled = true')
-        return [{'symbol': row[0]} for row in cursor.fetchall()]
+        return [row[0] for row in cursor.fetchall()]
 
     def get_optimization_history(self, symbol, limit=10):
         """Get optimization history for a ticker"""
