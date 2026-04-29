@@ -13,10 +13,14 @@ class ParameterOptimizer:
 
     def __init__(self, data_df, initial_capital=100000, symbol=None, allocation_weight=10):
         self.data = data_df.copy()
-        self.initial_capital = initial_capital
+        # Convert Decimal types from PostgreSQL to float
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in self.data.columns:
+                self.data[col] = self.data[col].astype(float)
+        self.initial_capital = float(initial_capital)
         self.results = []
         self.symbol = symbol  # For progress tracking (e.g., 'SPY')
-        self.allocation_weight = allocation_weight  # Capital allocation percentage per trade (default 10%)
+        self.allocation_weight = float(allocation_weight)  # Capital allocation percentage per trade (default 10%)
 
     def optimize(self, param_grid):
         """
