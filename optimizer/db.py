@@ -213,6 +213,9 @@ class StrategyDB:
             return
 
         try:
+            # Clear old backtest trades for this ticker (keep only latest optimization)
+            cursor.execute('DELETE FROM backtest_trades WHERE ticker_id = %s', (ticker_id,))
+
             saved_count = 0
             for trade in trades:
                 cursor.execute('''
