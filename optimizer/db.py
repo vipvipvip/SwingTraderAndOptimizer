@@ -256,32 +256,23 @@ class StrategyDB:
 
     def save_equity_curve(self, symbol, metrics, equity_curve, equity_dates=None):
         """Save equity curve snapshots to PostgreSQL"""
-        import sys
         conn = self.get_connection()
         cursor = conn.cursor()
 
         ticker_id = self.get_ticker_id(symbol)
-        sys.stderr.write(f"[DEBUG] save_equity_curve for {symbol}: ticker_id={ticker_id}, equity_curve len={len(equity_curve) if equity_curve else 0}, equity_dates len={len(equity_dates) if equity_dates else 0}\n")
-        sys.stderr.flush()
         if not ticker_id or not equity_curve or len(equity_curve) == 0:
-            sys.stderr.write(f"[DEBUG] Early return for {symbol}\n")
-            sys.stderr.flush()
             return
 
         try:
             # Clear old backtest snapshots for this ticker
-            sys.stderr.write(f"[DEBUG] Clearing old backtest snapshots for ticker_id={ticker_id}\n")
             cursor.execute('DELETE FROM equity_snapshots WHERE ticker_id = %s AND snapshot_type = %s',
                           (ticker_id, 'backtest'))
-            sys.stderr.write(f"[DEBUG] Deleted {cursor.rowcount} old snapshots\n")
-            sys.stderr.flush()
 
             # Insert equity snapshot for each point in the equity curve
             saved_count = 0
             for i, equity_value in enumerate(equity_curve):
                 snapshot_date = equity_dates[i] if equity_dates and i < len(equity_dates) else None
                 if snapshot_date:
-                    sys.stderr.write(f"[DEBUG] Inserting snapshot {i+1}: date={snapshot_date}, value={equity_value}\n")
                     cursor.execute('''
                         INSERT INTO equity_snapshots
                         (ticker_id, snapshot_date, equity_value, snapshot_type, source)
@@ -293,17 +284,12 @@ class StrategyDB:
                         'backtest',
                         'optimizer'
                     ))
-                    sys.stderr.flush()
                     saved_count += 1
 
             conn.commit()
-            sys.stderr.write(f"[DEBUG] Committed {saved_count} equity snapshots for {symbol}\n")
-            sys.stderr.flush()
             print(f"✓ Saved {saved_count} equity snapshots for {symbol}")
         except Exception as e:
             conn.rollback()
-            sys.stderr.write(f"[DEBUG] Error: {e}\n")
-            sys.stderr.flush()
             print(f"✗ Error saving equity curve for {symbol}: {e}")
 
     def close(self):
