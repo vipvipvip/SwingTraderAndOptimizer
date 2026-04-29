@@ -14,12 +14,12 @@ class BacktestTradesController extends Controller
             ->map(fn ($trade) => [
                 'id' => 'backtest_' . $trade->id,
                 'symbol' => $trade->symbol,
-                'entry_price' => $trade->entry_price,
-                'exit_price' => $trade->exit_price,
+                'entry_price' => (float) $trade->entry_price,
+                'exit_price' => (float) $trade->exit_price,
                 'entry_at' => $trade->entry_at,
                 'exit_at' => $trade->exit_at,
-                'pnl_dollar' => $trade->pnl_dollar,
-                'pnl_pct' => $trade->pnl_pct,
+                'pnl_dollar' => (float) $trade->pnl_dollar,
+                'pnl_pct' => (float) $trade->pnl_pct,
             ]);
 
         return response()->json($trades);
