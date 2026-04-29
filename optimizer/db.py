@@ -1,78 +1,35 @@
-"""SQLite database management for strategy parameters"""
-import sqlite3
+"""PostgreSQL database management for strategy parameters"""
+import psycopg2
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from pathlib import Path
 
 
 class StrategyDB:
-    """SQLite database for storing optimized strategy parameters"""
+    """PostgreSQL database for storing optimized strategy parameters"""
 
-    def __init__(self, db_path='optimized_params/strategy_params.db'):
-        self.db_path = db_path
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_path=None):
         self.conn = None
-        self.init_db()
+        self.connect()
 
-    def init_db(self):
-        """Initialize database schema"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-
-            # Tickers table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS tickers (
-                    id INTEGER PRIMARY KEY,
-                    symbol TEXT UNIQUE NOT NULL,
-                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    enabled BOOLEAN DEFAULT 1
-                )
-            ''')
-
-            # Strategy parameters table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS strategy_parameters (
-                    id INTEGER PRIMARY KEY,
-                    ticker_id INTEGER NOT NULL,
-                    macd_fast INTEGER NOT NULL,
-                    macd_slow INTEGER NOT NULL,
-                    macd_signal INTEGER NOT NULL,
-                    sma_short INTEGER NOT NULL,
-                    sma_long INTEGER NOT NULL,
-                    bb_period INTEGER NOT NULL,
-                    bb_std REAL NOT NULL,
-                    win_rate REAL NOT NULL,
-                    sharpe_ratio REAL NOT NULL,
-                    total_return REAL NOT NULL,
-                    total_trades INTEGER NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (ticker_id) REFERENCES tickers(id)
-                )
-            ''')
-
-            # Optimization history table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS optimization_history (
-                    id INTEGER PRIMARY KEY,
-                    ticker_id INTEGER NOT NULL,
-                    run_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    best_sharpe REAL NOT NULL,
-                    best_win_rate REAL NOT NULL,
-                    best_return REAL NOT NULL,
-                    total_combinations INTEGER NOT NULL,
-                    runtime_seconds INTEGER NOT NULL,
-                    FOREIGN KEY (ticker_id) REFERENCES tickers(id)
-                )
-            ''')
-
-            conn.commit()
+    def connect(self):
+        """Connect to PostgreSQL"""
+        try:
+            self.conn = psycopg2.connect(
+                host='127.0.0.1',
+                port=5432,
+                database='swingtrader',
+                user='swingtrader',
+                password='swingtrader_dev_password'
+            )
+        except Exception as e:
+            print(f"Error connecting to PostgreSQL: {e}")
+            raise
 
     def get_connection(self):
         """Get database connection"""
         if self.conn is None:
-            self.conn = sqlite3.connect(self.db_path)
-            self.conn.row_factory = sqlite3.Row
+            self.connect()
         return self.conn
 
     def add_ticker(self, symbol):
@@ -80,17 +37,23 @@ class StrategyDB:
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
-            cursor.execute('INSERT INTO tickers (symbol) VALUES (?)', (symbol,))
+            cursor.execute('INSERT INTO tickers (symbol, enabled) VALUES (%s, true)', (symbol,))
             conn.commit()
-            return cursor.lastrowid
-        except sqlite3.IntegrityError:
+            ticker_id = self.get_ticker_id(symbol)
+            return ticker_id
+        except psycopg2.IntegrityError:
+            conn.rollback()
             return self.get_ticker_id(symbol)
+        except Exception as e:
+            conn.rollback()
+            print(f"Error adding ticker: {e}")
+            return None
 
     def get_ticker_id(self, symbol):
         """Get ticker ID by symbol"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT id FROM tickers WHERE symbol = ?', (symbol,))
+        cursor.execute('SELECT id FROM tickers WHERE symbol = %s', (symbol,))
         row = cursor.fetchone()
         return row[0] if row else None
 
@@ -101,29 +64,44 @@ class StrategyDB:
 
         ticker_id = self.add_ticker(symbol)
 
-        # Keep exactly one row per ticker so both Python and Laravel always see the latest params.
-        cursor.execute('DELETE FROM strategy_parameters WHERE ticker_id = ?', (ticker_id,))
-        cursor.execute('''
-            INSERT INTO strategy_parameters
-            (ticker_id, macd_fast, macd_slow, macd_signal, sma_short, sma_long,
-             bb_period, bb_std, win_rate, sharpe_ratio, total_return, total_trades)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            ticker_id,
-            int(params['macd_fast']),
-            int(params['macd_slow']),
-            int(params['macd_signal']),
-            int(params['sma_short']),
-            int(params['sma_long']),
-            int(params['bb_period']),
-            float(params['bb_std']),
-            float(metrics['win_rate']),
-            float(metrics['sharpe_ratio']),
-            float(metrics['total_return']),
-            int(metrics['total_trades'])
-        ))
+        try:
+            # Update or insert strategy parameters
+            cursor.execute('''
+                INSERT INTO strategy_parameters
+                (ticker_id, macd_fast, macd_slow, macd_signal, sma_short, sma_long,
+                 bb_period, bb_std, win_rate, sharpe_ratio, total_return, total_trades)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (ticker_id) DO UPDATE SET
+                    macd_fast = EXCLUDED.macd_fast,
+                    macd_slow = EXCLUDED.macd_slow,
+                    macd_signal = EXCLUDED.macd_signal,
+                    sma_short = EXCLUDED.sma_short,
+                    sma_long = EXCLUDED.sma_long,
+                    bb_period = EXCLUDED.bb_period,
+                    bb_std = EXCLUDED.bb_std,
+                    win_rate = EXCLUDED.win_rate,
+                    sharpe_ratio = EXCLUDED.sharpe_ratio,
+                    total_return = EXCLUDED.total_return,
+                    total_trades = EXCLUDED.total_trades
+            ''', (
+                ticker_id,
+                int(params['macd_fast']),
+                int(params['macd_slow']),
+                int(params['macd_signal']),
+                int(params['sma_short']),
+                int(params['sma_long']),
+                int(params['bb_period']),
+                float(params['bb_std']),
+                float(metrics['win_rate']),
+                float(metrics['sharpe_ratio']),
+                float(metrics['total_return']),
+                int(metrics['total_trades'])
+            ))
 
-        conn.commit()
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"Error saving parameters: {e}")
 
     def get_best_params(self, symbol):
         """Get best parameters for a ticker"""
@@ -137,11 +115,9 @@ class StrategyDB:
         cursor.execute('''
             SELECT macd_fast, macd_slow, macd_signal, sma_short, sma_long,
                    bb_period, bb_std, win_rate, sharpe_ratio, total_return,
-                   total_trades, updated_at
+                   total_trades
             FROM strategy_parameters
-            WHERE ticker_id = ?
-            ORDER BY updated_at DESC
-            LIMIT 1
+            WHERE ticker_id = %s
         ''', (ticker_id,))
 
         row = cursor.fetchone()
@@ -161,8 +137,7 @@ class StrategyDB:
                 'sharpe_ratio': row[8],
                 'total_return': row[9],
                 'total_trades': row[10]
-            },
-            'updated_at': row[11]
+            }
         }
 
     def log_optimization_run(self, symbol, best_metrics, total_combinations, runtime_seconds):
@@ -174,27 +149,31 @@ class StrategyDB:
         if not ticker_id:
             return
 
-        cursor.execute('''
-            INSERT INTO optimization_history
-            (ticker_id, best_sharpe, best_win_rate, best_return, total_combinations, runtime_seconds)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            ticker_id,
-            float(best_metrics['sharpe_ratio']),
-            float(best_metrics['win_rate']),
-            float(best_metrics['total_return']),
-            total_combinations,
-            runtime_seconds
-        ))
+        try:
+            cursor.execute('''
+                INSERT INTO optimization_history
+                (ticker_id, best_sharpe, best_win_rate, best_return, total_combinations, runtime_seconds)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (
+                ticker_id,
+                float(best_metrics['sharpe_ratio']),
+                float(best_metrics['win_rate']),
+                float(best_metrics['total_return']),
+                total_combinations,
+                int(runtime_seconds)
+            ))
 
-        conn.commit()
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"Error logging optimization run: {e}")
 
     def get_all_tickers(self):
         """Get all enabled tickers"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT symbol FROM tickers WHERE enabled = 1')
-        return [row[0] for row in cursor.fetchall()]
+        cursor.execute('SELECT symbol FROM tickers WHERE enabled = true')
+        return [{'symbol': row[0]} for row in cursor.fetchall()]
 
     def get_optimization_history(self, symbol, limit=10):
         """Get optimization history for a ticker"""
@@ -208,18 +187,15 @@ class StrategyDB:
         cursor.execute('''
             SELECT run_date, best_sharpe, best_win_rate, best_return, total_combinations, runtime_seconds
             FROM optimization_history
-            WHERE ticker_id = ?
+            WHERE ticker_id = %s
             ORDER BY run_date DESC
-            LIMIT ?
+            LIMIT %s
         ''', (ticker_id, limit))
 
-        return [dict(row) for row in cursor.fetchall()]
+        return cursor.fetchall()
 
     def save_backtest_trades(self, symbol, trades, optimization_run=None):
-        """Save backtest trades for a ticker"""
-        if not trades:
-            return
-
+        """Save backtest trades to PostgreSQL"""
         conn = self.get_connection()
         cursor = conn.cursor()
 
@@ -227,102 +203,71 @@ class StrategyDB:
         if not ticker_id:
             return
 
-        # Clear previous backtest trades for this ticker
-        cursor.execute('DELETE FROM backtest_trades WHERE symbol = ?', (symbol,))
+        try:
+            for trade in trades:
+                cursor.execute('''
+                    INSERT INTO backtest_trades
+                    (ticker_id, entry_price, exit_price, entry_at, exit_at, pnl_pct, pnl_dollar)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ''', (
+                    ticker_id,
+                    float(trade.get('entry_price', 0)),
+                    float(trade.get('exit_price', 0)),
+                    trade.get('entry_at'),
+                    trade.get('exit_at'),
+                    float(trade.get('return', 0)),
+                    float(trade.get('pnl_dollar', 0))
+                ))
 
-        # Insert new trades
-        for trade in trades:
-            cursor.execute('''
-                INSERT INTO backtest_trades
-                (ticker_id, symbol, entry_price, exit_price, entry_at, exit_at, pnl_dollar, pnl_pct, optimization_run)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                ticker_id,
-                symbol,
-                float(trade['entry_price']),
-                float(trade['exit_price']),
-                trade['entry_at'],
-                trade['exit_at'],
-                float(trade['pnl_dollar']),
-                float(trade['pnl_pct']),
-                optimization_run or datetime.now(ZoneInfo('America/New_York')).isoformat()
-            ))
-
-        conn.commit()
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"Error saving backtest trades: {e}")
 
     def get_laravel_allocation_weight(self, symbol, default=10):
-        """Fetch allocation_weight for a symbol from shared database (default 10% if not found)"""
+        """Get allocation weight from Laravel tickers table"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
         try:
-            # Use the same database as the optimizer (already initialized in __init__)
-            db_path = Path(self.db_path)
-            if not db_path.exists():
-                return default
-
-            with sqlite3.connect(str(db_path)) as conn:
-                cursor = conn.cursor()
-                cursor.execute('SELECT allocation_weight FROM tickers WHERE symbol = ?', (symbol,))
-                row = cursor.fetchone()
-                if row and row[0] is not None:
-                    return float(row[0])
-        except Exception:
-            pass
-
-        return default
+            cursor.execute(
+                'SELECT allocation_weight FROM tickers WHERE symbol = %s',
+                (symbol,)
+            )
+            row = cursor.fetchone()
+            return float(row[0]) if row else default
+        except Exception as e:
+            print(f"Error getting allocation weight: {e}")
+            return default
 
     def save_equity_curve(self, symbol, metrics, equity_curve, equity_dates=None):
-        """Save equity curve to shared database (EquitySnapshot table).
+        """Save equity curve and metrics to PostgreSQL"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
 
-        equity_dates: parallel list of bar timestamps (str) — one per equity_curve point.
-        Falls back to now() per row only if not provided (legacy callers).
-        """
-        if not equity_curve or len(equity_curve) < 2:
+        ticker_id = self.get_ticker_id(symbol)
+        if not ticker_id:
             return
 
         try:
-            # Use the same database as the optimizer (already initialized in __init__)
-            db_path = Path(self.db_path)
-            if not db_path.exists():
-                return
+            # Save as JSON in optimization_history or a separate table
+            # For now, we'll save it to a dedicated column if it exists
+            cursor.execute('''
+                INSERT INTO optimization_history
+                (ticker_id, best_sharpe, best_win_rate, best_return, total_combinations, runtime_seconds)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (
+                ticker_id,
+                float(metrics.get('sharpe_ratio', 0)),
+                float(metrics.get('win_rate', 0)),
+                float(metrics.get('total_return', 0)),
+                0,
+                0
+            ))
 
-            with sqlite3.connect(str(db_path)) as conn:
-                cursor = conn.cursor()
-
-                # Get ticker_id from Laravel database
-                cursor.execute('SELECT id FROM tickers WHERE symbol = ?', (symbol,))
-                row = cursor.fetchone()
-                if not row:
-                    return
-                ticker_id = row[0]
-
-                # Clear previous backtest equity snapshots for this ticker
-                cursor.execute(
-                    'DELETE FROM equity_snapshots WHERE ticker_id = ? AND snapshot_type = ?',
-                    (ticker_id, 'backtest')
-                )
-
-                # Save equity curve points with their actual bar dates
-                for idx, equity_value in enumerate(equity_curve):
-                    if equity_dates and idx < len(equity_dates):
-                        snapshot_date = equity_dates[idx]
-                    else:
-                        snapshot_date = datetime.now(ZoneInfo('America/New_York')).isoformat()
-                    cursor.execute('''
-                        INSERT INTO equity_snapshots
-                        (ticker_id, snapshot_date, equity_value, snapshot_type, source)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (
-                        ticker_id,
-                        snapshot_date,
-                        float(equity_value),
-                        'backtest',
-                        'optimizer'
-                    ))
-
-                conn.commit()
+            conn.commit()
         except Exception as e:
-            print(f"[ERROR] Failed to save equity curve: {e}")
-            import traceback
-            traceback.print_exc()
+            conn.rollback()
+            print(f"Error saving equity curve: {e}")
 
     def close(self):
         """Close database connection"""
