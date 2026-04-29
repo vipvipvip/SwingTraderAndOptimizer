@@ -255,34 +255,42 @@ class StrategyDB:
             return default
 
     def save_equity_curve(self, symbol, metrics, equity_curve, equity_dates=None):
-        """Save equity curve and metrics to PostgreSQL"""
+        """Save equity curve snapshots to PostgreSQL"""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         ticker_id = self.get_ticker_id(symbol)
-        if not ticker_id:
+        if not ticker_id or not equity_curve or len(equity_curve) == 0:
             return
 
         try:
-            # Save as JSON in optimization_history or a separate table
-            # For now, we'll save it to a dedicated column if it exists
-            cursor.execute('''
-                INSERT INTO optimization_history
-                (ticker_id, best_sharpe, best_win_rate, best_return, total_combinations, runtime_seconds)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            ''', (
-                ticker_id,
-                float(metrics.get('sharpe_ratio', 0)),
-                float(metrics.get('win_rate', 0)),
-                float(metrics.get('total_return', 0)),
-                0,
-                0
-            ))
+            # Clear old backtest snapshots for this ticker
+            cursor.execute('DELETE FROM equity_snapshots WHERE ticker_id = %s AND snapshot_type = %s',
+                          (ticker_id, 'backtest'))
+
+            # Insert equity snapshot for each point in the equity curve
+            saved_count = 0
+            for i, equity_value in enumerate(equity_curve):
+                snapshot_date = equity_dates[i] if equity_dates and i < len(equity_dates) else None
+                if snapshot_date:
+                    cursor.execute('''
+                        INSERT INTO equity_snapshots
+                        (ticker_id, snapshot_date, equity_value, snapshot_type, source)
+                        VALUES (%s, %s, %s, %s, %s)
+                    ''', (
+                        ticker_id,
+                        snapshot_date,
+                        float(equity_value),
+                        'backtest',
+                        'optimizer'
+                    ))
+                    saved_count += 1
 
             conn.commit()
+            print(f"✓ Saved {saved_count} equity snapshots for {symbol}")
         except Exception as e:
             conn.rollback()
-            print(f"Error saving equity curve: {e}")
+            print(f"✗ Error saving equity curve for {symbol}: {e}")
 
     def close(self):
         """Close database connection"""

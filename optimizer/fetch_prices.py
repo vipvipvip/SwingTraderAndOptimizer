@@ -66,12 +66,12 @@ def main():
     else:
         # Fetch all tickers from database
         try:
-            import sqlite3
             from db import StrategyDB
             db = StrategyDB()
-            all_tickers = db.get_all_tickers()
+            tickers = db.get_all_tickers()
             db.close()
-            tickers = [t['symbol'] for t in all_tickers] if all_tickers else ['SPY', 'QQQ', 'IWM']
+            if not tickers:
+                tickers = ['SPY', 'QQQ', 'IWM']
         except Exception as e:
             print(f"Error loading tickers from database: {e}")
             tickers = ['SPY', 'QQQ', 'IWM']
