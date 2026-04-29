@@ -256,12 +256,16 @@ class StrategyDB:
 
     def save_equity_curve(self, symbol, metrics, equity_curve, equity_dates=None):
         """Save equity curve snapshots to PostgreSQL"""
+        import sys
         conn = self.get_connection()
         cursor = conn.cursor()
 
         ticker_id = self.get_ticker_id(symbol)
-        print(f"[DEBUG] save_equity_curve for {symbol}: ticker_id={ticker_id}, equity_curve len={len(equity_curve) if equity_curve else 0}, equity_dates len={len(equity_dates) if equity_dates else 0}")
+        sys.stderr.write(f"[DEBUG] save_equity_curve for {symbol}: ticker_id={ticker_id}, equity_curve len={len(equity_curve) if equity_curve else 0}, equity_dates len={len(equity_dates) if equity_dates else 0}\n")
+        sys.stderr.flush()
         if not ticker_id or not equity_curve or len(equity_curve) == 0:
+            sys.stderr.write(f"[DEBUG] Early return for {symbol}\n")
+            sys.stderr.flush()
             return
 
         try:
