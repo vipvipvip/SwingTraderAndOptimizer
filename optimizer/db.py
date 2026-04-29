@@ -217,10 +217,11 @@ class StrategyDB:
             for trade in trades:
                 cursor.execute('''
                     INSERT INTO backtest_trades
-                    (ticker_id, entry_price, exit_price, entry_at, exit_at, pnl_pct, pnl_dollar)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (ticker_id, symbol, entry_price, exit_price, entry_at, exit_at, pnl_pct, pnl_dollar)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ''', (
                     ticker_id,
+                    symbol,
                     float(trade.get('entry_price', 0)),
                     float(trade.get('exit_price', 0)),
                     trade.get('entry_at'),
