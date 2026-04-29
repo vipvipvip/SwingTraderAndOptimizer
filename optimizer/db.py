@@ -147,6 +147,7 @@ class StrategyDB:
 
         ticker_id = self.get_ticker_id(symbol)
         if not ticker_id:
+            print(f"[DEBUG] Ticker {symbol} not found for logging")
             return
 
         try:
@@ -164,9 +165,12 @@ class StrategyDB:
             ))
 
             conn.commit()
+            print(f"✓ Logged optimization run for {symbol}: Sharpe={best_metrics['sharpe_ratio']}")
         except Exception as e:
             conn.rollback()
-            print(f"Error logging optimization run: {e}")
+            print(f"✗ Error logging optimization run for {symbol}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def get_all_tickers(self):
         """Get all enabled tickers"""
@@ -196,14 +200,20 @@ class StrategyDB:
 
     def save_backtest_trades(self, symbol, trades, optimization_run=None):
         """Save backtest trades to PostgreSQL"""
+        if not trades or len(trades) == 0:
+            print(f"[DEBUG] No trades to save for {symbol}")
+            return
+
         conn = self.get_connection()
         cursor = conn.cursor()
 
         ticker_id = self.get_ticker_id(symbol)
         if not ticker_id:
+            print(f"[DEBUG] Ticker {symbol} not found")
             return
 
         try:
+            saved_count = 0
             for trade in trades:
                 cursor.execute('''
                     INSERT INTO backtest_trades
@@ -218,11 +228,15 @@ class StrategyDB:
                     float(trade.get('return', 0)),
                     float(trade.get('pnl_dollar', 0))
                 ))
+                saved_count += 1
 
             conn.commit()
+            print(f"✓ Saved {saved_count} backtest trades for {symbol} to PostgreSQL")
         except Exception as e:
             conn.rollback()
-            print(f"Error saving backtest trades: {e}")
+            print(f"✗ Error saving backtest trades for {symbol}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def get_laravel_allocation_weight(self, symbol, default=10):
         """Get allocation weight from Laravel tickers table"""
