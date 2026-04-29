@@ -32,9 +32,8 @@ class RunNightlyOptimizer extends Command
 
         $this->info('Starting nightly optimization...');
 
-        // Use lite version for now while debugging parameter optimization
-        $litePath = str_replace('nightly_optimizer.py', 'nightly_optimizer_lite.py', $scriptPath);
-        $actualPath = file_exists($litePath) ? $litePath : $scriptPath;
+        // Use the actual optimizer script
+        $actualPath = $scriptPath;
 
         $process = proc_open(
             "\"$pythonPath\" \"$actualPath\"",

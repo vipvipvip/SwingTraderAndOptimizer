@@ -61,9 +61,9 @@ return [
                 : database_path('database.sqlite'),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
-            'journal_mode' => null,
-            'synchronous' => null,
+            'busy_timeout' => 5000,
+            'journal_mode' => 'wal',
+            'synchronous' => 2,
             'transaction_mode' => 'DEFERRED',
         ],
 

@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: swingtrader-db
+    environment:
+      POSTGRES_DB: swingtrader
+      POSTGRES_USER: swingtrader
+      POSTGRES_PASSWORD: swingtrader_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swingtrader"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
