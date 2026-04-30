@@ -1,312 +1,220 @@
 # Daily Monitoring Guide
 
-Daily operations checklist to ensure the trading system runs smoothly and on schedule.
+Daily operations checklist to ensure the trading system runs smoothly.
 
 ---
 
 ## Quick Daily Check (2 minutes)
 
-Run this every morning to verify overnight optimizer run:
+Run this every morning to verify the nightly optimizer completed:
 
 ```bash
-./scripts/daily-check.sh
-```
+# Check if optimizer ran successfully
+journalctl -u swingtrader-optimizer -n 20
 
-Or manually:
-```bash
-tail -5 optimizer/logs/nightly.log
-curl http://localhost:9000/api/v1/tickers | jq '.[0].params.updated_at'
-curl http://localhost:9000/api/v1/trades/pnl | jq '{trades: (.recent_trades | length), return: .total_return}'
+# Verify latest parameters were updated
+curl http://localhost:9000/api/health | jq '.'
 ```
 
 ---
 
 ## Detailed Daily Schedule
 
-### 🌙 Morning Check (After 2:00 AM UTC / 10:00 PM ET Previous Day)
+### 🌙 Morning Check (After 2:00 AM UTC)
 
 **Nightly Optimizer Should Have Run**
 
 ```bash
-# 1. Check optimizer completed successfully
-tail -100 optimizer/logs/nightly.log | tail -5
+# 1. Check optimizer status
+sudo systemctl status swingtrader-optimizer.timer --no-pager
 
-# Expected output:
-# [2026-04-21 02:26:12] Nightly optimizer starting...
-# [2026-04-21 03:54:33] Optimizer finished (exit: 0)
+# 2. View optimizer logs (last 50 lines)
+journalctl -u swingtrader-optimizer -n 50
 
-# 2. Verify all 3 tickers updated
-curl http://localhost:9000/api/v1/tickers | jq '.[].params | {symbol: input.symbol, updated_at, sharpe: sharpe_ratio}'
-
-# 3. Check for errors in Laravel logs
-tail -50 backend/storage/logs/laravel.log | grep -i "error\|exception" | head -10
+# 3. Check for any errors
+journalctl -u swingtrader-optimizer | grep -i "error"
 ```
 
 **If optimizer didn't run:**
-- Check WTS task status: `schtasks query /tn "SwingTrader-NightlyOptimizer"`
-- Check cron logs (Linux): `grep CRON /var/log/syslog | tail -20`
-- View full optimizer log: `tail -500 optimizer/logs/nightly.log`
-- Common issues:
-  - Python path incorrect in Task Scheduler
-  - Virtual environment not activated
-  - Alpaca API credentials invalid
-  - Database locked
+- Check timer status: `sudo systemctl list-timers swingtrader-optimizer.timer`
+- Check service logs: `journalctl -u swingtrader-optimizer -f`
+- Verify database connection: `docker-compose logs postgres`
+- Run manually to test: `sudo systemctl start swingtrader-optimizer.service`
 
 ---
 
 ### 📈 During Market Hours (9:30-16:00 ET, Weekdays Only)
 
-**Trade Executor Should Run Every 30 Minutes**
+**Trade Executor Should Run Every Minute**
 
 ```bash
-# 1. Check latest trade execution
-tail -20 backend/storage/logs/laravel.log | grep "ExecuteDailyTrades"
+# 1. Check backend is running
+sudo systemctl status swingtrader-backend --no-pager
 
-# Expected: Every ~30 minutes during market hours
+# 2. Verify trade executor cron is active
+crontab -l | grep trades:execute-daily
 
-# 2. View current account equity
-curl http://localhost:9000/api/v1/account | jq '{
-  equity: .equity,
-  buying_power: .buying_power,
-  cash: .cash,
-  timestamp: now | todate
-}'
+# 3. Check for recent trade executions
+journalctl -u swingtrader-backend -n 50 | grep -i "trade\|signal"
 
-# 3. Check if positions are open
-curl http://localhost:9000/api/v1/trades/pnl | jq '{
-  recent_trades: (.recent_trades | length),
-  open_positions: .positions | length,
-  today_return: .total_return
-}'
-
-# 4. Verify positions are synced every 5 minutes
-grep "PositionsSync" backend/storage/logs/laravel.log | tail -3
-# Should see recent entries during market hours
+# 4. View current account equity (if you have a dashboard)
+curl http://localhost:9000/api/health | jq '.'
 ```
 
-**If no trades during market hours:**
-- Is market actually open? Check: `curl -s https://paper-api.alpaca.markets/v2/clock | jq .is_open`
-- Check trade signals: `curl http://localhost:9000/api/v1/equity/SPY | jq '.signal'`
-- Verify Laravel scheduler is running: Check `SwingTrader-LaravelScheduler` WTS task
-- Check for database locks: `tail -50 backend/storage/logs/laravel.log | grep -i "locked\|error"`
+**If trades aren't executing:**
+- Verify cron is enabled: `crontab -l`
+- Check backend logs: `journalctl -u swingtrader-backend -f`
+- Test manually: `php backend/artisan trades:execute-daily`
+- Verify market is open: Check Alpaca calendar
 
 ---
 
-### 📊 End of Day (After 4:00 PM ET)
+### 🌙 Evening Check (After 16:00 ET)
 
-**Daily Snapshot & Trade Summary**
+**Summarize Today's Activity**
 
 ```bash
-# 1. Check equity snapshot was recorded
-curl http://localhost:9000/api/v1/equity/SPY | jq '.daily_snapshots[-1]'
+# 1. Check total trades executed
+journalctl -u swingtrader-backend | grep -c "ExecuteDailyTrades"
 
-# 2. Today's P&L summary
-curl http://localhost:9000/api/v1/trades/pnl | jq '{
-  total_return: .total_return,
-  win_rate: .win_rate,
-  sharpe: .sharpe_ratio,
-  trades_today: (.recent_trades | map(select(.entry_date | startswith(now | todate))) | length)
-}'
+# 2. View backend errors (if any)
+journalctl -u swingtrader-backend | grep -i "error" | head -10
 
-# 3. Check all tickers' current parameters
-curl http://localhost:9000/api/v1/tickers | jq '.[] | {
-  symbol,
-  allocation_weight,
-  sharpe: .params.sharpe_ratio,
-  win_rate: .params.win_rate
-}'
+# 3. Verify database is healthy
+docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT COUNT(*) as live_trades FROM live_trades WHERE DATE(entry_at) = CURRENT_DATE;"
 ```
 
 ---
 
-## Critical Alerts
+## Service Health Checks
 
-### 🚨 IMMEDIATE ACTION REQUIRED
-
-| Alert | Check Command | Likely Cause | Action |
-|-------|---|---|---|
-| **No trades executed** | `curl .../trades/pnl \| jq '.recent_trades \| length'` equals 0 | Market closed? Signals not firing? | Verify market open. Check Alpaca status. Inspect signal generation. |
-| **Optimizer failed** | `tail optimizer/logs/nightly.log \| grep -i error` | Python crash, API timeout, DB locked | Check full log. Verify Alpaca credentials. Restart optimizer manually. |
-| **Parameters not updated** | `curl .../tickers \| jq '.[0].params.updated_at'` older than 24h | Optimizer didn't complete | Check WTS/cron task. Run `php artisan optimize:nightly` manually. |
-| **Negative equity** | `curl .../account \| jq '.equity'` less than $100k | Losses exceeded allocation | Review allocation weights. Check for stuck positions. Verify stop-loss logic. |
-| **High error rate** | `grep ERROR backend/storage/logs/laravel.log \| wc -l` more than 10 | API timeouts, DB issues, race conditions | Check Alpaca API status. Restart services. Check database integrity. |
-| **Scheduler stopped** | `schtasks query /tn "SwingTrader-LaravelScheduler" \| grep State` shows "Disabled" | Manual intervention, crash | Re-register task: `scripts/setup-optimizer-wts.ps1` |
-
----
-
-## Weekly Review (Every Friday)
+### Backend Service
 
 ```bash
-# 1. Win rate trend (should stay 70%+)
-curl http://localhost:9000/api/v1/trades/pnl | jq '.win_rate'
+# Status
+sudo systemctl status swingtrader-backend --no-pager
 
-# 2. Sharpe ratio per ticker (should be 15+)
-curl http://localhost:9000/api/v1/tickers | jq '.[] | {symbol, sharpe: .params.sharpe_ratio}'
+# Logs (real-time)
+journalctl -u swingtrader-backend -f
 
-# 3. Cumulative P&L
-curl http://localhost:9000/api/v1/trades/pnl | jq '.total_return'
-
-# 4. Allocation weight review
-curl http://localhost:9000/api/v1/tickers | jq '.[] | {symbol, allocation: .allocation_weight}'
-
-# 5. Recent backtest trades quality
-curl http://localhost:9000/api/v1/trades/backtest | jq '[limit(10; .[]) | {symbol, pnl_dollar, allocation_weight}]'
+# Test health endpoint
+curl http://localhost:9000/api/health
 ```
 
-**If performance drops below thresholds:**
-- Manually run optimizer: `cd backend && php artisan optimize:nightly`
-- Review and adjust allocation weights
-- Check for market regime changes (volatility spikes, trends)
-
----
-
-## Automated Daily Summary Script
-
-Instead of manual checks, run the automated script:
+### Optimizer Timer
 
 ```bash
-./scripts/daily-check.sh
+# Check if timer is active
+sudo systemctl status swingtrader-optimizer.timer --no-pager
+
+# List all timers
+sudo systemctl list-timers
+
+# View logs
+journalctl -u swingtrader-optimizer -f
 ```
 
-This outputs:
-```
-=== NIGHTLY OPTIMIZER ===
-Last run: 2026-04-21 02:26:12
-Status: SUCCESS
-
-=== TICKERS ===
-SPY: Sharpe=21.97, Allocation=33.33%
-QQQ: Sharpe=17.20, Allocation=33.33%
-IWM: Sharpe=23.72, Allocation=33.33%
-
-=== TRADES (TODAY) ===
-Executed: 5 trades
-Win Rate: 80%
-Total Return: 2.45%
-
-=== ACCOUNT ===
-Equity: $102,450
-Buying Power: $204,900
-```
-
-### Schedule the script via cron (Linux/Mac):
+### Database
 
 ```bash
-crontab -e
+# Check if container is running
+docker-compose ps
 
-# Add this line (runs at 7 AM ET daily)
-0 11 * * * /path/to/SwingTraderAndOptimizer/scripts/daily-check.sh >> /tmp/trading-check.log 2>&1
-```
+# View database logs
+docker-compose logs postgres -f
 
-### Or Windows Task Scheduler:
+# Connect to database
+docker exec swingtrader-db psql -U swingtrader -d swingtrader
 
-```powershell
-# Run as Administrator
-$Action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-File C:\path\to\scripts\daily-check.ps1"
-$Trigger = New-ScheduledTaskTrigger -Daily -At "07:00"
-Register-ScheduledTask -TaskName "SwingTrader-DailyCheck" -Action $Action -Trigger $Trigger
+# Inside psql:
+SELECT COUNT(*) as bars FROM bars;
+SELECT COUNT(*) as trades FROM live_trades WHERE DATE(entry_at) = CURRENT_DATE;
 ```
 
 ---
 
-## Log File Locations
+## Common Issues & Fixes
 
-| Log | Path | Purpose |
-|-----|------|---------|
-| **Optimizer** | `optimizer/logs/nightly.log` | Nightly parameter optimization (Python) |
-| **Laravel** | `backend/storage/logs/laravel.log` | Trade executor, equity snapshots, position sync (PHP) |
-| **Daily Check** | `/tmp/trading-check.log` (Linux) or `C:\Temp\trading-check.log` (Windows) | Daily monitoring script output |
+### Backend Won't Start
 
----
+```bash
+# Check for port conflicts
+lsof -i :9000
 
-## Troubleshooting Guide
+# View detailed logs
+journalctl -u swingtrader-backend -n 100
 
-### Optimizer Doesn't Run at 2 AM
-
-**Windows (Task Scheduler):**
-```powershell
-# Check task is registered
-schtasks query /tn "SwingTrader-NightlyOptimizer" /v
-
-# Check for errors
-Get-ScheduledTask -TaskName "SwingTrader-NightlyOptimizer" | Get-ScheduledTaskInfo
-
-# Re-register if needed
-cd C:\path\to\SwingTraderAndOptimizer\scripts
-.\setup-optimizer-wts.ps1
+# Try starting manually
+cd backend && php artisan serve --host=0.0.0.0 --port=9000
 ```
 
-**Linux (Cron):**
+### Optimizer Not Running
+
 ```bash
-# Check cron entry
-crontab -l | grep run_nightly
+# Verify timer is enabled
+sudo systemctl is-enabled swingtrader-optimizer.timer
+
+# Check next run time
+sudo systemctl list-timers swingtrader-optimizer.timer
+
+# Run manually to test
+sudo systemctl start swingtrader-optimizer.service
+journalctl -u swingtrader-optimizer -f
+```
+
+### Database Connection Error
+
+```bash
+# Restart database
+docker-compose down
+docker-compose up -d
+
+# Run migrations
+php artisan migrate
+
+# Verify connection
+docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT 1;"
+```
+
+### Trade Executor Not Running
+
+```bash
+# Verify cron is enabled
+crontab -l
 
 # Check cron logs
-grep CRON /var/log/syslog | tail -20
+journalctl -u cron | tail -20
 
-# Re-register if needed
-cd /path/to/SwingTraderAndOptimizer/scripts
-./setup-optimizer-cron.sh
-```
-
-### Trades Not Executing During Market Hours
-
-```bash
-# 1. Verify market is open
-curl -s https://paper-api.alpaca.markets/v2/clock | jq '{is_open, next_open, next_close}'
-
-# 2. Check Laravel scheduler is running
-schtasks query /tn "SwingTrader-LaravelScheduler" /v | grep State
-
-# 3. Verify Alpaca credentials
-curl -H "Authorization: Bearer $(grep ALPACA_API_KEY backend/.env | cut -d= -f2)" \
-  https://paper-api.alpaca.markets/v2/account | jq '.status'
-
-# 4. Check for database locks
-fuser ../optimizer/optimized_params/strategy_params.db 2>/dev/null || echo "Database not locked"
-
-# 5. Restart services
-php artisan serve --port=9000 &
-cd ../frontend && npm run dev &
-```
-
-### Optimizer Takes Too Long (>120 minutes)
-
-```bash
-# Check which ticker is slow
-tail -100 optimizer/logs/nightly.log | grep "\[SPY\]\|\[QQQ\]\|\[IWM\]"
-
-# Manual run with progress output
-cd optimizer
-source venv/Scripts/activate  # Windows
-python nightly_optimizer.py --tickers SPY --timeframe 1Hour --verbose
-```
-
-### Dashboard Shows Stale Data
-
-```bash
-# Clear all caches
-php artisan config:clear
-php artisan cache:clear
-
-# Restart backend
-php artisan serve --port=9000
-
-# Hard refresh frontend (Ctrl+Shift+R in browser)
+# Run manually to test
+php backend/artisan trades:execute-daily
 ```
 
 ---
 
-## Contact Points
+## Performance Metrics to Watch
 
-If something goes wrong:
-1. **Check logs first** — 90% of issues are in the logs
-2. **Run daily-check.sh** — Narrows down the problem quickly
-3. **Verify market hours** — Many false alarms are weekends/holidays
-4. **Check Alpaca status** — Sometimes API goes down, not your system
-5. **Restart services** — Config caching causes 10% of issues
+| Metric | How to Check | Expected |
+|--------|-------------|----------|
+| Optimizer runtime | `journalctl -u swingtrader-optimizer` | 30-45 minutes |
+| Trade executor frequency | `journalctl -u swingtrader-backend` | Every minute (390 times during market hours) |
+| Database health | `docker exec swingtrader-db psql ... SELECT 1;` | Instant response |
+| Backend response time | `curl -w "%{time_total}" http://localhost:9000/api/health` | <100ms |
 
 ---
 
-**Last updated:** 2026-04-21  
-**Version:** 1.1.0
+## Weekly Checklist
+
+- [ ] Optimizer ran successfully every night (7 times)
+- [ ] No error logs in backend/database
+- [ ] All services are enabled and will survive reboot
+- [ ] No port conflicts or zombie processes
+- [ ] Database backup exists (if applicable)
+
+---
+
+## See Also
+
+- [How_System_Works.md](How_System_Works.md) — System architecture
+- [COMMAND_REFERENCE.md](COMMAND_REFERENCE.md) — All useful commands
+- [Ubuntu-Backend-Services.md](Ubuntu-Backend-Services.md) — Systemd service troubleshooting
+- [Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md) — Frontend service troubleshooting
