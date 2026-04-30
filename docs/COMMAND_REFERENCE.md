@@ -55,7 +55,60 @@ EOF
 
 ---
 
-## 3. Data Fetching & Optimization
+## 3. Laravel Trade Execution & Scheduler
+
+### Trade Executor Command
+```bash
+# Run trade executor manually (normally runs via cron every 5 minutes)
+php artisan trades:execute-daily
+
+# Run with output logging
+php artisan trades:execute-daily -v
+
+# View recent trade execution logs
+tail -50 backend/storage/logs/laravel.log | grep ExecuteDailyTrades
+journalctl -u swingtrader-backend -n 50 | grep ExecuteDailyTrades
+```
+
+**Purpose:** Fetch latest prices from Alpaca, generate trading signals, execute trades, and snapshot account equity.
+
+**Schedule:**
+- **Crontab:** `*/5 * * * *` (runs command every 5 minutes)
+- **Laravel Scheduler:** `everyFiveMinutes()` in `app/Console/Kernel.php`
+- **Market hours only:** 9:30 AM - 4:05 PM ET, weekdays only
+
+### Laravel Scheduler Management
+```bash
+# Run the Laravel scheduler manually (normally triggered by crontab)
+php artisan schedule:run
+
+# List all scheduled commands
+php artisan schedule:list
+
+# Test a specific command
+php artisan schedule:test trades:execute-daily
+```
+
+**Purpose:** Manage Laravel's internal task scheduler. The crontab entry calls `schedule:run` which executes commands defined in `app/Console/Kernel.php`.
+
+### Cache & Configuration
+```bash
+# Clear configuration cache after code changes
+php artisan config:clear
+
+# Clear application cache
+php artisan cache:clear
+
+# Restart backend to pick up changes
+# (systemd will auto-restart, or manually stop/start)
+sudo systemctl restart swingtrader-backend
+```
+
+**Purpose:** Clear caches to ensure backend uses latest code/config without restart delays.
+
+---
+
+## 4. Data Fetching & Optimization
 
 ### Python Optimizer Execution
 ```bash
@@ -90,7 +143,7 @@ top -bn1 | grep -E "^%Cpu|python"
 
 ---
 
-## 4. Database Schema & Data Management
+## 5. Database Schema & Data Management
 
 ### Table Truncation & Cleanup
 ```bash
@@ -127,7 +180,7 @@ SELECT * FROM pg_sequences WHERE schemaname = 'public';
 
 ---
 
-## 5. Data Inspection & Verification
+## 6. Data Inspection & Verification
 
 ### Table Record Counts
 ```bash
@@ -205,7 +258,7 @@ GROUP BY symbol;"
 
 ---
 
-## 6. Data Seeding
+## 7. Data Seeding
 
 ### Seed Tickers via Tinker
 ```bash
@@ -226,7 +279,7 @@ foreach ($symbols as $symbol) {
 
 ---
 
-## 7. File System Operations
+## 8. File System Operations
 
 ### Directory Management
 ```bash
@@ -249,7 +302,7 @@ rm -rf /home/dikesh/data/dev/SwingTraderAndOptimizer/backend/data
 
 ---
 
-## 8. Code Debugging & Inspection
+## 9. Code Debugging & Inspection
 
 ### Python Error Checking
 ```bash
@@ -279,7 +332,7 @@ wc -l /tmp/claude-1000/.../tasks/bejtyqq71.output
 
 ---
 
-## 9. Git Operations
+## 10. Git Operations
 
 ### Stage & Commit Changes
 ```bash
@@ -302,7 +355,7 @@ git push origin main
 
 ---
 
-## 10. Environment & Configuration
+## 11. Environment & Configuration
 
 ### View Configuration
 ```bash
@@ -321,7 +374,7 @@ cat backend/.env | grep ALPACA
 
 ---
 
-## 11. Systemd Service Management
+## 12. Systemd Service Management
 
 ### Service Creation & Setup
 ```bash
@@ -418,7 +471,7 @@ sudo systemctl list-units --all | grep swingtrader
 
 ---
 
-## 12. Monitoring & Health Checks
+## 13. Monitoring & Health Checks
 
 ### PostgreSQL Health
 ```bash
@@ -546,7 +599,7 @@ ps aux | grep "python3" | grep -v grep
 
 ---
 
-## 13. Data Integrity & Market Hours Filtering
+## 14. Data Integrity & Market Hours Filtering
 
 ### Verify Market Hours Data (Critical)
 ```bash
@@ -603,7 +656,7 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
 
 ---
 
-## 14. Application Startup & Shutdown
+## 15. Application Startup & Shutdown
 
 ### Kill Running Processes
 ```bash

@@ -14,8 +14,8 @@ The SwingTrader system has three components working together:
                           │ uses
                           │
 ┌─────────────────────────────────────────────────────────┐
-│ crontab: * * * * * artisan trades:execute-daily        │
-│ └─> Runs every minute (when market is open)             │
+│ crontab: */5 * * * * artisan trades:execute-daily       │
+│ └─> Runs every 5 minutes (when market is open)           │
 │     Executes trades via CLI within running backend      │
 └─────────────────────────────────────────────────────────┘
 
@@ -28,7 +28,7 @@ The SwingTrader system has three components working together:
 
 **How it works:**
 1. **Backend service** keeps the Laravel API running 24/7 (handles requests, serves Swagger docs)
-2. **Trade executor cron** runs every minute to execute trades using the running backend
+2. **Trade executor cron** runs every 5 minutes to execute trades using the running backend (rate-limit friendly)
 3. **Optimizer timer** runs nightly at 2:00 AM to retrain strategy parameters
 
 If the backend crashes, systemd restarts it automatically within 5 seconds. Both the backend and optimizer survive system reboots—no manual intervention needed.

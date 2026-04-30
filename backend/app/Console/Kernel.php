@@ -13,13 +13,13 @@ class Kernel extends ConsoleKernel
         // See scripts/setup-optimizer-wts.ps1 (Windows) or scripts/setup-optimizer-cron.sh (Linux)
         // Manual trigger: php artisan optimize:nightly
 
-        // Price fetching is handled by trade executor (calls fetchLatestPrices internally every 30 min)
+        // Price fetching is handled by trade executor (calls fetchLatestPrices internally every 5 min)
 
         $schedule->command('trades:execute-daily')
-            ->everyMinute()
+            ->everyFiveMinutes()
             ->weekdays()
+            ->between('09:30', '16:05')
             ->timezone('America/New_York');
-            // ->between('09:30', '16:00');
 
         $schedule->command('equity:snapshot')
             ->dailyAt('16:05')

@@ -36,7 +36,7 @@ A **fully automated swing trading platform** that:
 
 ┌─────────────────────────────────────────────────────────────┐
 │              MARKET HOURS (9:30 AM - 4:00 PM)              │
-│                   Every Minute (Cron Job)                   │
+│                  Every 5 Minutes (Cron Job)                 │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  1. Fetch fresh prices from Alpaca                         │
@@ -58,7 +58,7 @@ A **fully automated swing trading platform** that:
 │         └─ Record in: live_trades table                    │
 │                                                              │
 │  3. Track performance                                       │
-│     ├─ Snapshot account equity every minute               │
+│     ├─ Snapshot account equity every 5 minutes            │
 │     ├─ Calculate running total P&L                         │
 │     └─ Save to: account_equity_snapshots table             │
 │                                                              │
@@ -125,7 +125,7 @@ live_trades (executed trades)
 
 **Cron Schedule:**
 ```
-* * * * * → trades:execute-daily (every minute, weekdays, 9:30 AM - 4:00 PM ET)
+*/5 * * * * → trades:execute-daily (every 5 minutes, weekdays, 9:30 AM - 4:00 PM ET)
 ```
 
 ### 3. **Optimizer (Python)**
@@ -191,7 +191,7 @@ else:
 
 ## Trade Execution Flow
 
-**Every Minute During Market Hours:**
+**Every 5 Minutes During Market Hours:**
 
 ```
 1. CHECK MARKET STATUS
@@ -234,7 +234,7 @@ else:
    ├─ Save to equity_snapshots (source=account)
    └─ Calculate daily return %
 
-5. REPEAT NEXT MINUTE
+5. REPEAT IN 5 MINUTES
 ```
 
 ---
@@ -265,7 +265,7 @@ else:
 ### ✅ **Real-Time Signals**
 - Combines 2 years of data + today's intra-day
 - Hourly alignment (8 prices/day, not 60)
-- Fresh Alpaca quotes every minute
+- Fresh Alpaca quotes every 5 minutes (rate-limit friendly)
 
 ### ✅ **Automated Execution**
 - Every minute: check signal → place order
@@ -310,9 +310,9 @@ else:
 6. Ready for next day's execution
 
 **Tomorrow during market hours:**
-1. Every minute: fetch price → generate signal → execute trade
-2. Cron runs 390 times (9:30 AM - 4:00 PM = 6.5 hours)
-3. Each ticker evaluated 390 times
+1. Every 5 minutes: fetch price → generate signal → execute trade
+2. Cron runs 78 times (9:30 AM - 4:00 PM = 6.5 hours ÷ 5 min intervals)
+3. Each ticker evaluated 78 times
 4. Trades executed based on signals
 5. Equity snapshots saved
 6. Results visible in dashboard

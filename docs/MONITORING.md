@@ -196,7 +196,7 @@ php backend/artisan trades:execute-daily
 | Metric | How to Check | Expected |
 |--------|-------------|----------|
 | Optimizer runtime | `journalctl -u swingtrader-optimizer` | 30-45 minutes |
-| Trade executor frequency | `journalctl -u swingtrader-backend` | Every minute (390 times during market hours) |
+| Trade executor frequency | `journalctl -u swingtrader-backend` | Every 5 minutes (78 times during market hours) |
 | Database health | `docker exec swingtrader-db psql ... SELECT 1;` | Instant response |
 | Backend response time | `curl -w "%{time_total}" http://localhost:9000/api/health` | <100ms |
 

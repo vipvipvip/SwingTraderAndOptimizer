@@ -78,7 +78,7 @@ Complete guide to the automated swing trading platform.
 
 1. **Fetches** 2 years of historical market data every night
 2. **Optimizes** trading parameters (MACD, SMA, Bollinger Bands) using grid search
-3. **Executes** trades every minute during market hours based on generated signals
+3. **Executes** trades every 5 minutes during market hours based on generated signals
 4. **Tracks** performance with equity curves and P&L
 
 **Key Features:**
@@ -93,7 +93,7 @@ Complete guide to the automated swing trading platform.
 - Backend service: `swingtrader-backend.service`
 - Frontend service: `swingtrader-fe-dev.service` (dev) or nginx (production)
 - Optimizer timer: `swingtrader-optimizer.timer` (runs daily at 2:00 AM)
-- Trade executor: Cron job (runs every minute during market hours)
+- Trade executor: Cron job (runs every 5 minutes during market hours)
 
 ---
 
