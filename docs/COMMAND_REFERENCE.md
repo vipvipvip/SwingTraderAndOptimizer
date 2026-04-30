@@ -603,6 +603,85 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
 
 ---
 
+## 14. Application Startup & Shutdown
+
+### Kill Running Processes
+```bash
+# Kill backend (Laravel PHP server)
+pkill -f "php artisan serve"
+
+# Kill frontend (Vite dev server)
+pkill -f "npm run dev"
+
+# Kill optimizer
+pkill -f "python3 optimizer/nightly_optimizer.py"
+
+# Force kill if needed (use with caution)
+pkill -9 -f "php artisan serve"
+pkill -9 -f "npm run dev"
+pkill -9 -f "python3"
+```
+
+### Start Backend
+```bash
+# Start Laravel development server
+cd backend
+php artisan serve --host=0.0.0.0 --port=9000
+
+# Start in background
+cd backend && php artisan serve --host=0.0.0.0 --port=9000 > /tmp/backend.log 2>&1 &
+```
+
+### Start Frontend
+```bash
+# Start Vite dev server
+cd frontend
+npm run dev
+
+# Start in background
+cd frontend && npm run dev > /tmp/frontend.log 2>&1 &
+```
+
+### Restart All Applications
+```bash
+# Kill all apps
+pkill -f "php artisan serve"
+pkill -f "npm run dev"
+
+# Start backend
+cd backend && php artisan serve --host=0.0.0.0 --port=9000 > /tmp/backend.log 2>&1 &
+
+# Start frontend  
+cd frontend && npm run dev > /tmp/frontend.log 2>&1 &
+
+# Wait for startup
+sleep 3
+
+# Verify backend is running
+curl -s http://localhost:9000/api/health
+
+# Frontend should be available at http://localhost:5173
+```
+
+**Purpose:** Manage application lifecycle — restart for code changes, test new features, or clear stale state.
+
+### View Application Logs
+```bash
+# Backend logs (last 50 lines)
+tail -50 /tmp/backend.log
+
+# Frontend logs (last 50 lines)
+tail -50 /tmp/frontend.log
+
+# Watch logs in real-time
+tail -f /tmp/backend.log
+tail -f /tmp/frontend.log
+```
+
+**Purpose:** Debug startup issues or monitor application output.
+
+---
+
 ## Summary
 
 | Category | Command Count | Purpose |
@@ -620,8 +699,9 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
 | Health Checks | 4 | Monitoring and validation |
 | Data Integrity | 6 | Market hours filtering and cleanup |
 | Systemd Services | 10 | Persistent daemon management |
+| Application Lifecycle | 12 | Kill/start/restart apps and view logs |
 
-**Total Commands: ~80+**
+**Total Commands: ~90+**
 
 ---
 
@@ -651,4 +731,4 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "TRUNCATE table
 
 ---
 
-Last Updated: 2026-04-30
+Last Updated: 2026-04-30 (Section 14: Application Lifecycle added)
