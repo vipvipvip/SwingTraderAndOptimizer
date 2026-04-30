@@ -546,6 +546,63 @@ ps aux | grep "python3" | grep -v grep
 
 ---
 
+## 13. Data Integrity & Market Hours Filtering
+
+### Verify Market Hours Data (Critical)
+```bash
+# Check if database contains ONLY market hours (UTC 14:00-20:00)
+docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
+  "SELECT EXTRACT(HOUR FROM timestamp)::INT as hour, COUNT(*) FROM bars GROUP BY hour ORDER BY hour;"
+
+# Expected: Only hours 14, 15, 16, 17, 18, 19, 20 (no data in 0-13 or 21-23)
+
+# Check total bars (should be 6000-10000 range, depending on tickers)
+docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
+  "SELECT COUNT(*) as total_bars FROM bars;"
+
+# Breakdown by ticker
+docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
+  "SELECT t.symbol, COUNT(*) as bar_count FROM bars b JOIN tickers t ON b.ticker_id = t.id GROUP BY t.symbol ORDER BY t.symbol;"
+```
+
+**Purpose:** Ensure bars table contains only valid market hours data (9:30 AM - 4:00 PM ET = 14:00-20:00 UTC).
+
+### Clean Out-of-Hours Data (If Needed)
+```bash
+# Identify out-of-hours bars
+docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
+  "SELECT COUNT(*) FROM bars WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 14 AND 20;"
+
+# Manual cleanup (remove all out-of-hours bars)
+docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
+  "DELETE FROM bars WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 14 AND 20;"
+
+# Automated cleanup (uses Python script)
+python3 optimizer/cleanup_after_hours_pg.py
+```
+
+**Purpose:** Remove any bars outside regular market hours (pre-market or after-hours trading).
+
+### Docker Initialization Verification
+```bash
+# Fresh database with initialization scripts
+docker-compose down -v  # Remove old volumes
+docker-compose up -d    # Start fresh
+sleep 5
+
+# Verify initialization ran
+docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
+  "SELECT COUNT(*) as bars_in_db FROM bars;"
+
+# Check for out-of-hours data (should be 0)
+docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
+  "SELECT COUNT(*) as out_of_hours FROM bars WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 14 AND 20;"
+```
+
+**Purpose:** Ensure fresh databases never contain out-of-hours data through automated initialization scripts.
+
+---
+
 ## Summary
 
 | Category | Command Count | Purpose |
@@ -561,8 +618,10 @@ ps aux | grep "python3" | grep -v grep
 | Git | 5 | Version control operations |
 | Configuration | 3 | Environment and settings verification |
 | Health Checks | 4 | Monitoring and validation |
+| Data Integrity | 6 | Market hours filtering and cleanup |
+| Systemd Services | 10 | Persistent daemon management |
 
-**Total Commands: ~60+**
+**Total Commands: ~80+**
 
 ---
 
@@ -592,4 +651,4 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "TRUNCATE table
 
 ---
 
-Last Updated: 2026-04-29
+Last Updated: 2026-04-30

@@ -122,5 +122,36 @@ git commit -m "update: latest configuration state"
 
 ---
 
-**Document Date:** 2026-04-29  
-**Status:** Planning phase - awaiting review and decisions on above questions
+## Lessons Learned (2026-04-30)
+
+### Data Integrity During Migration
+When migrating from SQLite to PostgreSQL, historical data inherited all issues from the source database.
+
+**Issue Found:** Bars table contained out-of-hours data (pre-market/after-hours trades)
+- SQLite had 438 bars outside 14:00-20:00 UTC (market hours)
+- These were transferred to PostgreSQL unchanged
+- New bars being fetched were correctly filtered, but old data persisted
+
+**Solution Implemented:**
+1. **PostgreSQL cleanup script:** `optimizer/cleanup_after_hours_pg.py`
+   - Removes out-of-hours bars on-demand
+   - Used once to clean migrated data
+
+2. **Docker initialization safeguard:** `backend/postgres_init/02_ensure_market_hours_data.sql`
+   - Runs automatically during `docker-compose up` on fresh databases
+   - Prevents out-of-hours data from ever entering new systems
+   - Paired with docker-compose.yml volume mount for `/docker-entrypoint-initdb.d`
+
+3. **Code-level filter (ongoing):** `optimizer/data_fetcher.py:292`
+   - `filter_market_hours()` applied before INSERT
+   - Ensures all NEW bars are clean
+
+### For Future Portability Implementation
+- When exporting data with Option C (selective), filter bars: `EXTRACT(HOUR FROM timestamp)::INT BETWEEN 14 AND 20`
+- Include the initialization scripts in `backend/postgres_init/` directory
+- Docker will auto-run them on fresh setups
+
+---
+
+**Document Date:** 2026-04-29 (Updated 2026-04-30)  
+**Status:** Planning phase + data integrity safeguards implemented
