@@ -297,7 +297,7 @@ class TradeExecutorService
             return [];
         }
 
-        // Append intra_day prices for today (fresh real-time data)
+        // Append last intra_day price for each hour today (one price per hour)
         try {
             $today = date('Y-m-d');
             $intraDayPrices = IntraDayPrice::where('symbol', $symbol)
@@ -306,12 +306,20 @@ class TradeExecutorService
                 ->get(['close', 'price_time'])
                 ->toArray();
 
-            foreach ($intraDayPrices as $price) {
-                $closes[] = floatval($price['close'] ?? 0);
-            }
-
             if (!empty($intraDayPrices)) {
-                \Log::debug("$symbol: Added " . count($intraDayPrices) . " intra-day prices for today");
+                // Group by hour and take last price of each hour
+                $hourlyPrices = [];
+                foreach ($intraDayPrices as $price) {
+                    $hour = date('H', strtotime($price['price_time']));
+                    $hourlyPrices[$hour] = floatval($price['close'] ?? 0);
+                }
+
+                // Append hourly prices in order
+                foreach ($hourlyPrices as $hour => $price) {
+                    $closes[] = $price;
+                }
+
+                \Log::debug("$symbol: Added " . count($hourlyPrices) . " hourly prices from today's intra-day data");
             }
         } catch (\Exception $e) {
             \Log::debug("Could not fetch intra-day prices for $symbol: " . $e->getMessage());
