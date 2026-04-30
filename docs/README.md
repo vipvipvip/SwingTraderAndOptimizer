@@ -11,6 +11,7 @@ Complete guide to the automated swing trading platform.
 
 ### Setup & Deployment
 - **[UBUNTU_SETUP.md](UBUNTU_SETUP.md)** — Ubuntu/Linux setup guide with dependencies and basic configuration
+- **[WSL_SETUP.md](WSL_SETUP.md)** — Windows Subsystem for Linux 2 setup guide (fully compatible)
 - **[Ubuntu-Backend-Services.md](Ubuntu-Backend-Services.md)** — Systemd service for Laravel backend (recommended for production)
 - **[Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md)** — Systemd service for frontend (dev or production mode)
 
@@ -35,6 +36,7 @@ Complete guide to the automated swing trading platform.
 | Task | Document |
 |------|----------|
 | Understand how the system works | [How_System_Works.md](How_System_Works.md) |
+| Set up on Windows (WSL2) | [WSL_SETUP.md](WSL_SETUP.md) |
 | Set up on a new Ubuntu server | [UBUNTU_SETUP.md](UBUNTU_SETUP.md) + [Ubuntu-Backend-Services.md](Ubuntu-Backend-Services.md) |
 | Run the frontend as a service | [Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md) |
 | Monitor daily operations | [MONITORING.md](MONITORING.md) |
@@ -50,7 +52,8 @@ Complete guide to the automated swing trading platform.
 | Document | Status | Purpose |
 |----------|--------|---------|
 | How_System_Works.md | ✅ Current | System architecture and flow |
-| UBUNTU_SETUP.md | ✅ Updated 2026-04-30 | Basic setup guide |
+| UBUNTU_SETUP.md | ✅ Updated 2026-04-30 | Linux setup guide |
+| WSL_SETUP.md | ✅ New 2026-04-30 | Windows WSL2 setup guide |
 | Ubuntu-Backend-Services.md | ✅ Current | Production backend service |
 | Ubuntu-Frontend-Services.md | ✅ Current | Production frontend service |
 | MONITORING.md | ✅ Updated 2026-04-30 | Operations guide |
