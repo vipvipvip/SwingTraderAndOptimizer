@@ -33,10 +33,11 @@ def cleanup_after_hours():
         print(f"\nTotal bars before cleanup: {total_before}")
 
         # Get bars outside market hours
-        # Market hours in UTC: 14:00 - 20:00 (9:30 AM - 4:00 PM ET)
+        # Market hours in UTC: 13:00 - 20:00 (9:30 AM - 4:30 PM ET)
+        # Hourly bars: 13:30, 14:30, 15:30, 16:30, 17:30, 18:30, 19:30, 20:30
         cursor.execute('''
             SELECT COUNT(*) FROM bars
-            WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 14 AND 20
+            WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 13 AND 20
         ''')
         after_hours_count = cursor.fetchone()[0]
         print(f"After-hours bars to delete: {after_hours_count}")
@@ -45,7 +46,7 @@ def cleanup_after_hours():
             # Delete after-hours bars
             cursor.execute('''
                 DELETE FROM bars
-                WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 14 AND 20
+                WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 13 AND 20
             ''')
             conn.commit()
             print(f"✓ Deleted {cursor.rowcount} after-hours bars")

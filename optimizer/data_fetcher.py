@@ -29,8 +29,9 @@ def filter_market_hours(df):
         # No timezone info, assume NY time
         df_copy['_time_str'] = df_copy.index.strftime('%H:%M')
 
-    # Keep only 9:30 AM (09:30) to 4:00 PM (16:00) ET
-    market_hours = (df_copy['_time_str'] >= '09:30') & (df_copy['_time_str'] <= '16:00')
+    # Keep only 9:30 AM (09:30) to 4:30 PM (16:30) ET
+    # Note: 4:30 PM bar represents 3:30-4:30 window (market closes at 4:00 PM)
+    market_hours = (df_copy['_time_str'] >= '09:30') & (df_copy['_time_str'] <= '16:30')
 
     result = df_copy[market_hours].drop(columns=['_time_str'])
     print(f"Filtered to market hours: {len(df)} -> {len(result)} bars")
