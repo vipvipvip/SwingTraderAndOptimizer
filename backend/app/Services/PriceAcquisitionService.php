@@ -68,31 +68,50 @@ class PriceAcquisitionService
     }
 
     /**
-     * Fetch latest quote from Alpaca (current price)
+     * Fetch latest quote from Alpaca (current price) with retry logic
      */
     private function fetchAlpacaLatestPrice($symbol)
     {
         $apiKey = env('ALPACA_API_KEY');
         $secretKey = env('ALPACA_SECRET_KEY');
         $dataUrl = 'https://data.alpaca.markets';
+        $maxRetries = 3;
+        $lastException = null;
 
-        $response = \Illuminate\Support\Facades\Http::withBasicAuth($apiKey, $secretKey)
-            ->timeout(5)
-            ->get("{$dataUrl}/v2/stocks/{$symbol}/quotes/latest");
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            try {
+                $response = \Illuminate\Support\Facades\Http::withBasicAuth($apiKey, $secretKey)
+                    ->timeout(15)
+                    ->get("{$dataUrl}/v2/stocks/{$symbol}/quotes/latest");
 
-        if ($response->failed()) {
-            throw new \Exception("Alpaca API error: " . $response->status() . " - " . $response->body());
+                if ($response->failed()) {
+                    throw new \Exception("Alpaca API error: " . $response->status() . " - " . $response->body());
+                }
+
+                $data = $response->json();
+                $quote = $data['quote'] ?? $data;
+                $price = $quote['ap'] ?? $quote['ask'] ?? $quote['bid'] ?? null;
+
+                if (!$price || $price === 0) {
+                    throw new \Exception("No valid price in Alpaca response");
+                }
+
+                if ($attempt > 1) {
+                    Log::info("Alpaca API succeeded for {$symbol} on attempt {$attempt}");
+                }
+
+                return floatval($price);
+            } catch (\Exception $e) {
+                $lastException = $e;
+                if ($attempt < $maxRetries) {
+                    $delay = ($attempt - 1) * 1; // 0s, 1s, 2s between attempts
+                    Log::warning("Alpaca API attempt {$attempt} failed for {$symbol}, retrying in {$delay}s: " . $e->getMessage());
+                    sleep($delay);
+                }
+            }
         }
 
-        $data = $response->json();
-        $quote = $data['quote'] ?? $data;
-        $price = $quote['ap'] ?? $quote['ask'] ?? $quote['bid'] ?? null;
-
-        if (!$price || $price === 0) {
-            throw new \Exception("No valid price in Alpaca response");
-        }
-
-        return floatval($price);
+        throw new \Exception("Alpaca API failed for {$symbol} after {$maxRetries} attempts: " . $lastException->getMessage());
     }
 
     /**
