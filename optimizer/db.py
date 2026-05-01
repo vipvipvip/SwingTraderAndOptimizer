@@ -69,8 +69,8 @@ class StrategyDB:
             cursor.execute('''
                 INSERT INTO strategy_parameters
                 (ticker_id, macd_fast, macd_slow, macd_signal, sma_short, sma_long,
-                 bb_period, bb_std, win_rate, sharpe_ratio, total_return, total_trades)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 bb_period, bb_std, win_rate, sharpe_ratio, total_return, total_trades, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (ticker_id) DO UPDATE SET
                     macd_fast = EXCLUDED.macd_fast,
                     macd_slow = EXCLUDED.macd_slow,
@@ -82,7 +82,8 @@ class StrategyDB:
                     win_rate = EXCLUDED.win_rate,
                     sharpe_ratio = EXCLUDED.sharpe_ratio,
                     total_return = EXCLUDED.total_return,
-                    total_trades = EXCLUDED.total_trades
+                    total_trades = EXCLUDED.total_trades,
+                    updated_at = NOW()
             ''', (
                 ticker_id,
                 int(params['macd_fast']),
