@@ -25,7 +25,18 @@ class AlpacaService
     private function makeRequest($method, $url, $params = null, $payload = null, $retries = 0)
     {
         try {
-            $client = Http::withBasicAuth($this->apiKey, $this->secretKey)->timeout(5);
+            Log::debug('AlpacaService::makeRequest', [
+                'method' => $method,
+                'url' => $url,
+                'key_id' => $this->apiKey,
+                'key_length' => strlen($this->apiKey ?? ''),
+                'secret_length' => strlen($this->secretKey ?? ''),
+            ]);
+
+            $client = Http::withHeaders([
+                'APCA-API-KEY-ID' => $this->apiKey,
+                'APCA-API-SECRET-KEY' => $this->secretKey,
+            ])->timeout(5);
 
             if ($method === 'get') {
                 $response = $client->get($url, $params);
@@ -36,6 +47,11 @@ class AlpacaService
             } else {
                 throw new \Exception("Unknown HTTP method: $method");
             }
+
+            Log::debug('AlpacaService::response', [
+                'status' => $response->status(),
+                'body' => substr($response->body(), 0, 200),
+            ]);
 
             if ($response->failed()) {
                 throw new \Exception("Alpaca API error: " . $response->body());

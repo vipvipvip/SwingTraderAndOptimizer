@@ -15,10 +15,16 @@ export default defineConfig({
     middlewareMode: false,
     proxy: {
       '/api': {
-        // TODO: Update to your server's local network IP address when deployed
-        target: 'http://192.168.1.232:9000',
+        target: 'http://127.0.0.1:9000',
         changeOrigin: true,
-        rewrite: (path) => path
+        rewrite: (path) => path,
+        router: (req) => {
+          const host = req.headers.host?.split(':')[0]
+          if (host && host !== 'localhost' && host !== '127.0.0.1') {
+            return `http://${host}:9000`
+          }
+          return 'http://127.0.0.1:9000'
+        }
       }
     }
   },

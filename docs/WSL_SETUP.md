@@ -2,387 +2,392 @@
 
 Complete guide for setting up the trading system on **Windows Subsystem for Linux 2 (WSL2)**.
 
-**Status:** Fully compatible with WSL2 | Tested on Windows 11 with WSL2
+**Status:** Fully compatible with WSL2 | Tested on Windows 11 with WSL2 Ubuntu-24.04
 
 ---
 
 ## Prerequisites
 
-### WSL Version (Critical)
-
-Must use **WSL2** (not WSL1). Docker requires it.
+### 1. WSL2 (Not WSL1)
 
 ```bash
-# Check your WSL version
+# Check your WSL version from Windows PowerShell
 wsl --list --verbose
 
-# If you see WSL1, upgrade to WSL2
-# Follow: https://learn.microsoft.com/en-us/windows/wsl/install-manual#step-4---download-the-linux-kernel-update-package
+# Must show VERSION 2. If version 1, upgrade:
+wsl --set-version Ubuntu-24.04 2
 ```
 
-### Docker Setup
-
-- Install **Docker Desktop for Windows**
-- Enable WSL2 integration in Docker Desktop settings:
-  - Settings → Resources → WSL Integration → Enable integration with your distro
-- Verify Docker works from WSL:
-
-```bash
-docker --version
-docker run hello-world
-```
-
-### Enable Systemd (WSL2 Ubuntu 22.04+)
-
-WSL2 now supports systemd. Edit `/etc/wsl.conf`:
+### 2. Enable Systemd
 
 ```bash
 sudo nano /etc/wsl.conf
 ```
 
-Add these lines:
-
+Add:
 ```ini
 [boot]
 systemd=true
+
+[user]
+default=YOUR_USERNAME
 ```
 
-Then restart WSL:
-
-```bash
-# From Windows PowerShell (run as Administrator):
+Restart WSL from Windows PowerShell (as Administrator):
+```powershell
 wsl --shutdown
-
-# Then reopen your WSL terminal
 ```
 
-Verify systemd is running:
-
+Reopen WSL and verify:
 ```bash
-systemctl is-system-running
-# Should return: "running" or "degraded"
+systemctl is-system-running  # Should return: running
+```
+
+### 3. Docker Desktop for Windows
+
+- Install Docker Desktop for Windows
+- Settings → Resources → WSL Integration → Enable your Ubuntu distro
+- Verify from WSL:
+```bash
+docker --version
+docker ps
 ```
 
 ---
 
-## Quick Setup (Step-by-Step)
+## Installation Steps
 
-### Step 1: Clone Repository
+### Step 1: Install System Dependencies
 
 ```bash
-cd /home/$USER
+sudo apt-get update && sudo apt-get install -y \
+  php-cli php-pgsql php-xml php-dom php-mbstring php-curl php-json php-fileinfo php-sqlite3 \
+  php-xdebug \
+  nodejs npm \
+  python3 python3-venv python3-pip \
+  git curl
+```
+
+Install Composer:
+```bash
+curl -sS https://getcomposer.org/installer | php
+sudo mv composer.phar /usr/local/bin/composer
+sudo chmod +x /usr/local/bin/composer
+```
+
+Install Node.js 20 (if npm not available):
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+### Step 2: Clone Repository
+
+```bash
+cd ~
 git clone https://github.com/vipvipvip/SwingTraderAndOptimizer.git
 cd SwingTraderAndOptimizer
+PROJECT_DIR=$(pwd)
+echo "Project at: $PROJECT_DIR"
 ```
 
-### Step 2: Backend Setup
+> **Note:** You can clone to any path. All scripts use relative or auto-detected paths.
+
+### Step 3: Configure Environment
 
 ```bash
-cd backend
-
-# Create environment file
+cd $PROJECT_DIR/backend
 cp .env.example .env
-
-# IMPORTANT: Update .env with your values
 nano .env
-# Set:
-#   ALPACA_API_KEY=<your_key>
-#   ALPACA_SECRET_KEY=<your_secret>
-#   SLACK_WEBHOOK_URL=<your_webhook>
-#   PYTHON_PATH=python3  # Use fallback (don't hardcode /home/dikesh/...)
-
-# Install dependencies
-composer install
-php artisan key:generate
 ```
 
-### Step 3: Frontend Setup
+Set these values:
+```env
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=swingtrader
+DB_USERNAME=swingtrader
+DB_PASSWORD=swingtrader_dev_password
 
-```bash
-cd ../frontend
-npm install
+ALPACA_API_KEY=<your_paper_trading_key>
+ALPACA_SECRET_KEY=<your_paper_trading_secret>
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+
+PYTHON_PATH=python3
 ```
 
-For development (hot reload):
+> **Alpaca Keys:** Get from [app.alpaca.markets](https://app.alpaca.markets) → Paper Trading → API Keys
+> **Important:** If you get 401 errors, regenerate the keys — old keys can become invalid
+
+### Step 4: Backend Setup
+
 ```bash
-npm run dev
+cd $PROJECT_DIR/backend
+composer install --no-interaction --prefer-dist
+mkdir -p storage/logs storage/app bootstrap/cache
+chmod -R 775 storage bootstrap/cache
 ```
 
-For production (optimized build):
+### Step 5: Database Setup (PostgreSQL via Docker)
+
 ```bash
-npm run build
+cd $PROJECT_DIR
+docker-compose up -d
+sleep 15  # Wait for PostgreSQL to initialize
+
+# Run migrations
+cd backend
+php artisan migrate --force
+
+# Seed tickers
+php artisan tinker --execute="
+App\Models\Ticker::firstOrCreate(['symbol'=>'SPY'],['allocation_weight'=>33.33,'enabled'=>1]);
+App\Models\Ticker::firstOrCreate(['symbol'=>'QQQ'],['allocation_weight'=>33.33,'enabled'=>1]);
+App\Models\Ticker::firstOrCreate(['symbol'=>'IWM'],['allocation_weight'=>33.34,'enabled'=>1]);
+echo 'Tickers seeded';
+"
 ```
 
-### Step 4: Python Optimizer Setup
+### Step 6: Python Optimizer Setup
 
 ```bash
-cd ../optimizer
+cd $PROJECT_DIR/optimizer
 python3 -m venv venv
 source venv/bin/activate
+pip install --upgrade pip setuptools wheel
+
+# Install from requirements.txt
 pip install -r requirements.txt
+
+# Install additional packages required for PostgreSQL and Alpaca
+pip install psycopg2-binary alpaca-py
+
 deactivate
 ```
 
-### Step 5: Database Setup
+> **Why the extra packages?** The requirements.txt has alpaca-trade-api (old SDK) but the
+> optimizer uses alpaca-py (new SDK). psycopg2-binary is needed for PostgreSQL connectivity.
+
+### Step 7: Frontend Setup
 
 ```bash
-cd ../backend
-
-# Start PostgreSQL in Docker
-docker-compose up -d
-
-# Wait for PostgreSQL to be ready (~10 seconds)
-docker-compose ps
-
-# Run migrations
-php artisan migrate
-```
-
-### Step 6: Start Services
-
-**Terminal 1 - Backend (Laravel):**
-```bash
-cd backend
-php artisan serve --host=0.0.0.0 --port=9000
-```
-
-**Terminal 2 - Frontend (Vite):**
-```bash
-cd frontend
-npm run dev
-# Access at http://localhost:5173
-```
-
-**Terminal 3 - Monitor Database:**
-```bash
-cd backend
-docker-compose logs -f postgres
-```
-
-### Step 7: Verify Everything Works
-
-```bash
-# Test backend
-curl http://localhost:9000/api/health
-
-# Test frontend (in browser)
-http://localhost:5173
-
-# Test database
-docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT 1;"
+cd $PROJECT_DIR/frontend
+npm install
 ```
 
 ---
 
-## Production Systemd Setup (Optional)
+## Systemd Services (Auto-start on Boot)
 
-Once everything works, use systemd services for auto-start and auto-restart.
+Use systemd so services survive reboots and auto-restart on crash.
 
-See: [Ubuntu-Backend-Services.md](Ubuntu-Backend-Services.md) and [Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md)
-
-The commands are identical on WSL2:
+### Backend Service
 
 ```bash
-# Backend service
-sudo systemctl enable swingtrader-backend.service
-sudo systemctl start swingtrader-backend.service
+PROJECT_DIR=$(pwd)  # Run from project root
+sudo bash -c "cat > /etc/systemd/system/swingtrader-backend.service << 'EOF'
+[Unit]
+Description=SwingTrader Laravel Backend
+After=network.target docker.service
 
-# Optimizer timer
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$PROJECT_DIR/backend
+ExecStartPre=/usr/bin/php artisan config:clear
+ExecStartPre=/usr/bin/php artisan cache:clear
+ExecStart=/usr/bin/php artisan serve --host=0.0.0.0 --port=9000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=swingtrader-backend
+
+[Install]
+WantedBy=multi-user.target
+EOF"
+```
+
+### Optimizer Service + Timer
+
+```bash
+PROJECT_DIR=$(pwd)  # Run from project root
+
+# Optimizer service (oneshot)
+sudo bash -c "cat > /etc/systemd/system/swingtrader-optimizer.service << 'EOF'
+[Unit]
+Description=SwingTrader Nightly Optimizer
+After=network.target
+
+[Service]
+Type=oneshot
+User=$USER
+WorkingDirectory=$PROJECT_DIR/optimizer
+ExecStart=/bin/bash $PROJECT_DIR/optimizer/run_nightly.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=swingtrader-optimizer
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target
+EOF"
+
+# Timer (2 AM daily)
+sudo bash -c "cat > /etc/systemd/system/swingtrader-optimizer.timer << 'EOF'
+[Unit]
+Description=SwingTrader Nightly Optimizer Timer
+Requires=swingtrader-optimizer.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF"
+```
+
+### Enable All Services
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable swingtrader-backend.service
 sudo systemctl enable swingtrader-optimizer.timer
+sudo systemctl start swingtrader-backend.service
 sudo systemctl start swingtrader-optimizer.timer
 ```
 
 ---
 
-## Key Differences from Native Linux
+## Crontab Setup
 
-| Aspect | Native Linux | WSL2 |
-|--------|--------------|------|
-| Systemd | Available | Available (if enabled in wsl.conf) |
-| Docker | Runs natively | Runs via Docker Desktop on Windows |
-| File access | `/home/<user>/` | `/home/<user>/` (same) |
-| Ports | Direct access | Automatically mapped to Windows |
-| Performance | Native | Near-native (very fast) |
-| Shutdown | `sudo shutdown` | `wsl --shutdown` (from Windows) |
+Add ONE cron entry — Laravel Kernel.php handles the schedule internally (trades every 5 min, etc.):
+
+```bash
+PHP_PATH=$(which php)
+PROJECT_DIR=~/SwingTraderAndOptimizer  # adjust if different path
+
+(echo "* * * * * $PHP_PATH $PROJECT_DIR/backend/artisan schedule:run >> /dev/null 2>&1") | crontab -
+
+# Verify
+crontab -l
+```
 
 ---
 
-## Environment Variables
+## Frontend
 
-The only change needed in `.env` is `PYTHON_PATH`:
-
+**Development mode (manual):**
 ```bash
-# DON'T hardcode this (won't match your username):
-# PYTHON_PATH=/home/dikesh/data/dev/SwingTraderAndOptimizer/optimizer/venv/bin/python3
-
-# DO this instead:
-PYTHON_PATH=python3
+cd $PROJECT_DIR/frontend
+npm run dev
 ```
 
-The code has a fallback that defaults to `python` if `PYTHON_PATH` is not set, so just using `python3` works fine.
+**Production mode (systemd + nginx):** See [Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md)
+
+---
+
+## First Run After Setup
+
+After everything is installed, populate the database by running the optimizer:
+
+```bash
+cd $PROJECT_DIR/optimizer
+./venv/bin/python nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM
+```
+
+Takes 30-45 minutes. Progress logged to `optimizer/logs/nightly.log`.
+
+---
+
+## After Every Reboot
+
+```bash
+docker-compose up -d          # Start PostgreSQL (Docker Desktop starts automatically)
+# Backend auto-starts via systemd
+# Crontab auto-runs schedule:run every minute
+cd frontend && npm run dev     # Start frontend (or use fe-dev service)
+```
+
+---
+
+## Verify Everything Works
+
+```bash
+curl http://localhost:9000/api/health          # Should return: {"status":"ok"}
+curl http://localhost:9000/api/v1/account      # Should show Alpaca account balance
+curl http://localhost:9000/api/v1/tickers      # Should show SPY, QQQ, IWM
+sudo systemctl status swingtrader-backend      # Should be active (running)
+sudo systemctl list-timers swingtrader-optimizer.timer  # Shows next 2 AM run
+crontab -l                                     # Shows schedule:run entry
+```
+
+---
+
+## Important Notes
+
+### Sleep Mode Warning
+When Windows goes to sleep, WSL is suspended — all trading stops.
+- Disable sleep while plugged in: Control Panel → Power Options → Never sleep (plugged in)
+
+### Alpaca API Keys
+- Keys can become invalid — if you get 401 errors, regenerate from Alpaca dashboard
+- Paper trading keys start with `PKS...`
+- Keys stored in: `backend/.env` — never commit this file
+
+### Performance Tips
+1. Keep project in WSL filesystem (`/home/$USER/...`), NOT `/mnt/c/` — much faster
+2. Allocate resources in Docker Desktop: Settings → Resources → 4GB+ RAM, 4+ CPUs
+3. Windows Defender: Add WSL folder to exclusions for better performance
 
 ---
 
 ## Troubleshooting
 
-### Docker Won't Start
-
+### Docker won't connect
 ```bash
-# Check if Docker Desktop is running on Windows
-# (It may need to be started from Windows)
-
-# Verify WSL2 integration
-docker --version
-docker run hello-world
-
-# If still failing, check Docker Desktop settings:
-# Settings → Resources → WSL Integration → enable your distro
+docker --version          # If fails: enable WSL integration in Docker Desktop
+docker-compose up -d      # Start PostgreSQL
+docker ps                 # Verify swingtrader-db is running
 ```
 
-### Python3 Not Found
-
+### Alpaca returns 401
 ```bash
-# Install Python
-sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-pip
-
-# Verify
-python3 --version
-which python3
+# Test directly:
+curl -H "APCA-API-KEY-ID: YOUR_KEY" -H "APCA-API-SECRET-KEY: YOUR_SECRET" \
+     https://paper-api.alpaca.markets/v2/account
+# If still 401: regenerate keys at app.alpaca.markets
 ```
 
-### Systemd Commands Fail
-
+### Optimizer fails with ModuleNotFoundError
 ```bash
-# Check if enabled
-cat /etc/wsl.conf | grep systemd
-
-# If missing, add it:
-echo -e "\n[boot]\nsystemd=true" | sudo tee -a /etc/wsl.conf
-
-# Restart WSL
-wsl --shutdown
-# Then reopen WSL terminal
+cd optimizer
+./venv/bin/pip install psycopg2-binary alpaca-py
+./venv/bin/python -c "import psycopg2; import alpaca; print('OK')"
 ```
 
-### Database Connection Error
-
+### Backend won't start
 ```bash
-# Check if Docker container is running
-docker ps
-
-# View logs
-docker-compose logs postgres
-
-# Restart database
-docker-compose down
-docker-compose up -d
-
-# Wait and verify
-sleep 10
-docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT 1;"
+journalctl -u swingtrader-backend -n 50    # Check logs
+php artisan config:clear                    # Clear cache
+sudo systemctl restart swingtrader-backend
 ```
 
-### Port Already in Use
-
+### Port conflicts
 ```bash
-# Find what's using port 9000
-lsof -i :9000
-
-# Find what's using port 5173
-lsof -i :5173
-
-# Kill the process (if needed)
+lsof -i :9000    # Find what's using backend port
+lsof -i :5173    # Find what's using frontend port
 kill -9 <PID>
-
-# Or use a different port:
-# Backend: php artisan serve --port=8000
-# Frontend: npm run dev -- --port 3000
 ```
-
-### Composer Dependency Issues
-
-```bash
-# Clear cache
-cd backend
-composer clear-cache
-composer install
-```
-
----
-
-## Performance Tips
-
-WSL2 has near-native Linux performance. A few optimization tips:
-
-1. **Keep project in WSL filesystem**, not `/mnt/c/` (Windows):
-   ```bash
-   # Good (fast)
-   /home/$USER/SwingTraderAndOptimizer
-
-   # Bad (slower)
-   /mnt/c/Users/YourName/SwingTraderAndOptimizer
-   ```
-
-2. **Use Docker for PostgreSQL** (already configured):
-   ```bash
-   docker-compose up -d
-   ```
-
-3. **Disable Windows Defender scans** on WSL folders (optional):
-   - Settings → Privacy & Security → Virus & threat protection → Manage settings
-   - Add WSL folder to exclusions
-
-4. **Allocate enough resources** in Docker Desktop:
-   - Settings → Resources → Memory (recommend 4GB+)
-   - Settings → Resources → CPUs (recommend 4+)
-
----
-
-## Accessing from Windows
-
-While the project is fully in WSL, you can access it from Windows:
-
-**From Windows Terminal/PowerShell:**
-```powershell
-wsl bash
-cd ~/SwingTraderAndOptimizer
-```
-
-**From Windows File Explorer:**
-- Press `Win+R` and type: `\\wsl$`
-- Navigate to your distro and project folder
-
-**From VS Code on Windows:**
-- Install "Remote - WSL" extension
-- Open folder from WSL: `code /home/$USER/SwingTraderAndOptimizer`
 
 ---
 
 ## See Also
 
-- [How_System_Works.md](How_System_Works.md) — System architecture
-- [UBUNTU_SETUP.md](UBUNTU_SETUP.md) — Native Linux setup (very similar)
-- [Ubuntu-Backend-Services.md](Ubuntu-Backend-Services.md) — Systemd services
-- [COMMAND_REFERENCE.md](COMMAND_REFERENCE.md) — Useful commands
-- [MONITORING.md](MONITORING.md) — Daily operations
-
----
-
-## Summary
-
-✅ **WSL2 is fully compatible** with SwingTrader
-
-**Required:**
-- WSL2 (not WSL1)
-- Docker Desktop for Windows
-- Systemd enabled in `/etc/wsl.conf`
-
-**Key change:**
-- Update `.env`: `PYTHON_PATH=python3` (instead of hardcoded path)
-
-**Result:**
-- All 3 apps run smoothly: backend (9000), frontend (5173), optimizer (daily)
-- Docker PostgreSQL works perfectly
-- Systemd services survive reboot
-- 100% WSL filesystem (no Windows folder mapping)
+- [How_System_Works.md](How_System_Works.md) — Architecture and data flow
+- [Ubuntu-Backend-Services.md](Ubuntu-Backend-Services.md) — Detailed systemd services
+- [Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md) — Frontend dev/prod modes
+- [MONITORING.md](MONITORING.md) — Daily health checks
+- [COMMAND_REFERENCE.md](COMMAND_REFERENCE.md) — All useful commands
