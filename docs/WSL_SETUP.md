@@ -131,10 +131,15 @@ chmod -R 775 storage bootstrap/cache
 
 ### Step 5: Database Setup (PostgreSQL via Docker)
 
+The `docker-compose.yml` uses a **named Docker volume** (`postgres_data`) for persistent storage. This ensures data survives Docker restarts and laptop reboots. Never use a bind mount (`./backend/postgres_data`) — it gets wiped.
+
 ```bash
 cd $PROJECT_DIR
 docker-compose up -d
-sleep 15  # Wait for PostgreSQL to initialize
+
+# Wait for PostgreSQL to be ready
+until docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT 1" > /dev/null 2>&1; do sleep 2; done
+echo "PostgreSQL ready"
 
 # Run migrations
 cd backend
@@ -148,6 +153,9 @@ App\Models\Ticker::firstOrCreate(['symbol'=>'IWM'],['allocation_weight'=>33.34,'
 echo 'Tickers seeded';
 "
 ```
+
+> **DB Persistence:** Data lives in Docker named volume `swingtraderandoptimizer_postgres_data`.
+> Check with: `docker volume ls | grep swingtrader`
 
 ### Step 6: Python Optimizer Setup
 
@@ -180,24 +188,79 @@ npm install
 
 ## Systemd Services (Auto-start on Boot)
 
-Use systemd so services survive reboots and auto-restart on crash.
+Four services manage the full lifecycle. They start automatically in order on every WSL boot — no manual intervention needed.
 
-### Backend Service
+```
+swingtrader-startup   → Docker up → DB ready → Migrate → Seed tickers
+       ↓ (depends)
+swingtrader-backend   → php artisan serve :9000
+swingtrader-frontend  → npm run dev :5173
+swingtrader-optimizer.timer → 2 AM nightly run
+crontab               → schedule:run every minute (trades every 5 min via Kernel.php)
+```
+
+### Step 0: Set Project Variables
+
+Run from project root before creating any service:
 
 ```bash
-PROJECT_DIR=$(pwd)  # Run from project root
-sudo bash -c "cat > /etc/systemd/system/swingtrader-backend.service << 'EOF'
+cd /path/to/SwingTraderAndOptimizer
+PROJECT_DIR=$(pwd)
+PHP_PATH=$(which php)
+NPM_PATH=$(which npm)
+echo "Project: $PROJECT_DIR | User: $USER"
+```
+
+### Service 1: Startup Orchestration
+
+Handles Docker → PostgreSQL → Migrations → Tickers in correct order:
+
+```bash
+sudo bash -c "cat > /etc/systemd/system/swingtrader-startup.service << EOF
+[Unit]
+Description=SwingTrader Startup Orchestration (Docker + DB + Migrate)
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=$USER
+WorkingDirectory=$PROJECT_DIR
+
+ExecStartPre=/bin/bash -c 'until docker info > /dev/null 2>&1; do sleep 3; done'
+ExecStart=/usr/bin/docker-compose up -d
+ExecStartPost=/bin/bash -c 'until docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \"SELECT 1\" > /dev/null 2>&1; do sleep 2; done'
+ExecStartPost=$PHP_PATH $PROJECT_DIR/backend/artisan migrate --force
+ExecStartPost=/bin/bash -c '$PHP_PATH $PROJECT_DIR/backend/artisan tinker --execute=\"App\\\\Models\\\\Ticker::firstOrCreate([\\\"symbol\\\"=>\\\"SPY\\\"],[\\\"allocation_weight\\\"=>33.33,\\\"enabled\\\"=>1]); App\\\\Models\\\\Ticker::firstOrCreate([\\\"symbol\\\"=>\\\"QQQ\\\"],[\\\"allocation_weight\\\"=>33.33,\\\"enabled\\\"=>1]); App\\\\Models\\\\Ticker::firstOrCreate([\\\"symbol\\\"=>\\\"IWM\\\"],[\\\"allocation_weight\\\"=>33.34,\\\"enabled\\\"=>1]);\" 2>/dev/null'
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=swingtrader-startup
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
+EOF"
+```
+
+### Service 2: Backend
+
+Depends on startup service being complete:
+
+```bash
+sudo bash -c "cat > /etc/systemd/system/swingtrader-backend.service << EOF
 [Unit]
 Description=SwingTrader Laravel Backend
-After=network.target docker.service
+After=swingtrader-startup.service
+Requires=swingtrader-startup.service
 
 [Service]
 Type=simple
 User=$USER
 WorkingDirectory=$PROJECT_DIR/backend
-ExecStartPre=/usr/bin/php artisan config:clear
-ExecStartPre=/usr/bin/php artisan cache:clear
-ExecStart=/usr/bin/php artisan serve --host=0.0.0.0 --port=9000
+ExecStartPre=$PHP_PATH artisan config:clear
+ExecStartPre=$PHP_PATH artisan cache:clear
+ExecStart=$PHP_PATH artisan serve --host=0.0.0.0 --port=9000
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -209,13 +272,36 @@ WantedBy=multi-user.target
 EOF"
 ```
 
-### Optimizer Service + Timer
+### Service 3: Frontend
 
 ```bash
-PROJECT_DIR=$(pwd)  # Run from project root
+sudo bash -c "cat > /etc/systemd/system/swingtrader-frontend.service << EOF
+[Unit]
+Description=SwingTrader Frontend (Vite Dev Server)
+After=swingtrader-backend.service
+Requires=swingtrader-startup.service
 
-# Optimizer service (oneshot)
-sudo bash -c "cat > /etc/systemd/system/swingtrader-optimizer.service << 'EOF'
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$PROJECT_DIR/frontend
+ExecStart=$NPM_PATH run dev
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=swingtrader-frontend
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target
+EOF"
+```
+
+### Service 4: Optimizer Timer (2 AM daily)
+
+```bash
+sudo bash -c "cat > /etc/systemd/system/swingtrader-optimizer.service << EOF
 [Unit]
 Description=SwingTrader Nightly Optimizer
 After=network.target
@@ -234,8 +320,7 @@ TimeoutStartSec=3600
 WantedBy=multi-user.target
 EOF"
 
-# Timer (2 AM daily)
-sudo bash -c "cat > /etc/systemd/system/swingtrader-optimizer.timer << 'EOF'
+sudo bash -c "cat > /etc/systemd/system/swingtrader-optimizer.timer << EOF
 [Unit]
 Description=SwingTrader Nightly Optimizer Timer
 Requires=swingtrader-optimizer.service
@@ -253,9 +338,14 @@ EOF"
 
 ```bash
 sudo systemctl daemon-reload
+sudo systemctl enable swingtrader-startup.service
 sudo systemctl enable swingtrader-backend.service
+sudo systemctl enable swingtrader-frontend.service
 sudo systemctl enable swingtrader-optimizer.timer
+
+sudo systemctl start swingtrader-startup.service
 sudo systemctl start swingtrader-backend.service
+sudo systemctl start swingtrader-frontend.service
 sudo systemctl start swingtrader-optimizer.timer
 ```
 
@@ -263,65 +353,74 @@ sudo systemctl start swingtrader-optimizer.timer
 
 ## Crontab Setup
 
-Add ONE cron entry — Laravel Kernel.php handles the schedule internally (trades every 5 min, etc.):
+ONE entry only — Laravel Kernel.php handles the internal schedule (trades every 5 min, positions sync, alerts):
 
 ```bash
 PHP_PATH=$(which php)
-PROJECT_DIR=~/SwingTraderAndOptimizer  # adjust if different path
+PROJECT_DIR=$(pwd)  # run from project root
 
 (echo "* * * * * $PHP_PATH $PROJECT_DIR/backend/artisan schedule:run >> /dev/null 2>&1") | crontab -
 
-# Verify
+# Verify — should show exactly one uncommented line
 crontab -l
 ```
 
----
-
-## Frontend
-
-**Development mode (manual):**
-```bash
-cd $PROJECT_DIR/frontend
-npm run dev
-```
-
-**Production mode (systemd + nginx):** See [Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md)
+> **Important:** Never comment out this line. If it has a `#` prefix, trades will not execute.
 
 ---
 
 ## First Run After Setup
 
-After everything is installed, populate the database by running the optimizer:
+Populate the database with 2 years of historical bars and optimized strategy parameters:
 
 ```bash
 cd $PROJECT_DIR/optimizer
 ./venv/bin/python nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM
 ```
 
-Takes 30-45 minutes. Progress logged to `optimizer/logs/nightly.log`.
+Takes 30-45 minutes. Monitor: `tail -f optimizer/logs/nightly.log`
+
+> **Must run this after any database wipe.** Without bars data the optimizer has nothing to backtest and strategy parameters will be empty.
 
 ---
 
 ## After Every Reboot
 
-```bash
-docker-compose up -d          # Start PostgreSQL (Docker Desktop starts automatically)
-# Backend auto-starts via systemd
-# Crontab auto-runs schedule:run every minute
-cd frontend && npm run dev     # Start frontend (or use fe-dev service)
+**Nothing to do.** All services start automatically:
+
 ```
+Open WSL terminal → systemd starts all services in order:
+  1. swingtrader-startup  → Docker + DB + Migrate + Seed
+  2. swingtrader-backend  → API on :9000
+  3. swingtrader-frontend → Dashboard on :5173
+  4. swingtrader-optimizer.timer → scheduled for 2 AM
+  5. crontab → schedule:run every minute
+```
+
+> **Docker Desktop must be running on Windows** before WSL starts, otherwise `swingtrader-startup` will wait (up to 2 minutes) for the Docker socket.
 
 ---
 
 ## Verify Everything Works
 
 ```bash
-curl http://localhost:9000/api/health          # Should return: {"status":"ok"}
-curl http://localhost:9000/api/v1/account      # Should show Alpaca account balance
-curl http://localhost:9000/api/v1/tickers      # Should show SPY, QQQ, IWM
-sudo systemctl status swingtrader-backend      # Should be active (running)
-sudo systemctl list-timers swingtrader-optimizer.timer  # Shows next 2 AM run
-crontab -l                                     # Shows schedule:run entry
+# Services
+sudo systemctl is-active swingtrader-startup swingtrader-backend swingtrader-frontend swingtrader-optimizer.timer
+
+# API
+curl http://localhost:9000/api/health          # {"status":"ok"}
+curl http://localhost:9000/api/v1/account      # Alpaca balance
+curl http://localhost:9000/api/v1/tickers      # SPY, QQQ, IWM
+
+# Crontab
+crontab -l                                     # One uncommented line
+
+# Timer
+sudo systemctl list-timers swingtrader-optimizer.timer  # Next 2 AM run
+
+# Bars data
+docker exec swingtrader-db psql -U swingtrader -d swingtrader \
+  -c "SELECT symbol, COUNT(*) FROM bars b JOIN tickers t ON b.ticker_id=t.id GROUP BY symbol;"
 ```
 
 ---
@@ -346,6 +445,54 @@ When Windows goes to sleep, WSL is suspended — all trading stops.
 
 ## Troubleshooting
 
+### Backend fails: "relation cache does not exist"
+The database has no tables — migrations haven't run yet. This happens when `swingtrader-startup` service didn't complete before `swingtrader-backend` started.
+
+```bash
+# Check startup service completed successfully
+sudo systemctl status swingtrader-startup --no-pager
+
+# Run migrations manually if needed
+cd backend && php artisan migrate --force
+
+# Restart backend
+sudo systemctl restart swingtrader-backend
+```
+
+### Database is empty after reboot
+PostgreSQL data is stored in a Docker named volume (`swingtraderandoptimizer_postgres_data`). If empty, the volume was deleted or Docker was reset.
+
+```bash
+# Verify volume exists
+docker volume ls | grep swingtrader
+
+# Check table count
+docker exec swingtrader-db psql -U swingtrader -d swingtrader \
+  -c "SELECT COUNT(*) FROM pg_tables WHERE schemaname='public';"
+
+# If empty: run migrations and reseed
+cd backend && php artisan migrate --force
+php artisan tinker --execute="
+App\Models\Ticker::firstOrCreate(['symbol'=>'SPY'],['allocation_weight'=>33.33,'enabled'=>1]);
+App\Models\Ticker::firstOrCreate(['symbol'=>'QQQ'],['allocation_weight'=>33.33,'enabled'=>1]);
+App\Models\Ticker::firstOrCreate(['symbol'=>'IWM'],['allocation_weight'=>33.34,'enabled'=>1]);
+"
+# Then re-run the optimizer to repopulate bars + strategy params
+cd ../optimizer && ./venv/bin/python nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM
+```
+
+> **Never use `docker-compose down -v`** — the `-v` flag deletes volumes including all data.
+
+### Crontab commented out (trades not executing)
+```bash
+crontab -l   # If line starts with #, it's disabled
+
+# Fix: reset with correct entry
+PHP_PATH=$(which php)
+PROJECT_DIR=/path/to/SwingTraderAndOptimizer
+(echo "* * * * * $PHP_PATH $PROJECT_DIR/backend/artisan schedule:run >> /dev/null 2>&1") | crontab -
+```
+
 ### Docker won't connect
 ```bash
 docker --version          # If fails: enable WSL integration in Docker Desktop
@@ -359,6 +506,7 @@ docker ps                 # Verify swingtrader-db is running
 curl -H "APCA-API-KEY-ID: YOUR_KEY" -H "APCA-API-SECRET-KEY: YOUR_SECRET" \
      https://paper-api.alpaca.markets/v2/account
 # If still 401: regenerate keys at app.alpaca.markets
+# See: docs/Github-SSH-COMMANDS.md for credential storage patterns
 ```
 
 ### Optimizer fails with ModuleNotFoundError
@@ -371,7 +519,7 @@ cd optimizer
 ### Backend won't start
 ```bash
 journalctl -u swingtrader-backend -n 50    # Check logs
-php artisan config:clear                    # Clear cache
+sudo systemctl status swingtrader-startup  # Confirm startup completed first
 sudo systemctl restart swingtrader-backend
 ```
 

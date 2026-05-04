@@ -11,7 +11,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./backend/postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
       - ./backend/postgres_init:/docker-entrypoint-initdb.d
     restart: always
     healthcheck:
@@ -19,3 +19,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+volumes:
+  postgres_data:
+    driver: local
