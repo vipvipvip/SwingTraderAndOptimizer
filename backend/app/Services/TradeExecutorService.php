@@ -592,23 +592,10 @@ class TradeExecutorService
         $prevSmaSignal = $prevIdx >= 0 ? $smaSignalLine[$prevIdx] : $currentSmaSignal;
         $prevPrice = $prevIdx >= 0 ? $closes[$prevIdx] : $currentPrice;
 
-        // Check for MACD bullish crossover (26/29/14)
-        $macdBullishCross = ($currentMacd > $currentMacdSignal) && ($prevMacd <= $prevMacdSignal);
-
-        // Check for MACD bearish crossover
-        $macdBearishCross = ($currentMacd < $currentMacdSignal) && ($prevMacd >= $prevMacdSignal);
-
-        // Check for PPO bullish crossover (12/26)
-        $ppoBullishCross = ($currentPpo > $currentPpoSignal) && ($prevPpo <= $prevPpoSignal);
-
-        // Check for PPO bearish crossover
-        $ppoBearishCross = ($currentPpo < $currentPpoSignal) && ($prevPpo >= $prevPpoSignal);
-
-        // Check EMA10 > SMA40 crossover
-        $emaCrossover = ($currentEma > $currentSmaSignal) && ($prevEma <= $prevSmaSignal);
-
-        // Check uptrend (Price > SMA50 > SMA200)
-        $uptrend = ($currentPrice > $currentSma50) && ($currentSma50 > $currentSma200);
+        // Check individual conditions (use levels, not crossovers)
+        $macdPositive = $currentMacd > 0;
+        $ppoPositive = $currentPpo > 0;
+        $emaAboveSma = $currentEma > $currentSmaSignal;
 
         // Check if price is near lower Bollinger Band (within 5% of lower band)
         $bbRange = $currentBBUpper - $currentBBLower;
@@ -619,56 +606,44 @@ class TradeExecutorService
         $prevPriceAboveBB = $prevPrice >= $currentBBLower;
         $bbBreak = $priceBelowBB && $prevPriceAboveBB;
 
-        // Get previous EMA/SMA values for crossover detection
-        $prevEma = $prevIdx >= 0 ? $ema[$prevIdx] : $currentEma;
-        $prevSmaSignal = $prevIdx >= 0 ? $smaSignalLine[$prevIdx] : $currentSmaSignal;
-
         \Log::debug("$symbol signal calc: params=(MACD:$macdFast/$macdSlow/$macdSignal, PPO:12/26, EMA:$emaSignal/SMA:$smaSignal, SMA50/200), price=$currentPrice, ema=$currentEma, smaSignal=$currentSmaSignal, sma50=$currentSma50, sma200=$currentSma200, macd=$currentMacd, ppo=$currentPpo");
 
-        // 4 Entry Signals (need 2-of-4):
-        $signalCount = 0;
+        // Count buy signals (need 2 of 4)
+        $buySignalCount = 0;
         $signalReasons = [];
 
-        // Signal 1: MACD bullish crossover (26/29/14)
-        if ($macdBullishCross) {
-            $signalCount++;
-            $signalReasons[] = "MACD(26/29/14)";
+        if ($macdPositive) {
+            $buySignalCount++;
+            $signalReasons[] = "MACD>0";
         }
-
-        // Signal 2: PPO bullish crossover (12/26)
-        if ($ppoBullishCross) {
-            $signalCount++;
-            $signalReasons[] = "PPO(12/26)";
+        if ($ppoPositive) {
+            $buySignalCount++;
+            $signalReasons[] = "PPO>0";
         }
-
-        // Signal 3: Uptrend (Price > SMA50 > SMA200)
-        if ($uptrend) {
-            $signalCount++;
-            $signalReasons[] = "uptrend(50/200)";
-        }
-
-        // Signal 4: EMA10 crosses above SMA40
-        if ($emaCrossover) {
-            $signalCount++;
+        if ($emaAboveSma) {
+            $buySignalCount++;
             $signalReasons[] = "EMA10>SMA40";
+        }
+        if ($priceNearLowerBB) {
+            $buySignalCount++;
+            $signalReasons[] = "price near BB";
         }
 
         // BUY: 2 or more signals required
-        if ($signalCount >= 2) {
+        if ($buySignalCount >= 2) {
             $reasons = implode(", ", $signalReasons);
-            \Log::info("$symbol BUY SIGNAL: $signalCount signals ($reasons)");
+            \Log::info("$symbol BUY SIGNAL ($buySignalCount/4): $reasons");
             return 1;
         }
 
-        // SELL: MACD bearish OR EMA bearish OR price breaks below BB
-        $emaBearishCross = isset($emaFast) && isset($smamedium) &&
-                          ($currentEMAFast < $currentSMAMedium) &&
-                          ($prevEMAFast >= $prevSMAMedium);
+        // SELL: MACD negative OR EMA below SMA OR price breaks below BB
+        $macdNegative = $currentMacd < 0;
+        $emaBelowSma = $currentEma < $currentSmaSignal;
 
-        if ($macdBearishCross || $emaBearishCross || $bbBreak) {
+        if ($macdNegative || $emaBelowSma || $bbBreak) {
             $reasons = [];
-            if ($macdBearishCross) $reasons[] = "MACD bearish";
-            if ($emaBearishCross) $reasons[] = "EMA/SMA bearish";
+            if ($macdNegative) $reasons[] = "MACD<0";
+            if ($emaBelowSma) $reasons[] = "EMA10<SMA40";
             if ($bbBreak) $reasons[] = "price breaks BB";
             $reason = implode(", ", $reasons);
             \Log::info("$symbol SELL SIGNAL: $reason");
@@ -720,6 +695,47 @@ class TradeExecutorService
 
         return [
             'macd' => $macd,
+            'signal' => $signal,
+        ];
+    }
+
+    private function calculatePPO($data, $fastPeriod = 12, $slowPeriod = 26, $signalPeriod = 9)
+    {
+        $fastEMA = $this->calculateEMA($data, $fastPeriod);
+        $slowEMA = $this->calculateEMA($data, $slowPeriod);
+
+        // PPO = ((fast EMA - slow EMA) / slow EMA) * 100
+        $ppo = [];
+        for ($i = 0; $i < count($data); $i++) {
+            if ($fastEMA[$i] !== null && $slowEMA[$i] !== null && $slowEMA[$i] != 0) {
+                $ppo[$i] = (($fastEMA[$i] - $slowEMA[$i]) / $slowEMA[$i]) * 100;
+            } else {
+                $ppo[$i] = null;
+            }
+        }
+
+        // Signal line = EMA of valid PPO values
+        $validPPO = [];
+        $validIndices = [];
+        for ($i = 0; $i < count($ppo); $i++) {
+            if ($ppo[$i] !== null) {
+                $validPPO[] = $ppo[$i];
+                $validIndices[] = $i;
+            }
+        }
+
+        $signalValues = $this->calculateEMA($validPPO, $signalPeriod);
+
+        // Reconstruct signal array with nulls for invalid indices
+        $signal = array_fill(0, count($ppo), null);
+        foreach ($validIndices as $idx => $origIdx) {
+            if (isset($signalValues[$idx])) {
+                $signal[$origIdx] = $signalValues[$idx];
+            }
+        }
+
+        return [
+            'ppo' => $ppo,
             'signal' => $signal,
         ];
     }

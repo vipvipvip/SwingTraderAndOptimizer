@@ -103,8 +103,9 @@ class ParameterOptimizer:
         # Fixed EMA and SMA values (not optimized)
         ema_momentum = data['close'].ewm(span=10, adjust=False).mean()  # Fixed EMA=10
         sma_trend = data['close'].rolling(window=40).mean()  # Fixed SMA=40
-        sma_50 = data['close'].rolling(window=50).mean()  # Fixed SMA50
-        sma_200 = data['close'].rolling(window=200).mean()  # Fixed SMA200
+        ema_12 = data['close'].ewm(span=12, adjust=False).mean()  # For PPO
+        ema_26 = data['close'].ewm(span=26, adjust=False).mean()  # For PPO
+        ppo = ((ema_12 - ema_26) / ema_26) * 100  # PPO calculation
 
         # Bollinger Bands with OPTIMIZED parameters
         bb_middle = data['close'].rolling(window=params['bb_period']).mean()
@@ -119,26 +120,25 @@ class ParameterOptimizer:
         for i in range(max(200, macd_slow, params['bb_period']), len(data)):
             price = data['close'].iloc[i]
 
-            # Count signals
+            # Count signals (2+ required for entry)
             signal_count = 0
 
-            # Signal 1: MACD bullish
-            macd_bullish = (macd_histogram.iloc[i-1] <= 0 and macd_histogram.iloc[i] > 0)
-            if macd_bullish:
+            # Signal 1: MACD > 0
+            macd_positive = macd_line.iloc[i] > 0
+            if macd_positive:
                 signal_count += 1
 
-            # Signal 2: EMA/SMA momentum bullish (EMA10 > SMA40)
-            ema_bullish = (ema_momentum.iloc[i-1] <= sma_trend.iloc[i-1] and
-                          ema_momentum.iloc[i] > sma_trend.iloc[i])
-            if ema_bullish:
+            # Signal 2: PPO > 0
+            ppo_positive = ppo.iloc[i] > 0
+            if ppo_positive:
                 signal_count += 1
 
-            # Signal 3: Uptrend (price > sma_50 > sma_200)
-            uptrend = (price > sma_50.iloc[i] and sma_50.iloc[i] > sma_200.iloc[i])
-            if uptrend:
+            # Signal 3: EMA10 > SMA40
+            ema_above_sma = ema_momentum.iloc[i] > sma_trend.iloc[i]
+            if ema_above_sma:
                 signal_count += 1
 
-            # Signal 4: Price near lower BB
+            # Signal 4: Price near lower BB (within 5%)
             bb_condition = price <= bb_lower.iloc[i] * 1.05
             if bb_condition:
                 signal_count += 1
@@ -150,9 +150,8 @@ class ParameterOptimizer:
 
             # Exit: only if we're in a position (last signal was buy)
             elif last_signal == 1:
-                macd_bearish = (macd_histogram.iloc[i-1] >= 0 and macd_histogram.iloc[i] < 0)
-                ema_bearish = (ema_momentum.iloc[i-1] >= sma_trend.iloc[i-1] and
-                              ema_momentum.iloc[i] < sma_trend.iloc[i])
+                macd_bearish = macd_line.iloc[i] < 0
+                ema_bearish = ema_momentum.iloc[i] < sma_trend.iloc[i]
                 bb_break = price < bb_lower.iloc[i]
 
                 if macd_bearish or ema_bearish or bb_break:
