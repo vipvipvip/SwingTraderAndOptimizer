@@ -115,8 +115,16 @@
       </span>
     </div>
     <div class="param-row">
-      <span>SMA:</span>
-      <span>({strategy.params?.sma_short}, {strategy.params?.sma_long})</span>
+      <span>PPO:</span>
+      <span>({strategy.params?.ppo_fast}, {strategy.params?.ppo_slow})</span>
+    </div>
+    <div class="param-row">
+      <span>EMA/SMA:</span>
+      <span>({strategy.params?.ema_signal}, {strategy.params?.sma_signal})</span>
+    </div>
+    <div class="param-row">
+      <span>Uptrend:</span>
+      <span>({strategy.params?.sma_50}, {strategy.params?.sma_200})</span>
     </div>
     <div class="param-row">
       <span>BB:</span>

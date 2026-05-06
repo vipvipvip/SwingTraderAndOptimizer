@@ -77,6 +77,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/equity/{symbol}', [EquityController::class, 'curve']);
     Route::get('/trades/live', [EquityController::class, 'liveTrades']);
     Route::get('/trades/backtest', [BacktestTradesController::class, 'index']);
+    Route::get('/trades/backtest/{symbol}', [BacktestTradesController::class, 'bySymbol']);
     Route::get('/trades/pnl', [EquityController::class, 'pnlSummary']);
 
     Route::post('/admin/optimize/trigger', [AdminController::class, 'triggerOptimizer']);

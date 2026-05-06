@@ -95,7 +95,24 @@
       delete cache[symbol]
       loadChart()
     }, 60000)
-    return () => clearInterval(interval)
+
+    // Handle window resize - update canvas resolution and chart
+    const resizeObserver = new ResizeObserver(() => {
+      if (canvas && canvas.parentElement) {
+        const rect = canvas.parentElement.getBoundingClientRect()
+        canvas.width = rect.width
+        canvas.height = 300
+      }
+      if (chart) chart.resize()
+    })
+    if (canvas?.parentElement) {
+      resizeObserver.observe(canvas.parentElement)
+    }
+
+    return () => {
+      clearInterval(interval)
+      resizeObserver.disconnect()
+    }
   })
 
   $: if (symbol) {
@@ -109,6 +126,7 @@
     position: relative;
     width: 100%;
     height: 300px;
+    display: block;
   }
 
   .overlay {
@@ -123,7 +141,10 @@
   }
 
   canvas {
+    width: 100% !important;
+    height: 300px !important;
     max-width: 100%;
+    display: block;
   }
 </style>
 

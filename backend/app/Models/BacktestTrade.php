@@ -8,14 +8,22 @@ class BacktestTrade extends Model
 {
     protected $fillable = [
         'ticker_id',
-        'symbol',
-        'entry_price',
-        'exit_price',
         'entry_at',
+        'entry_price',
         'exit_at',
+        'exit_price',
+        'return',
         'pnl_dollar',
-        'pnl_pct',
-        'optimization_run',
+        'days_held',
+    ];
+
+    protected $casts = [
+        'entry_at' => 'datetime',
+        'exit_at' => 'datetime',
+        'entry_price' => 'decimal:2',
+        'exit_price' => 'decimal:2',
+        'return' => 'decimal:6',
+        'pnl_dollar' => 'decimal:2',
     ];
 
     public function ticker()

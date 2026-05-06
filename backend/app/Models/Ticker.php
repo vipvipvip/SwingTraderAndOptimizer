@@ -11,7 +11,8 @@ class Ticker extends Model
 
     public function strategyParameter()
     {
-        return $this->hasOne(StrategyParameter::class, 'ticker_id');
+        return $this->hasOne(StrategyParameter::class, 'ticker_id')
+            ->where('base_case', true);
     }
 
     public function optimizationHistory()

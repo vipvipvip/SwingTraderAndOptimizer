@@ -15,22 +15,14 @@ from db import StrategyDB
 load_dotenv()
 
 # Parameter grids tuned per timeframe
+# MACD (18/26/14), PPO (12/26), EMA10/SMA40, SMA50/200 are FIXED
+# Only Bollinger Bands parameters are optimized
 PARAM_GRIDS = {
     '1Day': {
-        'macd_fast':   [10, 12, 14],
-        'macd_slow':   [24, 26, 28],
-        'macd_signal': [7,  9,  11],
-        'sma_short':   [40,  50,  60],
-        'sma_long':    [180, 200, 220],
         'bb_period':   [18, 20, 22],
         'bb_std':      [1.8, 2.0, 2.2],
     },
     '1Hour': {
-        'macd_fast':   [3,  5,  8],
-        'macd_slow':   [13, 21, 34],
-        'macd_signal': [3,  5,  8],
-        'sma_short':   [20,  30,  50],
-        'sma_long':    [100, 150, 200],
         'bb_period':   [14, 20, 26],
         'bb_std':      [1.8, 2.0, 2.2],
     },
@@ -189,8 +181,8 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     for result in results:
         print(f"{result['symbol']}:")
-        print(f"  Params: MACD({result['params']['macd_fast']},{result['params']['macd_slow']}) "
-              f"SMA({result['params']['sma_short']},{result['params']['sma_long']})")
+        print(f"  Params: MACD({result['params']['macd_fast']},{result['params']['macd_slow']},{result['params']['macd_signal']}) "
+              f"BB({result['params']['bb_period']},{result['params']['bb_std']})")
         print(f"  Sharpe: {result['metrics']['sharpe_ratio']:.2f} | "
               f"Return: {result['metrics']['total_return']*100:.2f}%")
 
@@ -201,8 +193,10 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     for symbol in tickers:
         params = db.get_best_params(symbol)
         if params:
-            print(f"{symbol} (updated {params['updated_at']}):")
-            print(f"  {params}")
+            print(f"{symbol}:")
+            print(f"  Sharpe: {params['metrics']['sharpe_ratio']:.2f}, "
+                  f"Return: {params['metrics']['total_return']*100:.2f}%, "
+                  f"Win Rate: {params['metrics']['win_rate']*100:.1f}%")
 
     db.close()
     return results

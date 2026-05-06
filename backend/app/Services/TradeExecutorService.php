@@ -20,6 +20,41 @@ class TradeExecutorService
         $this->priceAcquisitionService = $priceAcquisition;
     }
 
+    /**
+     * Validate that strategy parameters are in sync with backtest data
+     * Ensures executor is always using base_case=1 (locked) parameters
+     */
+    private function validateStrategySync($symbol)
+    {
+        $strategy = $this->strategyService->getStrategyForSymbol($symbol);
+        if (!$strategy || !$strategy['params']) {
+            \Log::warning("$symbol: Strategy validation - NO PARAMETERS FOUND");
+            return false;
+        }
+
+        $params = $strategy['params'];
+
+        // Verify this is base_case=1
+        if (!isset($params['base_case']) || $params['base_case'] != 1) {
+            \Log::error("$symbol: CRITICAL - Using non-base-case parameters! base_case=" . ($params['base_case'] ?? 'null'));
+            return false;
+        }
+
+        // Verify we have the required parameters
+        $required = ['macd_fast', 'macd_slow', 'macd_signal', 'ppo_fast', 'ppo_slow',
+                     'ema_signal', 'sma_signal', 'sma_50', 'sma_200', 'bb_period', 'bb_std'];
+
+        foreach ($required as $param) {
+            if (!isset($params[$param])) {
+                \Log::error("$symbol: CRITICAL - Missing parameter: $param");
+                return false;
+            }
+        }
+
+        \Log::debug("$symbol: Strategy sync validated - base_case=1, all parameters present");
+        return true;
+    }
+
     public function executeForAllTickers()
     {
         // Fetch fresh prices for all tickers before executing trades
@@ -216,6 +251,12 @@ class TradeExecutorService
 
     public function executeForTicker($symbol)
     {
+        // CRITICAL: Validate strategy is in sync before trading
+        if (!$this->validateStrategySync($symbol)) {
+            \Log::error("$symbol: TRADE BLOCKED - Strategy validation failed");
+            return null;
+        }
+
         $strategy = $this->strategyService->getStrategyForSymbol($symbol);
         if (!$strategy || !$strategy['params']) {
             \Log::warning("No strategy params found for $symbol");
@@ -451,7 +492,9 @@ class TradeExecutorService
             $order = $this->alpacaService->placeOrder($symbol, $qty, 'sell');
 
             $pnlDollar = ($currentPrice - $openTrade->entry_price) * $qty;
-            $pnlPct = ($currentPrice - $openTrade->entry_price) / $openTrade->entry_price;
+            $pnlPct = $openTrade->entry_price > 0
+                ? ($currentPrice - $openTrade->entry_price) / $openTrade->entry_price
+                : 0;
 
             LiveTrade::where('symbol', $symbol)->where('status', 'open')->update([
                 'exit_price' => $currentPrice,
@@ -498,32 +541,43 @@ class TradeExecutorService
             return 0;
         }
 
-        // Extract nightly-optimized parameters from database
-        $macdFast = intval($params['macd_fast'] ?? 12);
+        // Extract strategy parameters from database
+        $macdFast = intval($params['macd_fast'] ?? 18);
         $macdSlow = intval($params['macd_slow'] ?? 26);
-        $macdSignal = intval($params['macd_signal'] ?? 9);
-        $smaShortPeriod = intval($params['sma_short'] ?? 20);
-        $smaLongPeriod = intval($params['sma_long'] ?? 200);
+        $macdSignal = intval($params['macd_signal'] ?? 14);
+        $ppoFast = intval($params['ppo_fast'] ?? 12);
+        $ppoSlow = intval($params['ppo_slow'] ?? 26);
+        $emaSignal = intval($params['ema_signal'] ?? 10);
+        $smaSignal = intval($params['sma_signal'] ?? 40);
+        $sma50 = intval($params['sma_50'] ?? 50);
+        $sma200 = intval($params['sma_200'] ?? 200);
         $bbPeriod = intval($params['bb_period'] ?? 20);
         $bbStdDev = floatval($params['bb_std'] ?? 2);
 
         // Validate we have enough data for longest period needed
-        if (count($closes) < $smaLongPeriod) {
+        if (count($closes) < $sma200) {
             return 0;
         }
 
-        // Calculate indicators
-        $smaShort = $this->calculateSMA($closes, $smaShortPeriod);
-        $smaLong = $this->calculateSMA($closes, $smaLongPeriod);
+        // Calculate indicators with user-defined parameters
+        $ema = $this->calculateEMA($closes, $emaSignal);
+        $smaSignalLine = $this->calculateSMA($closes, $smaSignal);
+        $sma50Line = $this->calculateSMA($closes, $sma50);
+        $sma200Line = $this->calculateSMA($closes, $sma200);
         $macd = $this->calculateMACD($closes, $macdFast, $macdSlow, $macdSignal);
+        $ppo = $this->calculatePPO($closes, $ppoFast, $ppoSlow, 9);
         $bb = $this->calculateBollingerBands($closes, $bbPeriod, $bbStdDev);
 
         $lastIdx = count($closes) - 1;
         $currentPrice = $closes[$lastIdx];
-        $currentSmaShort = $smaShort[$lastIdx];
-        $currentSmaLong = $smaLong[$lastIdx];
+        $currentEma = $ema[$lastIdx];
+        $currentSmaSignal = $smaSignalLine[$lastIdx];
+        $currentSma50 = $sma50Line[$lastIdx];
+        $currentSma200 = $sma200Line[$lastIdx];
         $currentMacd = $macd['macd'][$lastIdx];
-        $currentSignal = $macd['signal'][$lastIdx];
+        $currentMacdSignal = $macd['signal'][$lastIdx];
+        $currentPpo = $ppo['ppo'][$lastIdx];
+        $currentPpoSignal = $ppo['signal'][$lastIdx];
         $currentBBLower = $bb['lower'][count($bb['lower']) - 1];
         $currentBBUpper = $bb['upper'][count($bb['upper']) - 1];
         $currentBBMiddle = $bb['middle'][$lastIdx];
@@ -531,17 +585,30 @@ class TradeExecutorService
         // Get previous values for crossover detection
         $prevIdx = $lastIdx - 1;
         $prevMacd = $prevIdx >= 0 ? $macd['macd'][$prevIdx] : $currentMacd;
-        $prevSignal = $prevIdx >= 0 ? $macd['signal'][$prevIdx] : $currentSignal;
+        $prevMacdSignal = $prevIdx >= 0 ? $macd['signal'][$prevIdx] : $currentMacdSignal;
+        $prevPpo = $prevIdx >= 0 ? $ppo['ppo'][$prevIdx] : $currentPpo;
+        $prevPpoSignal = $prevIdx >= 0 ? $ppo['signal'][$prevIdx] : $currentPpoSignal;
+        $prevEma = $prevIdx >= 0 ? $ema[$prevIdx] : $currentEma;
+        $prevSmaSignal = $prevIdx >= 0 ? $smaSignalLine[$prevIdx] : $currentSmaSignal;
         $prevPrice = $prevIdx >= 0 ? $closes[$prevIdx] : $currentPrice;
 
-        // Check for MACD bullish crossover
-        $macdBullishCross = ($currentMacd > $currentSignal) && ($prevMacd <= $prevSignal);
+        // Check for MACD bullish crossover (26/29/14)
+        $macdBullishCross = ($currentMacd > $currentMacdSignal) && ($prevMacd <= $prevMacdSignal);
 
         // Check for MACD bearish crossover
-        $macdBearishCross = ($currentMacd < $currentSignal) && ($prevMacd >= $prevSignal);
+        $macdBearishCross = ($currentMacd < $currentMacdSignal) && ($prevMacd >= $prevMacdSignal);
 
-        // Check price vs SMAs
-        $priceAboveSMAs = ($currentPrice > $currentSmaShort) && ($currentSmaShort > $currentSmaLong);
+        // Check for PPO bullish crossover (12/26)
+        $ppoBullishCross = ($currentPpo > $currentPpoSignal) && ($prevPpo <= $prevPpoSignal);
+
+        // Check for PPO bearish crossover
+        $ppoBearishCross = ($currentPpo < $currentPpoSignal) && ($prevPpo >= $prevPpoSignal);
+
+        // Check EMA10 > SMA40 crossover
+        $emaCrossover = ($currentEma > $currentSmaSignal) && ($prevEma <= $prevSmaSignal);
+
+        // Check uptrend (Price > SMA50 > SMA200)
+        $uptrend = ($currentPrice > $currentSma50) && ($currentSma50 > $currentSma200);
 
         // Check if price is near lower Bollinger Band (within 5% of lower band)
         $bbRange = $currentBBUpper - $currentBBLower;
@@ -552,17 +619,58 @@ class TradeExecutorService
         $prevPriceAboveBB = $prevPrice >= $currentBBLower;
         $bbBreak = $priceBelowBB && $prevPriceAboveBB;
 
-        \Log::debug("$symbol signal calc: params=(MACD:$macdFast/$macdSlow/$macdSignal, SMA:$smaShortPeriod/$smaLongPeriod, BB:$bbPeriod/$bbStdDev), price=$currentPrice, smaShort=$currentSmaShort, smaLong=$currentSmaLong, macd=$currentMacd, signal=$currentSignal, bbLower=$currentBBLower, bbUpper=$currentBBUpper");
+        // Get previous EMA/SMA values for crossover detection
+        $prevEma = $prevIdx >= 0 ? $ema[$prevIdx] : $currentEma;
+        $prevSmaSignal = $prevIdx >= 0 ? $smaSignalLine[$prevIdx] : $currentSmaSignal;
 
-        // BUY: MACD bullish + price above SMAs + near lower BB
-        if ($macdBullishCross && $priceAboveSMAs && $priceNearLowerBB) {
-            \Log::info("$symbol BUY SIGNAL: MACD bullish cross, price above SMAs, near lower BB");
+        \Log::debug("$symbol signal calc: params=(MACD:$macdFast/$macdSlow/$macdSignal, PPO:12/26, EMA:$emaSignal/SMA:$smaSignal, SMA50/200), price=$currentPrice, ema=$currentEma, smaSignal=$currentSmaSignal, sma50=$currentSma50, sma200=$currentSma200, macd=$currentMacd, ppo=$currentPpo");
+
+        // 4 Entry Signals (need 2-of-4):
+        $signalCount = 0;
+        $signalReasons = [];
+
+        // Signal 1: MACD bullish crossover (26/29/14)
+        if ($macdBullishCross) {
+            $signalCount++;
+            $signalReasons[] = "MACD(26/29/14)";
+        }
+
+        // Signal 2: PPO bullish crossover (12/26)
+        if ($ppoBullishCross) {
+            $signalCount++;
+            $signalReasons[] = "PPO(12/26)";
+        }
+
+        // Signal 3: Uptrend (Price > SMA50 > SMA200)
+        if ($uptrend) {
+            $signalCount++;
+            $signalReasons[] = "uptrend(50/200)";
+        }
+
+        // Signal 4: EMA10 crosses above SMA40
+        if ($emaCrossover) {
+            $signalCount++;
+            $signalReasons[] = "EMA10>SMA40";
+        }
+
+        // BUY: 2 or more signals required
+        if ($signalCount >= 2) {
+            $reasons = implode(", ", $signalReasons);
+            \Log::info("$symbol BUY SIGNAL: $signalCount signals ($reasons)");
             return 1;
         }
 
-        // SELL: MACD bearish OR price breaks below BB
-        if ($macdBearishCross || $bbBreak) {
-            $reason = $macdBearishCross ? "MACD bearish cross" : "price breaks below BB";
+        // SELL: MACD bearish OR EMA bearish OR price breaks below BB
+        $emaBearishCross = isset($emaFast) && isset($smamedium) &&
+                          ($currentEMAFast < $currentSMAMedium) &&
+                          ($prevEMAFast >= $prevSMAMedium);
+
+        if ($macdBearishCross || $emaBearishCross || $bbBreak) {
+            $reasons = [];
+            if ($macdBearishCross) $reasons[] = "MACD bearish";
+            if ($emaBearishCross) $reasons[] = "EMA/SMA bearish";
+            if ($bbBreak) $reasons[] = "price breaks BB";
+            $reason = implode(", ", $reasons);
             \Log::info("$symbol SELL SIGNAL: $reason");
             return -1;
         }

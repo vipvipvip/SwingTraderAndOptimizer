@@ -88,50 +88,76 @@ class ParameterOptimizer:
         data = self.data.copy()
 
         # Apply custom indicators with parameters
-        from indicators import calculate_macd, calculate_sma, calculate_bollinger_bands
+        from indicators import calculate_macd, calculate_sma, calculate_ema, calculate_bollinger_bands
 
-        # MACD with custom parameters
-        ema_fast = data['close'].ewm(span=params['macd_fast']).mean()
-        ema_slow = data['close'].ewm(span=params['macd_slow']).mean()
+        # MACD with FIXED parameters (base case: 18/26/14)
+        macd_fast = 18
+        macd_slow = 26
+        macd_signal = 14
+        ema_fast = data['close'].ewm(span=macd_fast).mean()
+        ema_slow = data['close'].ewm(span=macd_slow).mean()
         macd_line = ema_fast - ema_slow
-        signal_line = macd_line.ewm(span=params['macd_signal']).mean()
+        signal_line = macd_line.ewm(span=macd_signal).mean()
         macd_histogram = macd_line - signal_line
 
-        # SMAs with custom periods
-        sma_short = data['close'].rolling(window=params['sma_short']).mean()
-        sma_long = data['close'].rolling(window=params['sma_long']).mean()
+        # Fixed EMA and SMA values (not optimized)
+        ema_momentum = data['close'].ewm(span=10, adjust=False).mean()  # Fixed EMA=10
+        sma_trend = data['close'].rolling(window=40).mean()  # Fixed SMA=40
+        sma_50 = data['close'].rolling(window=50).mean()  # Fixed SMA50
+        sma_200 = data['close'].rolling(window=200).mean()  # Fixed SMA200
 
-        # Bollinger Bands with custom parameters
+        # Bollinger Bands with OPTIMIZED parameters
         bb_middle = data['close'].rolling(window=params['bb_period']).mean()
         bb_std = data['close'].rolling(window=params['bb_period']).std()
         bb_lower = bb_middle - (bb_std * params['bb_std'])
         bb_upper = bb_middle + (bb_std * params['bb_std'])
 
-        # Generate signals with custom params
+        # Generate signals with fixed MACD + optimized BB params (2-of-4 signals required for entry)
         signals = pd.Series(0, index=data.index)
+        last_signal = 0  # Track last signal to enforce alternation
 
-        for i in range(max(params['sma_long'], params['macd_slow'], params['bb_period']), len(data)):
-            # MACD bullish
-            macd_bullish = (macd_histogram.iloc[i-1] <= 0 and macd_histogram.iloc[i] > 0)
-
-            # Uptrend: price > sma_short > sma_long
+        for i in range(max(200, macd_slow, params['bb_period']), len(data)):
             price = data['close'].iloc[i]
-            uptrend = (price > sma_short.iloc[i] and sma_short.iloc[i] > sma_long.iloc[i])
 
-            # Price near lower BB
+            # Count signals
+            signal_count = 0
+
+            # Signal 1: MACD bullish
+            macd_bullish = (macd_histogram.iloc[i-1] <= 0 and macd_histogram.iloc[i] > 0)
+            if macd_bullish:
+                signal_count += 1
+
+            # Signal 2: EMA/SMA momentum bullish (EMA10 > SMA40)
+            ema_bullish = (ema_momentum.iloc[i-1] <= sma_trend.iloc[i-1] and
+                          ema_momentum.iloc[i] > sma_trend.iloc[i])
+            if ema_bullish:
+                signal_count += 1
+
+            # Signal 3: Uptrend (price > sma_50 > sma_200)
+            uptrend = (price > sma_50.iloc[i] and sma_50.iloc[i] > sma_200.iloc[i])
+            if uptrend:
+                signal_count += 1
+
+            # Signal 4: Price near lower BB
             bb_condition = price <= bb_lower.iloc[i] * 1.05
+            if bb_condition:
+                signal_count += 1
 
-            # Entry
-            if macd_bullish and uptrend and bb_condition:
+            # Entry: 2 or more signals required (and last signal was not a buy)
+            if signal_count >= 2 and last_signal != 1:
                 signals.iloc[i] = 1
+                last_signal = 1
 
-            # Exit
-            if i > 0 and signals.iloc[i-1] == 1:
+            # Exit: only if we're in a position (last signal was buy)
+            elif last_signal == 1:
                 macd_bearish = (macd_histogram.iloc[i-1] >= 0 and macd_histogram.iloc[i] < 0)
+                ema_bearish = (ema_momentum.iloc[i-1] >= sma_trend.iloc[i-1] and
+                              ema_momentum.iloc[i] < sma_trend.iloc[i])
                 bb_break = price < bb_lower.iloc[i]
 
-                if macd_bearish or bb_break:
+                if macd_bearish or ema_bearish or bb_break:
                     signals.iloc[i] = -1
+                    last_signal = -1
 
         # Simulate trades
         trades = []
@@ -166,7 +192,7 @@ class ParameterOptimizer:
                     'pnl_pct': pnl
                 })
 
-                current_equity = equity_curve[-1] * (1 + pnl)
+                current_equity = equity_curve[-1] + pnl_dollar
                 equity_curve.append(current_equity)
                 equity_dates.append(str(data.index[i]))
 
@@ -225,14 +251,15 @@ class ParameterOptimizer:
 
     def _print_top_results(self, n=5):
         """Print top N results"""
-        print(f"{'Rank':<6} {'Sharpe':<10} {'Win%':<8} {'Return':<10} {'Trades':<8} {'Parameters':<40}")
-        print("-" * 90)
+        print(f"{'Rank':<6} {'Sharpe':<10} {'Win%':<8} {'Return':<10} {'Trades':<8} {'Parameters':<50}")
+        print("-" * 100)
 
         for idx, result in enumerate(self.results[:n]):
             params = result['params']
             metrics = result['metrics']
 
-            param_str = f"MACD({params['macd_fast']},{params['macd_slow']}) SMA({params['sma_short']},{params['sma_long']}) BB({params['bb_period']},{params['bb_std']})"
+            # Only BB is optimized; MACD/EMA10/SMA40/SMA50/SMA200 are fixed
+            param_str = f"BB(period={params['bb_period']}, std={params['bb_std']})"
 
             print(
                 f"{idx+1:<6} "
@@ -240,7 +267,7 @@ class ParameterOptimizer:
                 f"{metrics['win_rate']*100:<8.1f} "
                 f"{metrics['total_return']*100:<10.2f}% "
                 f"{metrics['total_trades']:<8} "
-                f"{param_str:<40}"
+                f"{param_str:<50}"
             )
 
     def save_best_params(self, filepath):

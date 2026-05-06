@@ -47,7 +47,7 @@
     const chronological = [...displayTrades].reverse()
     const withRunning = chronological.map((trade, idx) => ({
       ...trade,
-      runningTotal: chronological.slice(0, idx + 1).reduce((sum, t) => sum + (t.pnl_dollar || 0), 0)
+      runningTotal: chronological.slice(0, idx + 1).reduce((sum, t) => sum + (parseFloat(t.pnl_dollar) || 0), 0)
     }))
     // Return in reverse order (newest to oldest) for display
     return withRunning.reverse()
@@ -324,8 +324,8 @@
                 <td class={trade.pnl_dollar > 0 ? 'pnl-positive' : 'pnl-negative'}>
                   ${formatPrice(trade.pnl_dollar)}
                 </td>
-                <td class={trade.pnl_pct > 0 ? 'pnl-positive' : 'pnl-negative'}>
-                  {(trade.pnl_pct * 100).toFixed(2)}%
+                <td class={trade.return > 0 ? 'pnl-positive' : 'pnl-negative'}>
+                  {(trade.return * 100).toFixed(2)}%
                 </td>
                 <td class="running-total" class:positive={trade.runningTotal > 0} class:negative={trade.runningTotal < 0}>
                   ${formatPrice(trade.runningTotal)}

@@ -58,41 +58,34 @@ class StrategyDB:
         return row[0] if row else None
 
     def save_best_params(self, symbol, params, metrics):
-        """Save best parameters for a ticker (one row per ticker — deletes old before inserting)."""
+        """Insert new optimization result with base_case=0 (never updates base_case=1 rows)."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         ticker_id = self.add_ticker(symbol)
 
         try:
-            # Update or insert strategy parameters
+            # Insert new optimization candidate row (base_case=0)
+            # Does NOT touch existing base_case=1 rows
             cursor.execute('''
                 INSERT INTO strategy_parameters
-                (ticker_id, macd_fast, macd_slow, macd_signal, sma_short, sma_long,
-                 bb_period, bb_std, win_rate, sharpe_ratio, total_return, total_trades, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON CONFLICT (ticker_id) DO UPDATE SET
-                    macd_fast = EXCLUDED.macd_fast,
-                    macd_slow = EXCLUDED.macd_slow,
-                    macd_signal = EXCLUDED.macd_signal,
-                    sma_short = EXCLUDED.sma_short,
-                    sma_long = EXCLUDED.sma_long,
-                    bb_period = EXCLUDED.bb_period,
-                    bb_std = EXCLUDED.bb_std,
-                    win_rate = EXCLUDED.win_rate,
-                    sharpe_ratio = EXCLUDED.sharpe_ratio,
-                    total_return = EXCLUDED.total_return,
-                    total_trades = EXCLUDED.total_trades,
-                    updated_at = NOW()
+                (ticker_id, macd_fast, macd_slow, macd_signal, bb_period, bb_std,
+                 ema_signal, sma_signal, sma_50, sma_200, ppo_fast, ppo_slow,
+                 win_rate, sharpe_ratio, total_return, total_trades, base_case, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
             ''', (
                 ticker_id,
                 int(params['macd_fast']),
                 int(params['macd_slow']),
                 int(params['macd_signal']),
-                int(params['sma_short']),
-                int(params['sma_long']),
                 int(params['bb_period']),
                 float(params['bb_std']),
+                10,  # ema_signal fixed
+                40,  # sma_signal fixed
+                50,  # sma_50 fixed
+                200,  # sma_200 fixed
+                12,  # ppo_fast fixed
+                26,  # ppo_slow fixed
                 float(metrics['win_rate']),
                 float(metrics['sharpe_ratio']),
                 float(metrics['total_return']),
@@ -100,6 +93,7 @@ class StrategyDB:
             ))
 
             conn.commit()
+            print(f"✓ Saved optimization candidate for {symbol} (base_case=0)")
         except Exception as e:
             conn.rollback()
             print(f"Error saving parameters: {e}")
@@ -219,19 +213,23 @@ class StrategyDB:
 
             saved_count = 0
             for trade in trades:
+                # Handle both 'entry_date'/'exit_date' and 'entry_at'/'exit_at' field names
+                entry_ts = trade.get('entry_date') or trade.get('entry_at')
+                exit_ts = trade.get('exit_date') or trade.get('exit_at')
+
                 cursor.execute('''
                     INSERT INTO backtest_trades
-                    (ticker_id, symbol, entry_price, exit_price, entry_at, exit_at, pnl_pct, pnl_dollar)
+                    (ticker_id, entry_at, entry_price, exit_at, exit_price, return, pnl_dollar, days_held)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ''', (
                     ticker_id,
-                    symbol,
+                    entry_ts,
                     float(trade.get('entry_price', 0)),
+                    exit_ts,
                     float(trade.get('exit_price', 0)),
-                    trade.get('entry_at'),
-                    trade.get('exit_at'),
                     float(trade.get('return', 0)),
-                    float(trade.get('pnl_dollar', 0))
+                    float(trade.get('pnl_dollar', 0)),
+                    int(trade.get('days_held', 0))
                 ))
                 saved_count += 1
 
