@@ -59,7 +59,7 @@ EOF
 
 ### Trade Executor Command
 ```bash
-# Run trade executor manually (normally runs via cron every 5 minutes)
+# Run trade executor manually (normally runs via systemd every minute)
 php artisan trades:execute-daily
 
 # Run with output logging
@@ -67,15 +67,16 @@ php artisan trades:execute-daily -v
 
 # View recent trade execution logs
 tail -50 backend/storage/logs/laravel.log | grep ExecuteDailyTrades
-journalctl -u swingtrader-backend -n 50 | grep ExecuteDailyTrades
+journalctl -u swingtrader-backend -f | grep signal
 ```
 
-**Purpose:** Fetch latest prices from Alpaca, generate trading signals, execute trades, and snapshot account equity.
+**Purpose:** Fetch latest prices from Alpaca, generate 2-of-4 trading signals, execute trades, and snapshot account equity.
 
 **Schedule:**
-- **Crontab:** `*/5 * * * *` (runs command every 5 minutes)
-- **Laravel Scheduler:** `everyFiveMinutes()` in `app/Console/Kernel.php`
-- **Market hours only:** 9:30 AM - 4:05 PM ET, weekdays only
+- **Systemd Service:** `swingtrader-backend` (persistent Laravel server)
+- **Schedule:** Triggered every minute via `php artisan schedule:run` 
+- **Market hours only:** 9:30 AM - 4:00 PM ET, weekdays only
+- **Signal Logic:** 2-of-4 level-checking (MACD>0, PPO>0, EMA10>SMA40, or Price near BB)
 
 ### Laravel Scheduler Management
 ```bash
@@ -784,4 +785,4 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "TRUNCATE table
 
 ---
 
-Last Updated: 2026-04-30 (Section 14: Application Lifecycle added)
+Last Updated: 2026-05-06 (v7.0 update: 2-of-4 signal logic, systemd services)
