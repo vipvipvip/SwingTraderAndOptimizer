@@ -92,6 +92,7 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
         'equity_dates': best_result.get('equity_dates', []),
         'runtime': runtime,
         'combos': combos,
+        'optimizer': optimizer,
     }
 
 
@@ -161,7 +162,18 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     # Filter out failed optimizations and save results to database
     results = [r for r in results if r is not None]
     for result in results:
-        db.save_best_params(result['symbol'], result['params'], result['metrics'])
+        # Save top 5 candidates (base_case=0) - keep best for each symbol
+        # These will be compared vs baseline (base_case=1) before promotion
+        symbol = result['symbol']
+        optimizer = result.get('optimizer')
+        if optimizer and optimizer.results:
+            # Save top 5 results as candidates
+            for idx, opt_result in enumerate(optimizer.results[:5]):
+                db.save_best_params(symbol, opt_result['params'], opt_result['metrics'])
+            print(f"✓ Saved {min(5, len(optimizer.results))} candidates for {symbol}")
+
+        # Save trades and equity curve for the BEST candidate ONLY
+        # Other candidates will be evaluated via backtest.py --mode all
         db.save_backtest_trades(result['symbol'], result['trades'])
         db.save_equity_curve(result['symbol'], result.get('metrics', {}), result.get('equity_curve', []), result.get('equity_dates', []))
         db.log_optimization_run(
@@ -181,8 +193,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     for result in results:
         print(f"{result['symbol']}:")
-        print(f"  Params: MACD({result['params']['macd_fast']},{result['params']['macd_slow']},{result['params']['macd_signal']}) "
-              f"BB({result['params']['bb_period']},{result['params']['bb_std']})")
+        print(f"  Params: BB(period={result['params']['bb_period']}, std={result['params']['bb_std']})")
         print(f"  Sharpe: {result['metrics']['sharpe_ratio']:.2f} | "
               f"Return: {result['metrics']['total_return']*100:.2f}%")
 

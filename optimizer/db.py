@@ -67,6 +67,7 @@ class StrategyDB:
         try:
             # Insert new optimization candidate row (base_case=0)
             # Does NOT touch existing base_case=1 rows
+            # Note: MACD is fixed at 18/26/14, only BB parameters are optimized
             cursor.execute('''
                 INSERT INTO strategy_parameters
                 (ticker_id, macd_fast, macd_slow, macd_signal, bb_period, bb_std,
@@ -75,9 +76,9 @@ class StrategyDB:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
             ''', (
                 ticker_id,
-                int(params['macd_fast']),
-                int(params['macd_slow']),
-                int(params['macd_signal']),
+                18,  # macd_fast fixed
+                26,  # macd_slow fixed
+                14,  # macd_signal fixed
                 int(params['bb_period']),
                 float(params['bb_std']),
                 10,  # ema_signal fixed
@@ -99,7 +100,7 @@ class StrategyDB:
             print(f"Error saving parameters: {e}")
 
     def get_best_params(self, symbol):
-        """Get best parameters for a ticker"""
+        """Get best parameters for a ticker (base_case=true only)"""
         conn = self.get_connection()
         cursor = conn.cursor()
 
@@ -108,11 +109,10 @@ class StrategyDB:
             return None
 
         cursor.execute('''
-            SELECT macd_fast, macd_slow, macd_signal, sma_short, sma_long,
-                   bb_period, bb_std, win_rate, sharpe_ratio, total_return,
+            SELECT bb_period, bb_std, win_rate, sharpe_ratio, total_return,
                    total_trades
             FROM strategy_parameters
-            WHERE ticker_id = %s
+            WHERE ticker_id = %s AND base_case = true
         ''', (ticker_id,))
 
         row = cursor.fetchone()
@@ -120,18 +120,13 @@ class StrategyDB:
             return None
 
         return {
-            'macd_fast': row[0],
-            'macd_slow': row[1],
-            'macd_signal': row[2],
-            'sma_short': row[3],
-            'sma_long': row[4],
-            'bb_period': row[5],
-            'bb_std': row[6],
+            'bb_period': row[0],
+            'bb_std': row[1],
             'metrics': {
-                'win_rate': row[7],
-                'sharpe_ratio': row[8],
-                'total_return': row[9],
-                'total_trades': row[10]
+                'win_rate': row[2],
+                'sharpe_ratio': row[3],
+                'total_return': row[4],
+                'total_trades': row[5]
             }
         }
 
