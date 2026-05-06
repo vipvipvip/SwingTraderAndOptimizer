@@ -162,15 +162,26 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     # Filter out failed optimizations and save results to database
     results = [r for r in results if r is not None]
     for result in results:
-        # Save top 5 candidates (base_case=0) - keep best for each symbol
-        # These will be compared vs baseline (base_case=1) before promotion
+        # Save only the best candidate (base_case=0) from this run
+        # Old candidates are cleaned up to prevent table bloat
         symbol = result['symbol']
         optimizer = result.get('optimizer')
         if optimizer and optimizer.results:
-            # Save top 5 results as candidates
-            for idx, opt_result in enumerate(optimizer.results[:5]):
-                db.save_best_params(symbol, opt_result['params'], opt_result['metrics'])
-            print(f"✓ Saved {min(5, len(optimizer.results))} candidates for {symbol}")
+            ticker_id = db.get_ticker_id(symbol)
+            if ticker_id:
+                # Clean up old base_case=0 candidates for this ticker
+                conn = db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    'DELETE FROM strategy_parameters WHERE ticker_id = %s AND base_case = false',
+                    (ticker_id,)
+                )
+                conn.commit()
+
+            # Save only the best candidate from this optimization run
+            best_result = optimizer.results[0]
+            db.save_best_params(symbol, best_result['params'], best_result['metrics'])
+            print(f"✓ Saved best candidate for {symbol} (cleaned up old candidates)")
 
         # Save trades and equity curve for the BEST candidate ONLY
         # Other candidates will be evaluated via backtest.py --mode all
