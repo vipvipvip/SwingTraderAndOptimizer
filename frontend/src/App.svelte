@@ -19,6 +19,9 @@
   let nextTradeDay = ''
   let lastOptimizerRun = ''
   let lastTradesRun = ''
+  let totalUnrealizedPnl = 0
+  let totalUnrealizedPnlPercent = 0
+  let accountEquity = 0
 
   function formatDateTime(dateString) {
     if (!dateString) return ''
@@ -29,6 +32,29 @@
     const hours = String(date.getHours()).padStart(2, '0')
     const minutes = String(date.getMinutes()).padStart(2, '0')
     return `${month}/${day}/${year} ${hours}:${minutes}`
+  }
+
+  async function calculateProfitSummary() {
+    try {
+      const [acctRes, posRes] = await Promise.all([
+        fetch('/api/v1/account'),
+        fetch('/api/v1/account/positions')
+      ])
+
+      const account = await acctRes.json()
+      const positions = await posRes.json()
+
+      if (account) {
+        accountEquity = account.equity || 0
+      }
+
+      if (Array.isArray(positions)) {
+        totalUnrealizedPnl = positions.reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0)
+        totalUnrealizedPnlPercent = accountEquity > 0 ? (totalUnrealizedPnl / accountEquity) * 100 : 0
+      }
+    } catch (e) {
+      console.error('Failed to load profit summary:', e)
+    }
   }
 
   function calculateNextTradeTime() {
@@ -121,7 +147,9 @@
 
   onMount(async () => {
     calculateNextTradeTime()
+    calculateProfitSummary()
     setInterval(calculateNextTradeTime, 60000)
+    setInterval(calculateProfitSummary, 60000)
 
     try {
       const res = await fetch('/api/v1/strategies')
@@ -369,7 +397,12 @@
       {/if}
 
       <div class="chart-section">
-        <h2>Live Positions</h2>
+        <h2>
+          Live Positions
+          {#if totalUnrealizedPnl !== 0}
+            (Profit: {totalUnrealizedPnl >= 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalUnrealizedPnl)} and {totalUnrealizedPnlPercent >= 0 ? '+' : ''}{totalUnrealizedPnlPercent.toFixed(2)}%)
+          {/if}
+        </h2>
         <LivePositionsPanel />
       </div>
 

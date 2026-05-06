@@ -3,12 +3,17 @@
   import { api } from '../api'
 
   let positions = []
+  let account = {}
   let loading = true
 
   async function loadPositions() {
     try {
-      const account = await api.account.positions()
-      positions = account
+      const [posData, acctData] = await Promise.all([
+        api.account.positions(),
+        fetch('/api/v1/account').then(r => r.json())
+      ])
+      positions = posData
+      account = acctData
     } catch (e) {
       console.error('Failed to load positions:', e)
     } finally {
@@ -29,8 +34,10 @@
     }).format(value)
   }
 
-  function formatPercent(value) {
-    return ((value / 100) * 100).toFixed(2) + '%'
+  function calculateAllocationPercent(marketValue) {
+    const portfolio = parseFloat(account.portfolio_value || 0)
+    if (portfolio === 0) return '0.00%'
+    return ((marketValue / portfolio) * 100).toFixed(2) + '%'
   }
 </script>
 
@@ -88,6 +95,7 @@
         <th>Entry Price</th>
         <th>Current Price</th>
         <th>Market Value</th>
+        <th>Allocation %</th>
         <th>Unrealized P&L</th>
       </tr>
     </thead>
@@ -99,6 +107,7 @@
           <td>{formatCurrency(position.avg_entry_price)}</td>
           <td>{formatCurrency(position.current_price)}</td>
           <td>{formatCurrency(position.market_value)}</td>
+          <td>{calculateAllocationPercent(position.market_value)}</td>
           <td class={position.unrealized_pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}>
             {formatCurrency(position.unrealized_pnl)}
           </td>
