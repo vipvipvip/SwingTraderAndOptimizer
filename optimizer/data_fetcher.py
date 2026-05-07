@@ -13,28 +13,31 @@ import pandas as pd
 def filter_market_hours(df):
     """Keep only bars from regular market hours (9:30 AM - 4:00 PM ET)
 
-    Assumes timestamps are in America/New_York timezone
+    Filters on NY timezone timestamps. For hourly bars, timestamp = end of hour.
+    Market hours: 10:00 AM - 4:00 PM ET (first bar at 10:00 after 9:30 open)
     """
     if df is None or len(df) == 0:
         return df
 
-    # Extract hour and minute from index (assumes America/New_York timezone)
     df_copy = df.copy()
 
-    # Convert index to time if it has timezone info
-    if df_copy.index.tz is not None:
-        # Already timezone-aware, use the time directly
-        df_copy['_time_str'] = df_copy.index.strftime('%H:%M')
-    else:
-        # No timezone info, assume NY time
-        df_copy['_time_str'] = df_copy.index.strftime('%H:%M')
+    # Ensure timestamps are in NY timezone
+    if df_copy.index.tz is None:
+        df_copy.index = df_copy.index.tz_localize('UTC').tz_convert('America/New_York')
+    elif str(df_copy.index.tz) != 'America/New_York':
+        df_copy.index = df_copy.index.tz_convert('America/New_York')
 
-    # Keep only 9:30 AM (09:30) to 4:30 PM (16:30) ET
-    # Exactly 8 hourly bars per trading day: 09:30, 10:30, 11:30, 12:30, 13:30, 14:30, 15:30, 16:30
-    market_hours = (df_copy['_time_str'] >= '09:30') & (df_copy['_time_str'] <= '16:30')
+    # Extract hour:minute in NY time
+    df_copy['_time_ny'] = df_copy.index.strftime('%H:%M')
 
-    result = df_copy[market_hours].drop(columns=['_time_str'])
-    print(f"Filtered to market hours: {len(df)} -> {len(result)} bars")
+    # Keep hourly bars from market hours: 10:00 AM - 4:00 PM ET
+    # (opening bar 10:00 covers 9:30-10:00, closing bar 16:00 covers 3:00-4:00 PM)
+    market_hours = (df_copy['_time_ny'] >= '10:00') & (df_copy['_time_ny'] <= '16:00')
+
+    result = df_copy[market_hours].drop(columns=['_time_ny'])
+    removed = len(df) - len(result)
+    if removed > 0:
+        print(f"Filtered to market hours (NY): {len(df)} -> {len(result)} bars ({removed} removed)")
     return result
 
 # Load .env from backend directory
@@ -328,7 +331,14 @@ def append_bars_to_db(symbol, new_bars):
         now = datetime.now(ZoneInfo('America/New_York')).isoformat()
 
         for timestamp, row_data in new_bars.iterrows():
-            ts_utc = pd.to_datetime(timestamp, utc=True) if not timestamp.tzinfo else timestamp
+            # Convert to NY timezone if needed, then store as plain timestamp
+            # Database stores timestamps as TIMESTAMP WITHOUT TIME ZONE representing America/New_York times
+            if timestamp.tzinfo is not None:
+                ts_ny = timestamp.tz_convert('America/New_York').replace(tzinfo=None)
+            else:
+                ts_ny = timestamp
+
+            ts_utc = pd.to_datetime(ts_ny, utc=True)
             if last_ts is None or ts_utc > last_ts:
                 cursor.execute('''
                     INSERT INTO bars
@@ -337,7 +347,7 @@ def append_bars_to_db(symbol, new_bars):
                     ON CONFLICT DO NOTHING
                 ''', (
                     ticker_id,
-                    timestamp,
+                    ts_ny,
                     float(row_data['open']),
                     float(row_data['high']),
                     float(row_data['low']),
