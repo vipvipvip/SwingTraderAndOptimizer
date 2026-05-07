@@ -21,6 +21,7 @@
   let lastTradesRun = ''
   let totalUnrealizedPnl = 0
   let totalUnrealizedPnlPercent = 0
+  let totalMarketValue = 0
   let accountEquity = 0
 
   function formatDateTime(dateString) {
@@ -46,6 +47,7 @@
 
       if (account) {
         accountEquity = account.equity || 0
+        totalMarketValue = account.portfolio_value || 0
       }
 
       if (Array.isArray(positions)) {
@@ -399,8 +401,11 @@
       <div class="chart-section">
         <h2>
           Live Positions
-          {#if totalUnrealizedPnl !== 0}
-            (Profit: {totalUnrealizedPnl >= 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalUnrealizedPnl)} and {totalUnrealizedPnlPercent >= 0 ? '+' : ''}{totalUnrealizedPnlPercent.toFixed(2)}%)
+          {#if totalMarketValue > 0}
+            (Market Value: {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalMarketValue)}
+            {#if totalUnrealizedPnl !== 0}
+              | Profit: {totalUnrealizedPnl >= 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalUnrealizedPnl)} and {totalUnrealizedPnlPercent >= 0 ? '+' : ''}{totalUnrealizedPnlPercent.toFixed(2)}%
+            {/if})
           {/if}
         </h2>
         <LivePositionsPanel />
