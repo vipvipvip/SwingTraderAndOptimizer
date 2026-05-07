@@ -65,6 +65,16 @@ class TradeExecutorService
             \Log::warning("Failed to fetch latest prices: " . $e->getMessage());
         }
 
+        // Fetch account and positions ONCE for all tickers (reduce Alpaca calls)
+        $account = null;
+        $positions = [];
+        try {
+            $account = $this->alpacaService->getAccount();
+            $positions = $this->alpacaService->getPositions();
+        } catch (\Exception $e) {
+            \Log::warning("Failed to fetch account/positions: " . $e->getMessage());
+        }
+
         $tickers = $this->strategyService->getAllTickers();
         $results = [
             'total' => 0,
@@ -75,7 +85,7 @@ class TradeExecutorService
 
         foreach ($tickers as $ticker) {
             try {
-                $result = $this->executeForTicker($ticker['symbol']);
+                $result = $this->executeForTicker($ticker['symbol'], $account, $positions);
                 $results['total']++;
                 if ($result === 'buy') {
                     $results['buys'][] = $ticker['symbol'];
@@ -249,7 +259,7 @@ class TradeExecutorService
         return $results;
     }
 
-    public function executeForTicker($symbol)
+    public function executeForTicker($symbol, $account = null, $positions = null)
     {
         // CRITICAL: Validate strategy is in sync before trading
         if (!$this->validateStrategySync($symbol)) {
@@ -287,7 +297,7 @@ class TradeExecutorService
         }
 
         if ($signal === 1) {
-            return $this->handleBuySignal($symbol, $currentPrice);
+            return $this->handleBuySignal($symbol, $currentPrice, $account, $positions);
         } elseif ($signal === -1) {
             return $this->handleSellSignal($symbol, $currentPrice);
         }
@@ -411,7 +421,7 @@ class TradeExecutorService
     /**
      * Handle buy signal with position reconciliation
      */
-    private function handleBuySignal($symbol, $currentPrice)
+    private function handleBuySignal($symbol, $currentPrice, $account = null, $positions = null)
     {
         $ticker = Ticker::where('symbol', $symbol)->first();
         if (!$ticker) {
@@ -419,14 +429,24 @@ class TradeExecutorService
             return null;
         }
 
-        $account = $this->alpacaService->getAccount();
+        // Use passed account data (fetched once in executeForAllTickers with retry logic)
         $accountEquity = $account['equity'] ?? 100000;
         $buyingPower = floatval($account['buying_power'] ?? 0);
         $allocationWeight = ($ticker->allocation_weight ?? 33.33) / 100;
         $allocatedCapital = $accountEquity * $allocationWeight;
 
-        // Get current position from Alpaca
-        $alpacaPosition = $this->getPositionForSymbol($symbol);
+        // Find position from passed positions array (should always be provided by executeForAllTickers)
+        $alpacaPosition = null;
+        if ($positions !== null && is_array($positions)) {
+            foreach ($positions as $pos) {
+                if ($pos['symbol'] === $symbol) {
+                    $alpacaPosition = $pos;
+                    break;
+                }
+            }
+        }
+        // Note: if positions not provided, alpacaPosition stays null (no fallback fetch)
+
         $amountInvested = 0;
 
         if ($alpacaPosition) {

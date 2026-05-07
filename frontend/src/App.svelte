@@ -35,15 +35,20 @@
     return `${month}/${day}/${year} ${hours}:${minutes}`
   }
 
-  async function fetchWithBackoff(url, options = {}, retries = 3, delay = 500) {
+  async function fetchWithBackoff(url, options = {}, retries = 3, delay = 500, timeout = 5000) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeout)
+
     try {
-      const res = await fetch(url, options)
+      const res = await fetch(url, { ...options, signal: controller.signal })
       if (!res.ok && retries > 0) throw new Error(`HTTP ${res.status}`)
       return res
     } catch (e) {
       if (retries <= 0) throw e
       await new Promise(r => setTimeout(r, delay))
-      return fetchWithBackoff(url, options, retries - 1, delay * 2)
+      return fetchWithBackoff(url, options, retries - 1, delay * 2, timeout)
+    } finally {
+      clearTimeout(timeoutId)
     }
   }
 

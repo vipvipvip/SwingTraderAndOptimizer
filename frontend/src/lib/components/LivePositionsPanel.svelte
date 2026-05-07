@@ -8,12 +8,16 @@
 
   async function loadPositions() {
     try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
+
       const [posData, acctData] = await Promise.all([
         api.account.positions(),
-        fetch('/api/v1/account').then(r => r.json())
+        fetch('/api/v1/account', { signal: controller.signal }).then(r => r.json())
       ])
       positions = posData
       account = acctData
+      clearTimeout(timeoutId)
     } catch (e) {
       console.error('Failed to load positions:', e)
     } finally {
@@ -23,7 +27,7 @@
 
   onMount(() => {
     loadPositions()
-    const interval = setInterval(loadPositions, 60000)
+    const interval = setInterval(loadPositions, 300000)
     return () => clearInterval(interval)
   })
 

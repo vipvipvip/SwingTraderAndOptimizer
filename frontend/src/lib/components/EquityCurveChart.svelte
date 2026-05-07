@@ -94,7 +94,7 @@
       // Invalidate cache on periodic refresh so data stays fresh
       delete cache[symbol]
       loadChart()
-    }, 60000)
+    }, 300000)
 
     // Handle window resize - update canvas resolution and chart
     const resizeObserver = new ResizeObserver(() => {

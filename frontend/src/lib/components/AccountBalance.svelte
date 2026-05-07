@@ -17,7 +17,7 @@
 
   onMount(() => {
     loadAccount()
-    const interval = setInterval(loadAccount, 60000)
+    const interval = setInterval(loadAccount, 300000)
     return () => clearInterval(interval)
   })
 

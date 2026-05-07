@@ -1,21 +1,29 @@
 const BASE_URL = '/api/v1'
 
-export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, options?: RequestInit, timeout: number = 5000): Promise<T> {
   const url = `${BASE_URL}${path.startsWith('/') ? path : '/' + path}`
-  const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-    ...options,
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
 
-  if (!res.ok) {
-    const error = await res.text().catch(() => res.statusText)
-    throw new Error(`${res.status}: ${error}`)
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+      ...options,
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      const error = await res.text().catch(() => res.statusText)
+      throw new Error(`${res.status}: ${error}`)
+    }
+
+    return res.json()
+  } finally {
+    clearTimeout(timeoutId)
   }
-
-  return res.json()
 }
 
 export const api = {

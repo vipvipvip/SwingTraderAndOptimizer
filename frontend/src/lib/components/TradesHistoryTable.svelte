@@ -11,12 +11,15 @@
 
   onMount(async () => {
     try {
-      const liveRes = await fetch('/api/v1/trades/live')
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+      const liveRes = await fetch('/api/v1/trades/live', { signal: controller.signal })
       if (!liveRes.ok) throw new Error('Failed to load live trades')
       const liveData = await liveRes.json()
       liveTrades = liveData.filter(t => t.status === 'closed').sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
 
-      const backtestRes = await fetch('/api/v1/trades/backtest')
+      const backtestRes = await fetch('/api/v1/trades/backtest', { signal: controller.signal })
       if (backtestRes.ok) {
         const backtestData = await backtestRes.json()
         backtestTrades = backtestData.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
@@ -25,6 +28,7 @@
       // Get unique tickers
       const allTrades = [...liveTrades, ...backtestTrades]
       allTickers = ['All', ...new Set(allTrades.map(t => t.symbol))].sort()
+      clearTimeout(timeoutId)
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load trades'
     } finally {

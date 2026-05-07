@@ -17,7 +17,7 @@
 
   onMount(() => {
     loadPnl()
-    const interval = setInterval(loadPnl, 60000)
+    const interval = setInterval(loadPnl, 300000)
     return () => clearInterval(interval)
   })
 
