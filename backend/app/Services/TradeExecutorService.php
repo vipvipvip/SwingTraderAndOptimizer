@@ -421,6 +421,7 @@ class TradeExecutorService
 
         $account = $this->alpacaService->getAccount();
         $accountEquity = $account['equity'] ?? 100000;
+        $buyingPower = floatval($account['buying_power'] ?? 0);
         $allocationWeight = ($ticker->allocation_weight ?? 33.33) / 100;
         $allocatedCapital = $accountEquity * $allocationWeight;
 
@@ -442,21 +443,28 @@ class TradeExecutorService
         }
 
         // Calculate quantity to buy with remaining allocation
-        $qty = intval($remainingAllocation / $currentPrice);
+        $qtyFromAllocation = intval($remainingAllocation / $currentPrice);
 
-        if ($qty < 1) {
+        if ($qtyFromAllocation < 1) {
             \Log::info("$symbol: Remaining allocation \${$remainingAllocation} too small for 1 share at \${$currentPrice}");
             return null;
         }
 
+        // Check available cash before placing order
+        $costToExecute = $qtyFromAllocation * $currentPrice;
+        if ($costToExecute > $buyingPower) {
+            \Log::info("$symbol: Insufficient cash (need \${$costToExecute}, have \${$buyingPower})");
+            return null;
+        }
+
         try {
-            $order = $this->alpacaService->placeOrder($symbol, $qty, 'buy');
+            $order = $this->alpacaService->placeOrder($symbol, $qtyFromAllocation, 'buy');
 
             LiveTrade::create([
                 'ticker_id' => $ticker->id,
                 'symbol' => $symbol,
                 'side' => 'BUY',
-                'quantity' => $qty,
+                'quantity' => $qtyFromAllocation,
                 'entry_price' => $currentPrice,
                 'entry_at' => now(),
                 'status' => 'open',
@@ -464,7 +472,7 @@ class TradeExecutorService
                 'strategy_signal' => 'MACD_CROSS_BUY',
             ]);
 
-            \Log::info("BUY signal for $symbol: qty={$qty}, price=\${$currentPrice}, allocation used=\${$remainingAllocation}");
+            \Log::info("BUY signal for $symbol: qty={$qtyFromAllocation}, price=\${$currentPrice}, allocation used=\${$remainingAllocation}");
             return 'buy';
         } catch (\Exception $e) {
             \Log::error("Failed to place buy order for $symbol: " . $e->getMessage());

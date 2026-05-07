@@ -35,11 +35,23 @@
     return `${month}/${day}/${year} ${hours}:${minutes}`
   }
 
+  async function fetchWithBackoff(url, options = {}, retries = 3, delay = 500) {
+    try {
+      const res = await fetch(url, options)
+      if (!res.ok && retries > 0) throw new Error(`HTTP ${res.status}`)
+      return res
+    } catch (e) {
+      if (retries <= 0) throw e
+      await new Promise(r => setTimeout(r, delay))
+      return fetchWithBackoff(url, options, retries - 1, delay * 2)
+    }
+  }
+
   async function calculateProfitSummary() {
     try {
       const [acctRes, posRes] = await Promise.all([
-        fetch('/api/v1/account'),
-        fetch('/api/v1/account/positions')
+        fetchWithBackoff('/api/v1/account'),
+        fetchWithBackoff('/api/v1/account/positions')
       ])
 
       const account = await acctRes.json()
@@ -111,7 +123,7 @@
     optimizerRunning = true
     optimizerMessage = 'Running optimizer...'
     try {
-      const res = await fetch('/api/v1/admin/optimize/trigger', { method: 'POST' })
+      const res = await fetchWithBackoff('/api/v1/admin/optimize/trigger', { method: 'POST' })
       const data = await res.json()
       if (res.ok) {
         optimizerMessage = '✓ Optimizer completed'
@@ -131,7 +143,7 @@
     tradesRunning = true
     tradesMessage = 'Executing trades...'
     try {
-      const res = await fetch('/api/v1/admin/trades/trigger', { method: 'POST' })
+      const res = await fetchWithBackoff('/api/v1/admin/trades/trigger', { method: 'POST' })
       const data = await res.json()
       if (res.ok) {
         tradesMessage = '✓ Trade executor completed'
@@ -150,18 +162,18 @@
   onMount(async () => {
     calculateNextTradeTime()
     calculateProfitSummary()
-    setInterval(calculateNextTradeTime, 60000)
-    setInterval(calculateProfitSummary, 60000)
+    setInterval(calculateNextTradeTime, 300000)
+    setInterval(calculateProfitSummary, 300000)
 
     try {
-      const res = await fetch('/api/v1/strategies')
+      const res = await fetchWithBackoff('/api/v1/strategies')
       if (!res.ok) throw new Error('Failed to load strategies')
       strategies = await res.json()
       if (strategies.length > 0) {
         selectedSymbol = strategies[0].symbol
       }
 
-      const lastRunsRes = await fetch('/api/v1/admin/last-runs')
+      const lastRunsRes = await fetchWithBackoff('/api/v1/admin/last-runs')
       if (lastRunsRes.ok) {
         const lastRuns = await lastRunsRes.json()
         if (lastRuns.last_optimizer_run) {
