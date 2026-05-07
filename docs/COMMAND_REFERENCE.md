@@ -602,40 +602,103 @@ ps aux | grep "python3" | grep -v grep
 
 ## 14. Data Integrity & Market Hours Filtering
 
-### Verify Market Hours Data (Critical)
+### Verify Hourly Market Hours Data (v7.0+)
+
+**Check bars contain only market hours (9:30 AM - 4:00 PM ET = 10:00-16:00 NY time)**
 ```bash
-# Check if database contains ONLY market hours (UTC 14:00-20:00)
-docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "SELECT EXTRACT(HOUR FROM timestamp)::INT as hour, COUNT(*) FROM bars GROUP BY hour ORDER BY hour;"
+docker exec swingtrader-db psql -U swingtrader -d swingtrader << 'EOF'
+-- Show distribution of bars by hour (should be 10-16 only)
+SELECT 
+  EXTRACT(HOUR FROM timestamp)::INT as hour_ny,
+  COUNT(*) as count
+FROM bars
+GROUP BY hour_ny
+ORDER BY hour_ny;
 
-# Expected: Only hours 14, 15, 16, 17, 18, 19, 20 (no data in 0-13 or 21-23)
+-- Expected output (NY timezone):
+-- hour_ny | count
+-- --------+-------
+--   10    | ~500  (opening bar: 9:30-10:00 AM)
+--   11    | ~500
+--   12    | ~500
+--   13    | ~500
+--   14    | ~500
+--   15    | ~500
+--   16    | ~400  (closing bar: 3:00-4:00 PM)
+-- 
+-- Total: ~3300-3400 bars per ticker per 2 years
 
-# Check total bars (should be 6000-10000 range, depending on tickers)
-docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "SELECT COUNT(*) as total_bars FROM bars;"
+-- Count total bars per ticker
+SELECT 
+  t.symbol,
+  COUNT(*) as bar_count,
+  MIN(timestamp) as earliest,
+  MAX(timestamp) as latest
+FROM bars b
+JOIN tickers t ON b.ticker_id = t.id
+GROUP BY t.symbol
+ORDER BY t.symbol;
 
-# Breakdown by ticker
-docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "SELECT t.symbol, COUNT(*) as bar_count FROM bars b JOIN tickers t ON b.ticker_id = t.id GROUP BY t.symbol ORDER BY t.symbol;"
+-- Verify no bars outside market hours exist
+SELECT COUNT(*) as out_of_bounds
+FROM bars
+WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 10 AND 16;
+-- Expected: 0
+EOF
 ```
 
-**Purpose:** Ensure bars table contains only valid market hours data (9:30 AM - 4:00 PM ET = 14:00-20:00 UTC).
+**Purpose:** Verify bars table contains ONLY hourly market hours data (10:00 AM - 4:00 PM ET).
 
-### Clean Out-of-Hours Data (If Needed)
+### Delete Out-of-Band Data
+
+**Remove any bars outside market hours (10:00-16:00 NY time)**
 ```bash
-# Identify out-of-hours bars
-docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "SELECT COUNT(*) FROM bars WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 14 AND 20;"
+docker exec swingtrader-db psql -U swingtrader -d swingtrader << 'EOF'
+-- Count out-of-bounds bars
+SELECT 
+  COUNT(*) as out_of_bounds,
+  EXTRACT(HOUR FROM timestamp)::INT as bad_hour
+FROM bars
+WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 10 AND 16
+GROUP BY bad_hour
+ORDER BY bad_hour;
 
-# Manual cleanup (remove all out-of-hours bars)
-docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "DELETE FROM bars WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 14 AND 20;"
+-- Delete out-of-hours bars
+DELETE FROM bars 
+WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 10 AND 16;
 
-# Automated cleanup (uses Python script)
-python3 optimizer/cleanup_after_hours_pg.py
+-- Verify deletion
+SELECT COUNT(*) as remaining_bars FROM bars;
+-- Should match expected count (~3300-3400 per ticker × number of tickers)
+
+-- Verify only valid hours remain
+SELECT DISTINCT EXTRACT(HOUR FROM timestamp)::INT as hour 
+FROM bars 
+ORDER BY hour;
+-- Expected: 10, 11, 12, 13, 14, 15, 16 only
+EOF
 ```
 
-**Purpose:** Remove any bars outside regular market hours (pre-market or after-hours trading).
+**Purpose:** Remove any pre-market or post-market bars that may have been loaded incorrectly.
+
+### Reset Bars Table for Fresh Data Load
+
+```bash
+docker exec swingtrader-db psql -U swingtrader -d swingtrader << 'EOF'
+-- Completely clear bars for fresh fetch
+TRUNCATE bars CASCADE;
+
+-- Verify empty
+SELECT COUNT(*) as bars_remaining FROM bars;
+EOF
+```
+
+Then fetch fresh data:
+```bash
+cd optimizer && source venv/bin/activate
+python3 fetch_prices.py --timeframe 1Hour
+# Fetches 2 years, filters to 3371 bars per ticker
+```
 
 ### Docker Initialization Verification
 ```bash
