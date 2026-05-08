@@ -15,16 +15,15 @@ from db import StrategyDB
 load_dotenv()
 
 # Parameter grids tuned per timeframe
-# MACD (18/26/14), PPO (12/26), EMA10/SMA40, SMA50/200 are FIXED
-# Only Bollinger Bands parameters are optimized
+# Chandelier Exit: period (macd_fast) and multiplier (bb_std)
 PARAM_GRIDS = {
     '1Day': {
-        'bb_period':   [20],
-        'bb_std':      [2.0],
+        'macd_fast':   [14, 18, 22],
+        'bb_std':      [2.5, 3.0, 3.5],
     },
     '1Hour': {
-        'bb_period':   [20],
-        'bb_std':      [2.0],
+        'macd_fast':   [14, 18, 22],
+        'bb_std':      [2.5, 3.0, 3.5],
     },
 }
 
@@ -118,9 +117,9 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     """
 
     if tickers is None:
-        tickers = ['SPY', 'QQQ', 'IWM']
+        tickers = ['QQQ', 'VTI', 'VTV']
     if timeframe is None:
-        timeframe = os.getenv('TRADING_TIMEFRAME', '1Hour')
+        timeframe = os.getenv('TRADING_TIMEFRAME', '1Day')
     if n_jobs is None:
         # Use parallel on Linux, sequential on Windows (Loky backend issues)
         n_jobs = -1 if platform.system() != 'Windows' else 1
@@ -204,7 +203,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     for result in results:
         print(f"{result['symbol']}:")
-        print(f"  Params: BB(period={result['params']['bb_period']}, std={result['params']['bb_std']})")
+        print(f"  Params: CHAND(period={result['params']['macd_fast']}, mult={result['params']['bb_std']})")
         print(f"  Sharpe: {result['metrics']['sharpe_ratio']:.2f} | "
               f"Return: {result['metrics']['total_return']*100:.2f}%")
 
@@ -229,14 +228,14 @@ if __name__ == '__main__':
         parser = argparse.ArgumentParser(description='Nightly parameter optimizer')
         parser.add_argument(
             '--timeframe',
-            default=os.getenv('TRADING_TIMEFRAME', '1Hour'),
-            help='Bar timeframe: 1Hour, 1Day, 30Min, etc. (default: TRADING_TIMEFRAME env or 1Hour)'
+            default=os.getenv('TRADING_TIMEFRAME', '1Day'),
+            help='Bar timeframe: 1Day, 1Hour, etc. (default: TRADING_TIMEFRAME env or 1Day)'
         )
         parser.add_argument(
             '--tickers',
             nargs='+',
-            default=['SPY', 'QQQ', 'IWM'],
-            help='Symbols to optimize (default: SPY QQQ IWM)'
+            default=['QQQ', 'VTI', 'VTV'],
+            help='Symbols to optimize (default: QQQ VTI VTV)'
         )
         args = parser.parse_args()
 

@@ -40,9 +40,8 @@ class TradeExecutorService
             return false;
         }
 
-        // Verify we have the required parameters
-        $required = ['macd_fast', 'macd_slow', 'macd_signal', 'ppo_fast', 'ppo_slow',
-                     'ema_signal', 'sma_signal', 'sma_50', 'sma_200', 'bb_period', 'bb_std'];
+        // Verify we have the required parameters for Chandelier Exit
+        $required = ['macd_fast', 'bb_std', 'bb_period'];
 
         foreach ($required as $param) {
             if (!isset($params[$param])) {
@@ -51,7 +50,7 @@ class TradeExecutorService
             }
         }
 
-        \Log::debug("$symbol: Strategy sync validated - base_case=1, all parameters present");
+        \Log::debug("$symbol: Strategy sync validated - base_case=1, chandelier params present");
         return true;
     }
 
@@ -282,23 +281,11 @@ class TradeExecutorService
             return null;
         }
 
-        // Build price series: bars + intra_day prices combined
-        $closes = $this->getPriceClosesForSignal($symbol);
-        if (empty($closes) || count($closes) < 26) {
-            // Need at least 26 periods for MACD calculation
-            \Log::warning("$symbol: Not enough price data for signal (have " . count($closes) . ", need 26+)");
-            return null;
-        }
+        $signal = $this->computeChandelierSignal($symbol, $params);
 
-        $signal = $this->computeSignal($closes, $params, $symbol);
-
-        if ($signal === 0) {
-            return null;
-        }
-
-        if ($signal === 1) {
+        if ($signal === 'buy') {
             return $this->handleBuySignal($symbol, $currentPrice, $account, $positions);
-        } elseif ($signal === -1) {
+        } elseif ($signal === 'sell') {
             return $this->handleSellSignal($symbol, $currentPrice);
         }
 
@@ -489,7 +476,7 @@ class TradeExecutorService
                 'entry_at' => now(),
                 'status' => 'open',
                 'alpaca_order_id' => $order['id'] ?? null,
-                'strategy_signal' => 'MACD_CROSS_BUY',
+                'strategy_signal' => 'CHANDELIER_ENTRY',
             ]);
 
             \Log::info("BUY signal for $symbol: qty={$qtyFromAllocation}, price=\${$currentPrice}, allocation used=\${$remainingAllocation}");
@@ -558,283 +545,153 @@ class TradeExecutorService
         return null;
     }
 
-    public function computeSignal($closes, $params, $symbol = null)
+    /**
+     * Compute Chandelier Exit signal for live trading.
+     *
+     * - No position → BUY (always re-enter)
+     * - In position → check stop: close < (highest_high_since_entry - ATR × mult)
+     *
+     * Returns 'buy', 'sell', or null (hold).
+     */
+    public function computeChandelierSignal($symbol, $params)
     {
-        if (!$symbol || empty($closes) || count($closes) < 26) {
-            return 0; // Not enough data
+        $period = intval($params['macd_fast'] ?? 18);
+        $mult = floatval($params['bb_std'] ?? 3.0);
+
+        $ohlc = $this->getOhlcBars($symbol);
+        if (empty($ohlc) || count($ohlc) < $period + 1) {
+            \Log::warning("$symbol: Not enough OHLC data for Chandelier signal");
+            return null;
         }
 
-        if (!$params) {
-            \Log::warning("$symbol: No parameters available for signal calculation");
-            return 0;
+        $last = $ohlc[count($ohlc) - 1];
+        $currentClose = $last['close'];
+
+        $openTrade = LiveTrade::where('symbol', $symbol)
+            ->where('status', 'open')
+            ->first();
+
+        if ($openTrade) {
+            // We have a position — check Chandelier stop
+            $entryDate = $openTrade->entry_at;
+
+            // Get bars since entry for highest high
+            $barsSinceEntry = [];
+            foreach ($ohlc as $bar) {
+                if ($bar['timestamp'] >= $entryDate) {
+                    $barsSinceEntry[] = $bar;
+                }
+            }
+
+            if (empty($barsSinceEntry)) {
+                \Log::warning("$symbol: No bars since entry date $entryDate");
+                return null;
+            }
+
+            $highestHigh = max(array_column($barsSinceEntry, 'high'));
+
+            // ATR: need last $period bars
+            $atr = $this->calculateATR($ohlc, $period);
+            if ($atr === null) {
+                return null;
+            }
+
+            $stopLevel = $highestHigh - $atr * $mult;
+
+            \Log::debug("$symbol Chandelier check: in position, high=$highestHigh, ATR=$atr, stop=$stopLevel, close=$currentClose");
+
+            if ($currentClose < $stopLevel) {
+                \Log::info("$symbol SELL SIGNAL (Chandelier stop): close=$currentClose < stop=$stopLevel");
+                return 'sell';
+            }
+
+            return null; // Hold
         }
 
-        // Extract strategy parameters from database
-        $macdFast = intval($params['macd_fast'] ?? 18);
-        $macdSlow = intval($params['macd_slow'] ?? 26);
-        $macdSignal = intval($params['macd_signal'] ?? 14);
-        $ppoFast = intval($params['ppo_fast'] ?? 12);
-        $ppoSlow = intval($params['ppo_slow'] ?? 26);
-        $emaSignal = intval($params['ema_signal'] ?? 10);
-        $smaSignal = intval($params['sma_signal'] ?? 40);
-        $sma50 = intval($params['sma_50'] ?? 50);
-        $sma200 = intval($params['sma_200'] ?? 200);
-        $bbPeriod = intval($params['bb_period'] ?? 20);
-        $bbStdDev = floatval($params['bb_std'] ?? 2);
+        // No position — re-enter, but not on same day as last exit (matches daily backtest)
+        $lastClosed = LiveTrade::where('symbol', $symbol)
+            ->where('status', 'closed')
+            ->orderBy('exit_at', 'desc')
+            ->first();
 
-        // Validate we have enough data for longest period needed
-        if (count($closes) < $sma200) {
-            return 0;
+        if ($lastClosed && $lastClosed->exit_at && $lastClosed->exit_at->isToday()) {
+            \Log::debug("$symbol: Skipping re-entry — exited today at " . $lastClosed->exit_at);
+            return null;
         }
 
-        // Calculate indicators with user-defined parameters
-        $ema = $this->calculateEMA($closes, $emaSignal);
-        $smaSignalLine = $this->calculateSMA($closes, $smaSignal);
-        $sma50Line = $this->calculateSMA($closes, $sma50);
-        $sma200Line = $this->calculateSMA($closes, $sma200);
-        $macd = $this->calculateMACD($closes, $macdFast, $macdSlow, $macdSignal);
-        $ppo = $this->calculatePPO($closes, $ppoFast, $ppoSlow, 9);
-        $bb = $this->calculateBollingerBands($closes, $bbPeriod, $bbStdDev);
-
-        $lastIdx = count($closes) - 1;
-        $currentPrice = $closes[$lastIdx];
-        $currentEma = $ema[$lastIdx];
-        $currentSmaSignal = $smaSignalLine[$lastIdx];
-        $currentSma50 = $sma50Line[$lastIdx];
-        $currentSma200 = $sma200Line[$lastIdx];
-        $currentMacd = $macd['macd'][$lastIdx];
-        $currentMacdSignal = $macd['signal'][$lastIdx];
-        $currentPpo = $ppo['ppo'][$lastIdx];
-        $currentPpoSignal = $ppo['signal'][$lastIdx];
-        $currentBBLower = $bb['lower'][count($bb['lower']) - 1];
-        $currentBBUpper = $bb['upper'][count($bb['upper']) - 1];
-        $currentBBMiddle = $bb['middle'][$lastIdx];
-
-        // Get previous values for crossover detection
-        $prevIdx = $lastIdx - 1;
-        $prevMacd = $prevIdx >= 0 ? $macd['macd'][$prevIdx] : $currentMacd;
-        $prevMacdSignal = $prevIdx >= 0 ? $macd['signal'][$prevIdx] : $currentMacdSignal;
-        $prevPpo = $prevIdx >= 0 ? $ppo['ppo'][$prevIdx] : $currentPpo;
-        $prevPpoSignal = $prevIdx >= 0 ? $ppo['signal'][$prevIdx] : $currentPpoSignal;
-        $prevEma = $prevIdx >= 0 ? $ema[$prevIdx] : $currentEma;
-        $prevSmaSignal = $prevIdx >= 0 ? $smaSignalLine[$prevIdx] : $currentSmaSignal;
-        $prevPrice = $prevIdx >= 0 ? $closes[$prevIdx] : $currentPrice;
-
-        // Check individual conditions (use levels, not crossovers)
-        $macdPositive = $currentMacd > 0;
-        $ppoPositive = $currentPpo > 0;
-        $emaAboveSma = $currentEma > $currentSmaSignal;
-
-        // Check if price is near lower Bollinger Band (within 5% of lower band)
-        $bbRange = $currentBBUpper - $currentBBLower;
-        $priceNearLowerBB = $currentPrice < ($currentBBLower + $bbRange * 0.05);
-
-        // Check if price breaks below lower BB
-        $priceBelowBB = $currentPrice < $currentBBLower;
-        $prevPriceAboveBB = $prevPrice >= $currentBBLower;
-        $bbBreak = $priceBelowBB && $prevPriceAboveBB;
-
-        \Log::debug("$symbol signal calc: params=(MACD:$macdFast/$macdSlow/$macdSignal, PPO:12/26, EMA:$emaSignal/SMA:$smaSignal, SMA50/200), price=$currentPrice, ema=$currentEma, smaSignal=$currentSmaSignal, sma50=$currentSma50, sma200=$currentSma200, macd=$currentMacd, ppo=$currentPpo");
-
-        // Count buy signals (need 2 of 4)
-        $buySignalCount = 0;
-        $signalReasons = [];
-
-        if ($macdPositive) {
-            $buySignalCount++;
-            $signalReasons[] = "MACD>0";
-        }
-        if ($ppoPositive) {
-            $buySignalCount++;
-            $signalReasons[] = "PPO>0";
-        }
-        if ($emaAboveSma) {
-            $buySignalCount++;
-            $signalReasons[] = "EMA10>SMA40";
-        }
-        if ($priceNearLowerBB) {
-            $buySignalCount++;
-            $signalReasons[] = "price near BB";
-        }
-
-        // BUY: 2 or more signals required
-        if ($buySignalCount >= 2) {
-            $reasons = implode(", ", $signalReasons);
-            \Log::info("$symbol BUY SIGNAL ($buySignalCount/4): $reasons");
-            return 1;
-        }
-
-        // SELL: MACD negative OR EMA below SMA OR price breaks below BB
-        $macdNegative = $currentMacd < 0;
-        $emaBelowSma = $currentEma < $currentSmaSignal;
-
-        if ($macdNegative || $emaBelowSma || $bbBreak) {
-            $reasons = [];
-            if ($macdNegative) $reasons[] = "MACD<0";
-            if ($emaBelowSma) $reasons[] = "EMA10<SMA40";
-            if ($bbBreak) $reasons[] = "price breaks BB";
-            $reason = implode(", ", $reasons);
-            \Log::info("$symbol SELL SIGNAL: $reason");
-            return -1;
-        }
-
-        return 0; // Hold
+        \Log::info("$symbol BUY SIGNAL (Chandelier re-entry): no open position");
+        return 'buy';
     }
 
     /**
-     * Calculate MACD (Moving Average Convergence Divergence)
-     * Returns array with 'macd' and 'signal' arrays
+     * Get OHLC bar data from PostgreSQL (daily bars only).
+     * Returns array of ['timestamp', 'high', 'low', 'close'] in chronological order.
      */
-    private function calculateMACD($data, $fastPeriod = 12, $slowPeriod = 26, $signalPeriod = 9)
+    private function getOhlcBars($symbol)
     {
-        $fastEMA = $this->calculateEMA($data, $fastPeriod);
-        $slowEMA = $this->calculateEMA($data, $slowPeriod);
+        try {
+            $rows = \DB::table('bars')
+                ->join('tickers', 'bars.ticker_id', '=', 'tickers.id')
+                ->where('tickers.symbol', $symbol)
+                ->orderBy('bars.timestamp', 'asc')
+                ->get(['bars.timestamp', 'bars.high', 'bars.low', 'bars.close']);
 
-        // MACD line = fast EMA - slow EMA
-        $macd = [];
-        for ($i = 0; $i < count($data); $i++) {
-            if ($fastEMA[$i] !== null && $slowEMA[$i] !== null) {
-                $macd[$i] = $fastEMA[$i] - $slowEMA[$i];
-            } else {
-                $macd[$i] = null;
+            if ($rows->isEmpty()) {
+                return [];
             }
-        }
 
-        // Signal line = EMA of valid MACD values
-        // Filter to only values where MACD is calculated
-        $validMACD = [];
-        $validIndices = [];
-        for ($i = 0; $i < count($macd); $i++) {
-            if ($macd[$i] !== null) {
-                $validMACD[] = $macd[$i];
-                $validIndices[] = $i;
+            $bars = [];
+            foreach ($rows as $row) {
+                $ts = $row->timestamp;
+                // Filter to daily bars only (UTC hour 4 or 5 = NY midnight)
+                if (date('G', strtotime($ts)) == 4 || date('G', strtotime($ts)) == 5) {
+                    if (date('i', strtotime($ts)) == 0) {
+                        $bars[] = [
+                            'timestamp' => $ts,
+                            'high' => floatval($row->high),
+                            'low' => floatval($row->low),
+                            'close' => floatval($row->close),
+                        ];
+                    }
+                }
             }
+
+            return $bars;
+        } catch (\Exception $e) {
+            \Log::error("$symbol: Error fetching OHLC bars: " . $e->getMessage());
+            return [];
         }
-
-        $signalValues = $this->calculateEMA($validMACD, $signalPeriod);
-
-        // Reconstruct signal array with nulls for invalid indices
-        $signal = array_fill(0, count($macd), null);
-        foreach ($validIndices as $idx => $origIdx) {
-            if (isset($signalValues[$idx])) {
-                $signal[$origIdx] = $signalValues[$idx];
-            }
-        }
-
-        return [
-            'macd' => $macd,
-            'signal' => $signal,
-        ];
     }
 
-    private function calculatePPO($data, $fastPeriod = 12, $slowPeriod = 26, $signalPeriod = 9)
+    /**
+     * Calculate ATR (Average True Range) as simple mean over period.
+     * Returns the most recent ATR value, or null if insufficient data.
+     */
+    private function calculateATR($ohlc, $period)
     {
-        $fastEMA = $this->calculateEMA($data, $fastPeriod);
-        $slowEMA = $this->calculateEMA($data, $slowPeriod);
-
-        // PPO = ((fast EMA - slow EMA) / slow EMA) * 100
-        $ppo = [];
-        for ($i = 0; $i < count($data); $i++) {
-            if ($fastEMA[$i] !== null && $slowEMA[$i] !== null && $slowEMA[$i] != 0) {
-                $ppo[$i] = (($fastEMA[$i] - $slowEMA[$i]) / $slowEMA[$i]) * 100;
-            } else {
-                $ppo[$i] = null;
-            }
+        $n = count($ohlc);
+        if ($n < $period + 1) {
+            return null;
         }
 
-        // Signal line = EMA of valid PPO values
-        $validPPO = [];
-        $validIndices = [];
-        for ($i = 0; $i < count($ppo); $i++) {
-            if ($ppo[$i] !== null) {
-                $validPPO[] = $ppo[$i];
-                $validIndices[] = $i;
-            }
+        $trValues = [];
+        for ($i = 1; $i < $n; $i++) {
+            $high = $ohlc[$i]['high'];
+            $low = $ohlc[$i]['low'];
+            $prevClose = $ohlc[$i - 1]['close'];
+            $trValues[] = max(
+                $high - $low,
+                abs($high - $prevClose),
+                abs($low - $prevClose)
+            );
         }
 
-        $signalValues = $this->calculateEMA($validPPO, $signalPeriod);
-
-        // Reconstruct signal array with nulls for invalid indices
-        $signal = array_fill(0, count($ppo), null);
-        foreach ($validIndices as $idx => $origIdx) {
-            if (isset($signalValues[$idx])) {
-                $signal[$origIdx] = $signalValues[$idx];
-            }
-        }
-
-        return [
-            'ppo' => $ppo,
-            'signal' => $signal,
-        ];
-    }
-
-    private function calculateEMA($data, $period)
-    {
-        if (count($data) < $period) {
-            return array_fill(0, count($data), null);
-        }
-
-        $alpha = 2 / ($period + 1);
-        $ema = array_fill(0, count($data), null);
-
-        // SMA for first value
+        // SMA of last $period TR values
+        $start = count($trValues) - $period;
         $sum = 0;
-        for ($i = 0; $i < $period; $i++) {
-            $sum += $data[$i];
+        for ($i = $start; $i < count($trValues); $i++) {
+            $sum += $trValues[$i];
         }
-        $ema[$period - 1] = $sum / $period;
-
-        // EMA from there
-        for ($i = $period; $i < count($data); $i++) {
-            $ema[$i] = $data[$i] * $alpha + $ema[$i - 1] * (1 - $alpha);
-        }
-
-        return $ema;
-    }
-
-    private function calculateSMA($data, $period)
-    {
-        $sma = array_fill(0, count($data), null);
-
-        for ($i = $period - 1; $i < count($data); $i++) {
-            $sum = 0;
-            for ($j = $i - $period + 1; $j <= $i; $j++) {
-                $sum += $data[$j];
-            }
-            $sma[$i] = $sum / $period;
-        }
-
-        return $sma;
-    }
-
-    private function calculateBollingerBands($data, $period, $stdDev)
-    {
-        $sma = $this->calculateSMA($data, $period);
-        $upper = [];
-        $lower = [];
-
-        for ($i = $period - 1; $i < count($data); $i++) {
-            if ($sma[$i] === null) {
-                $upper[] = null;
-                $lower[] = null;
-                continue;
-            }
-
-            // Calculate standard deviation
-            $sumSq = 0;
-            for ($j = $i - $period + 1; $j <= $i; $j++) {
-                $sumSq += pow($data[$j] - $sma[$i], 2);
-            }
-            $std = sqrt($sumSq / $period);
-
-            $upper[] = $sma[$i] + ($std * $stdDev);
-            $lower[] = $sma[$i] - ($std * $stdDev);
-        }
-
-        return [
-            'upper' => $upper,
-            'lower' => $lower,
-            'middle' => $sma
-        ];
+        return $sum / $period;
     }
 }

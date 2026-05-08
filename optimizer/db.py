@@ -67,7 +67,9 @@ class StrategyDB:
         try:
             # Insert new optimization candidate row (base_case=0)
             # Does NOT touch existing base_case=1 rows
-            # Note: MACD is fixed at 18/26/14, only BB parameters are optimized
+            # macd_fast = chandelier period, bb_std = chandelier mult, bb_period = ATR period
+            period = int(params.get('macd_fast', 18))
+            mult = float(params.get('bb_std', 3.0))
             cursor.execute('''
                 INSERT INTO strategy_parameters
                 (ticker_id, macd_fast, macd_slow, macd_signal, bb_period, bb_std,
@@ -76,17 +78,17 @@ class StrategyDB:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
             ''', (
                 ticker_id,
-                12,  # macd_fast fixed
-                26,  # macd_slow fixed
-                9,  # macd_signal fixed
-                int(params['bb_period']),
-                float(params['bb_std']),
-                10,  # ema_signal fixed
-                40,  # sma_signal fixed
-                50,  # sma_50 fixed
-                200,  # sma_200 fixed
-                12,  # ppo_fast fixed
-                26,  # ppo_slow fixed
+                period,  # macd_fast = chandelier period
+                0,       # macd_slow = not used
+                0,       # macd_signal = not used
+                period,  # bb_period = ATR period (same as chandelier period)
+                mult,    # bb_std = chandelier multiplier
+                0,       # ema_signal = not used
+                0,       # sma_signal = not used
+                0,       # sma_50 = not used
+                0,       # sma_200 = not used
+                0,       # ppo_fast = not used
+                0,       # ppo_slow = not used
                 float(metrics['win_rate']),
                 float(metrics['sharpe_ratio']),
                 float(metrics['total_return']),

@@ -28,13 +28,8 @@ class ParameterOptimizer:
         Args:
             param_grid: dict with lists of values for each parameter
                 {
-                    'macd_fast': [10, 12, 14],
-                    'macd_slow': [24, 26, 28],
-                    'macd_signal': [7, 9, 11],
-                    'sma_short': [40, 50, 60],
-                    'sma_long': [180, 200, 220],
-                    'bb_period': [18, 20, 22],
-                    'bb_std': [1.8, 2.0, 2.2]
+                    'macd_fast': [14, 18, 22],
+                    'bb_std': [2.5, 3.0, 3.5],
                 }
 
         Returns:
@@ -103,9 +98,9 @@ class ParameterOptimizer:
         # Cost model: 0.05% round-trip (slippage + commission)
         cost_per_trade = 0.0005
 
-        # Chandelier Exit(18, 3.0) for growth trend following
-        chandelier_period = 18
-        chandelier_mult = 3.0
+        # Chandelier Exit for growth trend following (params from optimizer grid)
+        chandelier_period = int(params.get('macd_fast', 18))
+        chandelier_mult = float(params.get('bb_std', 3.0))
 
         prev_close = data['close'].shift(1)
         tr = pd.concat([
@@ -259,7 +254,7 @@ class ParameterOptimizer:
             params = result['params']
             metrics = result['metrics']
 
-            param_str = f"BB(period={params['bb_period']}, std={params['bb_std']})"
+            param_str = f"CHAND(period={params['macd_fast']}, mult={params['bb_std']})"
 
             print(
                 f"{idx+1:<6} "
