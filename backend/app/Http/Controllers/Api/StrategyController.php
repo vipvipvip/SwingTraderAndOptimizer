@@ -30,7 +30,12 @@ class StrategyController extends Controller
      */
     public function index()
     {
-        return response()->json($this->strategyService->getAllTickers());
+        $tickers = $this->strategyService->getAllTickers();
+        $summary = $this->strategyService->getSummary();
+        return response()->json([
+            'tickers' => $tickers,
+            'summary' => $summary,
+        ]);
     }
 
     /**

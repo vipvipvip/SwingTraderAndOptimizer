@@ -222,6 +222,189 @@ class ParameterOptimizer:
         return trades, metrics, trade_equity_curve, trade_equity_dates
 
     @staticmethod
+    def backtest_portfolio(ticker_data, ticker_params, initial_capital=100000, cost_per_trade=0.0005):
+        """
+        Backtest multiple tickers with shared capital pool.
+        Capital is deployed when any ticker signals entry; when a ticker exits,
+        proceeds return to the pool for any ticker to use.
+
+        Each entry uses all available cash at that time. If multiple tickers
+        enter at different times, they each use whatever cash is available.
+        When cash is depleted, subsequent entries wait for an exit to free cash.
+
+        Args:
+            ticker_data: dict of {symbol: DataFrame} with OHLCV data, daily bars
+            ticker_params: dict of {symbol: dict} with CHAND params
+                          {macd_fast: period, bb_std: multiplier}
+            initial_capital: starting cash
+            cost_per_trade: round-trip transaction cost
+
+        Returns:
+            trades, metrics, equity_curve, equity_dates
+        """
+        n_tickers = len(ticker_data)
+        if n_tickers == 0:
+            return [], {'total_trades': 0, 'winning_trades': 0, 'win_rate': 0,
+                        'avg_return': 0, 'total_return': 0, 'sharpe_ratio': 0, 'max_drawdown': 0}, [], []
+
+        # Align all tickers to a common date index
+        common_index = None
+        aligned = {}
+        for sym, df in ticker_data.items():
+            d = df.copy()
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                if col in d.columns:
+                    d[col] = d[col].astype(float)
+            # Filter to daily bars (UTC hour=4/5, min=0 = NY midnight EDT/EST)
+            daily_mask = (d.index.minute == 0) & (d.index.hour.isin([4, 5]))
+            if daily_mask.any():
+                d = d[daily_mask].copy()
+                d.index = d.index.normalize()
+            aligned[sym] = d
+            if common_index is None:
+                common_index = d.index
+            else:
+                common_index = common_index.intersection(d.index)
+
+        # Precompute ATR for each ticker
+        atr_data = {}
+        tr_data = {}
+        for sym, d in aligned.items():
+            d = d.loc[common_index]
+            p = ticker_params.get(sym, {})
+            period = int(p.get('macd_fast', 18))
+            prev_close = d['close'].shift(1)
+            tr = pd.concat([
+                d['high'] - d['low'],
+                (d['high'] - prev_close).abs(),
+                (d['low'] - prev_close).abs()
+            ], axis=1).max(axis=1)
+            atr = tr.rolling(window=period).mean()
+            tr_data[sym] = tr
+            atr_data[sym] = atr
+            aligned[sym] = d
+
+        warmup = max(int(p.get('macd_fast', 18)) for p in ticker_params.values())
+
+        # State per ticker
+        positions = {}      # symbol -> {shares, entry_price, entry_idx, entry_equity}
+        pending_entry = {}  # symbol -> bool
+        pending_exit = {}   # symbol -> bool
+        high_since = {}     # symbol -> float
+
+        for sym in ticker_data:
+            pending_entry[sym] = False
+            pending_exit[sym] = False
+            high_since[sym] = 0
+
+        cash = initial_capital
+        trades = []
+        equity_curve = [initial_capital]
+        equity_dates = [str(common_index[0])]
+
+        for i in range(len(common_index)):
+            if i < warmup:
+                continue
+
+            date = common_index[i]
+
+            # --- Process exits for all tickers first ---
+            for sym in ticker_data:
+                if not pending_exit.get(sym) or sym not in positions:
+                    continue
+                pos = positions[sym]
+                exit_price = aligned[sym]['open'].iloc[i]
+                proceeds = pos['shares'] * exit_price
+                net_proceeds = proceeds * (1 - cost_per_trade)
+                net_pnl = net_proceeds - (pos['shares'] * pos['entry_price'])
+
+                days_held = round((i - pos['entry_idx']) / 7, 1)
+                trades.append({
+                    'symbol': sym,
+                    'entry_price': pos['entry_price'],
+                    'exit_price': exit_price,
+                    'entry_at': str(common_index[pos['entry_idx']]),
+                    'exit_at': str(date),
+                    'return': net_pnl / (pos['shares'] * pos['entry_price']),
+                    'pnl_dollar': net_pnl,
+                    'pnl_pct': net_pnl / (pos['shares'] * pos['entry_price']),
+                    'days_held': days_held
+                })
+                cash += net_proceeds
+                del positions[sym]
+                pending_exit[sym] = False
+
+            # --- Process entries (equal split among entering tickers) ---
+            entering_today = [sym for sym in ticker_data
+                              if pending_entry.get(sym) and sym not in positions and cash > 0]
+            if entering_today:
+                amount_each = cash / len(entering_today)
+                for sym in entering_today:
+                    entry_price = aligned[sym]['open'].iloc[i]
+                    cost = amount_each * cost_per_trade
+                    buy_amount = amount_each - cost
+                    shares = buy_amount / entry_price
+                    positions[sym] = {
+                        'shares': shares,
+                        'entry_price': entry_price,
+                        'entry_idx': i,
+                    }
+                    high_since[sym] = aligned[sym]['high'].iloc[i]
+                    pending_entry[sym] = False
+                    cash -= amount_each
+
+            # --- Generate signals ---
+            for sym in ticker_data:
+                d = aligned[sym]
+                close = d['close'].iloc[i]
+                high = d['high'].iloc[i]
+
+                # Always ready to enter when not in position
+                if sym not in positions and not pending_entry[sym]:
+                    pending_entry[sym] = True
+
+                # Chandelier exit
+                if sym in positions and not pending_exit[sym]:
+                    high_since[sym] = max(high_since[sym], high)
+                    stop = high_since[sym] - atr_data[sym].iloc[i] * float(ticker_params[sym].get('bb_std', 3.0))
+                    if close < stop:
+                        pending_exit[sym] = True
+
+                # Force exit at end
+                if i == len(common_index) - 1 and sym in positions and not pending_exit[sym]:
+                    pending_exit[sym] = True
+
+            # --- Track equity ---
+            positions_value = cash
+            for sym, pos in positions.items():
+                positions_value += pos['shares'] * aligned[sym]['close'].iloc[i]
+            equity_curve.append(positions_value)
+            equity_dates.append(str(date))
+
+        # Calculate metrics
+        if trades:
+            trades_df = pd.DataFrame(trades)
+            wins = (trades_df['return'] > 0).sum()
+            sharpe = ParameterOptimizer._calculate_sharpe(equity_curve)
+            metrics = {
+                'total_trades': len(trades_df),
+                'winning_trades': wins,
+                'win_rate': wins / len(trades_df),
+                'avg_return': trades_df['return'].mean(),
+                'total_return': (equity_curve[-1] - initial_capital) / initial_capital,
+                'sharpe_ratio': sharpe,
+                'max_drawdown': ParameterOptimizer._calculate_max_drawdown(equity_curve)
+            }
+        else:
+            metrics = {
+                'total_trades': 0, 'winning_trades': 0, 'win_rate': 0,
+                'avg_return': 0, 'total_return': 0, 'sharpe_ratio': 0, 'max_drawdown': 0
+            }
+            trades = []
+
+        return trades, metrics, equity_curve, equity_dates
+
+    @staticmethod
     def _calculate_sharpe(equity_curve):
         """Calculate Sharpe ratio (annualized for hourly data: 252 days × 6.5 hours/day = 1638)"""
         if len(equity_curve) < 2:

@@ -8,6 +8,7 @@
   import TradesHistoryTable from './lib/components/TradesHistoryTable.svelte'
 
   let strategies = []
+  let summary = null
   let loading = true
   let error = ''
   let selectedSymbol = 'SPY'
@@ -23,6 +24,10 @@
   let totalUnrealizedPnlPercent = 0
   let totalMarketValue = 0
   let accountEquity = 0
+
+  function fmtPct(v) {
+    return v == null ? '-' : (v * 100).toFixed(1) + '%'
+  }
 
   function formatDateTime(dateString) {
     if (!dateString) return ''
@@ -173,7 +178,9 @@
     try {
       const res = await fetchWithBackoff('/api/v1/strategies')
       if (!res.ok) throw new Error('Failed to load strategies')
-      strategies = await res.json()
+      const data = await res.json()
+      strategies = data.tickers || data
+      summary = data.summary || null
       if (strategies.length > 0) {
         selectedSymbol = strategies[0].symbol
       }
@@ -400,7 +407,15 @@
       </div>
 
       <div>
-        <h2 style="margin: 0 0 16px 0; color: #333;">Strategies</h2>
+        <h2 style="margin: 0 0 16px 0; color: #333;">
+          Strategies
+          {#if summary}
+            <span style="font-size: 14px; font-weight: 400; color: #666; margin-left: 12px;">
+              Portfolio: {fmtPct(summary.portfolio_return)} |
+              S&P 500: {fmtPct(summary.sp500_return)}
+            </span>
+          {/if}
+        </h2>
         <div class="strategies-row">
           {#each strategies as strategy (strategy.id)}
             <StrategyCard {strategy} onClick={() => selectedSymbol = strategy.symbol} />

@@ -6,21 +6,57 @@ use App\Models\Ticker;
 use App\Models\StrategyParameter;
 use App\Models\OptimizationHistory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 
 class StrategyService
 {
+    private function timestampsToNy($params)
+    {
+        if (!$params) return null;
+        foreach (['created_at', 'updated_at'] as $field) {
+            if (isset($params[$field])) {
+                $params[$field] = Carbon::parse($params[$field], 'UTC')
+                    ->setTimezone('America/New_York')
+                    ->toDateTimeString();
+            }
+        }
+        return $params;
+    }
+
     public function getAllTickers()
     {
-        return Ticker::whereEnabled(1)
+        $portfolio = Ticker::where('symbol', 'BLENDED')
+            ->with('strategyParameter')
+            ->first();
+
+        $portfolioEntry = null;
+        if ($portfolio && $portfolio->strategyParameter) {
+            $params = $this->timestampsToNy($portfolio->strategyParameter->toArray());
+            $params['is_portfolio'] = true;
+            $portfolioEntry = [
+                'symbol' => 'BLENDED',
+                'id' => $portfolio->id,
+                'allocation_weight' => 100,
+                'params' => $params,
+            ];
+        }
+
+        $tickers = Ticker::whereEnabled(1)
             ->with('strategyParameter')
             ->get()
             ->map(function ($ticker) {
                 return [
                     'symbol' => $ticker->symbol,
                     'id' => $ticker->id,
-                    'params' => $ticker->strategyParameter ? $ticker->strategyParameter->toArray() : null,
+                    'allocation_weight' => (float) $ticker->allocation_weight,
+                    'params' => $this->timestampsToNy(
+                        $ticker->strategyParameter ? $ticker->strategyParameter->toArray() : null
+                    ),
                 ];
-            });
+            })->toArray();
+
+        $result = $portfolioEntry ? [$portfolioEntry, ...$tickers] : $tickers;
+        return $result;
     }
 
     public function getStrategyForSymbol($symbol)
@@ -32,7 +68,9 @@ class StrategyService
 
         return [
             'ticker' => $ticker->toArray(),
-            'params' => $ticker->strategyParameter ? $ticker->strategyParameter->toArray() : null,
+            'params' => $this->timestampsToNy(
+                $ticker->strategyParameter ? $ticker->strategyParameter->toArray() : null
+            ),
         ];
     }
 
@@ -48,6 +86,42 @@ class StrategyService
             ->limit($limit)
             ->get()
             ->toArray();
+    }
+
+    public function getSummary()
+    {
+        // Portfolio return from BLENDED strategy parameters
+        $blended = Ticker::where('symbol', 'BLENDED')
+            ->with('strategyParameter')
+            ->first();
+        $portfolioReturn = null;
+        if ($blended && $blended->strategyParameter) {
+            $portfolioReturn = (float) $blended->strategyParameter->total_return;
+        }
+
+        // SPY buy-and-hold return over the backtest period
+        $spy = Ticker::where('symbol', 'SPY')->first();
+        $sp500Return = null;
+        if ($spy) {
+            $firstBar = DB::table('bars')
+                ->where('ticker_id', $spy->id)
+                ->where('source', 'alpaca')
+                ->orderBy('timestamp')
+                ->first(['timestamp', 'close']);
+            $lastBar = DB::table('bars')
+                ->where('ticker_id', $spy->id)
+                ->where('source', 'alpaca')
+                ->orderByDesc('timestamp')
+                ->first(['timestamp', 'close']);
+            if ($firstBar && $lastBar && (float) $firstBar->close > 0) {
+                $sp500Return = ((float) $lastBar->close - (float) $firstBar->close) / (float) $firstBar->close;
+            }
+        }
+
+        return [
+            'portfolio_return' => $portfolioReturn,
+            'sp500_return' => $sp500Return,
+        ];
     }
 
     public function getLatestOptimization($symbol)

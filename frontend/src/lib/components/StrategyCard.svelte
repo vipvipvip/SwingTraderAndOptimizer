@@ -2,6 +2,8 @@
   export let strategy
   export let onClick = undefined
 
+  $: isPortfolio = strategy.params?.is_portfolio ?? false
+
   const fmt = {
     sharpe: (v) => (v == null ? '-' : (+v).toFixed(2)),
     pct:    (v) => (v == null ? '-' : (+v * 100).toFixed(1) + '%'),
@@ -23,10 +25,15 @@
     transform: translateY(-2px);
   }
 
+  .card.portfolio {
+    border: 2px solid #3b82f6;
+    background: linear-gradient(135deg, #eff6ff 0%, #fff 100%);
+  }
+
   .header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     margin-bottom: 12px;
   }
 
@@ -44,6 +51,17 @@
     border-radius: 4px;
     font-size: 12px;
     font-weight: 500;
+  }
+
+  .badge.portfolio-badge {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .allocation {
+    font-size: 16px;
+    font-weight: 600;
+    color: #666;
   }
 
   .metrics {
@@ -82,10 +100,13 @@
   }
 </style>
 
-<div class="card" on:click={onClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && onClick?.()}>
+<div class="card" class:portfolio={isPortfolio} on:click={onClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && onClick?.()}>
   <div class="header">
-    <div class="symbol">{strategy.symbol}</div>
-    <div class="badge">ACTIVE</div>
+    <div class="symbol">{isPortfolio ? 'PORTFOLIO' : strategy.symbol}</div>
+    {#if !isPortfolio}
+      <div class="allocation">({strategy.allocation_weight ?? 0}%)</div>
+    {/if}
+    <div class="badge" class:portfolio-badge={isPortfolio}>{isPortfolio ? 'PORTFOLIO' : 'ACTIVE'}</div>
   </div>
 
   <div class="metrics">
@@ -103,26 +124,47 @@
     </div>
     <div class="metric">
       <div class="metric-label">Max Drawdown</div>
-      <div class="metric-value">-</div>
+      <div class="metric-value">{fmt.pct(strategy.params?.max_drawdown)}</div>
     </div>
   </div>
 
-  <div class="params">
-    <div class="param-row">
-      <span>Exit:</span>
-      <span>Chandelier({strategy.params?.macd_fast}, {strategy.params?.bb_std})</span>
+  {#if isPortfolio}
+    <div class="params">
+      <div class="param-row">
+        <span>Strategy:</span>
+        <span>Chandelier Exit (shared pool)</span>
+      </div>
+      <div class="param-row">
+        <span>Tickers:</span>
+        <span>QQQ (14, 3.0) / VTI (14, 3.5) / VTV (14, 3.5)</span>
+      </div>
+      <div class="param-row">
+        <span>Trades:</span>
+        <span>{strategy.params?.total_trades ?? '-'}</span>
+      </div>
+      <div class="param-row">
+        <span>Capital:</span>
+        <span>Shared pool ($100k)</span>
+      </div>
     </div>
-    <div class="param-row">
-      <span>ATR:</span>
-      <span>({strategy.params?.bb_period})</span>
+  {:else}
+    <div class="params">
+      <div class="param-row">
+        <span>Exit:</span>
+        <span>Chandelier({strategy.params?.macd_fast}, {strategy.params?.bb_std})</span>
+      </div>
+      <div class="param-row">
+        <span>ATR:</span>
+        <span>({strategy.params?.bb_period})</span>
+      </div>
+      <div class="param-row">
+        <span>Re-entry:</span>
+        <span>Always (next bar open)</span>
+      </div>
+      <div class="param-row">
+        <span>Trades:</span>
+        <span>{strategy.params?.total_trades ?? '-'}</span>
+      </div>
     </div>
-    <div class="param-row">
-      <span>Re-entry:</span>
-      <span>Always (next bar open)</span>
-    </div>
-    <div class="param-row">
-      <span>Trades:</span>
-      <span>{strategy.params?.total_trades ?? '-'}</span>
-    </div>
-  </div>
+  {/if}
 </div>

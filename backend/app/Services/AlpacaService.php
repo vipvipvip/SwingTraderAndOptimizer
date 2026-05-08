@@ -13,6 +13,9 @@ class AlpacaService
     private $dataUrl;
     private $maxRetries = 3;
     private $retryDelay = 500; // milliseconds
+    private static $cache = [];
+    private static $cacheTime = [];
+    private $cacheTtl = 60; // seconds — cache read responses to reduce API call frequency
 
     public function __construct()
     {
@@ -20,6 +23,30 @@ class AlpacaService
         $this->secretKey = env('ALPACA_SECRET_KEY');
         $this->baseUrl = env('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets');
         $this->dataUrl = 'https://data.alpaca.markets';
+    }
+
+    private function cacheGet($key)
+    {
+        if (isset(self::$cacheTime[$key]) && time() - self::$cacheTime[$key] < $this->cacheTtl) {
+            return self::$cache[$key] ?? null;
+        }
+        return null;
+    }
+
+    private function cacheSet($key, $value)
+    {
+        self::$cache[$key] = $value;
+        self::$cacheTime[$key] = time();
+    }
+
+    private function cacheClear($key = null)
+    {
+        if ($key) {
+            unset(self::$cache[$key], self::$cacheTime[$key]);
+        } else {
+            self::$cache = [];
+            self::$cacheTime = [];
+        }
     }
 
     private function makeRequest($method, $url, $params = null, $payload = null, $retries = 0)
@@ -73,15 +100,20 @@ class AlpacaService
      */
     public function getClock()
     {
+        $cached = $this->cacheGet('clock');
+        if ($cached !== null) return $cached;
+
         try {
             $response = $this->makeRequest('get', "{$this->baseUrl}/v2/clock");
             $data = $response->json();
-            return [
+            $result = [
                 'is_open' => $data['is_open'] ?? false,
                 'next_open' => $data['next_open'] ?? null,
                 'next_close' => $data['next_close'] ?? null,
                 'timestamp' => $data['timestamp'] ?? null,
             ];
+            $this->cacheSet('clock', $result);
+            return $result;
         } catch (\Exception $e) {
             Log::error('AlpacaService::getClock error: ' . $e->getMessage());
             return [
@@ -98,15 +130,20 @@ class AlpacaService
      */
     public function getAccount()
     {
+        $cached = $this->cacheGet('account');
+        if ($cached !== null) return $cached;
+
         try {
             $response = $this->makeRequest('get', "{$this->baseUrl}/v2/account");
             $data = $response->json();
-            return [
+            $result = [
                 'equity' => $data['equity'] ?? 0,
                 'buying_power' => $data['buying_power'] ?? 0,
                 'cash' => $data['cash'] ?? 0,
                 'portfolio_value' => $data['portfolio_value'] ?? 0,
             ];
+            $this->cacheSet('account', $result);
+            return $result;
         } catch (\Exception $e) {
             Log::error('AlpacaService::getAccount error: ' . $e->getMessage());
             return [
@@ -124,6 +161,9 @@ class AlpacaService
      */
     public function getPositions()
     {
+        $cached = $this->cacheGet('positions');
+        if ($cached !== null) return $cached;
+
         try {
             $response = $this->makeRequest('get', "{$this->baseUrl}/v2/positions");
             $positions = $response->json();
@@ -131,7 +171,7 @@ class AlpacaService
                 $positions = [];
             }
 
-            return array_map(function ($pos) {
+            $result = array_map(function ($pos) {
                 $qty = floatval($pos['qty'] ?? 0);
                 $entry_price = floatval($pos['avg_entry_price'] ?? 0);
                 $current_price = floatval($pos['current_price'] ?? 0);
@@ -149,6 +189,8 @@ class AlpacaService
                     'unrealized_plpc' => $pos['unrealized_plpc'] ?? 0,
                 ];
             }, $positions);
+            $this->cacheSet('positions', $result);
+            return $result;
         } catch (\Exception $e) {
             Log::error('AlpacaService::getPositions error: ' . $e->getMessage());
             return [];
@@ -211,6 +253,9 @@ class AlpacaService
             ];
 
             $response = $this->makeRequest('post', "{$this->baseUrl}/v2/orders", null, $payload);
+            $this->cacheClear('account');
+            $this->cacheClear('positions');
+            $this->cacheClear('orders_all');
             return $response->json();
         } catch (\Exception $e) {
             Log::error("AlpacaService::placeOrder({$symbol}, {$qty}, {$side}) error: " . $e->getMessage());
@@ -223,6 +268,10 @@ class AlpacaService
      */
     public function getOrders($status = 'all', $limit = 500)
     {
+        $cacheKey = 'orders_' . md5($status . '_' . $limit);
+        $cached = $this->cacheGet($cacheKey);
+        if ($cached !== null) return $cached;
+
         try {
             $params = [
                 'status' => $status,
@@ -230,7 +279,9 @@ class AlpacaService
             ];
 
             $response = $this->makeRequest('get', "{$this->baseUrl}/v2/orders", $params);
-            return $response->json();
+            $result = $response->json();
+            $this->cacheSet($cacheKey, $result);
+            return $result;
         } catch (\Exception $e) {
             Log::error("AlpacaService::getOrders error: " . $e->getMessage());
             throw $e;
