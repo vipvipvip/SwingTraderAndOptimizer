@@ -3,31 +3,34 @@
 
   let liveTrades = []
   let backtestTrades = []
+  let allTickerList = []
   let loading = true
   let error = ''
   let filterType = 'all'
   let selectedTicker = 'All'
-  let allTickers = []
 
   onMount(async () => {
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 5000)
 
-      const liveRes = await fetch('/api/v1/trades/live', { signal: controller.signal })
+      const [liveRes, backtestRes] = await Promise.all([
+        fetch('/api/v1/trades/live', { signal: controller.signal }),
+        fetch('/api/v1/trades/backtest', { signal: controller.signal }),
+      ])
+
       if (!liveRes.ok) throw new Error('Failed to load live trades')
+
       const liveData = await liveRes.json()
       liveTrades = liveData.filter(t => t.status === 'closed').sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
 
-      const backtestRes = await fetch('/api/v1/trades/backtest', { signal: controller.signal })
       if (backtestRes.ok) {
-        const backtestData = await backtestRes.json()
-        backtestTrades = backtestData.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
+        const btData = await backtestRes.json()
+        backtestTrades = btData.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
       }
 
-      // Get unique tickers
       const allTrades = [...liveTrades, ...backtestTrades]
-      allTickers = ['All', ...new Set(allTrades.map(t => t.symbol))].sort()
+      allTickerList = ['All', ...new Set(allTrades.map(t => t.symbol))].sort()
       clearTimeout(timeoutId)
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load trades'
@@ -36,31 +39,19 @@
     }
   })
 
-  $: filteredBacktestTrades = selectedTicker === 'All'
+  $: filteredBacktest = selectedTicker === 'All'
     ? backtestTrades
     : backtestTrades.filter(t => t.symbol === selectedTicker)
 
-  $: filteredLiveTrades = selectedTicker === 'All'
+  $: filteredLive = selectedTicker === 'All'
     ? liveTrades
     : liveTrades.filter(t => t.symbol === selectedTicker)
 
-  $: allDisplayTrades = filterType === 'all' ? [...filteredBacktestTrades, ...filteredLiveTrades] :
-                        filterType === 'backtest' ? filteredBacktestTrades :
-                        filteredLiveTrades
-
-  $: filteredByTicker = allDisplayTrades
-
-  $: displayTrades = filteredByTicker.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
-
-  $: tradesWithRunningTotal = (() => {
-    // Calculate running total chronologically (oldest to newest)
-    const chronological = [...displayTrades].reverse()
-    const withRunning = chronological.map((trade, idx) => ({
-      ...trade,
-      runningTotal: chronological.slice(0, idx + 1).reduce((sum, t) => sum + (parseFloat(t.pnl_dollar) || 0), 0)
-    }))
-    // Return in reverse order (newest to oldest) for display
-    return withRunning.reverse()
+  $: displayTrades = (() => {
+    const pool = filterType === 'all' ? [...filteredBacktest, ...filteredLive]
+      : filterType === 'backtest' ? filteredBacktest
+      : filteredLive
+    return pool.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
   })()
 
   function formatDate(dateStr) {
@@ -254,16 +245,9 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
   }
 
-  .running-total {
+  .portfolio-value {
     font-weight: 600;
-  }
-
-  .running-total.positive {
-    color: #22c55e;
-  }
-
-  .running-total.negative {
-    color: #ef4444;
+    color: #3b82f6;
   }
 </style>
 
@@ -280,17 +264,17 @@
         All ({backtestTrades.length + liveTrades.length})
       </button>
       <button class="filter-btn" class:active={filterType === 'backtest'} on:click={() => filterType = 'backtest'}>
-        Backtest ({filteredBacktestTrades.length})
+        Backtest ({filteredBacktest.length})
       </button>
       <button class="filter-btn" class:active={filterType === 'live'} on:click={() => filterType = 'live'}>
-        Live ({filteredLiveTrades.length})
+        Live ({filteredLive.length})
       </button>
     </div>
 
     <div class="ticker-selector">
       <label for="ticker-select">Ticker:</label>
       <select id="ticker-select" class="ticker-select" bind:value={selectedTicker}>
-        {#each allTickers as ticker}
+        {#each allTickerList as ticker}
           <option value={ticker}>{ticker}</option>
         {/each}
       </select>
@@ -313,11 +297,11 @@
               <th>Exit Date</th>
               <th>P&L $</th>
               <th>P&L %</th>
-              <th>Running Total</th>
+              <th>Portfolio Value</th>
             </tr>
           </thead>
           <tbody>
-            {#each tradesWithRunningTotal as trade (trade.id || Math.random())}
+            {#each displayTrades as trade (trade.id || Math.random())}
               <tr>
                 <td>
                   <span class="trade-type-badge" class:trade-type-backtest={!trade.status} class:trade-type-live={trade.status}>
@@ -337,8 +321,8 @@
                 <td class={trade.return > 0 ? 'pnl-positive' : 'pnl-negative'}>
                   {(trade.return * 100).toFixed(2)}%
                 </td>
-                <td class="running-total" class:positive={trade.runningTotal > 0} class:negative={trade.runningTotal < 0}>
-                  ${formatPrice(trade.runningTotal)}
+                <td class="portfolio-value">
+                  ${formatPrice(trade.portfolio_value)}
                 </td>
               </tr>
             {/each}

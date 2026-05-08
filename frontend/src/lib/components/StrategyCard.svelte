@@ -58,12 +58,6 @@
     color: #1e40af;
   }
 
-  .allocation {
-    font-size: 16px;
-    font-weight: 600;
-    color: #666;
-  }
-
   .metrics {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -103,9 +97,6 @@
 <div class="card" class:portfolio={isPortfolio} on:click={onClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && onClick?.()}>
   <div class="header">
     <div class="symbol">{isPortfolio ? 'PORTFOLIO' : strategy.symbol}</div>
-    {#if !isPortfolio}
-      <div class="allocation">({strategy.allocation_weight ?? 0}%)</div>
-    {/if}
     <div class="badge" class:portfolio-badge={isPortfolio}>{isPortfolio ? 'PORTFOLIO' : 'ACTIVE'}</div>
   </div>
 
