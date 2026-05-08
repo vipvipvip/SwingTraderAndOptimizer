@@ -289,6 +289,29 @@ class StrategyDB:
             conn.rollback()
             print(f"✗ Error saving equity curve for {symbol}: {e}")
 
+    def update_strategy_metrics(self, symbol, metrics):
+        """Update win_rate, sharpe_ratio, total_return, total_trades on base_case=true row"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                UPDATE strategy_parameters
+                SET win_rate = %s, sharpe_ratio = %s, total_return = %s, total_trades = %s, updated_at = NOW()
+                WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
+                AND base_case = true
+            ''', (
+                float(metrics['win_rate']),
+                float(metrics['sharpe_ratio']),
+                float(metrics['total_return']),
+                int(metrics['total_trades']),
+                symbol
+            ))
+            conn.commit()
+            print(f"  ✓ Updated strategy_metrics for {symbol}")
+        except Exception as e:
+            conn.rollback()
+            print(f"  ✗ Error updating strategy_metrics for {symbol}: {e}")
+
     def close(self):
         """Close database connection"""
         if self.conn:

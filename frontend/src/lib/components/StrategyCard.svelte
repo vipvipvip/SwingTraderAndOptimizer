@@ -109,26 +109,20 @@
 
   <div class="params">
     <div class="param-row">
-      <span>MACD:</span>
-      <span>
-        ({strategy.params?.macd_fast}, {strategy.params?.macd_slow}, {strategy.params?.macd_signal})
-      </span>
+      <span>Exit:</span>
+      <span>Chandelier({strategy.params?.macd_fast}, {strategy.params?.bb_std})</span>
     </div>
     <div class="param-row">
-      <span>PPO:</span>
-      <span>({strategy.params?.ppo_fast}, {strategy.params?.ppo_slow})</span>
+      <span>ATR:</span>
+      <span>({strategy.params?.bb_period})</span>
     </div>
     <div class="param-row">
-      <span>EMA/SMA:</span>
-      <span>({strategy.params?.ema_signal}, {strategy.params?.sma_signal})</span>
+      <span>Re-entry:</span>
+      <span>Always (next bar open)</span>
     </div>
     <div class="param-row">
-      <span>Uptrend:</span>
-      <span>({strategy.params?.sma_50}, {strategy.params?.sma_200})</span>
-    </div>
-    <div class="param-row">
-      <span>BB:</span>
-      <span>({strategy.params?.bb_period}, {strategy.params?.bb_std})</span>
+      <span>Trades:</span>
+      <span>{strategy.params?.total_trades ?? '-'}</span>
     </div>
   </div>
 </div>

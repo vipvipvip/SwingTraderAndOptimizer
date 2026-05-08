@@ -89,6 +89,7 @@ def backtest_ticker(symbol, timeframe, allocation_weight=None):
 
         db.save_backtest_trades(symbol, trades)
         db.save_equity_curve(symbol, metrics, equity_curve, equity_dates)
+        db.update_strategy_metrics(symbol, metrics)
         print(f"  ✓ Stored {len(trades)} trades")
         print(f"  ✓ SYNC VALIDATED: Sharpe={metrics['sharpe_ratio']:.4f}, Return={metrics['total_return']*100:.2f}%, Win Rate={metrics['win_rate']*100:.1f}%")
     else:
@@ -153,7 +154,7 @@ def compare_and_report(symbol, baseline, candidates):
 def main():
     parser = argparse.ArgumentParser(description='Backtest with parameter comparison')
     parser.add_argument('--timeframe', default='1Hour', help='Timeframe (default: 1Hour)')
-    parser.add_argument('--tickers', nargs='+', default=['SPY', 'QQQ', 'IWM'], help='Tickers to backtest')
+    parser.add_argument('--tickers', nargs='+', default=['QQQ', 'VTI', 'VTV'], help='Tickers to backtest')
     parser.add_argument('--allocation', type=float, default=None, help='Capital allocation % per trade (default: load from database)')
     parser.add_argument('--mode', choices=['baseline', 'candidates', 'all'], default='baseline',
                         help='baseline: test base_case=1, candidates: test base_case=0, all: compare both')

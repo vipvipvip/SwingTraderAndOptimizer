@@ -29,7 +29,7 @@ class SPYSwingTradingStrategy:
         df = df.copy()
 
         # Use daily bars if available, otherwise resample hourly
-        daily_mask = (df.index.hour == 4) & (df.index.minute == 0)
+        daily_mask = (df.index.minute == 0) & (df.index.hour.isin([4, 5]))
         if daily_mask.any():
             df = df[daily_mask].copy()
             df.index = df.index.normalize()

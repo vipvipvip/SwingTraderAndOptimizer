@@ -86,8 +86,8 @@ class ParameterOptimizer:
         """Run backtest with specific parameters"""
         data = self.data.copy()
 
-        # Use daily bars if available (UTC hour=4, min=0 = NY midnight)
-        daily_mask = (data.index.hour == 4) & (data.index.minute == 0)
+        # Use daily bars if available (UTC hour=4/5, min=0 = NY midnight EDT/EST)
+        daily_mask = (data.index.minute == 0) & (data.index.hour.isin([4, 5]))
         if daily_mask.any():
             data = data[daily_mask].copy()
             data.index = data.index.normalize()
