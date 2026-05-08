@@ -4,7 +4,11 @@
 This script removes bars outside regular market hours from the bars table.
 Used for cleaning historical data after migration or to fix data integrity issues.
 
-Market hours: 9:30 AM - 4:00 PM ET = 14:00 - 20:00 UTC (since bars are stored in UTC)
+Market hours: 9:30 AM - 4:00 PM ET
+Stored as UTC: bars converted from NY to UTC before insert
+  EDT (UTC-4): 13:30 - 20:00 UTC
+  EST (UTC-5): 14:30 - 21:00 UTC
+Safe UTC range (covers both EDT and EST): 13-21
 """
 import psycopg2
 from datetime import datetime
@@ -33,11 +37,13 @@ def cleanup_after_hours():
         print(f"\nTotal bars before cleanup: {total_before}")
 
         # Get bars outside market hours
-        # Market hours in UTC: 13:00 - 20:00 (9:30 AM - 4:30 PM ET)
-        # Hourly bars: 13:30, 14:30, 15:30, 16:30, 17:30, 18:30, 19:30, 20:30
+        # Bars stored as UTC. Market hours in UTC:
+        #   EDT (UTC-4): 13:30-20:00 → hours 13-20
+        #   EST (UTC-5): 14:30-21:00 → hours 14-21
+        # Safe range covering both: 13-21
         cursor.execute('''
             SELECT COUNT(*) FROM bars
-            WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 13 AND 20
+            WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 13 AND 21
         ''')
         after_hours_count = cursor.fetchone()[0]
         print(f"After-hours bars to delete: {after_hours_count}")
@@ -46,7 +52,7 @@ def cleanup_after_hours():
             # Delete after-hours bars
             cursor.execute('''
                 DELETE FROM bars
-                WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 13 AND 20
+                WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 13 AND 21
             ''')
             conn.commit()
             print(f"✓ Deleted {cursor.rowcount} after-hours bars")
@@ -60,7 +66,7 @@ def cleanup_after_hours():
         if total_before > total_after:
             print(f"Bars removed: {total_before - total_after}")
 
-        # Show breakdown by hour (should only see 14-20)
+        # Show breakdown by hour (should only see 13-21)
         cursor.execute('''
             SELECT EXTRACT(HOUR FROM timestamp)::INT as hour, COUNT(*) as bar_count
             FROM bars
