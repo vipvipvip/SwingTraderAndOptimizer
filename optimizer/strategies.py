@@ -270,12 +270,13 @@ class SPYSwingTradingStrategy:
 
     @staticmethod
     def _calculate_sharpe_ratio(equity_curve, risk_free_rate=0.02):
-        """Calculate Sharpe ratio (annualized)"""
+        """Calculate Sharpe ratio (annualized for hourly data: 252 days × 6.5 hours/day = 1638)"""
         returns = np.diff(equity_curve) / equity_curve[:-1]
         if len(returns) == 0:
             return 0
-        avg_return = np.mean(returns) * 252  # Annualized
-        std_return = np.std(returns) * np.sqrt(252)  # Annualized
+        hourly_periods = 1638  # 252 trading days × 6.5 hours/day
+        avg_return = np.mean(returns) * hourly_periods  # Annualized
+        std_return = np.std(returns) * np.sqrt(hourly_periods)  # Annualized
         if std_return == 0:
             return 0
         return (avg_return - risk_free_rate) / std_return

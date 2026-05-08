@@ -227,13 +227,14 @@ class ParameterOptimizer:
 
     @staticmethod
     def _calculate_sharpe(equity_curve):
-        """Calculate Sharpe ratio"""
+        """Calculate Sharpe ratio (annualized for hourly data: 252 days × 6.5 hours/day = 1638)"""
         if len(equity_curve) < 2:
             return 0
         returns = pd.Series(equity_curve).pct_change().dropna()
         if len(returns) == 0 or returns.std() == 0:
             return 0
-        return (returns.mean() * 252) / (returns.std() * (252 ** 0.5))
+        hourly_periods = 1638  # 252 trading days × 6.5 hours/day
+        return (returns.mean() * hourly_periods) / (returns.std() * (hourly_periods ** 0.5))
 
     @staticmethod
     def _calculate_max_drawdown(equity_curve):
