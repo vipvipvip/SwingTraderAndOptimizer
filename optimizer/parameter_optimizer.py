@@ -86,11 +86,13 @@ class ParameterOptimizer:
         """Run backtest with specific parameters"""
         data = self.data.copy()
 
-        # Resample hourly to daily for cleaner trend signals
-        bar_span = (data.index[-1] - data.index[0]).days
-        hourly_span = len(data)
-        bars_per_day_est = round(hourly_span / max(bar_span, 1))
-        if bars_per_day_est >= 4:
+        # Use daily bars if available (UTC hour=4, min=0 = NY midnight)
+        daily_mask = (data.index.hour == 4) & (data.index.minute == 0)
+        if daily_mask.any():
+            data = data[daily_mask].copy()
+            data.index = data.index.normalize()
+        else:
+            # Resample hourly to daily
             data = data.resample('1D').agg({
                 'open': 'first', 'high': 'max', 'low': 'min',
                 'close': 'last', 'volume': 'sum'
@@ -98,43 +100,24 @@ class ParameterOptimizer:
 
         from indicators import calculate_macd, calculate_sma, calculate_ema, calculate_bollinger_bands
 
-        # MACD with FIXED parameters (12/26/9)
-        macd_fast = 12
-        macd_slow = 26
-        macd_signal = 9
-        ema_fast = data['close'].ewm(span=macd_fast).mean()
-        ema_slow = data['close'].ewm(span=macd_slow).mean()
-        macd_line = ema_fast - ema_slow
-        signal_line = macd_line.ewm(span=macd_signal).mean()
-        macd_histogram = macd_line - signal_line
-
-        # Fixed EMA and SMA values (not optimized)
-        ema_momentum = data['close'].ewm(span=10, adjust=False).mean()  # EMA=10
-        sma_trend = data['close'].rolling(window=40).mean()  # SMA=40
-
         # Cost model: 0.05% round-trip (slippage + commission)
         cost_per_trade = 0.0005
 
-        # Trend-following strategy: enter when momentum AND trend align, exit when either breaks
-        signals = pd.Series(0, index=data.index)
-        last_signal = 0
-        warmup = max(macd_slow, 40)
+        # Chandelier Exit(18, 3.0) for growth trend following
+        chandelier_period = 18
+        chandelier_mult = 3.0
 
-        for i in range(warmup, len(data)):
-            macd_bull = macd_line.iloc[i] > 0
-            ema_bull = ema_momentum.iloc[i] > sma_trend.iloc[i]
+        prev_close = data['close'].shift(1)
+        tr = pd.concat([
+            data['high'] - data['low'],
+            (data['high'] - prev_close).abs(),
+            (data['low'] - prev_close).abs()
+        ], axis=1).max(axis=1)
+        atr = tr.rolling(window=chandelier_period).mean()
 
-            # Entry: MACD > 0 AND EMA10 > SMA40 (momentum + trend confirmed)
-            if macd_bull and ema_bull and last_signal != 1:
-                signals.iloc[i] = 1
-                last_signal = 1
+        warmup = chandelier_period
 
-            # Exit: MACD < 0 OR EMA10 < SMA40 (either momentum dies or trend breaks)
-            elif last_signal == 1 and (macd_line.iloc[i] < 0 or ema_momentum.iloc[i] < sma_trend.iloc[i]):
-                signals.iloc[i] = -1
-                last_signal = -1
-
-        # Simulate trades
+        # Simulate trades with chandelier exit
         trades = []
         bar_equity = [self.initial_capital]
         trade_equity_curve = [self.initial_capital]
@@ -145,15 +128,18 @@ class ParameterOptimizer:
         entry_price = None
         entry_idx = None
         equity_before_trade = self.initial_capital
+        high_since_entry = 0
 
-        for i in range(len(signals)):
-            signal = signals.iloc[i]
+        for i in range(len(data)):
+            if i < warmup:
+                continue
+
             price_open = data['open'].iloc[i]
             price_close = data['close'].iloc[i]
+            price_high = data['high'].iloc[i]
 
             if pending_exit and position_active:
                 exit_price = price_open
-                gross_pnl = (exit_price - entry_price) / entry_price
                 shares_amount = (equity_before_trade * (self.allocation_weight / 100)) / entry_price
                 gross_dollar = shares_amount * (exit_price - entry_price)
 
@@ -187,12 +173,22 @@ class ParameterOptimizer:
                 entry_idx = i
                 equity_before_trade = trade_equity_curve[-1]
                 position_active = True
+                high_since_entry = price_high
                 pending_entry = False
 
-            if signal == 1 and not position_active and not pending_entry:
+            # Always ready to enter after warmup
+            if not position_active and not pending_entry:
                 pending_entry = True
 
-            if (signal == -1 or i == len(signals) - 1) and position_active and not pending_exit:
+            # Chandelier exit: close drops below (highest high - ATR * mult)
+            if position_active and not pending_exit:
+                high_since_entry = max(high_since_entry, price_high)
+                stop_level = high_since_entry - atr.iloc[i] * chandelier_mult
+                if price_close < stop_level:
+                    pending_exit = True
+
+            # Force exit at end of data
+            if i == len(data) - 1 and position_active and not pending_exit:
                 pending_exit = True
 
             if position_active:
@@ -238,8 +234,8 @@ class ParameterOptimizer:
         returns = pd.Series(equity_curve).pct_change().dropna()
         if len(returns) == 0 or returns.std() == 0:
             return 0
-        hourly_periods = 1638  # 252 trading days × 6.5 hours/day
-        return (returns.mean() * hourly_periods) / (returns.std() * (hourly_periods ** 0.5))
+        daily_periods = 252  # Trading days per year
+        return (returns.mean() * daily_periods) / (returns.std() * (daily_periods ** 0.5))
 
     @staticmethod
     def _calculate_max_drawdown(equity_curve):

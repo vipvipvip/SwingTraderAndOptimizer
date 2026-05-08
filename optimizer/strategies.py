@@ -28,9 +28,12 @@ class SPYSwingTradingStrategy:
     def generate_signals(self, df):
         df = df.copy()
 
-        # Resample hourly to daily
-        bar_span = (df.index[-1] - df.index[0]).days
-        if len(df) / max(bar_span, 1) >= 4:
+        # Use daily bars if available, otherwise resample hourly
+        daily_mask = (df.index.hour == 4) & (df.index.minute == 0)
+        if daily_mask.any():
+            df = df[daily_mask].copy()
+            df.index = df.index.normalize()
+        else:
             df = df.resample('1D').agg({
                 'open': 'first', 'high': 'max', 'low': 'min',
                 'close': 'last', 'volume': 'sum'
@@ -40,27 +43,23 @@ class SPYSwingTradingStrategy:
         ppo_data = calculate_ppo(df['close'])
         sma_50 = calculate_sma(df['close'], 350)
         sma_200 = calculate_sma(df['close'], 1400)
-        ema_momentum = calculate_ema(df['close'], self.params['ema_fast'])
-        sma_trend = calculate_sma(df['close'], self.params['sma_medium'])
         bb_data = calculate_bollinger_bands(df['close'], period=20)
 
+        # Chandelier Exit(22, 3.0) for growth trend following
+        chandelier_period = 22
+        chandelier_mult = 3.0
+
+        prev_close = df['close'].shift(1)
+        tr = pd.concat([
+            df['high'] - df['low'],
+            (df['high'] - prev_close).abs(),
+            (df['low'] - prev_close).abs()
+        ], axis=1).max(axis=1)
+        atr = tr.rolling(window=chandelier_period).mean()
+
+        # Always-long with chandelier exit: signals generated in backtest
         signals = pd.Series(0, index=df.index)
-        last_signal = 0
-        warmup = max(200, self.params['sma_medium'])
-
-        for i in range(warmup, len(df)):
-            macd_bull = macd_data['macd'].iloc[i] > 0
-            ema_bull = ema_momentum.iloc[i] > sma_trend.iloc[i]
-
-            # Entry: MACD > 0 AND EMA10 > SMA40
-            if macd_bull and ema_bull and last_signal != 1:
-                signals.iloc[i] = 1
-                last_signal = 1
-
-            # Exit: MACD < 0 OR EMA10 < SMA40
-            elif last_signal == 1 and (macd_data['macd'].iloc[i] < 0 or ema_momentum.iloc[i] < sma_trend.iloc[i]):
-                signals.iloc[i] = -1
-                last_signal = -1
+        df['chandelier_atr'] = atr
 
         df['signal'] = signals
         df['macd'] = macd_data['macd']
@@ -68,8 +67,6 @@ class SPYSwingTradingStrategy:
         df['ppo'] = ppo_data['ppo']
         df['sma_50'] = sma_50
         df['sma_200'] = sma_200
-        df['ema_momentum'] = ema_momentum
-        df['sma_trend'] = sma_trend
         df['bb_upper'] = bb_data['upper']
         df['bb_middle'] = bb_data['middle']
         df['bb_lower'] = bb_data['lower']

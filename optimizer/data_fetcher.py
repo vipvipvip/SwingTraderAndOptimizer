@@ -91,10 +91,14 @@ def fetch_incremental_data(symbol, timeframe='1Hour'):
         start_date = last_ts
         print(f"Fetching {symbol} incremental data since {last_date}")
     else:
-        # Bootstrap: fetch 2 years if database is empty
+        # Bootstrap: fetch based on timeframe
         end_date = datetime.now(ZoneInfo('America/New_York'))
-        start_date = end_date - timedelta(days=1250)
-        print(f"Database empty for {symbol}, fetching data from {start_date.date()}")
+        if timeframe == '1Day':
+            bootstrap_days = 2500  # Daily data goes back to Jul 2020
+        else:
+            bootstrap_days = 1250  # Hourly data ~3.4 years
+        start_date = end_date - timedelta(days=bootstrap_days)
+        print(f"Database empty for {symbol}, fetching {timeframe} data from {start_date.date()}")
 
     return fetch_historical_data(symbol, timeframe=timeframe, start_date=start_date)
 
