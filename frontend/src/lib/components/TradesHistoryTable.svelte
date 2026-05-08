@@ -36,13 +36,19 @@
     }
   })
 
-  $: allDisplayTrades = filterType === 'all' ? [...backtestTrades, ...liveTrades] :
-                        filterType === 'backtest' ? backtestTrades :
-                        liveTrades
+  $: filteredBacktestTrades = selectedTicker === 'All'
+    ? backtestTrades
+    : backtestTrades.filter(t => t.symbol === selectedTicker)
 
-  $: filteredByTicker = selectedTicker === 'All'
-    ? allDisplayTrades
-    : allDisplayTrades.filter(t => t.symbol === selectedTicker)
+  $: filteredLiveTrades = selectedTicker === 'All'
+    ? liveTrades
+    : liveTrades.filter(t => t.symbol === selectedTicker)
+
+  $: allDisplayTrades = filterType === 'all' ? [...filteredBacktestTrades, ...filteredLiveTrades] :
+                        filterType === 'backtest' ? filteredBacktestTrades :
+                        filteredLiveTrades
+
+  $: filteredByTicker = allDisplayTrades
 
   $: displayTrades = filteredByTicker.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
 
@@ -274,10 +280,10 @@
         All ({backtestTrades.length + liveTrades.length})
       </button>
       <button class="filter-btn" class:active={filterType === 'backtest'} on:click={() => filterType = 'backtest'}>
-        Backtest ({backtestTrades.length})
+        Backtest ({filteredBacktestTrades.length})
       </button>
       <button class="filter-btn" class:active={filterType === 'live'} on:click={() => filterType = 'live'}>
-        Live ({liveTrades.length})
+        Live ({filteredLiveTrades.length})
       </button>
     </div>
 
