@@ -193,6 +193,99 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
             int(result['runtime'])
         )
 
+    # --- Step 3: Portfolio backtest with shared capital pool ---
+    print(f"\n{'='*70}")
+    print("STEP 3: PORTFOLIO BACKTEST (shared pool)")
+    print(f"{'='*70}")
+    from data_fetcher import load_data_from_db
+    from parameter_optimizer import ParameterOptimizer
+
+    ticker_config = {}
+    for sym in tickers:
+        cursor = db.get_connection().cursor()
+        cursor.execute('''
+            SELECT sp.macd_fast, sp.bb_std
+            FROM strategy_parameters sp
+            JOIN tickers t ON t.id = sp.ticker_id
+            WHERE t.symbol = %s AND sp.base_case = true
+            LIMIT 1
+        ''', (sym,))
+        row = cursor.fetchone()
+        if row:
+            ticker_config[sym] = {'macd_fast': int(row[0]), 'bb_std': float(row[1])}
+
+    if len(ticker_config) == len(tickers):
+        ticker_data = {}
+        for sym in tickers:
+            df = load_data_from_db(sym)
+            if df is not None:
+                ticker_data[sym] = df
+
+        if len(ticker_data) == len(tickers):
+            ptrades, pmetrics, pequity, pequity_dates = ParameterOptimizer.backtest_portfolio(
+                ticker_data, ticker_config, initial_capital=100000
+            )
+            print(f"  Portfolio return: {pmetrics['total_return']*100:.2f}%")
+            print(f"  Sharpe: {pmetrics['sharpe_ratio']:.2f}")
+            print(f"  Max DD: {pmetrics['max_drawdown']*100:.2f}%")
+            print(f"  Trades: {pmetrics['total_trades']}")
+
+            # Save BLENDED results
+            conn = db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM tickers WHERE symbol = 'BLENDED'")
+            blended_row = cursor.fetchone()
+            if not blended_row:
+                cursor.execute("INSERT INTO tickers (symbol, enabled) VALUES ('BLENDED', true)")
+                conn.commit()
+                cursor.execute("SELECT id FROM tickers WHERE symbol = 'BLENDED'")
+                blended_id = cursor.fetchone()[0]
+            else:
+                blended_id = blended_row[0]
+
+            cursor.execute('''
+                SELECT id FROM strategy_parameters
+                WHERE ticker_id = %s AND base_case = true LIMIT 1
+            ''', (blended_id,))
+            existing = cursor.fetchone()
+
+            first = next(iter(ticker_config.values()))
+            if existing:
+                cursor.execute('''
+                    UPDATE strategy_parameters
+                    SET macd_fast = %s, bb_std = %s, win_rate = %s, sharpe_ratio = %s,
+                        total_return = %s, total_trades = %s, max_drawdown = %s, updated_at = NOW()
+                    WHERE id = %s
+                ''', (
+                    first['macd_fast'], first['bb_std'],
+                    float(pmetrics['win_rate']), float(pmetrics['sharpe_ratio']),
+                    float(pmetrics['total_return']), int(pmetrics['total_trades']),
+                    float(pmetrics['max_drawdown']), existing[0]
+                ))
+            else:
+                cursor.execute('''
+                    INSERT INTO strategy_parameters
+                    (ticker_id, macd_fast, macd_slow, macd_signal, bb_period, bb_std,
+                     ema_signal, sma_signal, sma_50, sma_200, ppo_fast, ppo_slow,
+                     win_rate, sharpe_ratio, total_return, total_trades, max_drawdown,
+                     base_case, created_at, updated_at)
+                    VALUES (%s, %s, 0, 0, %s, %s, 0, 0, 0, 0, 0, 0,
+                            %s, %s, %s, %s, %s, true, NOW(), NOW())
+                ''', (
+                    blended_id, first['macd_fast'], first['macd_fast'], first['bb_std'],
+                    float(pmetrics['win_rate']), float(pmetrics['sharpe_ratio']),
+                    float(pmetrics['total_return']), int(pmetrics['total_trades']),
+                    float(pmetrics['max_drawdown']),
+                ))
+            conn.commit()
+            db.save_backtest_trades('BLENDED', ptrades)
+            db.save_equity_curve('BLENDED', pmetrics, pequity, pequity_dates)
+            print("  ✓ Saved BLENDED portfolio results")
+        else:
+            print("  ✗ Could not load price data for all tickers, skipping portfolio backtest")
+    else:
+        print("  ✗ Could not load params for all tickers, skipping portfolio backtest")
+
     total_time = time.time() - total_time
 
     print(f"\n{'='*70}")
@@ -211,10 +304,11 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     print("DATABASE SUMMARY")
     print(f"{'='*70}\n")
 
-    for symbol in tickers:
+    for symbol in list(tickers) + ['BLENDED']:
         params = db.get_best_params(symbol)
         if params:
-            print(f"{symbol}:")
+            label = f"{symbol} (PORTFOLIO)" if symbol == 'BLENDED' else symbol
+            print(f"{label}:")
             print(f"  Sharpe: {params['metrics']['sharpe_ratio']:.2f}, "
                   f"Return: {params['metrics']['total_return']*100:.2f}%, "
                   f"Win Rate: {params['metrics']['win_rate']*100:.1f}%")
