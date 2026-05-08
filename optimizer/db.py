@@ -76,9 +76,9 @@ class StrategyDB:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
             ''', (
                 ticker_id,
-                18,  # macd_fast fixed
+                12,  # macd_fast fixed
                 26,  # macd_slow fixed
-                14,  # macd_signal fixed
+                9,  # macd_signal fixed
                 int(params['bb_period']),
                 float(params['bb_std']),
                 10,  # ema_signal fixed
@@ -224,7 +224,7 @@ class StrategyDB:
                     float(trade.get('exit_price', 0)),
                     float(trade.get('return', 0)),
                     float(trade.get('pnl_dollar', 0)),
-                    int(trade.get('days_held', 0))
+                    float(trade.get('days_held', 0))
                 ))
                 saved_count += 1
 

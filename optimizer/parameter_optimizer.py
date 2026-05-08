@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from strategies import SPYSwingTradingStrategy
 
 
 class ParameterOptimizer:
@@ -87,13 +86,22 @@ class ParameterOptimizer:
         """Run backtest with specific parameters"""
         data = self.data.copy()
 
-        # Apply custom indicators with parameters
+        # Resample hourly to daily for cleaner trend signals
+        bar_span = (data.index[-1] - data.index[0]).days
+        hourly_span = len(data)
+        bars_per_day_est = round(hourly_span / max(bar_span, 1))
+        if bars_per_day_est >= 4:
+            data = data.resample('1D').agg({
+                'open': 'first', 'high': 'max', 'low': 'min',
+                'close': 'last', 'volume': 'sum'
+            }).dropna()
+
         from indicators import calculate_macd, calculate_sma, calculate_ema, calculate_bollinger_bands
 
-        # MACD with FIXED parameters (base case: 18/26/14)
-        macd_fast = 18
+        # MACD with FIXED parameters (12/26/9)
+        macd_fast = 12
         macd_slow = 26
-        macd_signal = 14
+        macd_signal = 9
         ema_fast = data['close'].ewm(span=macd_fast).mean()
         ema_slow = data['close'].ewm(span=macd_slow).mean()
         macd_line = ema_fast - ema_slow
@@ -101,117 +109,112 @@ class ParameterOptimizer:
         macd_histogram = macd_line - signal_line
 
         # Fixed EMA and SMA values (not optimized)
-        ema_momentum = data['close'].ewm(span=10, adjust=False).mean()  # Fixed EMA=10
-        sma_trend = data['close'].rolling(window=40).mean()  # Fixed SMA=40
-        ema_12 = data['close'].ewm(span=12, adjust=False).mean()  # For PPO
-        ema_26 = data['close'].ewm(span=26, adjust=False).mean()  # For PPO
-        ppo = ((ema_12 - ema_26) / ema_26) * 100  # PPO calculation
+        ema_momentum = data['close'].ewm(span=10, adjust=False).mean()  # EMA=10
+        sma_trend = data['close'].rolling(window=40).mean()  # SMA=40
 
-        # Bollinger Bands with OPTIMIZED parameters
-        bb_middle = data['close'].rolling(window=params['bb_period']).mean()
-        bb_std = data['close'].rolling(window=params['bb_period']).std()
-        bb_lower = bb_middle - (bb_std * params['bb_std'])
-        bb_upper = bb_middle + (bb_std * params['bb_std'])
+        # Cost model: 0.05% round-trip (slippage + commission)
+        cost_per_trade = 0.0005
 
-        # Generate signals with fixed MACD + optimized BB params (2-of-4 signals required for entry)
+        # Trend-following strategy: enter when momentum AND trend align, exit when either breaks
         signals = pd.Series(0, index=data.index)
-        last_signal = 0  # Track last signal to enforce alternation
+        last_signal = 0
+        warmup = max(macd_slow, 40)
 
-        for i in range(max(200, macd_slow, params['bb_period']), len(data)):
-            price = data['close'].iloc[i]
+        for i in range(warmup, len(data)):
+            macd_bull = macd_line.iloc[i] > 0
+            ema_bull = ema_momentum.iloc[i] > sma_trend.iloc[i]
 
-            # Count signals (2+ required for entry)
-            signal_count = 0
-
-            # Signal 1: MACD > 0
-            macd_positive = macd_line.iloc[i] > 0
-            if macd_positive:
-                signal_count += 1
-
-            # Signal 2: PPO > 0
-            ppo_positive = ppo.iloc[i] > 0
-            if ppo_positive:
-                signal_count += 1
-
-            # Signal 3: EMA10 > SMA40
-            ema_above_sma = ema_momentum.iloc[i] > sma_trend.iloc[i]
-            if ema_above_sma:
-                signal_count += 1
-
-            # Signal 4: Price near lower BB (within 5%)
-            bb_condition = price <= bb_lower.iloc[i] * 1.05
-            if bb_condition:
-                signal_count += 1
-
-            # Entry: 2 or more signals required (and last signal was not a buy)
-            if signal_count >= 2 and last_signal != 1:
+            # Entry: MACD > 0 AND EMA10 > SMA40 (momentum + trend confirmed)
+            if macd_bull and ema_bull and last_signal != 1:
                 signals.iloc[i] = 1
                 last_signal = 1
 
-            # Exit: only if we're in a position (last signal was buy)
-            elif last_signal == 1:
-                macd_bearish = macd_line.iloc[i] < 0
-                ema_bearish = ema_momentum.iloc[i] < sma_trend.iloc[i]
-                bb_break = price < bb_lower.iloc[i]
-
-                if macd_bearish or ema_bearish or bb_break:
-                    signals.iloc[i] = -1
-                    last_signal = -1
+            # Exit: MACD < 0 OR EMA10 < SMA40 (either momentum dies or trend breaks)
+            elif last_signal == 1 and (macd_line.iloc[i] < 0 or ema_momentum.iloc[i] < sma_trend.iloc[i]):
+                signals.iloc[i] = -1
+                last_signal = -1
 
         # Simulate trades
         trades = []
-        equity_curve = [self.initial_capital]
-        equity_dates = [str(data.index[0])]
+        bar_equity = [self.initial_capital]
+        trade_equity_curve = [self.initial_capital]
+        trade_equity_dates = [str(data.index[0])]
         position_active = False
+        pending_entry = False
+        pending_exit = False
         entry_price = None
         entry_idx = None
         equity_before_trade = self.initial_capital
 
         for i in range(len(signals)):
             signal = signals.iloc[i]
-            price = data['close'].iloc[i]
+            price_open = data['open'].iloc[i]
+            price_close = data['close'].iloc[i]
 
-            if signal == 1 and not position_active:
-                entry_price = price
-                entry_idx = i
-                equity_before_trade = equity_curve[-1]
-                position_active = True
+            if pending_exit and position_active:
+                exit_price = price_open
+                gross_pnl = (exit_price - entry_price) / entry_price
+                shares_amount = (equity_before_trade * (self.allocation_weight / 100)) / entry_price
+                gross_dollar = shares_amount * (exit_price - entry_price)
 
-            if (signal == -1 or i == len(signals) - 1) and position_active:
-                exit_price = price
-                pnl = (exit_price - entry_price) / entry_price
-                shares = (equity_before_trade * (self.allocation_weight / 100)) / entry_price
-                pnl_dollar = shares * (exit_price - entry_price)
+                trade_value = shares_amount * exit_price
+                cost = trade_value * cost_per_trade
+                net_dollar = gross_dollar - cost
+                net_pnl = net_dollar / (equity_before_trade * (self.allocation_weight / 100))
+
+                days_held = round((i - entry_idx) / 7, 1)
 
                 trades.append({
                     'entry_price': entry_price,
                     'exit_price': exit_price,
                     'entry_at': str(data.index[entry_idx]),
                     'exit_at': str(data.index[i]),
-                    'return': pnl,
-                    'pnl_dollar': pnl_dollar,
-                    'pnl_pct': pnl
+                    'return': net_pnl,
+                    'pnl_dollar': net_dollar,
+                    'pnl_pct': net_pnl,
+                    'days_held': days_held
                 })
 
-                current_equity = equity_curve[-1] + pnl_dollar
-                equity_curve.append(current_equity)
-                equity_dates.append(str(data.index[i]))
+                current_equity = trade_equity_curve[-1] + net_dollar
+                trade_equity_curve.append(current_equity)
+                trade_equity_dates.append(str(data.index[i]))
 
                 position_active = False
+                pending_exit = False
+
+            if pending_entry and not position_active:
+                entry_price = price_open
+                entry_idx = i
+                equity_before_trade = trade_equity_curve[-1]
+                position_active = True
+                pending_entry = False
+
+            if signal == 1 and not position_active and not pending_entry:
+                pending_entry = True
+
+            if (signal == -1 or i == len(signals) - 1) and position_active and not pending_exit:
+                pending_exit = True
+
+            if position_active:
+                shares_amount = (equity_before_trade * (self.allocation_weight / 100)) / entry_price
+                unrealized_pnl = shares_amount * (price_close - entry_price)
+                bar_equity.append(equity_before_trade + unrealized_pnl)
+            else:
+                bar_equity.append(trade_equity_curve[-1])
 
         # Calculate metrics
         if trades:
             trades_df = pd.DataFrame(trades)
             wins = (trades_df['return'] > 0).sum()
-            sharpe = self._calculate_sharpe(equity_curve)
+            sharpe = self._calculate_sharpe(bar_equity)
             metrics = {
                 'total_trades': len(trades_df),
                 'winning_trades': wins,
                 'win_rate': wins / len(trades_df),
                 'avg_return': trades_df['return'].mean(),
-                'total_return': (equity_curve[-1] - self.initial_capital) / self.initial_capital,
+                'total_return': (trade_equity_curve[-1] - self.initial_capital) / self.initial_capital,
                 'sharpe_ratio': sharpe,
-                'max_drawdown': self._calculate_max_drawdown(equity_curve)
+                'max_drawdown': self._calculate_max_drawdown(trade_equity_curve)
             }
         else:
             metrics = {
@@ -225,7 +228,7 @@ class ParameterOptimizer:
             }
             trades = []
 
-        return trades, metrics, equity_curve, equity_dates
+        return trades, metrics, trade_equity_curve, trade_equity_dates
 
     @staticmethod
     def _calculate_sharpe(equity_curve):
@@ -260,7 +263,6 @@ class ParameterOptimizer:
             params = result['params']
             metrics = result['metrics']
 
-            # Only BB is optimized; MACD/EMA10/SMA40/SMA50/SMA200 are fixed
             param_str = f"BB(period={params['bb_period']}, std={params['bb_std']})"
 
             print(

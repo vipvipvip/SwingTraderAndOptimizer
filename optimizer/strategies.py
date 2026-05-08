@@ -16,105 +16,51 @@ class SPYSwingTradingStrategy:
 
     def __init__(self, initial_capital=100000, position_size=0.1, params=None):
         self.initial_capital = initial_capital
-        self.position_size = position_size  # % of capital per trade
-        self.name = "SPY Swing Trading (MACD + EMA/SMA Crossover + BB)"
-        # Default parameters (can be overridden)
+        self.position_size = position_size
+        self.name = "SPY Swing Trading (MACD + EMA/SMA + BB + ATR)"
         self.params = params or {
             'ema_fast': 10,
             'sma_medium': 40,
-            'min_signals': 2,  # Require 2-of-4 signals by default
+            'min_signals': 2,
+            'cost_per_trade': 0.0005,
         }
 
     def generate_signals(self, df):
-        """
-        Generate entry/exit signals based on:
-        - MACD + signal line crossover
-        - EMA10/SMA40 crossover confirmation (fast/slow momentum)
-        - 50/200 day uptrend confirmation
-        - Bollinger Bands positioning
-
-        Returns DataFrame with 'signal' column: 1=long, -1=exit, 0=hold
-        """
-
         df = df.copy()
 
-        # Calculate indicators
+        # Resample hourly to daily
+        bar_span = (df.index[-1] - df.index[0]).days
+        if len(df) / max(bar_span, 1) >= 4:
+            df = df.resample('1D').agg({
+                'open': 'first', 'high': 'max', 'low': 'min',
+                'close': 'last', 'volume': 'sum'
+            }).dropna()
+
         macd_data = calculate_macd(df['close'])
         ppo_data = calculate_ppo(df['close'])
-        sma_50 = calculate_sma(df['close'], 50)
-        sma_200 = calculate_sma(df['close'], 200)
+        sma_50 = calculate_sma(df['close'], 350)
+        sma_200 = calculate_sma(df['close'], 1400)
         ema_momentum = calculate_ema(df['close'], self.params['ema_fast'])
         sma_trend = calculate_sma(df['close'], self.params['sma_medium'])
         bb_data = calculate_bollinger_bands(df['close'], period=20)
 
-        # Detect crossovers
-        crossover_50_200 = calculate_crossover(sma_50, sma_200)
-        crossover_momentum = calculate_crossover(ema_momentum, sma_trend)
-
-        # Initialize signals
         signals = pd.Series(0, index=df.index)
-        last_signal = 0  # Track last non-zero signal to enforce alternation
+        last_signal = 0
+        warmup = max(200, self.params['sma_medium'])
 
-        # Entry conditions
-        for i in range(200, len(df)):  # Start after 200 period for all indicators
+        for i in range(warmup, len(df)):
+            macd_bull = macd_data['macd'].iloc[i] > 0
+            ema_bull = ema_momentum.iloc[i] > sma_trend.iloc[i]
 
-            # Bollinger Bands conditions
-            price = df['close'].iloc[i]
-            bb_lower = bb_data['lower'].iloc[i]
-            bb_upper = bb_data['upper'].iloc[i]
-            sma_50_val = sma_50.iloc[i]
-            sma_200_val = sma_200.iloc[i]
-
-            # Count entry signals (need 2 or more)
-            signal_count = 0
-
-            # Signal 1: MACD bullish (histogram crosses above 0)
-            macd_bullish = (macd_data['histogram'].iloc[i-1] <= 0 and
-                           macd_data['histogram'].iloc[i] > 0)
-            if macd_bullish:
-                signal_count += 1
-
-            # Signal 2: EMA/SMA bullish (EMA crosses above SMA)
-            ema_bullish = (ema_momentum.iloc[i-1] <= sma_trend.iloc[i-1] and
-                          ema_momentum.iloc[i] > sma_trend.iloc[i])
-            if ema_bullish:
-                signal_count += 1
-
-            # Signal 3: Uptrend (Price > SMA50 > SMA200)
-            uptrend = (price > sma_50_val and sma_50_val > sma_200_val)
-            if uptrend:
-                signal_count += 1
-
-            # Signal 4: Price near lower Bollinger Band (pullback in uptrend)
-            bb_condition = price <= bb_lower * 1.05
-            if bb_condition:
-                signal_count += 1
-
-            # Entry: min_signals or more required (and last signal was not a buy)
-            min_sigs = self.params.get('min_signals', 2)
-            if signal_count >= min_sigs and last_signal != 1:
-                signals.iloc[i] = 1  # Long signal
+            # Entry: MACD > 0 AND EMA10 > SMA40
+            if macd_bull and ema_bull and last_signal != 1:
+                signals.iloc[i] = 1
                 last_signal = 1
 
-            # Exit conditions: only if we're in a position (last signal was buy)
-            elif last_signal == 1:
-                # Exit 1: MACD bearish crossover (histogram crosses below 0)
-                macd_bearish = (macd_data['histogram'].iloc[i-1] >= 0 and
-                               macd_data['histogram'].iloc[i] < 0)
-
-                # Exit 2: EMA/SMA bearish crossover (momentum loss)
-                ema_bearish = (ema_momentum.iloc[i-1] >= sma_trend.iloc[i-1] and
-                              ema_momentum.iloc[i] < sma_trend.iloc[i])
-
-                # Exit 3: Price breaks below lower Bollinger Band
-                bb_break = price < bb_lower
-
-                # Exit 4: Stop loss at 2% below entry (simple)
-                # (Would need to track entry price, simplified for now)
-
-                if macd_bearish or ema_bearish or bb_break:
-                    signals.iloc[i] = -1  # Exit signal
-                    last_signal = -1
+            # Exit: MACD < 0 OR EMA10 < SMA40
+            elif last_signal == 1 and (macd_data['macd'].iloc[i] < 0 or ema_momentum.iloc[i] < sma_trend.iloc[i]):
+                signals.iloc[i] = -1
+                last_signal = -1
 
         df['signal'] = signals
         df['macd'] = macd_data['macd']
@@ -142,63 +88,66 @@ class SPYSwingTradingStrategy:
         """
 
         df = self.generate_signals(df)
+        df['open'] = df['open'].astype(float)
         df['close'] = df['close'].astype(float)
         trades = []
-        trade_equity_curve = [self.initial_capital]  # Equity curve updated only at trade closes
-        bar_equity_curve = [self.initial_capital]    # Equity curve at each bar (mark-to-market)
+        trade_equity_curve = [self.initial_capital]
+        bar_equity = [self.initial_capital]
         entry_price = None
         entry_idx = None
         position_active = False
-        last_closed_equity = self.initial_capital  # Track equity after last closed trade
+        pending_entry = False
+        pending_exit = False
+        last_closed_equity = self.initial_capital
+        cost = self.params.get('cost_per_trade', 0.0005)
 
         for i in range(len(df)):
             signal = df['signal'].iloc[i]
-            price = df['close'].iloc[i]
-            date = df.index[i]
+            price_open = df['open'].iloc[i]
+            price_close = df['close'].iloc[i]
 
-            # Entry signal
-            if signal == 1 and not position_active:
-                entry_price = price
-                entry_idx = i
-                position_active = True
-
-            # Mark-to-market equity at each bar (for continuous curve)
-            if position_active:
-                # Unrealized P&L on open position
-                unrealized_pnl = (price - entry_price) / entry_price * self.position_size
-                current_bar_equity = last_closed_equity * (1 + unrealized_pnl)
-            else:
-                current_bar_equity = last_closed_equity
-
-            bar_equity_curve.append(current_bar_equity)
-
-            # Exit signal or end of data
-            if (signal == -1 or i == len(df) - 1) and position_active:
-                exit_price = price
+            if pending_exit and position_active:
+                exit_price = price_open
                 exit_idx = i
-
-                # Calculate trade P&L
-                pnl = (exit_price - entry_price) / entry_price
-                shares = (last_closed_equity * self.position_size) / entry_price
-                pnl_dollar = shares * (exit_price - entry_price)
+                gross_pnl = (exit_price - entry_price) / entry_price
+                gross_dollar = (last_closed_equity * self.position_size) * gross_pnl
+                trade_value = (last_closed_equity * self.position_size) + gross_dollar
+                net_dollar = gross_dollar - trade_value * cost
+                net_pnl = net_dollar / (last_closed_equity * self.position_size)
 
                 trades.append({
                     'entry_date': df.index[entry_idx],
                     'entry_price': entry_price,
-                    'exit_date': date,
+                    'exit_date': df.index[i],
                     'exit_price': exit_price,
-                    'return': pnl,
-                    'pnl_dollar': pnl_dollar,
-                    'days_held': exit_idx - entry_idx
+                    'return': net_pnl,
+                    'pnl_dollar': net_dollar,
+                    'days_held': round((exit_idx - entry_idx) / 7, 1)
                 })
 
-                # Update equity after trade closes (for metrics calculation)
-                last_closed_equity = last_closed_equity * (1 + pnl * self.position_size)
+                last_closed_equity = last_closed_equity * (1 + net_pnl * self.position_size)
                 trade_equity_curve.append(last_closed_equity)
-
                 position_active = False
+                pending_exit = False
 
-        # Calculate metrics using trade_equity_curve (for consistency with trade-based returns)
+            if pending_entry and not position_active:
+                entry_price = price_open
+                entry_idx = i
+                position_active = True
+                pending_entry = False
+
+            if signal == 1 and not position_active and not pending_entry:
+                pending_entry = True
+
+            if (signal == -1 or i == len(df) - 1) and position_active and not pending_exit:
+                pending_exit = True
+
+            if position_active:
+                unrealized_pnl = (price_close - entry_price) / entry_price * self.position_size
+                bar_equity.append(last_closed_equity * (1 + unrealized_pnl))
+            else:
+                bar_equity.append(last_closed_equity)
+
         if trades:
             trades_df = pd.DataFrame(trades)
             wins = (trades_df['return'] > 0).sum()
@@ -206,7 +155,7 @@ class SPYSwingTradingStrategy:
             avg_return = trades_df['return'].mean()
             total_return = (trade_equity_curve[-1] - self.initial_capital) / self.initial_capital
             max_drawdown = self._calculate_max_drawdown(trade_equity_curve)
-            sharpe_ratio = self._calculate_sharpe_ratio(trade_equity_curve)
+            sharpe_ratio = self._calculate_sharpe_ratio(bar_equity)
 
             metrics = {
                 'total_trades': len(trades_df),
@@ -239,21 +188,20 @@ class SPYSwingTradingStrategy:
         # Extract signals for charting
         signals = []
         for i in range(len(df)):
-            if df['signal'].iloc[i] == 1:  # Buy signal
+            if df['signal'].iloc[i] == 1:
                 signals.append({
                     'timestamp': df.index[i],
-                    'price': df['close'].iloc[i],
+                    'price': float(df['close'].iloc[i]),
                     'type': 'buy'
                 })
-            elif df['signal'].iloc[i] == -1:  # Sell signal
+            elif df['signal'].iloc[i] == -1:
                 signals.append({
                     'timestamp': df.index[i],
-                    'price': df['close'].iloc[i],
+                    'price': float(df['close'].iloc[i]),
                     'type': 'sell'
                 })
 
-        # Return bar_equity_curve (mark-to-market) for charting, but metrics from trade_equity_curve
-        return trades_df, metrics, bar_equity_curve, signals
+        return trades_df, metrics, bar_equity, signals
 
     @staticmethod
     def _calculate_max_drawdown(equity_curve):

@@ -93,13 +93,13 @@ def fetch_incremental_data(symbol, timeframe='1Hour'):
     else:
         # Bootstrap: fetch 2 years if database is empty
         end_date = datetime.now(ZoneInfo('America/New_York'))
-        start_date = end_date - timedelta(days=730)
-        print(f"Database empty for {symbol}, fetching 2 years from {start_date.date()}")
+        start_date = end_date - timedelta(days=1250)
+        print(f"Database empty for {symbol}, fetching data from {start_date.date()}")
 
     return fetch_historical_data(symbol, timeframe=timeframe, start_date=start_date)
 
 
-def fetch_historical_data(symbol, timeframe='1Day', years=2, start_date=None):
+def fetch_historical_data(symbol, timeframe='1Day', years=4, start_date=None):
     """
     Fetch historical OHLCV data from Alpaca using /v2/stocks/bars API
 
@@ -331,14 +331,14 @@ def append_bars_to_db(symbol, new_bars):
         now = datetime.now(ZoneInfo('America/New_York')).isoformat()
 
         for timestamp, row_data in new_bars.iterrows():
-            # Convert to NY timezone if needed, then store as plain timestamp
-            # Database stores timestamps as TIMESTAMP WITHOUT TIME ZONE representing America/New_York times
+            # Convert to UTC for consistent storage
+            # Database stores timestamps as TIMESTAMP WITHOUT TIME ZONE representing UTC times
             if timestamp.tzinfo is not None:
-                ts_ny = timestamp.tz_convert('America/New_York').replace(tzinfo=None)
+                ts_stored = timestamp.tz_convert('UTC').replace(tzinfo=None)
             else:
-                ts_ny = timestamp
+                ts_stored = timestamp
 
-            ts_utc = pd.to_datetime(ts_ny, utc=True)
+            ts_utc = pd.to_datetime(ts_stored, utc=True)
             if last_ts is None or ts_utc > last_ts:
                 cursor.execute('''
                     INSERT INTO bars
@@ -347,7 +347,7 @@ def append_bars_to_db(symbol, new_bars):
                     ON CONFLICT DO NOTHING
                 ''', (
                     ticker_id,
-                    ts_ny,
+                    ts_stored,
                     float(row_data['open']),
                     float(row_data['high']),
                     float(row_data['low']),

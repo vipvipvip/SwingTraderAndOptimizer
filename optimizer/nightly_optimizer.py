@@ -19,12 +19,12 @@ load_dotenv()
 # Only Bollinger Bands parameters are optimized
 PARAM_GRIDS = {
     '1Day': {
-        'bb_period':   [18, 20, 22],
-        'bb_std':      [1.8, 2.0, 2.2],
+        'bb_period':   [20],
+        'bb_std':      [2.0],
     },
     '1Hour': {
-        'bb_period':   [14, 20, 26],
-        'bb_std':      [1.8, 2.0, 2.2],
+        'bb_period':   [20],
+        'bb_std':      [2.0],
     },
 }
 
