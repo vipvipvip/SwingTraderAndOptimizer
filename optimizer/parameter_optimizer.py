@@ -165,6 +165,7 @@ class ParameterOptimizer:
         position_active = False
         entry_price = None
         entry_idx = None
+        equity_before_trade = self.initial_capital
 
         for i in range(len(signals)):
             signal = signals.iloc[i]
@@ -173,12 +174,13 @@ class ParameterOptimizer:
             if signal == 1 and not position_active:
                 entry_price = price
                 entry_idx = i
+                equity_before_trade = equity_curve[-1]
                 position_active = True
 
             if (signal == -1 or i == len(signals) - 1) and position_active:
                 exit_price = price
                 pnl = (exit_price - entry_price) / entry_price
-                shares = (self.initial_capital * (self.allocation_weight / 100)) / entry_price
+                shares = (equity_before_trade * (self.allocation_weight / 100)) / entry_price
                 pnl_dollar = shares * (exit_price - entry_price)
 
                 trades.append({

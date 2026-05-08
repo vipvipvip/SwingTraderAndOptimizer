@@ -30,9 +30,9 @@ def filter_market_hours(df):
     # Extract hour:minute in NY time
     df_copy['_time_ny'] = df_copy.index.strftime('%H:%M')
 
-    # Keep hourly bars from market hours: 10:00 AM - 4:00 PM ET
-    # (opening bar 10:00 covers 9:30-10:00, closing bar 16:00 covers 3:00-4:00 PM)
-    market_hours = (df_copy['_time_ny'] >= '10:00') & (df_copy['_time_ny'] <= '16:00')
+    # Keep hourly bars from market hours: 9:30 AM - 4:30 PM ET (8 bars/day)
+    # Alpaca timestamps at :30 (9:30, 10:30, 11:30, 12:30, 1:30, 2:30, 3:30, 4:30 PM ET)
+    market_hours = (df_copy['_time_ny'] >= '09:30') & (df_copy['_time_ny'] <= '16:30')
 
     result = df_copy[market_hours].drop(columns=['_time_ny'])
     removed = len(df) - len(result)

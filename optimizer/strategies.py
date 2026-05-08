@@ -179,7 +179,7 @@ class SPYSwingTradingStrategy:
 
                 # Calculate trade P&L
                 pnl = (exit_price - entry_price) / entry_price
-                shares = (self.initial_capital * self.position_size) / entry_price
+                shares = (last_closed_equity * self.position_size) / entry_price
                 pnl_dollar = shares * (exit_price - entry_price)
 
                 trades.append({
