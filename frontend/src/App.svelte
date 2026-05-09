@@ -217,18 +217,16 @@
   }
 
   .header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
     margin-bottom: 32px;
   }
 
   .header h1 {
-    margin: 0 0 8px 0;
+    margin: 0;
     font-size: 32px;
     color: #333;
-  }
-
-  .header p {
-    margin: 0;
-    color: #666;
   }
 
   .error {
@@ -279,14 +277,15 @@
   .control-panel {
     display: flex;
     gap: 24px;
-    margin-bottom: 24px;
     flex-wrap: wrap;
+    align-items: flex-end;
   }
 
   .control-buttons {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    align-self: flex-end;
   }
 
   .control-btn {
@@ -357,7 +356,34 @@
 <div class="container">
   <div class="header">
     <h1>Trading Dashboard</h1>
-    <p>Live trading with SPY, QQQ, IWM</p>
+    <div class="control-panel">
+      <div class="control-buttons">
+        {#if lastOptimizerRun}
+          <div style="font-size: 12px; color: #666;">Last updated: {lastOptimizerRun}</div>
+        {/if}
+        {#if optimizerMessage}
+          <div class="status-message" class:error={optimizerMessage.startsWith('✗')}>
+            {optimizerMessage}
+          </div>
+        {/if}
+        <button on:click={triggerOptimizer} disabled={optimizerRunning} class="control-btn optimizer-btn">
+          {optimizerRunning ? 'Running...' : '⚙️ Trigger Optimizer'}
+        </button>
+      </div>
+      <div class="control-buttons">
+        {#if lastTradesRun}
+          <div style="font-size: 12px; color: #666;">Last updated: {lastTradesRun}</div>
+        {/if}
+        {#if tradesMessage}
+          <div class="status-message" class:error={tradesMessage.startsWith('✗')}>
+            {tradesMessage}
+          </div>
+        {/if}
+        <button on:click={triggerTrades} disabled={tradesRunning} class="control-btn trades-btn">
+          {tradesRunning ? 'Executing...' : '📈 Execute Trades'}
+        </button>
+      </div>
+    </div>
   </div>
 
   {#if error}
@@ -368,34 +394,6 @@
     <div class="loading">Loading...</div>
   {:else}
     <div class="dashboard">
-      <div class="control-panel">
-        <div class="control-buttons">
-          <button on:click={triggerOptimizer} disabled={optimizerRunning} class="control-btn optimizer-btn">
-            {optimizerRunning ? 'Running...' : '⚙️ Trigger Optimizer'}
-          </button>
-          {#if optimizerMessage}
-            <div class="status-message" class:error={optimizerMessage.startsWith('✗')}>
-              {optimizerMessage}
-            </div>
-          {/if}
-          {#if lastOptimizerRun}
-            <div style="font-size: 12px; color: #666; margin-top: 4px;">Last updated: {lastOptimizerRun}</div>
-          {/if}
-        </div>
-        <div class="control-buttons">
-          <button on:click={triggerTrades} disabled={tradesRunning} class="control-btn trades-btn">
-            {tradesRunning ? 'Executing...' : '📈 Execute Trades'}
-          </button>
-          {#if tradesMessage}
-            <div class="status-message" class:error={tradesMessage.startsWith('✗')}>
-              {tradesMessage}
-            </div>
-          {/if}
-          {#if lastTradesRun}
-            <div style="font-size: 12px; color: #666; margin-top: 4px;">Last updated: {lastTradesRun}</div>
-          {/if}
-        </div>
-      </div>
 
       <div class="top-row">
         <AccountBalance />
