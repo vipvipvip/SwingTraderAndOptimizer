@@ -1,6 +1,6 @@
-# SwingTraderAndOptimizer v7.0+
+# SwingTraderAndOptimizer v7.5+
 
-A full-stack algorithmic swing trading system with **2-of-4 level-checking entry signals**, nightly Bollinger Band parameter optimization, and live trading dashboard.
+A full-stack algorithmic swing trading system using a **Chandelier Exit** strategy with nightly parameter optimization and live trading dashboard.
 
 **Status:** Production-ready (paper trading). Live signals every minute during market hours (9:30 AM - 4:00 PM ET). Nightly optimizer runs daily at 2:00 AM ET via systemd timer.
 
@@ -10,27 +10,24 @@ A full-stack algorithmic swing trading system with **2-of-4 level-checking entry
 
 ### 1. **Live Trade Execution** (Every minute during market hours)
 - Evaluates each ticker independently (SPY, QQQ, IWM)
-- Generates buy/sell signals based on 2-of-4 level-checking conditions
+- Generates buy/sell signals using **Chandelier Exit** (always-long, trailing stop)
 - Places orders with per-ticker allocation weights (SPY 40%, QQQ 45%, IWM 15%)
 - Records all trades with entry/exit prices, P&L, and allocation details
 
-### 2. **2-of-4 Signal Logic** (Entry: 2 signals required, Exit: any 1)
-**Entry signals (need 2 of 4):**
-- Signal 1: MACD > 0 (level check, not crossover)
-- Signal 2: PPO > 0 (Price Percentage Oscillator)
-- Signal 3: EMA10 > SMA40 (momentum above trend)
-- Signal 4: Price within 5% of lower Bollinger Band (near support)
+### 2. **Chandelier Exit Signal Logic**
+**Entry (always re-enter when flat):**
+- No open position → BUY on next bar
+- Exception: skip re-entry if exited same day (matches daily backtest)
 
-**Exit conditions (any of 3):**
-- MACD < 0
-- EMA10 < SMA40
-- Price breaks below lower Bollinger Band
+**Exit (trailing stop from highest high):**
+- `stop_level = highest_high_since_entry - ATR(period) × multiplier`
+- SELL when close < stop_level
 
 ### 3. **Nightly Parameter Optimization** (2:00 AM ET daily via systemd timer)
-- Tests Bollinger Band parameters: period=[14,20,26], std=[1.8,2.0,2.2]
-- MACD (18/26/14), PPO (12/26), EMA10, SMA40 are **fixed** (not optimized)
+- Tests Chandelier parameters: period=[14,20,26], multiplier=[1.8,2.0,2.2]
+- Grid search over 9 combinations per ticker
 - Backtests against 2 years of hourly data
-- Saves best candidate and cleans up old ones
+- Saves best candidate and promotes if return AND Sharpe improve
 - Returns: +8-15% on SPY/QQQ, Sharpe 3.0+ across all tickers
 
 ### 4. **Web Dashboard** (Real-time)
@@ -43,32 +40,27 @@ A full-stack algorithmic swing trading system with **2-of-4 level-checking entry
 
 ---
 
-## Signal Details (v7.0)
+## Strategy Details (v7.5)
 
-### Fixed Indicators (Not Optimized)
+### Chandelier Exit Parameters (Optimized Nightly)
 ```
-MACD:        fast=18, slow=26, signal_line=14
-PPO:         fast=12, slow=26
-Momentum:    EMA10 > SMA40 threshold
-Trend:       SMA50, SMA200 reference points
-```
-
-### Optimized Indicator (Grid Search)
-```
-Bollinger Bands:
-  - period: [14, 20, 26]
-  - std multiplier: [1.8, 2.0, 2.2]
-  - 9 combinations tested per nightly run
+Period:     [14, 20, 26]    (ATR lookback window)
+Multiplier: [1.8, 2.0, 2.2] (stop distance in ATR units)
+9 combinations tested per nightly run
 ```
 
-### Entry Logic Example
+### Entry Logic
 ```
-At each minute, for SPY:
-  - MACD > 0?  YES  (signal_count = 1)
-  - PPO > 0?   YES  (signal_count = 2)
-  - EMA10 > SMA40? YES  (signal_count = 3)
-  - Price ≤ BB_lower×1.05?  NO
-  → signal_count = 3, need 2, therefore: BUY
+When flat for SPY:
+  → BUY at next bar open (always re-enter, unless exited today)
+```
+
+### Exit Logic
+```
+In position for SPY:
+  highest_high = max(high since entry)
+  stop = highest_high - ATR(period) × multiplier
+  if close < stop → SELL at next bar open
 ```
 
 ### Performance
@@ -223,25 +215,24 @@ tail -f /home/dikesh/data/dev/SwingTraderAndOptimizer/optimizer/logs/nightly.log
 ```
 1. Executor fetches latest Alpaca bars + quotes
 2. For each ticker independently:
-   a) Load strategy parameters (fixed + optimized)
-   b) Compute MACD, PPO, EMA10, SMA40, Bollinger Bands
-   c) Count signals: MACD>0, PPO>0, EMA10>SMA40, Price near BB
-   d) If signal_count >= 2: BUY
-      If in position + any exit condition: SELL
-   e) Calculate order size: (equity × allocation_weight%) / price
-   f) Place market order via Alpaca
-   g) Record trade to database
+   a) Load strategy parameters (chandelier period + multiplier)
+   b) If in position: compute ATR, trailing stop from highest high
+      If close < stop_level → SELL
+   c) If flat → BUY (always re-enter, unless exited today)
+   d) Calculate order size: (equity × allocation_weight%) / price
+   e) Place market order via Alpaca
+   f) Record trade to database
 3. Dashboard refreshes every 60 seconds
 ```
 
 ### Nightly Optimization (2:00 AM daily)
 ```
 1. Fetch 2 years of hourly bars for each ticker
-2. Grid search: 9 Bollinger Band combinations
+2. Grid search: 9 Chandelier period × multiplier combinations
 3. For each combo, backtest on full 2-year history
 4. Rank by Sharpe ratio
-5. Save best candidate, delete old ones
-6. Record equity curve + backtest trades
+5. Save best candidate, run portfolio coordinate ascent over tickers
+6. Promote if both return AND Sharpe improve over baseline
 ```
 
 ---
@@ -259,8 +250,8 @@ bars (hourly OHLCV from Alpaca)
 
 strategy_parameters
 ├─ id, ticker_id
-├─ macd_fast (fixed: 18), macd_slow (26), macd_signal (14)
-├─ bb_period (optimized: 14-26), bb_std (1.8-2.2)
+├─ macd_fast (chandelier period: 14-26), bb_std (chandelier mult: 1.8-2.2)
+├─ bb_period (ATR period, same as chandelier period)
 ├─ win_rate, sharpe_ratio, total_return, total_trades
 ├─ base_case (true for production, false for candidates)
 │  Only 1 row per ticker with base_case=true
@@ -289,23 +280,23 @@ optimization_history
 
 ### Python Optimizer (`optimizer/nightly_optimizer.py`)
 - Loads 2 years of hourly bars per ticker
-- Tests 9 Bollinger Band combinations
+- Tests 9 Chandelier (period × multiplier) combinations
 - Runs full backtest with allocation-aware position sizing
-- Ranks by Sharpe ratio
-- Saves best candidate, cleans up old ones
+- Portfolio coordinate ascent across tickers for blended Sharpe
+- Saves best candidate, promotes if return + Sharpe improve
 - ~20-30 minutes runtime total
 
 ### Laravel Backend (`backend/`)
 **Trade Executor Service:**
 - Runs every minute via `php artisan schedule:run`
-- Computes 2-of-4 signals independently per ticker
+- Computes Chandelier Exit signals independently per ticker
 - Places orders with allocation-weighted position sizing
 - Records trades with entry/exit prices, P&L
 
 **API Endpoints:**
 - `GET /api/v1/account` — Account balance from Alpaca
 - `GET /api/v1/account/positions` — Current open positions
-- `GET /api/v1/strategies` — Strategy parameters + metrics
+- `GET /api/v1/strategies` — Strategy parameters + metrics (Chandelier period/mult)
 - `GET /api/v1/trades/pnl` — Live trades with P&L
 - `GET /api/v1/equity/{symbol}` — Equity curves
 - `POST /api/v1/admin/trades/trigger` — Execute trades now
@@ -412,9 +403,17 @@ psql -U swingtrader -d swingtrader -c "SELECT * FROM backtest_trades LIMIT 5;"
 
 ## Version History
 
+**v7.5 (2026-05-09)**
+- Replaced 2-of-4 multi-indicator logic with pure Chandelier Exit strategy
+- Updated README to reflect actual deployed strategy
+- Fixed OrderController parameter swap bug
+- Fixed days_held /7 divisor in optimizer (daily data)
+- Aligned cost model between individual and portfolio backtests
+- Skipped BLENDED ticker in trade execution
+- Fixed EMA `adjust` inconsistency and BB std ddof
+
 **v7.0 (2026-05-06)**
-- Changed entry logic from all-4 to 2-of-4 level-checking signals
-- Implemented PPO (Price Percentage Oscillator) calculation
+- Initial Chandelier Exit implementation
 - Added profit summary to Live Positions title
 - Added allocation % column to Live Positions table
 - Limited strategy_parameters candidates (best per run only)
@@ -429,15 +428,15 @@ psql -U swingtrader -d swingtrader -c "SELECT * FROM backtest_trades LIMIT 5;"
 
 ## Support & Documentation
 
-- Signal logic details: See `backend/app/Services/TradeExecutorService.php:computeSignal()`
+- Signal logic details: See `backend/app/Services/TradeExecutorService.php:computeChandelierSignal()`
 - Parameter optimization: See `optimizer/parameter_optimizer.py:optimize()`
 - Database: See `backend/database/migrations/`
 - Dashboard: See `frontend/src/App.svelte`
 
 ---
 
-**Last Updated:** 2026-05-06  
-**Current Version:** v7.0  
+**Last Updated:** 2026-05-09  
+**Current Version:** v7.5  
 **Status:** Production (paper trading)  
 **Scheduler:** systemd (backend service + optimizer timer)  
 **Database:** PostgreSQL  

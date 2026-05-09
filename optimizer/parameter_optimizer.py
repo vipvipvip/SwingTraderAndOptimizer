@@ -135,15 +135,15 @@ class ParameterOptimizer:
 
             if pending_exit and position_active:
                 exit_price = price_open
-                shares_amount = (equity_before_trade * (self.allocation_weight / 100)) / entry_price
-                gross_dollar = shares_amount * (exit_price - entry_price)
+                allocated = equity_before_trade * (self.allocation_weight / 100)
+                deployed = allocated * (1 - cost_per_trade)
+                shares_amount = deployed / entry_price
+                proceeds = shares_amount * exit_price
+                net_proceeds = proceeds * (1 - cost_per_trade)
+                net_dollar = net_proceeds - deployed
+                net_pnl = net_dollar / deployed
 
-                trade_value = shares_amount * exit_price
-                cost = trade_value * cost_per_trade
-                net_dollar = gross_dollar - cost
-                net_pnl = net_dollar / (equity_before_trade * (self.allocation_weight / 100))
-
-                days_held = round((i - entry_idx) / 7, 1)
+                days_held = round(i - entry_idx, 1)
 
                 trades.append({
                     'entry_price': entry_price,
@@ -318,7 +318,7 @@ class ParameterOptimizer:
                 net_proceeds = proceeds * (1 - cost_per_trade)
                 net_pnl = net_proceeds - (pos['shares'] * pos['entry_price'])
 
-                days_held = round((i - pos['entry_idx']) / 7, 1)
+                days_held = round(i - pos['entry_idx'], 1)
                 trades.append({
                     'symbol': sym,
                     'entry_price': pos['entry_price'],

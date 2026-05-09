@@ -40,13 +40,13 @@ def calculate_sma(prices, period):
 
 def calculate_ema(prices, period):
     """Calculate Exponential Moving Average"""
-    return prices.ewm(span=period, adjust=False).mean()
+    return prices.ewm(span=period).mean()
 
 
 def calculate_bollinger_bands(prices, period=20, num_std=2):
     """Calculate Bollinger Bands"""
     sma = prices.rolling(window=period).mean()
-    std = prices.rolling(window=period).std()
+    std = prices.rolling(window=period).std(ddof=0)
     upper = sma + (std * num_std)
     lower = sma - (std * num_std)
 

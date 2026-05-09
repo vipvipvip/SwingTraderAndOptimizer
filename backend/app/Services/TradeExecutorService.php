@@ -83,6 +83,9 @@ class TradeExecutorService
         ];
 
         foreach ($tickers as $ticker) {
+            if (($ticker['symbol'] ?? '') === 'BLENDED') {
+                continue;
+            }
             try {
                 $result = $this->executeForTicker($ticker['symbol'], $account, $positions);
                 $results['total']++;

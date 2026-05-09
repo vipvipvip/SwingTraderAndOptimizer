@@ -26,8 +26,8 @@ class OrderController extends Controller
         try {
             $order = $this->alpacaService->placeOrder(
                 $validated['symbol'],
-                $validated['side'],
-                $validated['qty']
+                $validated['qty'],
+                $validated['side']
             );
             return response()->json($order, 201);
         } catch (\Exception $e) {
