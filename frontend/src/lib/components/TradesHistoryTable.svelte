@@ -249,6 +249,13 @@
     font-weight: 600;
     color: #3b82f6;
   }
+
+  .simulated-note {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #9ca3af;
+    font-style: italic;
+  }
 </style>
 
 <div>
@@ -289,8 +296,7 @@
             <tr>
               <th>Type</th>
               <th>Symbol</th>
-              <th>Side</th>
-              <th>Qty</th>
+              <th>Allocation</th>
               <th>Entry Price</th>
               <th>Exit Price</th>
               <th>Entry Date</th>
@@ -309,12 +315,11 @@
                   </span>
                 </td>
                 <td><span class="symbol">{trade.symbol}</span></td>
-                <td>{trade.side || '-'}</td>
-                <td>{trade.quantity || '-'}</td>
+                <td>{trade.allocation_weight ? trade.source_symbol + ' ' + trade.allocation_weight + '%' : (trade.quantity || '-')}</td>
                 <td>${formatPrice(trade.entry_price)}</td>
                 <td>${formatPrice(trade.exit_price)}</td>
                 <td>{formatDate(trade.entry_at)}</td>
-                <td>{formatDate(trade.exit_at)}</td>
+                <td>{formatDate(trade.exit_at)}{trade.simulated_close ? ' *' : ''}</td>
                 <td class={trade.pnl_dollar > 0 ? 'pnl-positive' : 'pnl-negative'}>
                   ${formatPrice(trade.pnl_dollar)}
                 </td>
@@ -329,6 +334,9 @@
           </tbody>
         </table>
       </div>
+      {#if displayTrades.some(t => t.simulated_close)}
+        <div class="simulated-note">* simulated close (no sell signal generated)</div>
+      {/if}
     {/if}
   {/if}
 </div>

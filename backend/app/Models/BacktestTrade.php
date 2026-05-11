@@ -15,6 +15,9 @@ class BacktestTrade extends Model
         'return',
         'pnl_dollar',
         'days_held',
+        'simulated_close',
+        'source_symbol',
+        'allocation_weight',
     ];
 
     protected $casts = [
@@ -24,10 +27,17 @@ class BacktestTrade extends Model
         'exit_price' => 'decimal:2',
         'return' => 'decimal:6',
         'pnl_dollar' => 'decimal:2',
+        'simulated_close' => 'boolean',
+        'allocation_weight' => 'decimal:4',
     ];
 
     public function ticker()
     {
         return $this->belongsTo(Ticker::class, 'ticker_id');
+    }
+
+    public function sourceTicker()
+    {
+        return $this->belongsTo(Ticker::class, 'source_symbol', 'symbol');
     }
 }

@@ -153,7 +153,8 @@ class ParameterOptimizer:
                     'return': net_pnl,
                     'pnl_dollar': net_dollar,
                     'pnl_pct': net_pnl,
-                    'days_held': days_held
+                    'days_held': days_held,
+                    'allocation_pct': self.allocation_weight,
                 })
 
                 current_equity = trade_equity_curve[-1] + net_dollar
@@ -182,9 +183,39 @@ class ParameterOptimizer:
                 if price_close < stop_level:
                     pending_exit = True
 
-            # Force exit at end of data
-            if i == len(data) - 1 and position_active and not pending_exit:
-                pending_exit = True
+            # Record open position at end of data
+            if i == len(data) - 1 and position_active:
+                simulated_close = not pending_exit
+                exit_price = price_close
+                allocated = equity_before_trade * (self.allocation_weight / 100)
+                deployed = allocated * (1 - cost_per_trade)
+                shares_amount = deployed / entry_price
+                proceeds = shares_amount * exit_price
+                net_proceeds = proceeds * (1 - cost_per_trade)
+                net_dollar = net_proceeds - deployed
+                net_pnl = net_dollar / deployed
+
+                days_held = round(i - entry_idx, 1)
+
+                trades.append({
+                    'entry_price': entry_price,
+                    'exit_price': exit_price,
+                    'entry_at': str(data.index[entry_idx]),
+                    'exit_at': str(data.index[i]),
+                    'return': net_pnl,
+                    'pnl_dollar': net_dollar,
+                    'pnl_pct': net_pnl,
+                    'days_held': days_held,
+                    'simulated_close': simulated_close,
+                    'allocation_pct': self.allocation_weight,
+                })
+
+                current_equity = trade_equity_curve[-1] + net_dollar
+                trade_equity_curve.append(current_equity)
+                trade_equity_dates.append(str(data.index[i]))
+
+                position_active = False
+                pending_exit = False
 
             if position_active:
                 shares_amount = (equity_before_trade * (self.allocation_weight / 100)) / entry_price
@@ -328,7 +359,8 @@ class ParameterOptimizer:
                     'return': net_pnl / (pos['shares'] * pos['entry_price']),
                     'pnl_dollar': net_pnl,
                     'pnl_pct': net_pnl / (pos['shares'] * pos['entry_price']),
-                    'days_held': days_held
+                    'days_held': days_held,
+                    'allocation_pct': pos.get('allocation_pct', 0),
                 })
                 cash += net_proceeds
                 del positions[sym]
@@ -338,16 +370,23 @@ class ParameterOptimizer:
             entering_today = [sym for sym in ticker_data
                               if pending_entry.get(sym) and sym not in positions and cash > 0]
             if entering_today:
+                # Total equity before new entries (cash + current market value of open positions)
+                total_equity = cash
+                for sym, pos in positions.items():
+                    total_equity += pos['shares'] * aligned[sym]['close'].iloc[i]
+
                 amount_each = cash / len(entering_today)
                 for sym in entering_today:
                     entry_price = aligned[sym]['open'].iloc[i]
                     cost = amount_each * cost_per_trade
                     buy_amount = amount_each - cost
                     shares = buy_amount / entry_price
+                    allocation_pct = round(amount_each / total_equity * 100, 2)
                     positions[sym] = {
                         'shares': shares,
                         'entry_price': entry_price,
                         'entry_idx': i,
+                        'allocation_pct': allocation_pct,
                     }
                     high_since[sym] = aligned[sym]['high'].iloc[i]
                     pending_entry[sym] = False
@@ -370,9 +409,34 @@ class ParameterOptimizer:
                     if close < stop:
                         pending_exit[sym] = True
 
-                # Force exit at end
-                if i == len(common_index) - 1 and sym in positions and not pending_exit[sym]:
-                    pending_exit[sym] = True
+            # --- Record open positions at end of data ---
+            if i == len(common_index) - 1:
+                for sym in list(positions.keys()):
+                    pos = positions[sym]
+                    d = aligned[sym]
+                    simulated_close = not pending_exit.get(sym, False)
+                    exit_price = d['close'].iloc[i]
+                    proceeds = pos['shares'] * exit_price
+                    net_proceeds = proceeds * (1 - cost_per_trade)
+                    net_pnl = net_proceeds - (pos['shares'] * pos['entry_price'])
+
+                    days_held = round(i - pos['entry_idx'], 1)
+                    trades.append({
+                        'symbol': sym,
+                        'entry_price': pos['entry_price'],
+                        'exit_price': exit_price,
+                        'entry_at': str(common_index[pos['entry_idx']]),
+                        'exit_at': str(common_index[i]),
+                        'return': net_pnl / (pos['shares'] * pos['entry_price']),
+                        'pnl_dollar': net_pnl,
+                        'pnl_pct': net_pnl / (pos['shares'] * pos['entry_price']),
+                        'days_held': days_held,
+                        'simulated_close': simulated_close,
+                        'allocation_pct': pos.get('allocation_pct', 0),
+                    })
+                    cash += net_proceeds
+                    del positions[sym]
+                    pending_exit[sym] = False
 
             # --- Track equity ---
             positions_value = cash

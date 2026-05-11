@@ -216,8 +216,8 @@ class StrategyDB:
 
                 cursor.execute('''
                     INSERT INTO backtest_trades
-                    (ticker_id, entry_at, entry_price, exit_at, exit_price, return, pnl_dollar, days_held)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (ticker_id, entry_at, entry_price, exit_at, exit_price, return, pnl_dollar, days_held, simulated_close, source_symbol, allocation_weight)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ''', (
                     ticker_id,
                     entry_ts,
@@ -226,7 +226,10 @@ class StrategyDB:
                     float(trade.get('exit_price', 0)),
                     float(trade.get('return', 0)),
                     float(trade.get('pnl_dollar', 0)),
-                    float(trade.get('days_held', 0))
+                    float(trade.get('days_held', 0)),
+                    bool(trade.get('simulated_close', False)),
+                    str(trade.get('symbol', ''))[:10],
+                    float(trade.get('allocation_pct', 0)),
                 ))
                 saved_count += 1
 

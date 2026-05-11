@@ -205,7 +205,79 @@ Route::get('/v1/openapi.json', function (Request $request) {
                     'summary' => 'Get backtest trades',
                     'tags' => ['Equity & P&L'],
                     'responses' => [
-                        '200' => ['description' => 'List of backtest trades']
+                        '200' => [
+                            'description' => 'List of backtest trades with symbol, source_symbol, allocation_weight, simulated_close',
+                            'content' => [
+                                'application/json' => [
+                                    'example' => [
+                                        [
+                                            'id' => 'backtest_10482',
+                                            'symbol' => 'BLENDED',
+                                            'source_symbol' => 'QQQ',
+                                            'entry_price' => 581.53,
+                                            'exit_price' => 711.66,
+                                            'entry_at' => '2026-04-01 00:00:00',
+                                            'exit_at' => '2026-05-11 00:00:00',
+                                            'pnl_dollar' => 1250.32,
+                                            'return' => 0.2232,
+                                            'days_held' => 27,
+                                            'allocation_weight' => 50,
+                                            'simulated_close' => false,
+                                            'portfolio_value' => 144866.51,
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ],
+                    'parameters' => [
+                        [
+                            'name' => 'symbol',
+                            'in' => 'query',
+                            'required' => false,
+                            'schema' => ['type' => 'string'],
+                            'description' => 'Filter by ticker symbol (e.g. QQQ, BLENDED)'
+                        ]
+                    ]
+                ],
+            ],
+            '/api/v1/trades/backtest/{symbol}' => [
+                'get' => [
+                    'summary' => 'Get backtest trades for a symbol',
+                    'tags' => ['Equity & P&L'],
+                    'parameters' => [
+                        [
+                            'name' => 'symbol',
+                            'in' => 'path',
+                            'required' => true,
+                            'schema' => ['type' => 'string'],
+                            'description' => 'Ticker symbol (e.g. QQQ, VTI, VTV, BLENDED)'
+                        ]
+                    ],
+                    'responses' => [
+                        '200' => [
+                            'description' => 'List of backtest trades filtered by symbol',
+                            'content' => [
+                                'application/json' => [
+                                    'example' => [[
+                                        'id' => 'backtest_10482',
+                                        'symbol' => 'QQQ',
+                                        'source_symbol' => 'QQQ',
+                                        'entry_price' => 581.53,
+                                        'exit_price' => 711.66,
+                                        'entry_at' => '2026-04-01 00:00:00',
+                                        'exit_at' => '2026-05-11 00:00:00',
+                                        'pnl_dollar' => 1250.32,
+                                        'return' => 0.2232,
+                                        'days_held' => 27,
+                                        'allocation_weight' => 45,
+                                        'simulated_close' => false,
+                                        'portfolio_value' => 144866.51,
+                                    ]]
+                                ]
+                            ]
+                        ],
+                        '404' => ['description' => 'Ticker not found']
                     ]
                 ],
             ],

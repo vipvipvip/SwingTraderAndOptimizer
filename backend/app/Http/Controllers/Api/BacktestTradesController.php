@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BacktestTrade;
 use App\Models\EquitySnapshot;
+use App\Models\Ticker;
 
 class BacktestTradesController extends Controller
 {
@@ -21,6 +22,7 @@ class BacktestTradesController extends Controller
             ->map(fn ($trade) => [
                 'id' => 'backtest_' . $trade->id,
                 'symbol' => $trade->ticker->symbol,
+                'source_symbol' => $trade->source_symbol ?: $trade->ticker->symbol,
                 'entry_price' => (float) $trade->entry_price,
                 'exit_price' => (float) $trade->exit_price,
                 'entry_at' => $trade->entry_at->toDateTimeString(),
@@ -28,6 +30,8 @@ class BacktestTradesController extends Controller
                 'pnl_dollar' => (float) $trade->pnl_dollar,
                 'return' => (float) $trade->return,
                 'days_held' => $trade->days_held,
+                'allocation_weight' => (float) $trade->allocation_weight,
+                'simulated_close' => (bool) $trade->simulated_close,
                 'portfolio_value' => $equity[$trade->ticker_id . '|' . $trade->exit_at->toDateString()] ?? null,
             ]);
 
@@ -36,7 +40,7 @@ class BacktestTradesController extends Controller
 
     public function bySymbol($symbol)
     {
-        $ticker = \App\Models\Ticker::where('symbol', $symbol)->first();
+        $ticker = Ticker::where('symbol', $symbol)->first();
         if (!$ticker) {
             return response()->json([], 404);
         }
@@ -52,7 +56,8 @@ class BacktestTradesController extends Controller
             ->get()
             ->map(fn ($trade) => [
                 'id' => 'backtest_' . $trade->id,
-                'symbol' => $symbol,
+                'symbol' => $trade->ticker->symbol,
+                'source_symbol' => $trade->source_symbol ?: $symbol,
                 'entry_price' => (float) $trade->entry_price,
                 'exit_price' => (float) $trade->exit_price,
                 'entry_at' => $trade->entry_at->toDateTimeString(),
@@ -60,6 +65,8 @@ class BacktestTradesController extends Controller
                 'pnl_dollar' => (float) $trade->pnl_dollar,
                 'return' => (float) $trade->return,
                 'days_held' => $trade->days_held,
+                'allocation_weight' => (float) $trade->allocation_weight,
+                'simulated_close' => (bool) $trade->simulated_close,
                 'portfolio_value' => $equity[$trade->exit_at->toDateString()] ?? null,
             ]);
 
