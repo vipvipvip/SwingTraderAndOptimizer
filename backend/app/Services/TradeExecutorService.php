@@ -111,6 +111,9 @@ class TradeExecutorService
      */
     public function manualBuy($symbol, $qty = null)
     {
+        if ($symbol === 'BLENDED') {
+            throw new \Exception("Cannot trade BLENDED ticker");
+        }
         $ticker = Ticker::where('symbol', $symbol)->first();
         if (!$ticker) {
             throw new \Exception("Ticker {$symbol} not found");
@@ -150,6 +153,9 @@ class TradeExecutorService
      */
     public function manualSell($symbol, $qty = null)
     {
+        if ($symbol === 'BLENDED') {
+            throw new \Exception("Cannot trade BLENDED ticker");
+        }
         // For manual testing, qty is required or get from open position
         $sellQty = $qty;
 
@@ -222,6 +228,9 @@ class TradeExecutorService
 
         foreach ($tickers as $ticker) {
             $symbol = $ticker['symbol'];
+            if ($symbol === 'BLENDED') {
+                continue;
+            }
             $results['total']++;
             try {
                 $buy = $this->alpacaService->placeOrder($symbol, $qty, 'buy');

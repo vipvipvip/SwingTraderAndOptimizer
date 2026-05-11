@@ -24,6 +24,9 @@ class OrderController extends Controller
         ]);
 
         try {
+            if (strtoupper($validated['symbol']) === 'BLENDED') {
+                return response()->json(['error' => 'Cannot trade BLENDED ticker'], 400);
+            }
             $order = $this->alpacaService->placeOrder(
                 $validated['symbol'],
                 $validated['qty'],
