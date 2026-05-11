@@ -15,6 +15,9 @@ def filter_market_hours(df):
 
     Filters on NY timezone timestamps. For hourly bars, timestamp = end of hour.
     Market hours: 10:00 AM - 4:00 PM ET (first bar at 10:00 after 9:30 open)
+
+    NOTE: Only filters intraday bars (hourly, 15min, etc.). Daily/weekly bars
+    have midnight timestamps and should NOT be filtered.
     """
     if df is None or len(df) == 0:
         return df
@@ -26,6 +29,14 @@ def filter_market_hours(df):
         df_copy.index = df_copy.index.tz_localize('UTC').tz_convert('America/New_York')
     elif str(df_copy.index.tz) != 'America/New_York':
         df_copy.index = df_copy.index.tz_convert('America/New_York')
+
+    # Detect if these are daily bars (midnight timestamps like 00:00)
+    # Daily bars represent the full trading day — skip hour-based filtering
+    first_ts = df_copy.index[0]
+    is_daily = first_ts.hour == 0 and first_ts.minute == 0
+
+    if is_daily:
+        return df_copy
 
     # Extract hour:minute in NY time
     df_copy['_time_ny'] = df_copy.index.strftime('%H:%M')
