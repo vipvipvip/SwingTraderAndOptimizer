@@ -22,6 +22,7 @@
   let lastTradesRun = ''
   let lastOptimizerRunRaw = ''
   let lastTradesRunRaw = ''
+  let optimizerPollTimer = null
   let totalUnrealizedPnl = 0
   let totalUnrealizedPnlPercent = 0
   let totalMarketValue = 0
