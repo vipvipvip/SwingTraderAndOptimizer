@@ -72,23 +72,14 @@ class StrategyDB:
             mult = float(params.get('bb_std', 3.0))
             cursor.execute('''
                 INSERT INTO strategy_parameters
-                (ticker_id, macd_fast, macd_slow, macd_signal, bb_period, bb_std,
-                 ema_signal, sma_signal, sma_50, sma_200, ppo_fast, ppo_slow,
+                (ticker_id, macd_fast, bb_period, bb_std,
                  win_rate, sharpe_ratio, total_return, total_trades, base_case, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
             ''', (
                 ticker_id,
                 period,  # macd_fast = chandelier period
-                0,       # macd_slow = not used
-                0,       # macd_signal = not used
                 period,  # bb_period = ATR period (same as chandelier period)
                 mult,    # bb_std = chandelier multiplier
-                0,       # ema_signal = not used
-                0,       # sma_signal = not used
-                0,       # sma_50 = not used
-                0,       # sma_200 = not used
-                0,       # ppo_fast = not used
-                0,       # ppo_slow = not used
                 float(metrics['win_rate']),
                 float(metrics['sharpe_ratio']),
                 float(metrics['total_return']),

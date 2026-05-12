@@ -125,12 +125,8 @@
                                 <span class="val ${(parseFloat(t.params.total_return || 0) > 0 ? 'success' : 'error')}">${(parseFloat(t.params.total_return || 0) * 100).toFixed(2)}%</span>
                             </div>
                             <div class="metric">
-                                <span class="label">MACD</span>
-                                <span class="val">(${t.params.macd_fast},${t.params.macd_slow},${t.params.macd_signal})</span>
-                            </div>
-                            <div class="metric">
-                                <span class="label">SMA</span>
-                                <span class="val">(${t.params.sma_short},${t.params.sma_long})</span>
+                                <span class="label">Chandelier</span>
+                                <span class="val">(${t.params.macd_fast},${t.params.bb_period},${t.params.bb_std})</span>
                             </div>
                         ` : '<div class="loading">No parameters optimized yet</div>'}
                     </div>

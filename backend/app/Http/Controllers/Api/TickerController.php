@@ -37,11 +37,9 @@ class TickerController extends Controller
      *                      @OA\Property(property="sharpe_ratio", type="number", example=1.42),
      *                      @OA\Property(property="win_rate", type="number", example=0.65),
      *                      @OA\Property(property="total_return", type="number", example=0.2348),
-     *                      @OA\Property(property="macd_fast", type="integer", example=12),
-     *                      @OA\Property(property="macd_slow", type="integer", example=26),
-     *                      @OA\Property(property="macd_signal", type="integer", example=9),
-     *                      @OA\Property(property="sma_short", type="integer", example=50),
-     *                      @OA\Property(property="sma_long", type="integer", example=200)
+     *                      @OA\Property(property="macd_fast", type="integer", example=18),
+     *                      @OA\Property(property="bb_period", type="integer", example=18),
+     *                      @OA\Property(property="bb_std", type="number", example=3.0)
      *                  )
      *              )
      *          )

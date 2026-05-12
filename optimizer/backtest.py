@@ -40,7 +40,7 @@ def backtest_ticker(symbol, timeframe, allocation_weight=None):
 
     # Query strategy_parameters for this ticker (base_case=true only)
     cursor.execute('''
-        SELECT macd_fast, macd_slow, macd_signal, bb_period, bb_std
+        SELECT macd_fast, bb_period, bb_std
         FROM strategy_parameters
         WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
         AND base_case = true
@@ -57,15 +57,12 @@ def backtest_ticker(symbol, timeframe, allocation_weight=None):
     # Extract parameters from database row
     params = {
         'macd_fast': int(params_row[0]),
-        'macd_slow': int(params_row[1]),
-        'macd_signal': int(params_row[2]),
-        'bb_period': int(params_row[3]),
-        'bb_std': float(params_row[4]),
+        'bb_period': int(params_row[1]),
+        'bb_std': float(params_row[2]),
     }
 
     print(f"\n[{symbol}] Backtesting with current parameters:")
-    print(f"  MACD: fast={params['macd_fast']}, slow={params['macd_slow']}, signal={params['macd_signal']}")
-    print(f"  Bollinger Bands: period={params['bb_period']}, std={params['bb_std']}")
+    print(f"  Chandelier: period={params['macd_fast']}, ATR period={params['bb_period']}, mult={params['bb_std']}")
 
     # Load price data
     data_df = load_data_from_db(symbol)
@@ -182,7 +179,7 @@ def main():
 
             # Get baseline (base_case=1)
             cursor.execute('''
-                SELECT id, macd_fast, macd_slow, macd_signal, bb_period, bb_std
+                SELECT id, macd_fast, bb_period, bb_std
                 FROM strategy_parameters
                 WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
                 AND base_case = true
@@ -195,15 +192,13 @@ def main():
 
             baseline_params = {
                 'macd_fast': int(baseline_row[1]),
-                'macd_slow': int(baseline_row[2]),
-                'macd_signal': int(baseline_row[3]),
-                'bb_period': int(baseline_row[4]),
-                'bb_std': float(baseline_row[5]),
+                'bb_period': int(baseline_row[2]),
+                'bb_std': float(baseline_row[3]),
             }
 
             # Get candidates (base_case=0)
             cursor.execute('''
-                SELECT id, macd_fast, macd_slow, macd_signal, bb_period, bb_std
+                SELECT id, macd_fast, bb_period, bb_std
                 FROM strategy_parameters
                 WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
                 AND base_case = false
@@ -223,10 +218,8 @@ def main():
                     cand_id = cand_row[0]
                     cand_params = {
                         'macd_fast': int(cand_row[1]),
-                        'macd_slow': int(cand_row[2]),
-                        'macd_signal': int(cand_row[3]),
-                        'bb_period': int(cand_row[4]),
-                        'bb_std': float(cand_row[5]),
+                        'bb_period': int(cand_row[2]),
+                        'bb_std': float(cand_row[3]),
                     }
                     print(f"  Backtesting candidate {cand_id}...")
                     result = backtest_params_with_id(ticker, cand_params, cand_id, 'candidate')

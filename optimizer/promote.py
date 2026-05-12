@@ -15,7 +15,7 @@ def promote_candidate(symbol, candidate_id):
 
     # Get the candidate
     cursor.execute('''
-        SELECT id, ticker_id, macd_fast, macd_slow, macd_signal, bb_period, bb_std,
+        SELECT id, ticker_id, macd_fast, bb_period, bb_std,
                sharpe_ratio, total_return
         FROM strategy_parameters
         WHERE id = %s AND ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
@@ -30,10 +30,10 @@ def promote_candidate(symbol, candidate_id):
 
     candidate_id_db = candidate[0]
     ticker_id = candidate[1]
-    bb_period = candidate[5]
-    bb_std = candidate[6]
-    sharpe = candidate[7]
-    total_return = candidate[8]
+    bb_period = candidate[3]
+    bb_std = candidate[4]
+    sharpe = candidate[5]
+    total_return = candidate[6]
 
     print(f"\nPromoting {symbol} Candidate {candidate_id_db}:")
     print(f"  BB: period={bb_period}, std={bb_std}")
