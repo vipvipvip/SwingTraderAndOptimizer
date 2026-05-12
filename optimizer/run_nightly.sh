@@ -13,7 +13,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Nightly optimizer starting..." >> "$LOG"
 # Wait for PostgreSQL to be ready (Docker container may still be starting)
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for PostgreSQL..." >> "$LOG"
 for i in $(seq 1 30); do
-    if pg_isready -h 127.0.0.1 -p 5432 -U swingtrader -q 2>/dev/null; then
+    if (echo > /dev/tcp/127.0.0.1/5432) 2>/dev/null; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] PostgreSQL ready." >> "$LOG"
         break
     fi
