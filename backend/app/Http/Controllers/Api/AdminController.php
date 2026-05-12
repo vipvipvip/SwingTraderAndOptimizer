@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Ticker;
 use App\Services\EquityService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 class AdminController extends Controller
 {
@@ -209,7 +210,9 @@ class AdminController extends Controller
                     true
                 );
                 if ($result && $result['latest_run']) {
-                    $lastOptimizerRun = $result['latest_run'];
+                    $lastOptimizerRun = Carbon::parse($result['latest_run'], 'UTC')
+                        ->setTimezone('America/New_York')
+                        ->toDateTimeString();
                 }
                 $sqliteConn->close();
             } catch (\Exception $e) {
@@ -234,7 +237,9 @@ class AdminController extends Controller
                     ->selectRaw('MAX(entry_at) as latest_entry')
                     ->first();
                 if ($lastTrade && $lastTrade->latest_entry) {
-                    $lastTradesRun = $lastTrade->latest_entry;
+                    $lastTradesRun = Carbon::parse($lastTrade->latest_entry, 'UTC')
+                        ->setTimezone('America/New_York')
+                        ->toDateTimeString();
                 }
             } catch (\Exception $e) {
                 // Silently fail

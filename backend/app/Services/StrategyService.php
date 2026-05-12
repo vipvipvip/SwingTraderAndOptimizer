@@ -86,6 +86,14 @@ class StrategyService
             ->orderBy('run_date', 'desc')
             ->limit($limit)
             ->get()
+            ->map(function ($row) {
+                if (isset($row['run_date'])) {
+                    $row['run_date'] = Carbon::parse($row['run_date'], 'UTC')
+                        ->setTimezone('America/New_York')
+                        ->toDateTimeString();
+                }
+                return $row;
+            })
             ->toArray();
     }
 
