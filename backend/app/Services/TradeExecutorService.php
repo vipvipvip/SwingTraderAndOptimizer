@@ -5,19 +5,16 @@ namespace App\Services;
 use App\Models\Ticker;
 use App\Models\LiveTrade;
 use App\Models\PositionCache;
-use App\Models\IntraDayPrice;
 
 class TradeExecutorService
 {
     private $alpacaService;
     private $strategyService;
-    private $priceAcquisitionService;
 
-    public function __construct(AlpacaService $alpaca, StrategyService $strategy, PriceAcquisitionService $priceAcquisition)
+    public function __construct(AlpacaService $alpaca, StrategyService $strategy)
     {
         $this->alpacaService = $alpaca;
         $this->strategyService = $strategy;
-        $this->priceAcquisitionService = $priceAcquisition;
     }
 
     /**
@@ -56,14 +53,6 @@ class TradeExecutorService
 
     public function executeForAllTickers()
     {
-        // Fetch fresh prices for all tickers before executing trades
-        try {
-            $this->priceAcquisitionService->fetchLatestPrices();
-            \Log::info("Fetched latest prices for all tickers");
-        } catch (\Exception $e) {
-            \Log::warning("Failed to fetch latest prices: " . $e->getMessage());
-        }
-
         // Fetch account and positions ONCE for all tickers (reduce Alpaca calls)
         $account = null;
         $positions = [];
@@ -305,85 +294,10 @@ class TradeExecutorService
     }
 
     /**
-     * Read hourly bars from PostgreSQL database
-     * Returns array of close prices in chronological order
-     */
-    private function getBarsFromPostgres($symbol)
-    {
-        try {
-            $closes = \DB::table('bars')
-                ->join('tickers', 'bars.ticker_id', '=', 'tickers.id')
-                ->where('tickers.symbol', $symbol)
-                ->orderBy('bars.timestamp', 'asc')
-                ->pluck('bars.close')
-                ->map(fn($close) => floatval($close))
-                ->toArray();
-
-            if (!empty($closes)) {
-                \Log::debug("{$symbol}: Loaded " . count($closes) . " bars from PostgreSQL");
-            }
-
-            return $closes;
-        } catch (\Exception $e) {
-            \Log::debug("Could not fetch bars from PostgreSQL for {$symbol}: " . $e->getMessage());
-            return [];
-        }
-    }
-
-    /**
-     * Get price series from PostgreSQL bars + intra_day prices
-     * Primary: PostgreSQL bars (2 years, updated nightly by optimizer)
-     * Fresh data: Intraday prices saved every 30 minutes during market hours
-     */
-    private function getPriceClosesForSignal($symbol)
-    {
-        $closes = [];
-
-        // Get historical bars from PostgreSQL
-        $closes = $this->getBarsFromPostgres($symbol);
-
-        if (empty($closes)) {
-            \Log::warning("$symbol: No bars available in PostgreSQL");
-            return [];
-        }
-
-        // Append last intra_day price for each hour today (one price per hour)
-        try {
-            $today = date('Y-m-d');
-            $intraDayPrices = IntraDayPrice::where('symbol', $symbol)
-                ->whereDate('price_time', $today)
-                ->orderBy('price_time', 'asc')
-                ->get(['close', 'price_time'])
-                ->toArray();
-
-            if (!empty($intraDayPrices)) {
-                // Group by hour and take last price of each hour
-                $hourlyPrices = [];
-                foreach ($intraDayPrices as $price) {
-                    $hour = date('H', strtotime($price['price_time']));
-                    $hourlyPrices[$hour] = floatval($price['close'] ?? 0);
-                }
-
-                // Append hourly prices in order
-                foreach ($hourlyPrices as $hour => $price) {
-                    $closes[] = $price;
-                }
-
-                \Log::debug("$symbol: Added " . count($hourlyPrices) . " hourly prices from today's intra-day data");
-            }
-        } catch (\Exception $e) {
-            \Log::debug("Could not fetch intra-day prices for $symbol: " . $e->getMessage());
-        }
-
-        return $closes;
-    }
-
-    /**
-     * Get current price: bars first, then intra_day, then skip
+     * Get current price from latest bar in database
      */
     private function getCurrentPrice($symbol)
     {
-        // Try to get from bars data (most recent close) via ticker_id FK
         try {
             $bar = \DB::table('bars')
                 ->join('tickers', 'bars.ticker_id', '=', 'tickers.id')
@@ -397,21 +311,6 @@ class TradeExecutorService
             }
         } catch (\Exception $e) {
             \Log::debug("Could not fetch from bars: " . $e->getMessage());
-        }
-
-        // Fallback: Get latest intra_day price for today
-        try {
-            $today = date('Y-m-d');
-            $intraday = IntraDayPrice::where('symbol', $symbol)
-                ->whereDate('price_time', $today)
-                ->orderBy('price_time', 'desc')
-                ->first();
-
-            if ($intraday) {
-                return floatval($intraday->close);
-            }
-        } catch (\Exception $e) {
-            \Log::debug("Could not fetch from intra_day_prices: " . $e->getMessage());
         }
 
         return null;

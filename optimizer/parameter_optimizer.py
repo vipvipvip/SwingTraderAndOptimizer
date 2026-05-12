@@ -93,8 +93,6 @@ class ParameterOptimizer:
                 'close': 'last', 'volume': 'sum'
             }).dropna()
 
-        from indicators import calculate_macd, calculate_sma, calculate_ema, calculate_bollinger_bands
-
         # Cost model: 0.05% round-trip (slippage + commission)
         cost_per_trade = 0.0005
 
