@@ -20,6 +20,8 @@
   let nextTradeDay = ''
   let lastOptimizerRun = ''
   let lastTradesRun = ''
+  let lastOptimizerRunRaw = ''
+  let lastTradesRunRaw = ''
   let totalUnrealizedPnl = 0
   let totalUnrealizedPnlPercent = 0
   let totalMarketValue = 0
@@ -131,19 +133,45 @@
 
   async function triggerOptimizer() {
     optimizerRunning = true
-    optimizerMessage = 'Running optimizer...'
+    optimizerMessage = 'Starting optimizer...'
     try {
+      const beforeRun = lastOptimizerRunRaw
       const res = await fetchWithBackoff('/api/v1/admin/optimize/trigger', { method: 'POST' })
       const data = await res.json()
-      if (res.ok) {
-        optimizerMessage = '✓ Optimizer completed'
-        lastOptimizerRun = formatDateTime(new Date().toISOString())
-      } else {
+      if (!res.ok) {
         optimizerMessage = `✗ Error: ${data.error}`
+        optimizerRunning = false
+        setTimeout(() => optimizerMessage = '', 3000)
+        return
       }
+      optimizerMessage = 'Optimizer started — awaiting completion...'
+      const pollStart = Date.now()
+      const poll = async () => {
+        try {
+          const pollRes = await fetchWithBackoff('/api/v1/admin/last-runs', {}, 2, 500, 3000)
+          if (pollRes.ok) {
+            const pollData = await pollRes.json()
+            if (pollData.last_optimizer_run && pollData.last_optimizer_run !== beforeRun) {
+              lastOptimizerRunRaw = pollData.last_optimizer_run
+              lastOptimizerRun = formatDateTime(pollData.last_optimizer_run)
+              optimizerMessage = '✓ Optimizer completed'
+              optimizerRunning = false
+              setTimeout(() => optimizerMessage = '', 3000)
+              return
+            }
+          }
+        } catch (_) {}
+        if (Date.now() - pollStart > 600000) {
+          optimizerMessage = '⚠ Optimizer still running (check logs)'
+          optimizerRunning = false
+          setTimeout(() => optimizerMessage = '', 5000)
+          return
+        }
+        optimizerPollTimer = setTimeout(poll, 10000)
+      }
+      optimizerPollTimer = setTimeout(poll, 10000)
     } catch (e) {
       optimizerMessage = `✗ Error: ${e instanceof Error ? e.message : 'Unknown error'}`
-    } finally {
       optimizerRunning = false
       setTimeout(() => optimizerMessage = '', 3000)
     }
@@ -153,17 +181,43 @@
     tradesRunning = true
     tradesMessage = 'Executing trades...'
     try {
+      const beforeRun = lastTradesRunRaw
       const res = await fetchWithBackoff('/api/v1/admin/trades/trigger', { method: 'POST' })
       const data = await res.json()
-      if (res.ok) {
-        tradesMessage = '✓ Trade executor completed'
-        lastTradesRun = formatDateTime(new Date().toISOString())
-      } else {
+      if (!res.ok) {
         tradesMessage = `✗ Error: ${data.error}`
+        tradesRunning = false
+        setTimeout(() => tradesMessage = '', 3000)
+        return
       }
+      tradesMessage = 'Trades triggered — awaiting completion...'
+      const pollStart = Date.now()
+      const poll = async () => {
+        try {
+          const pollRes = await fetchWithBackoff('/api/v1/admin/last-runs', {}, 2, 500, 3000)
+          if (pollRes.ok) {
+            const pollData = await pollRes.json()
+            if (pollData.last_trades_run && pollData.last_trades_run !== beforeRun) {
+              lastTradesRunRaw = pollData.last_trades_run
+              lastTradesRun = formatDateTime(pollData.last_trades_run)
+              tradesMessage = '✓ Trade executor completed'
+              tradesRunning = false
+              setTimeout(() => tradesMessage = '', 3000)
+              return
+            }
+          }
+        } catch (_) {}
+        if (Date.now() - pollStart > 300000) {
+          tradesMessage = '⚠ Trade executor still running (check logs)'
+          tradesRunning = false
+          setTimeout(() => tradesMessage = '', 5000)
+          return
+        }
+        setTimeout(poll, 10000)
+      }
+      setTimeout(poll, 10000)
     } catch (e) {
       tradesMessage = `✗ Error: ${e instanceof Error ? e.message : 'Unknown error'}`
-    } finally {
       tradesRunning = false
       setTimeout(() => tradesMessage = '', 3000)
     }
@@ -189,9 +243,11 @@
       if (lastRunsRes.ok) {
         const lastRuns = await lastRunsRes.json()
         if (lastRuns.last_optimizer_run) {
+          lastOptimizerRunRaw = lastRuns.last_optimizer_run
           lastOptimizerRun = formatDateTime(lastRuns.last_optimizer_run)
         }
         if (lastRuns.last_trades_run) {
+          lastTradesRunRaw = lastRuns.last_trades_run
           lastTradesRun = formatDateTime(lastRuns.last_trades_run)
         }
       }
