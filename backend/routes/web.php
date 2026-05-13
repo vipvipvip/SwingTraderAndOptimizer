@@ -17,3 +17,6 @@ Route::get('/api-docs', function () {
 Route::get('/api/documentation', function () {
     return file_get_contents(public_path('docs/swagger.html'));
 });
+
+Route::get('/scanner', [App\Http\Controllers\ScannerController::class, 'index']);
+Route::get('/scanner/data/{ticker}', [App\Http\Controllers\ScannerController::class, 'chart']);
