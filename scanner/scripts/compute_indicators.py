@@ -41,14 +41,14 @@ def load_ticker_data(ticker):
 def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow):
     close = df['close'].astype(float)
 
-    ema_fast = close.ewm(span=macd_fast, adjust=False).mean()
-    ema_slow = close.ewm(span=macd_slow, adjust=False).mean()
+    sma_fast = close.rolling(window=macd_fast).mean()
+    sma_slow = close.rolling(window=macd_slow).mean()
 
-    macd_line = ema_fast - ema_slow
-    macd_signal = macd_line.ewm(span=macd_length, adjust=False).mean()
+    macd_line = sma_fast - sma_slow
+    macd_signal = macd_line.rolling(window=macd_length).mean()
     macd_histogram = macd_line - macd_signal
 
-    ppo_line = ((ema_fast - ema_slow) / ema_slow.replace(0, np.nan)) * 100
+    ppo_line = ((sma_fast - sma_slow) / sma_slow.replace(0, np.nan)) * 100
     ppo_signal = ppo_line.ewm(span=PPO_SIGNAL, adjust=False).mean()
     ppo_histogram = ppo_line - ppo_signal
 

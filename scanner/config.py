@@ -15,9 +15,9 @@ DB_CONFIG = {
     'password': 'swingtrader_dev_password',
 }
 
-MACD_FAST = 12
-MACD_SLOW = 26
-MACD_LENGTH = 9
+MACD_FAST = 24
+MACD_SLOW = 52
+MACD_LENGTH = 18
 PPO_FAST = 12
 PPO_SLOW = 26
 PPO_SIGNAL = 9

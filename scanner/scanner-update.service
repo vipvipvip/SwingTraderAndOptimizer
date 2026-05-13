@@ -1,0 +1,11 @@
+[Unit]
+Description=SwingTrader scanner weekly data update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/populate_tickers.py --workers 10
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/compute_indicators.py --workers 10
+User=dikesh
