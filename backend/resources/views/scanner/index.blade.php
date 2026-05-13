@@ -56,7 +56,7 @@
                 </thead>
                 <tbody>
                     @foreach ($results as $row)
-                        <tr onclick="toggleChart('{{ $row->ticker }}')">
+                        <tr data-ticker="{{ $row->ticker }}">
                             <td class="ticker">{{ $row->ticker }}</td>
                             <td>{{ $row->date }}</td>
                             <td class="num {{ $row->close >= 0 ? 'pos' : 'neg' }}">{{ number_format($row->close, 2) }}</td>
@@ -79,11 +79,27 @@
     <script>
         let chartInstance = null;
         let activeTicker = null;
+        let selectedIndex = -1;
 
-        function toggleChart(ticker) {
-            if (activeTicker === ticker) { closeChart(); return; }
-            document.querySelectorAll('#scannerTable tr').forEach(r => r.classList.remove('active'));
-            event?.target?.closest('tr')?.classList?.add('active');
+        function getRows() {
+            return document.querySelectorAll('#scannerTable tbody tr');
+        }
+
+        function selectRow(index) {
+            const rows = getRows();
+            if (index < 0) index = 0;
+            if (index >= rows.length) index = rows.length - 1;
+            rows.forEach(r => r.classList.remove('active'));
+            const row = rows[index];
+            if (!row) return;
+            row.classList.add('active');
+            selectedIndex = index;
+            row.scrollIntoView({ block: 'nearest' });
+            const ticker = row.dataset.ticker;
+            if (ticker && ticker !== activeTicker) loadChart(ticker);
+        }
+
+        function loadChart(ticker) {
             activeTicker = ticker;
             const body = document.getElementById('chartBody');
             body.innerHTML = '<div class="empty-chart">Loading ' + ticker + '...</div>';
@@ -94,13 +110,33 @@
         }
 
         function closeChart() {
-            document.querySelectorAll('#scannerTable tr.active').forEach(r => r.classList.remove('active'));
+            getRows().forEach(r => r.classList.remove('active'));
             if (chartInstance) { chartInstance.remove(); chartInstance = null; }
             activeTicker = null;
-            document.getElementById('chartBody').innerHTML = '<div class="empty-chart">Click a ticker to view chart</div>';
+            selectedIndex = -1;
+            document.getElementById('chartBody').innerHTML = '<div class="empty-chart">Select a ticker</div>';
         }
 
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeChart(); });
+        document.addEventListener('keydown', e => {
+            const rows = getRows();
+            if (rows.length === 0) return;
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                selectRow(selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, rows.length - 1));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                selectRow(selectedIndex < 0 ? rows.length - 1 : Math.max(selectedIndex - 1, 0));
+            } else if (e.key === 'Escape') {
+                closeChart();
+            }
+        });
+
+        document.getElementById('scannerTable')?.addEventListener('click', e => {
+            const row = e.target.closest('tr');
+            if (!row || !row.dataset.ticker) return;
+            const idx = Array.from(getRows()).indexOf(row);
+            selectRow(idx);
+        });
 
         function renderChart(d) {
             const body = document.getElementById('chartBody');
@@ -146,6 +182,16 @@
                 sma40.push({ time: c.time, value: sum / period40 });
             });
             chart.addLineSeries({ color:'#f85149', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }).setData(sma40);
+
+            const sma200 = [];
+            const period200 = 200;
+            candleData.forEach((c, i) => {
+                if (i < period200 - 1) return;
+                let sum = 0;
+                for (let j = i - period200 + 1; j <= i; j++) sum += candleData[j].close;
+                sma200.push({ time: c.time, value: sum / period200 });
+            });
+            chart.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }).setData(sma200);
 
             const ind = d.indicators;
             macdC.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } })

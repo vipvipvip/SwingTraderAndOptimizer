@@ -44,6 +44,7 @@ def fetch_weekly_bars(symbol, client):
         end=end,
         feed='iex',
         limit=10000,
+        adjustment='all',
     )
     response = client.get_stock_bars(request)
     if not response or symbol not in response.data:
@@ -61,6 +62,7 @@ def fetch_weekly_bars(symbol, client):
             feed='iex',
             limit=10000,
             page_token=page_token,
+            adjustment='all',
         )
         response = client.get_stock_bars(request)
         if symbol in response.data:
