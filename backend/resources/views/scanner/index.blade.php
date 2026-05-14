@@ -163,8 +163,13 @@
             const allLineSeries = [];
 
             const candleData = d.bars.map(b => ({ time:b.date, open:parseFloat(b.open), high:parseFloat(b.high), low:parseFloat(b.low), close:parseFloat(b.close) }));
-            chart.addCandlestickSeries({ upColor:'#3fb950', downColor:'#f85149', borderDownColor:'#f85149', borderUpColor:'#3fb950', wickDownColor:'#f85149', wickUpColor:'#3fb950', priceLineVisible:false, lastValueVisible:false })
-                .setData(candleData);
+            const candleSeries = chart.addCandlestickSeries({ upColor:'#3fb950', downColor:'#f85149', borderDownColor:'#f85149', borderUpColor:'#3fb950', wickDownColor:'#f85149', wickUpColor:'#3fb950', priceLineVisible:false, lastValueVisible:false });
+            candleSeries.setData(candleData);
+
+            pricePanel.style.position = 'relative';
+            const ohlcLabel = document.createElement('div');
+            ohlcLabel.style.cssText = 'position:absolute;background:#1c1e26;border:1px solid #2d2f3a;border-radius:6px;padding:5px 8px;font-size:11px;font-family:"JetBrains Mono","Fira Code",monospace;z-index:10;pointer-events:none;display:none;white-space:nowrap;line-height:1.5;';
+            pricePanel.appendChild(ohlcLabel);
 
             const ema10 = [];
             const period = 10, mult = 2 / (period + 1);
@@ -204,6 +209,35 @@
 
             function syncCrosshair(param) {
                 const time = param.time ? param.time : null;
+                if (time) {
+                    const candle = candleData.find(c => c.time === time);
+                    if (candle) {
+                        const up = candle.close >= candle.open;
+                        ohlcLabel.innerHTML =
+                            `<span style="color:#8b949e;">O</span> <span style="color:#e1e4e8;">${candle.open.toFixed(2)}</span> ` +
+                            `<span style="color:#8b949e;">H</span> <span style="color:#3fb950;">${candle.high.toFixed(2)}</span> ` +
+                            `<span style="color:#8b949e;">L</span> <span style="color:#f85149;">${candle.low.toFixed(2)}</span> ` +
+                            `<span style="color:#8b949e;">C</span> <span style="color:${up?'#3fb950':'#f85149'};font-weight:600;">${candle.close.toFixed(2)}</span>`;
+                        ohlcLabel.style.display = 'block';
+                        const x = chart.timeScale().timeToCoordinate(time);
+                        const y = chart.priceScale().priceToCoordinate(candle.close);
+                        if (x !== null && y !== null) {
+                            const w = ohlcLabel.offsetWidth;
+                            const h = ohlcLabel.offsetHeight;
+                            const gap = 6;
+                            let left = x - w / 2;
+                            let top = y - h - gap;
+                            const maxL = pricePanel.clientWidth - 60;
+                            if (left < 4) left = 4;
+                            if (left + w > maxL) left = maxL - w;
+                            if (top < 4) top = y + gap;
+                            ohlcLabel.style.left = left + 'px';
+                            ohlcLabel.style.top = top + 'px';
+                        }
+                    }
+                } else {
+                    ohlcLabel.style.display = 'none';
+                }
                 allLineSeries.forEach(({ series, color }) => {
                     if (time) {
                         series.setMarkers([{ time, position:'inBar', shape:'circle', color, size:2 }]);
@@ -215,6 +249,20 @@
             chart.subscribeCrosshairMove(syncCrosshair);
             macdC.subscribeCrosshairMove(syncCrosshair);
             ppoC.subscribeCrosshairMove(syncCrosshair);
+
+            let zoomSyncing = false;
+            function onZoomSync(source, range) {
+                if (zoomSyncing || !range) return;
+                zoomSyncing = true;
+                const rr = { from: range.from, to: range.to };
+                if (source !== chart) chart.timeScale().setVisibleRange(rr);
+                if (source !== macdC) macdC.timeScale().setVisibleRange(rr);
+                if (source !== ppoC) ppoC.timeScale().setVisibleRange(rr);
+                zoomSyncing = false;
+            }
+            chart.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(chart, r));
+            macdC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(macdC, r));
+            ppoC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(ppoC, r));
 
             chart.timeScale().fitContent();
             chartInstance = chart;
