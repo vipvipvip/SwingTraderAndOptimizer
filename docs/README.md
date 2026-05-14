@@ -78,13 +78,13 @@ Complete guide to the automated swing trading platform.
 
 1. **Fetches** 2 years of historical market data every night
 2. **Optimizes** trading parameters (MACD, SMA, Bollinger Bands) using grid search
-3. **Executes** trades every 5 minutes during market hours based on generated signals
+3. **Executes** trades every minute during market hours based on generated signals
 4. **Tracks** performance with equity curves and P&L
 
 **Key Features:**
 - PostgreSQL database for persistent storage
 - Laravel backend (port 9000) handling API and trade execution
-- React/Vite frontend (port 5173) for dashboard
+- Svelte/Vite frontend (port 5173) for dashboard
 - Python optimizer for nightly parameter tuning
 - Systemd services for auto-start and auto-restart
 - Paper trading via Alpaca API
@@ -93,7 +93,7 @@ Complete guide to the automated swing trading platform.
 - Backend service: `swingtrader-backend.service`
 - Frontend service: `swingtrader-fe-dev.service` (dev) or nginx (production)
 - Optimizer timer: `swingtrader-optimizer.timer` (runs daily at 2:00 AM)
-- Trade executor: Cron job (runs every 5 minutes during market hours)
+- Trade executor: `swingtrader-backend.service` (runs every minute during market hours)
 
 ---
 

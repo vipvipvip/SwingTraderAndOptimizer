@@ -1,87 +1,69 @@
-# Testing Strategy (v7.0)
+# Testing Strategy (v7.5)
 
 ## Signal Logic Testing
 
-### 2-of-4 Level-Checking Entry Signals
+### Chandelier Exit Signal Logic
 
-Test the signal computation logic in `TradeExecutorService::computeSignal()`:
+Test the signal computation in `TradeExecutorService::computeChandelierSignal()`:
 
-**Test Case 1: Entry Signal (2 of 4)**
+**Test Case 1: Entry When Flat**
 ```
-Scenario: All 4 signals positive
-  MACD > 0 ✓
-  PPO > 0 ✓
-  EMA10 > SMA40 ✓
-  Price ≤ BB_lower × 1.05 ✓
-Expected: Return 1 (BUY)
+Scenario: No position open
+  inPosition = false
+Expected: Return 1 (BUY) — always re-enter when flat
 ```
 
-**Test Case 2: Borderline Entry (Exactly 2 of 4)**
+**Test Case 2: Hold While In Position (Stop Not Hit)**
 ```
-Scenario: Only MACD and PPO positive
-  MACD > 0 ✓
-  PPO > 0 ✓
-  EMA10 < SMA40 ✗
-  Price > BB_lower × 1.05 ✗
-Expected: Return 1 (BUY) — signal_count = 2 is enough
+Scenario: In position, price well above stop
+  inPosition = true
+  close = 700, stop_level = 680
+Expected: Return 0 (HOLD)
 ```
 
-**Test Case 3: No Entry (Only 1 of 4)**
+**Test Case 3: Exit When Stop Is Hit**
 ```
-Scenario: Only MACD positive
-  MACD > 0 ✓
-  PPO > 0 ✗
-  EMA10 < SMA40 ✗
-  Price > BB_lower × 1.05 ✗
-Expected: Return 0 (HOLD) — signal_count = 1 is insufficient
-```
-
-**Test Case 4: Exit While in Position**
-```
-Scenario: In position, MACD turns negative
-  Previous signal: 1 (BUY)
-  Current MACD: -0.5 (< 0) ✓
+Scenario: In position, price crosses below trailing stop
+  inPosition = true
+  close = 675, stop_level = 680 (close < stop)
 Expected: Return -1 (SELL)
 ```
 
-**Test Case 5: Exit via EMA/SMA Cross**
+**Test Case 4: Same-Day Exit Guard**
 ```
-Scenario: In position, EMA10 drops below SMA40
-  Previous signal: 1 (BUY)
-  EMA10 = 690, SMA40 = 695 (EMA < SMA) ✓
-Expected: Return -1 (SELL)
+Scenario: Exited today, don't re-enter
+  inPosition = false
+  exitedToday = true
+Expected: Return 0 (HOLD) — skip re-entry for rest of day
 ```
 
-**Test Case 6: Exit via BB Break**
+**Test Case 5: Trailing Stop Moves Up**
 ```
-Scenario: In position, price breaks below lower BB
-  Previous signal: 1 (BUY)
-  Price = 679.5, BB_lower = 680.2 (price < BB) ✓
-Expected: Return -1 (SELL)
+Scenario: Price rises after entry, stop trails higher
+  Entry at 690, highest_high since entry = 720
+  atr = 8, multiplier = 2.0
+  stop = 720 - 8 × 2.0 = 704
+  close = 710 (above stop) → HOLD
+  If close drops to 700 (below stop) → SELL
 ```
 
 ### Manual Signal Testing
 
-Run trade executor manually during market hours to verify signals:
+Run trade executor manually during market hours:
 
 ```bash
-# Execute trades immediately (normally runs every minute via cron)
 cd backend
 php artisan trades:execute-daily -v
 
 # Monitor signal output
-tail -f storage/logs/laravel.log | grep -i "signal\|ppo\|macd\|ema"
-
-# Example output:
-# [2026-05-06 15:45:02] SPY signal calc: MACD:2.20 PPO:0.55 EMA:731.03 SMA40:722.65
-# [2026-05-06 15:45:02] SPY BUY SIGNAL (3/4): MACD>0, PPO>0, EMA10>SMA40
+sudo journalctl -u swingtrader-backend -f | grep -i "signal\|chandelier\|atr\|stop"
 ```
 
 ## Parameter Optimization Testing
 
-### Bollinger Band Grid Search
+### Chandelier Grid Search
 
-Test that optimizer correctly evaluates all 9 combinations:
+Test that optimizer evaluates all 9 combinations:
 
 ```bash
 cd optimizer
@@ -90,12 +72,12 @@ source venv/bin/activate
 # Run manual optimization
 python nightly_optimizer.py --tickers SPY --timeframe 1Hour
 
-# Check logs for all combinations tested
-tail -f logs/nightly.log | grep -i "bb_period\|bb_std\|testing"
+# Check logs
+tail -f logs/nightly.log | grep -i "period\|multiplier\|testing"
 
 # Verify results saved
-psql -d swingtrader -c "
-  SELECT bb_period, bb_std, sharpe_ratio, total_return, total_trades
+psql -U swingtrader -d swingtrader -c "
+  SELECT macd_fast as period, bb_std as multiplier, sharpe_ratio, total_return, total_trades
   FROM strategy_parameters
   WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = 'SPY')
   AND base_case = false
@@ -123,49 +105,40 @@ cd backend
 
 ## Allocation Weight Testing
 
-Verify per-ticker allocation is applied correctly in position sizing:
+Verify per-ticker allocation is applied correctly:
 
 ```bash
 # Check database allocation weights
-psql -d swingtrader -c "
+psql -U swingtrader -d swingtrader -c "
   SELECT symbol, allocation_weight FROM tickers 
   ORDER BY symbol;
 "
 # Expected: SPY=40, QQQ=45, IWM=15
 
-# Manual test: trigger trade and verify position size
-php artisan trades:execute-daily -v
-
 # Check recorded trade used correct allocation
-psql -d swingtrader -c "
+psql -U swingtrader -d swingtrader -c "
   SELECT t.symbol, lt.entry_price, lt.qty, 
          (lt.qty * lt.entry_price) as position_value
   FROM live_trades lt
   JOIN tickers t ON lt.ticker_id = t.id
   ORDER BY lt.created_at DESC LIMIT 3;
 "
-
-# Calculate expected size:
-# position_value should ≈ (account_equity × allocation_weight%) 
-# e.g., with $100k account, SPY 40%: ~$40k at current price
 ```
 
 ## Database Integrity Testing
 
-After optimization or trades, verify data consistency:
-
 ```bash
 # Check candidate cleanup (only latest per ticker)
-psql -d swingtrader -c "
+psql -U swingtrader -d swingtrader -c "
   SELECT ticker_id, COUNT(*) as candidate_count
   FROM strategy_parameters
   WHERE base_case = false
   GROUP BY ticker_id;
 "
-# Expected: 0 or 1 row per ticker (best candidate or none)
+# Expected: 0 or 1 row per ticker
 
-# Verify P&L sync (sum of trades = equity change)
-psql -d swingtrader -c "
+# Verify P&L sync
+psql -U swingtrader -d swingtrader -c "
   SELECT t.symbol, 
          COUNT(*) as trades,
          ROUND(SUM(pnl_dollar)::numeric, 2) as total_pnl,
@@ -174,41 +147,30 @@ psql -d swingtrader -c "
   JOIN tickers t ON lt.ticker_id = t.id
   GROUP BY t.symbol;
 "
-
-# Check equity curve is monotonic (always increasing via closed positions)
-psql -d swingtrader -c "
-  SELECT snapshot_date, equity_value
-  FROM equity_snapshots
-  WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = 'SPY')
-  AND snapshot_type = 'live'
-  ORDER BY snapshot_date DESC LIMIT 10;
-"
 ```
 
-## Key Testing Practices (v7.0)
+## Key Testing Practices (v7.5)
 
-1. **Test signal logic independently:**
-   - Use sample price data with known indicator values
-   - Verify 2-of-4 thresholds work correctly
-   - Test all exit conditions individually
+1. **Test Chandelier Exit logic independently:**
+   - Verify trailing stop calculation: `stop = highest_high - ATR × multiplier`
+   - Test same-day exit guard
+   - Test re-entry on next day
 
 2. **Test nightly optimizer:**
-   - Verify all 9 BB combinations are tested
+   - Verify all 9 Chandelier combinations are tested
    - Check best result saved to `strategy_parameters`
-   - Verify old candidates are deleted (no bloat)
+   - Verify old candidates deleted (no bloat)
 
 3. **Test live execution:**
    - Run manually during market hours
-   - Verify each ticker evaluated independently
+   - Verify stop levels are calculated correctly
    - Check position size matches allocation weight
    - Confirm trades recorded with all fields
 
 4. **Integration tests:**
    - Run Alpaca API tests before merging API changes
    - These catch upstream API deprecations
-   - Mocked tests alone are insufficient
 
 5. **Monitor logs continuously:**
    - Signal computation logs every minute
-   - Can identify logic bugs by pattern matching
-   - Check for unusual signal counts or missing trades
+   - Check for unusual stop_level values or gaps

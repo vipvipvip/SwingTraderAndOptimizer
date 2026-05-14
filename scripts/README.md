@@ -100,21 +100,19 @@ tail -f backend/storage/logs/trade_executor.log
 tail -f optimizer/logs/nightly.log
 ```
 
-## Cron Setup
+## Systemd Services (Current)
 
-Cron jobs for automated trading are installed separately via:
-- **WSL/Linux:** `crontab -e` (manually add entries from memory)
-- **Windows Task Scheduler:** Use Windows built-in scheduler
+Services are managed by systemd:
 
-Scheduled tasks:
-- **8:18 AM ET daily:** Nightly optimizer
-- **9:30 AM - 4:00 PM (every 30 min, weekdays):** Trade executor
+- **Backend:** `sudo systemctl start swingtrader-backend` (port 9000)
+- **Frontend:** `sudo systemctl start swingtrader-fe-dev` (port 5173, Vite dev)
+- **Optimizer Timer:** `sudo systemctl start swingtrader-optimizer.timer` (daily 2:00 AM)
 
 ## Requirements
 
-- **PHP 8.1+** with CLI
-- **Composer** (for setup only)
-- **SQLite** (default, automatic)
+- **PHP 8.2+** with CLI
+- **Composer**
+- **PostgreSQL 14+**
 - **Alpaca API credentials** (in .env)
 
 ## Troubleshooting
@@ -138,15 +136,17 @@ sudo mv composer.phar /usr/local/bin/composer
 composer --version
 ```
 
-**Port 9000 already in use:**
-Edit `scripts/start.sh` and change `--port=9000` to another port.
-
-**Database locked:**
+**Database connection error:**
 ```bash
-# Reset database
-rm backend/database/database.sqlite
-bash scripts/setup.sh
+# Check PostgreSQL is running
+sudo systemctl status postgresql
+
+# Run migrations
+cd backend && php artisan migrate --force
 ```
+
+**Port 9000 already in use:**
+Edit the service file `ExecStart` line to change `--port=9000` to another port.
 
 ## Environment
 

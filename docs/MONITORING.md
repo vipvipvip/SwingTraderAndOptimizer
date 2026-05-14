@@ -38,7 +38,6 @@ journalctl -u swingtrader-optimizer | grep -i "error"
 **If optimizer didn't run:**
 - Check timer status: `sudo systemctl list-timers swingtrader-optimizer.timer`
 - Check service logs: `journalctl -u swingtrader-optimizer -f`
-- Verify database connection: `docker-compose logs postgres`
 - Run manually to test: `sudo systemctl start swingtrader-optimizer.service`
 
 ---
@@ -51,19 +50,15 @@ journalctl -u swingtrader-optimizer | grep -i "error"
 # 1. Check backend is running
 sudo systemctl status swingtrader-backend --no-pager
 
-# 2. Verify trade executor cron is active
-crontab -l | grep trades:execute-daily
+# 2. Check for recent trade executions
+sudo journalctl -u swingtrader-backend -n 50 | grep -i "trade\|signal"
 
-# 3. Check for recent trade executions
-journalctl -u swingtrader-backend -n 50 | grep -i "trade\|signal"
-
-# 4. View current account equity (if you have a dashboard)
+# 3. View current account equity (if you have a dashboard)
 curl http://localhost:9000/api/health | jq '.'
 ```
 
 **If trades aren't executing:**
-- Verify cron is enabled: `crontab -l`
-- Check backend logs: `journalctl -u swingtrader-backend -f`
+- Check backend logs: `sudo journalctl -u swingtrader-backend -f`
 - Test manually: `php backend/artisan trades:execute-daily`
 - Verify market is open: Check Alpaca calendar
 
@@ -75,13 +70,13 @@ curl http://localhost:9000/api/health | jq '.'
 
 ```bash
 # 1. Check total trades executed
-journalctl -u swingtrader-backend | grep -c "ExecuteDailyTrades"
+sudo journalctl -u swingtrader-backend | grep -c "ExecuteDailyTrades"
 
 # 2. View backend errors (if any)
-journalctl -u swingtrader-backend | grep -i "error" | head -10
+sudo journalctl -u swingtrader-backend | grep -i "error" | head -10
 
 # 3. Verify database is healthy
-docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT COUNT(*) as live_trades FROM live_trades WHERE DATE(entry_at) = CURRENT_DATE;"
+psql -U swingtrader -d swingtrader -c "SELECT COUNT(*) as live_trades FROM live_trades WHERE DATE(entry_at) = CURRENT_DATE;"
 ```
 
 ---
@@ -117,14 +112,11 @@ journalctl -u swingtrader-optimizer -f
 ### Database
 
 ```bash
-# Check if container is running
-docker-compose ps
-
-# View database logs
-docker-compose logs postgres -f
+# Check if PostgreSQL is running
+sudo systemctl status postgresql
 
 # Connect to database
-docker exec swingtrader-db psql -U swingtrader -d swingtrader
+psql -U swingtrader -d swingtrader
 
 # Inside psql:
 SELECT COUNT(*) as bars FROM bars;
@@ -165,25 +157,24 @@ journalctl -u swingtrader-optimizer -f
 ### Database Connection Error
 
 ```bash
-# Restart database
-docker-compose down
-docker-compose up -d
+# Restart PostgreSQL
+sudo systemctl restart postgresql
 
 # Run migrations
-php artisan migrate
+php artisan migrate --force
 
 # Verify connection
-docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT 1;"
+psql -U swingtrader -d swingtrader -c "SELECT 1;"
 ```
 
 ### Trade Executor Not Running
 
 ```bash
-# Verify cron is enabled
-crontab -l
+# Check backend service is up
+sudo systemctl status swingtrader-backend
 
-# Check cron logs
-journalctl -u cron | tail -20
+# Check logs
+sudo journalctl -u swingtrader-backend | tail -20
 
 # Run manually to test
 php backend/artisan trades:execute-daily
@@ -195,9 +186,9 @@ php backend/artisan trades:execute-daily
 
 | Metric | How to Check | Expected |
 |--------|-------------|----------|
-| Optimizer runtime | `journalctl -u swingtrader-optimizer` | 30-45 minutes |
-| Trade executor frequency | `journalctl -u swingtrader-backend` | Every 5 minutes (78 times during market hours) |
-| Database health | `docker exec swingtrader-db psql ... SELECT 1;` | Instant response |
+| Optimizer runtime | `journalctl -u swingtrader-optimizer` | 20-30 minutes |
+| Trade executor frequency | `journalctl -u swingtrader-backend` | Every minute (390 times during market hours) |
+| Database health | `psql -U swingtrader -d swingtrader -c "SELECT 1;"` | Instant response |
 | Backend response time | `curl -w "%{time_total}" http://localhost:9000/api/health` | <100ms |
 
 ---

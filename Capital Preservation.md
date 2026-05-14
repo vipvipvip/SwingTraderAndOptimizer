@@ -7,12 +7,16 @@ focusing on the trade-off between return and risk (drawdown).
 
 ## Strategy Definition (Final)
 
-**Timeframe:** Daily bars (1H data resampled)
-**Indicators:** MACD(12,26,9) + EMA(10) / SMA(40)
+**Timeframe:** 1Hour bars
+**Strategy:** Chandelier Exit (always-long, trailing stop)
+**Parameters (optimized nightly):**
+- ATR Period: [14, 20, 26]
+- Multiplier: [1.8, 2.0, 2.2]
+
 **Signal Logic:**
 
-| Signal | Condition |
-|--------|-----------|
+**Entry:** Always re-enter when flat (unless exited same day)
+**Exit:** `close < highest_high_since_entry - ATR(period) × multiplier`
 | **Entry** | MACD > 0 **AND** EMA10 > SMA40 |
 | **Exit** | MACD < 0 **OR** EMA10 < SMA40 |
 | **Costs** | 0.05% round-trip (slippage + commission) |
