@@ -32,3 +32,6 @@ Thumbs.db
 
 # Not used / archived
 NotUsed/
+
+# Scanner
+/scanner/__pycache__
