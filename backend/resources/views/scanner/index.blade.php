@@ -151,7 +151,7 @@
             const base = {
                 layout: { textColor:'#8b949e', background:{ color:'#13151f' } },
                 grid: { vertLines:{ color:'#1c1e26' }, horzLines:{ color:'#1c1e26' } },
-                crosshair: { mode:0, vertLine:{ visible:false, labelVisible:false }, horzLine:{ visible:false, labelVisible:false } },
+                crosshair: { mode:1, vertLine:{ visible:true, labelVisible:true, width:1, color:'#585858', style:2 }, horzLine:{ visible:true, labelVisible:true, width:1, color:'#585858', style:2 } },
                 rightPriceScale: { borderColor:'#2d2f3a' },
                 timeScale: { borderColor:'#2d2f3a', timeVisible:false, rightOffset:4 },
             };
@@ -160,6 +160,7 @@
             const chart = LightweightCharts.createChart(pricePanel, base);
             const macdC = LightweightCharts.createChart(macdPanel, sub);
             const ppoC = LightweightCharts.createChart(ppoPanel, sub);
+            const allLineSeries = [];
 
             const candleData = d.bars.map(b => ({ time:b.date, open:parseFloat(b.open), high:parseFloat(b.high), low:parseFloat(b.low), close:parseFloat(b.close) }));
             chart.addCandlestickSeries({ upColor:'#3fb950', downColor:'#f85149', borderDownColor:'#f85149', borderUpColor:'#3fb950', wickDownColor:'#f85149', wickUpColor:'#3fb950', priceLineVisible:false, lastValueVisible:false })
@@ -171,7 +172,7 @@
                 const prev = i > 0 ? ema10[i-1].value : c.close;
                 ema10.push({ time: c.time, value: (c.close - prev) * mult + prev });
             });
-            chart.addLineSeries({ color:'#3fb950', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }).setData(ema10);
+            const ema10s = chart.addLineSeries({ color:'#3fb950', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }); ema10s.setData(ema10); allLineSeries.push({ series:ema10s, color:'#3fb950' });
 
             const sma40 = [];
             const period40 = 40;
@@ -181,7 +182,7 @@
                 for (let j = i - period40 + 1; j <= i; j++) sum += candleData[j].close;
                 sma40.push({ time: c.time, value: sum / period40 });
             });
-            chart.addLineSeries({ color:'#f85149', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }).setData(sma40);
+            const sma40s = chart.addLineSeries({ color:'#f85149', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }); sma40s.setData(sma40); allLineSeries.push({ series:sma40s, color:'#f85149' });
 
             const sma200 = [];
             const period200 = 200;
@@ -191,20 +192,29 @@
                 for (let j = i - period200 + 1; j <= i; j++) sum += candleData[j].close;
                 sma200.push({ time: c.time, value: sum / period200 });
             });
-            chart.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }).setData(sma200);
+            const sma200s = chart.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }); sma200s.setData(sma200); allLineSeries.push({ series:sma200s, color:'#58a6ff' });
 
             const ind = d.indicators;
-            macdC.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } })
-                .setData(ind.map(i => ({ time:i.date, value:parseFloat(i.macd_line||0) })));
-            macdC.addLineSeries({ color:'#ffa657', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } })
-                .setData(ind.map(i => ({ time:i.date, value:parseFloat(i.macd_signal||0) })));
-            macdC.addHistogramSeries({ priceFormat:{ type:'volume' }, priceScaleId:'' })
-                .setData(ind.map(i => ({ time:i.date, value:parseFloat(i.macd_histogram||0), color:(i.macd_histogram||0)>=0?'rgba(63,185,80,0.5)':'rgba(248,81,73,0.5)' })));
+            const macdLine = macdC.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); macdLine.setData(ind.map(i => ({ time:i.date, value:parseFloat(i.macd_line||0) }))); allLineSeries.push({ series:macdLine, color:'#58a6ff' });
+            const macdSig = macdC.addLineSeries({ color:'#ffa657', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); macdSig.setData(ind.map(i => ({ time:i.date, value:parseFloat(i.macd_signal||0) }))); allLineSeries.push({ series:macdSig, color:'#ffa657' });
+            const macdHist = macdC.addHistogramSeries({ priceFormat:{ type:'volume' }, priceScaleId:'' }); macdHist.setData(ind.map(i => ({ time:i.date, value:parseFloat(i.macd_histogram||0), color:(i.macd_histogram||0)>=0?'rgba(63,185,80,0.5)':'rgba(248,81,73,0.5)' })));
 
-            ppoC.addLineSeries({ color:'#3fb950', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } })
-                .setData(ind.map(i => ({ time:i.date, value:parseFloat(i.ppo_line||0) })));
-            ppoC.addLineSeries({ color:'#f85149', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } })
-                .setData(ind.map(i => ({ time:i.date, value:0 })));
+            const ppoLine = ppoC.addLineSeries({ color:'#3fb950', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoLine.setData(ind.map(i => ({ time:i.date, value:parseFloat(i.ppo_line||0) }))); allLineSeries.push({ series:ppoLine, color:'#3fb950' });
+            const ppoZero = ppoC.addLineSeries({ color:'#f85149', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoZero.setData(ind.map(i => ({ time:i.date, value:0 }))); allLineSeries.push({ series:ppoZero, color:'#f85149' });
+
+            function syncCrosshair(param) {
+                const time = param.time ? param.time : null;
+                allLineSeries.forEach(({ series, color }) => {
+                    if (time) {
+                        series.setMarkers([{ time, position:'inBar', shape:'circle', color, size:2 }]);
+                    } else {
+                        series.setMarkers([]);
+                    }
+                });
+            }
+            chart.subscribeCrosshairMove(syncCrosshair);
+            macdC.subscribeCrosshairMove(syncCrosshair);
+            ppoC.subscribeCrosshairMove(syncCrosshair);
 
             chart.timeScale().fitContent();
             chartInstance = chart;
