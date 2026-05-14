@@ -481,7 +481,7 @@ Vite is: **dev server + reverse proxy + module bundler** all in one.
 **A:** 
 
 **Cleanup performed:**
-- Deleted: `welcome.blade.php`, 3 stale CSVs, `openapi.json`, `favicon.ico`, `frontend/dist/`, `README_v6_DEPRECATED.md`, 2 stale systemd service files, 2 stale shell scripts
+- Deleted: `welcome.blade.php`, 3 stale CSVs, `openapi.json`, `favicon.ico`, `frontend/dist/`, `README_v6_DEPRECATED.md`, 2 stale systemd service files, 2 stale shell scripts, `DATABASE_PORTABILITY_PLAN.md`
 - Removed empty `backend/public/data/` directory
 
 **Doc fixes applied:**

@@ -17,15 +17,12 @@ Complete guide to the automated swing trading platform.
 
 ### Operations & Maintenance
 - **[MONITORING.md](MONITORING.md)** — Daily health checks, troubleshooting, and common issues
-- **[COMMAND_REFERENCE.md](COMMAND_REFERENCE.md)** — All useful commands for database, Docker, Python, Git, and systemd
+- **[COMMAND_REFERENCE.md](COMMAND_REFERENCE.md)** — All useful commands for database, Python, Git, and systemd
 
 ### Development
 - **[BEST_PRACTICES.md](BEST_PRACTICES.md)** — Development guidelines learned from session work
 - **[TESTING.md](TESTING.md)** — Testing strategy and integration test information
 - **[MARKET_HOURS_FILTERING.md](MARKET_HOURS_FILTERING.md)** — How market hours filtering works and the fix from 2026-04-30
-
-### Future Plans
-- **[DATABASE_PORTABILITY_PLAN.md](DATABASE_PORTABILITY_PLAN.md)** — Plan for making the database portable across systems (pending review)
 
 ---
 
@@ -51,17 +48,17 @@ Complete guide to the automated swing trading platform.
 
 | Document | Status | Purpose |
 |----------|--------|---------|
-| How_System_Works.md | ✅ Current | System architecture and flow |
+| How_System_Works.md | ✅ Current (v7.5) | System architecture and flow |
 | UBUNTU_SETUP.md | ✅ Updated 2026-04-30 | Linux setup guide |
 | WSL_SETUP.md | ✅ New 2026-04-30 | Windows WSL2 setup guide |
 | Ubuntu-Backend-Services.md | ✅ Current | Production backend service |
 | Ubuntu-Frontend-Services.md | ✅ Current | Production frontend service |
-| MONITORING.md | ✅ Updated 2026-04-30 | Operations guide |
+| MONITORING.md | ✅ Updated 2026-05-14 | Operations guide |
 | COMMAND_REFERENCE.md | ✅ Current | Command reference |
 | BEST_PRACTICES.md | ✅ Current | Development rules |
-| TESTING.md | ✅ Current | Test strategy |
+| TESTING.md | ✅ Current (v7.5) | Test strategy |
 | MARKET_HOURS_FILTERING.md | ✅ Current | Market hours data handling |
-| DATABASE_PORTABILITY_PLAN.md | 📋 Plan | Future work (pending review) |
+| FE-BE-Svelte-Laravel-Wiring.md | ✅ New 2026-05-14 | Frontend/backend architecture |
 
 ---
 
