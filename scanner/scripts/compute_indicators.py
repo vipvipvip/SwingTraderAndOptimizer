@@ -1,4 +1,7 @@
-"""Phase 2: Compute MACD and PPO indicators on weekly data, detect crossovers."""
+"""Phase 2: Compute MACD and PPO indicators, detect crossovers.
+
+Supports weekly and daily timeframe tables.
+"""
 
 import argparse
 import os
@@ -12,17 +15,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     MACD_FAST, MACD_SLOW, MACD_LENGTH,
     PPO_FAST, PPO_SLOW, PPO_SIGNAL,
-    TABLE, get_db_conn,
+    get_db_conn,
 )
 
+TABLES = {
+    'week': 'tbl_scanner_tickers',
+    'day': 'tbl_scanner_tickers_daily',
+}
 
-def load_ticker_data(ticker):
+
+def load_ticker_data(ticker, table):
     conn = get_db_conn()
     try:
         df = pd.read_sql(
             f"""
             SELECT date, open, high, low, close, volume
-            FROM {TABLE}
+            FROM {table}
             WHERE ticker = %s
             ORDER BY date ASC
             """,
@@ -75,9 +83,9 @@ def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
     })
 
 
-def process_ticker(ticker, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow):
+def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow):
     try:
-        df = load_ticker_data(ticker)
+        df = load_ticker_data(ticker, table)
         if df is None or len(df) < max(macd_slow, ppo_slow) + 1:
             return ticker, 0, f'insufficient data ({len(df) if df is not None else 0} rows)'
 
@@ -91,7 +99,7 @@ def process_ticker(ticker, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
                 for _, row in indicators.iterrows():
                     cur.execute(
                         f"""
-                        UPDATE {TABLE}
+                        UPDATE {table}
                         SET macd_line = %s, macd_signal = %s, macd_histogram = %s,
                             macd_crossover = %s,
                             ppo_line = %s, ppo_signal = %s, ppo_histogram = %s,
@@ -123,6 +131,8 @@ def process_ticker(ticker, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
 
 def main():
     parser = argparse.ArgumentParser(description='Compute MACD/PPO indicators for scanner tickers')
+    parser.add_argument('--timeframe', choices=list(TABLES.keys()), default='week',
+                        help='Timeframe table to process (default: week)')
     parser.add_argument('--macd-fast', type=int, default=MACD_FAST)
     parser.add_argument('--macd-slow', type=int, default=MACD_SLOW)
     parser.add_argument('--macd-length', type=int, default=MACD_LENGTH)
@@ -131,15 +141,17 @@ def main():
     parser.add_argument('--workers', type=int, default=10)
     args = parser.parse_args()
 
+    table = TABLES[args.timeframe]
+
     conn = get_db_conn()
     try:
         tickers = pd.read_sql(
-            f"SELECT DISTINCT ticker FROM {TABLE} ORDER BY ticker", conn
+            f"SELECT DISTINCT ticker FROM {table} ORDER BY ticker", conn
         )['ticker'].tolist()
     finally:
         conn.close()
 
-    print(f"Computing indicators for {len(tickers)} tickers "
+    print(f"Computing indicators for {len(tickers)} tickers on {table} "
           f"(MACD {args.macd_fast}/{args.macd_slow}/{args.macd_length}, "
           f"PPO {args.ppo_fast}/{args.ppo_slow})...")
 
@@ -150,7 +162,7 @@ def main():
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {
             executor.submit(
-                process_ticker, t, args.macd_fast, args.macd_slow,
+                process_ticker, t, table, args.macd_fast, args.macd_slow,
                 args.macd_length, args.ppo_fast, args.ppo_slow,
             ): t for t in tickers
         }

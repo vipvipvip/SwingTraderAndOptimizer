@@ -1,0 +1,18 @@
+[Unit]
+Description=SwingTrader Frontend Dev Server (Vite)
+After=network.target
+
+[Service]
+Type=simple
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/frontend
+ExecStart=/usr/bin/npm run dev
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=swingtrader-fe-dev
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/nvm/versions/node/v18.17.0/bin"
+
+[Install]
+WantedBy=multi-user.target

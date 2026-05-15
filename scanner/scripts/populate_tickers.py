@@ -1,4 +1,7 @@
-"""Phase 1: Populate tbl_scanner_tickers with SP500 weekly OHLCV data from Alpaca."""
+"""Phase 1: Populate scanner tables with SP500 OHLCV data from Alpaca.
+
+Supports weekly and daily timeframes.
+"""
 
 import argparse
 import os
@@ -6,7 +9,6 @@ import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import partial
 
 from io import StringIO
 
@@ -18,9 +20,15 @@ from alpaca.data.timeframe import TimeFrame
 from psycopg2.extras import execute_values
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import API_KEY, SECRET_KEY, DB_CONFIG, TABLE, get_db_conn
+from config import API_KEY, SECRET_KEY, DB_CONFIG, get_db_conn
 
 SP500_URL = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+NY = ZoneInfo('America/New_York')
+
+TIMEFRAMES = {
+    'week': {'tf': TimeFrame.Week, 'table': 'tbl_scanner_tickers', 'label': 'weeks'},
+    'day': {'tf': TimeFrame.Day, 'table': 'tbl_scanner_tickers_daily', 'label': 'days'},
+}
 
 
 def fetch_sp500_tickers():
@@ -33,13 +41,14 @@ def fetch_sp500_tickers():
     return tickers
 
 
-def fetch_weekly_bars(symbol, client):
-    end = datetime.now(ZoneInfo('America/New_York'))
+def fetch_bars(symbol, client, tf_name):
+    end = datetime.now(NY)
     start = end.replace(year=2015, month=1, day=1)
+    tf = TIMEFRAMES[tf_name]['tf']
 
     request = StockBarsRequest(
         symbol_or_symbols=symbol,
-        timeframe=TimeFrame.Week,
+        timeframe=tf,
         start=start,
         end=end,
         feed='iex',
@@ -56,7 +65,7 @@ def fetch_weekly_bars(symbol, client):
     while page_token:
         request = StockBarsRequest(
             symbol_or_symbols=symbol,
-            timeframe=TimeFrame.Week,
+            timeframe=tf,
             start=start,
             end=end,
             feed='iex',
@@ -72,9 +81,10 @@ def fetch_weekly_bars(symbol, client):
     return all_bars
 
 
-def process_ticker(symbol, client):
+def process_ticker(symbol, client, tf_name):
     try:
-        bars = fetch_weekly_bars(symbol, client)
+        table = TIMEFRAMES[tf_name]['table']
+        bars = fetch_bars(symbol, client, tf_name)
         if not bars or len(bars) == 0:
             return symbol, 0, 'no data'
 
@@ -82,7 +92,7 @@ def process_ticker(symbol, client):
         for bar in bars:
             ts = bar.timestamp
             if ts.tzinfo is not None:
-                ts = ts.astimezone(ZoneInfo('America/New_York'))
+                ts = ts.astimezone(NY)
             rows.append((
                 symbol,
                 ts.date(),
@@ -96,11 +106,11 @@ def process_ticker(symbol, client):
         conn = get_db_conn()
         try:
             with conn.cursor() as cur:
-                cur.execute(f"DELETE FROM {TABLE} WHERE ticker = %s", (symbol,))
+                cur.execute(f"DELETE FROM {table} WHERE ticker = %s", (symbol,))
                 execute_values(
                     cur,
                     f"""
-                        INSERT INTO {TABLE}
+                        INSERT INTO {table}
                         (ticker, date, open, high, low, close, volume)
                         VALUES %s
                         ON CONFLICT (ticker, date) DO NOTHING
@@ -117,13 +127,19 @@ def process_ticker(symbol, client):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Populate tbl_scanner_tickers with SP500 weekly data')
+    parser = argparse.ArgumentParser(description='Populate scanner tables with SP500 OHLCV data')
+    parser.add_argument('--timeframe', choices=list(TIMEFRAMES.keys()), default='week',
+                        help='Bar timeframe to fetch (default: week)')
     parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers')
     args = parser.parse_args()
 
-    print("Fetching SP500 ticker list...")
+    table = TIMEFRAMES[args.timeframe]['table']
+    label = TIMEFRAMES[args.timeframe]['label']
+
+    print(f"Fetching SP500 ticker list...")
     tickers = fetch_sp500_tickers()
-    print(f"Processing {len(tickers)} tickers with {args.workers} workers...")
+    print(f"Processing {len(tickers)} tickers ({args.timeframe} timeframe) "
+          f"with {args.workers} workers into {table}...")
 
     client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 
@@ -134,7 +150,10 @@ def main():
     total_bars = 0
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = {executor.submit(process_ticker, ticker, client): ticker for ticker in tickers}
+        futures = {
+            executor.submit(process_ticker, ticker, client, args.timeframe): ticker
+            for ticker in tickers
+        }
 
         for future in as_completed(futures):
             ticker = futures[future]
@@ -144,13 +163,13 @@ def main():
             if status == 'ok':
                 ok += 1
                 total_bars += bars_inserted
-                print(f"  [{done}/{total}] {symbol}: {bars_inserted} weeks inserted")
+                print(f"  [{done}/{total}] {symbol}: {bars_inserted} {label} inserted")
             else:
                 failed += 1
                 reason = 'no data' if status == 'no data' else status
                 print(f"  [{done}/{total}] {symbol}: skipped ({reason})")
 
-    print(f"\nDone. {ok} tickers inserted ({total_bars} total bars), {failed} skipped.")
+    print(f"\nDone. {ok} tickers inserted ({total_bars} total {label}), {failed} skipped.")
 
 
 if __name__ == '__main__':

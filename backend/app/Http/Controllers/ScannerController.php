@@ -7,14 +7,24 @@ use Illuminate\Support\Facades\DB;
 
 class ScannerController extends Controller
 {
+    private function tableForTimeframe(string $timeframe): string
+    {
+        return match ($timeframe) {
+            'daily' => 'tbl_scanner_tickers_daily',
+            default => 'tbl_scanner_tickers',
+        };
+    }
+
     public function index(Request $request)
     {
         $weeks = (int) $request->query('weeks', 3);
+        $timeframe = $request->query('timeframe', 'weekly');
+        $table = $this->tableForTimeframe($timeframe);
 
         $results = DB::select("
             WITH matched AS (
                 SELECT ticker
-                FROM tbl_scanner_tickers
+                FROM {$table}
                 WHERE date >= CURRENT_DATE - INTERVAL '1 week' * ?::int
                 GROUP BY ticker
                 HAVING BOOL_OR(macd_crossover) = true
@@ -25,7 +35,7 @@ class ScannerController extends Controller
                        ticker, date, close,
                        macd_line::float8, macd_signal::float8,
                        ppo_line::float8
-                FROM tbl_scanner_tickers
+                FROM {$table}
                 WHERE ticker IN (SELECT ticker FROM matched)
                 ORDER BY ticker, date DESC
             )
@@ -34,23 +44,23 @@ class ScannerController extends Controller
                    pcd.date AS ppo_cross_date
             FROM latest l
             LEFT JOIN LATERAL (
-                SELECT date FROM tbl_scanner_tickers
+                SELECT date FROM {$table}
                 WHERE ticker = l.ticker AND macd_crossover = true
                 ORDER BY date DESC LIMIT 1
             ) mcd ON true
             LEFT JOIN LATERAL (
-                SELECT date FROM tbl_scanner_tickers
+                SELECT date FROM {$table}
                 WHERE ticker = l.ticker AND ppo_crossover = true
                 ORDER BY date DESC LIMIT 1
             ) pcd ON true
             ORDER BY l.ticker
         ", [$weeks]);
 
-        $total_scanned = DB::table('tbl_scanner_tickers')
+        $total_scanned = DB::table($table)
             ->distinct('ticker')
             ->count('ticker');
 
-        $latest_run = DB::table('tbl_scanner_tickers')
+        $latest_run = DB::table($table)
             ->max('updated_at');
 
         return view('scanner.index', [
@@ -58,17 +68,20 @@ class ScannerController extends Controller
             'total_scanned' => $total_scanned,
             'total_signals' => count($results),
             'weeks' => $weeks,
+            'timeframe' => $timeframe,
             'latest_run' => $latest_run,
         ]);
     }
 
-    public function chart($ticker)
+    public function chart($ticker, Request $request)
     {
         $ticker = strtoupper($ticker);
+        $timeframe = $request->query('timeframe', 'weekly');
+        $table = $this->tableForTimeframe($timeframe);
 
         $bars = DB::select("
             SELECT date, open, high, low, close, volume
-            FROM tbl_scanner_tickers
+            FROM {$table}
             WHERE ticker = ?
             ORDER BY date ASC
         ", [$ticker]);
@@ -77,7 +90,7 @@ class ScannerController extends Controller
             SELECT date, macd_line::float8, macd_signal::float8, macd_histogram::float8,
                    ppo_line::float8, ppo_signal::float8, ppo_histogram::float8,
                    macd_crossover, ppo_crossover
-            FROM tbl_scanner_tickers
+            FROM {$table}
             WHERE ticker = ?
             ORDER BY date ASC
         ", [$ticker]);
@@ -88,13 +101,14 @@ class ScannerController extends Controller
 
         $latest = DB::selectOne("
             SELECT date, close, macd_line::float8, macd_signal::float8, ppo_line::float8
-            FROM tbl_scanner_tickers
+            FROM {$table}
             WHERE ticker = ?
             ORDER BY date DESC LIMIT 1
         ", [$ticker]);
 
         return response()->json([
             'ticker' => $ticker,
+            'timeframe' => $timeframe,
             'bars' => $bars,
             'indicators' => $indicators,
             'latest' => $latest,

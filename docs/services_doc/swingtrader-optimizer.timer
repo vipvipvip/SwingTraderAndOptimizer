@@ -1,0 +1,10 @@
+[Unit]
+Description=SwingTrader Nightly Optimizer Timer
+Requires=swingtrader-optimizer.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

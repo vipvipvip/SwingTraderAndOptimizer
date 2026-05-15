@@ -11,6 +11,7 @@
         .top-bar select { background: #0f1117; border: 1px solid #2d2f3a; color: #e1e4e8; padding: 4px 8px; border-radius: 4px; font-size: 13px; }
         .top-bar .signals { font-size: 13px; color: #3fb950; margin-left: auto; }
         .top-bar .scanned { font-size: 13px; color: #8b949e; }
+        .divider { width:1px; height:20px; background:#2d2f3a; }
         .table-wrap { flex-shrink: 0; overflow-y: auto; max-height: 210px; border-bottom: 1px solid #2d2f3a; }
         .table-wrap table { width: 100%; border-collapse: collapse; }
         .table-wrap thead { position: sticky; top: 0; z-index: 1; }
@@ -32,11 +33,17 @@
 </head>
 <body>
     <div class="top-bar">
+        <label style="color:#8b949e;font-size:13px;">Timeframe:</label>
+        <select onchange="changeTimeframe(this.value)">
+            <option value="weekly" {{ $timeframe == 'weekly' ? 'selected' : '' }}>Weekly</option>
+            <option value="daily" {{ $timeframe == 'daily' ? 'selected' : '' }}>Daily</option>
+        </select>
+        <div class="divider"></div>
         <label style="color:#8b949e;font-size:13px;">Lookback:</label>
-        <select onchange="window.location='/scanner?weeks='+this.value">
+        <select onchange="changeLookback(this.value)">
             <option value="1" {{ $weeks == 1 ? 'selected' : '' }}>1w</option>
             <option value="2" {{ $weeks == 2 ? 'selected' : '' }}>2w</option>
-            <option value="3" {{ $weeks == 3 ? 'selected' : '' }} selected>3w</option>
+            <option value="3" {{ $weeks == 3 ? 'selected' : '' }}>3w</option>
             <option value="4" {{ $weeks == 4 ? 'selected' : '' }}>4w</option>
             <option value="8" {{ $weeks == 8 ? 'selected' : '' }}>8w</option>
         </select>
@@ -66,7 +73,7 @@
             </table>
         </div>
     @else
-        <div class="empty">No signals found.</div>
+        <div class="empty" style="padding:20px;text-align:center;color:#4a4d59;">No signals found for {{ $timeframe }} timeframe.</div>
     @endif
 
     <div class="chart-wrap">
@@ -77,12 +84,22 @@
 
     <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
     <script>
+        const currentTimeframe = '{{ $timeframe }}';
+        const currentWeeks = {{ $weeks }};
         let chartInstance = null;
         let activeTicker = null;
         let selectedIndex = -1;
 
         function getRows() {
             return document.querySelectorAll('#scannerTable tbody tr');
+        }
+
+        function changeTimeframe(tf) {
+            window.location = '/scanner?timeframe=' + tf + '&weeks=' + currentWeeks;
+        }
+
+        function changeLookback(w) {
+            window.location = '/scanner?timeframe=' + currentTimeframe + '&weeks=' + w;
         }
 
         function selectRow(index) {
@@ -103,7 +120,7 @@
             activeTicker = ticker;
             const body = document.getElementById('chartBody');
             body.innerHTML = '<div class="empty-chart">Loading ' + ticker + '...</div>';
-            fetch('/scanner/data/' + ticker)
+            fetch('/scanner/data/' + ticker + '?timeframe=' + currentTimeframe)
                 .then(r => r.json())
                 .then(d => renderChart(d))
                 .catch(e => body.innerHTML = '<div class="empty-chart" style="color:#f85149;">Error: ' + e.message + '</div>');
@@ -146,9 +163,6 @@
 
             const pricePanel = document.createElement('div'); pricePanel.style.flex = '3'; body.appendChild(pricePanel);
             pricePanel.style.position = 'relative';
-            const ohlcLabel = document.createElement('div');
-            ohlcLabel.style.cssText = 'position:absolute;background:#1c1e26;border:1px solid #2d2f3a;border-radius:6px;padding:5px 8px;font-size:11px;font-family:"JetBrains Mono","Fira Code",monospace;z-index:10;pointer-events:none;display:none;white-space:nowrap;line-height:1.5;';
-            pricePanel.appendChild(ohlcLabel);
             const macdPanel = document.createElement('div'); macdPanel.style.flex = '2'; body.appendChild(macdPanel);
             const ppoPanel = document.createElement('div'); ppoPanel.style.flex = '2'; body.appendChild(ppoPanel);
 
@@ -208,35 +222,6 @@
 
             function syncCrosshair(param) {
                 const time = param.time ? param.time : null;
-                if (time) {
-                    const candle = candleData.find(c => c.time === time);
-                    // if (candle) {
-                    //     const up = candle.close >= candle.open;
-                    //     ohlcLabel.innerHTML =
-                    //         `<span style="color:#8b949e;">O</span> <span style="color:#e1e4e8;">${candle.open.toFixed(2)}</span> ` +
-                    //         `<span style="color:#8b949e;">H</span> <span style="color:#3fb950;">${candle.high.toFixed(2)}</span> ` +
-                    //         `<span style="color:#8b949e;">L</span> <span style="color:#f85149;">${candle.low.toFixed(2)}</span> ` +
-                    //         `<span style="color:#8b949e;">C</span> <span style="color:${up?'#3fb950':'#f85149'};font-weight:600;">${candle.close.toFixed(2)}</span>`;
-                    //     ohlcLabel.style.display = 'block';
-                    //     const x = chart.timeScale().timeToCoordinate(time);
-                    //     const y = chart.priceScale('').priceToCoordinate(candle.close);
-                    //     if (x !== null && y !== null) {
-                    //         const w = ohlcLabel.offsetWidth;
-                    //         const h = ohlcLabel.offsetHeight;
-                    //         const gap = 6;
-                    //         let left = x - w / 2;
-                    //         let top = y - h - gap;
-                    //         const maxL = pricePanel.clientWidth - 60;
-                    //         if (left < 4) left = 4;
-                    //         if (left + w > maxL) left = maxL - w;
-                    //         if (top < 4) top = y + gap;
-                    //         ohlcLabel.style.left = left + 'px';
-                    //         ohlcLabel.style.top = top + 'px';
-                    //     }
-                    // }
-                } else {
-                    ohlcLabel.style.display = 'none';
-                }
                 allLineSeries.forEach(({ series, color }) => {
                     if (time) {
                         series.setMarkers([{ time, position:'inBar', shape:'circle', color, size:2 }]);
@@ -261,7 +246,6 @@
             chart.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(chart, r));
             macdC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(macdC, r));
             ppoC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(ppoC, r));
-
 
             chart.timeScale().fitContent();
             chartInstance = chart;
