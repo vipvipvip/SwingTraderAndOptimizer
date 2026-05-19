@@ -1,12 +1,13 @@
-"""Phase 1: Populate scanner tables with SP500 OHLCV data from Alpaca.
+"""Phase 1: Populate scanner tables with OHLCV data from Alpaca.
 
-Supports weekly and daily timeframes.
+Supports weekly, daily, and 1-hour timeframes.
+For hourly, tickers are sourced from tbl_scanner_tickers with 3-month lookback.
 """
 
 import argparse
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -28,6 +29,7 @@ NY = ZoneInfo('America/New_York')
 TIMEFRAMES = {
     'week': {'tf': TimeFrame.Week, 'table': 'tbl_scanner_tickers', 'label': 'weeks'},
     'day': {'tf': TimeFrame.Day, 'table': 'tbl_scanner_tickers_daily', 'label': 'days'},
+    'hour': {'tf': TimeFrame.Hour, 'table': 'tbl_scanner_tickers_1hour', 'label': 'hours'},
 }
 
 
@@ -41,9 +43,10 @@ def fetch_sp500_tickers():
     return tickers
 
 
-def fetch_bars(symbol, client, tf_name):
+def fetch_bars(symbol, client, tf_name, start=None):
     end = datetime.now(NY)
-    start = end.replace(year=2015, month=1, day=1)
+    if start is None:
+        start = end.replace(year=2015, month=1, day=1)
     tf = TIMEFRAMES[tf_name]['tf']
 
     request = StockBarsRequest(
@@ -81,10 +84,11 @@ def fetch_bars(symbol, client, tf_name):
     return all_bars
 
 
-def process_ticker(symbol, client, tf_name):
+def process_ticker(symbol, client, tf_name, start=None):
     try:
         table = TIMEFRAMES[tf_name]['table']
-        bars = fetch_bars(symbol, client, tf_name)
+        is_hourly = tf_name == 'hour'
+        bars = fetch_bars(symbol, client, tf_name, start)
         if not bars or len(bars) == 0:
             return symbol, 0, 'no data'
 
@@ -95,7 +99,7 @@ def process_ticker(symbol, client, tf_name):
                 ts = ts.astimezone(NY)
             rows.append((
                 symbol,
-                ts.date(),
+                ts if is_hourly else ts.date(),
                 float(bar.open),
                 float(bar.high),
                 float(bar.low),
@@ -107,6 +111,8 @@ def process_ticker(symbol, client, tf_name):
         try:
             with conn.cursor() as cur:
                 cur.execute(f"DELETE FROM {table} WHERE ticker = %s", (symbol,))
+                if is_hourly:
+                    rows = [(r[0], r[1].replace(tzinfo=None) if hasattr(r[1], 'tzinfo') and r[1].tzinfo is not None else r[1], *r[2:]) for r in rows]
                 execute_values(
                     cur,
                     f"""
@@ -136,12 +142,25 @@ def main():
     table = TIMEFRAMES[args.timeframe]['table']
     label = TIMEFRAMES[args.timeframe]['label']
 
-    print(f"Fetching SP500 ticker list...")
-    tickers = fetch_sp500_tickers()
-    print(f"Processing {len(tickers)} tickers ({args.timeframe} timeframe) "
-          f"with {args.workers} workers into {table}...")
-
     client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
+
+    if args.timeframe == 'hour':
+        conn = get_db_conn()
+        try:
+            tickers = pd.read_sql(
+                "SELECT DISTINCT ticker FROM tbl_scanner_tickers ORDER BY ticker", conn
+            )['ticker'].tolist()
+        finally:
+            conn.close()
+        start = datetime.now(NY) - timedelta(days=90)
+        print(f"Processing {len(tickers)} tickers (1-hour timeframe, 3-month lookback) "
+              f"with {args.workers} workers into {table}...")
+    else:
+        print(f"Fetching SP500 ticker list...")
+        tickers = fetch_sp500_tickers()
+        start = None
+        print(f"Processing {len(tickers)} tickers ({args.timeframe} timeframe) "
+              f"with {args.workers} workers into {table}...")
 
     total = len(tickers)
     done = 0
@@ -151,7 +170,7 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {
-            executor.submit(process_ticker, ticker, client, args.timeframe): ticker
+            executor.submit(process_ticker, ticker, client, args.timeframe, start): ticker
             for ticker in tickers
         }
 

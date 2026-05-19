@@ -11,6 +11,7 @@ class ScannerController extends Controller
     {
         return match ($timeframe) {
             'daily' => 'tbl_scanner_tickers_daily',
+            '1hour' => 'tbl_scanner_tickers_1hour',
             default => 'tbl_scanner_tickers',
         };
     }

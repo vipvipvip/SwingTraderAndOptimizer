@@ -1,6 +1,6 @@
 """Phase 2: Compute MACD and PPO indicators, detect crossovers.
 
-Supports weekly and daily timeframe tables.
+Supports weekly, daily, and 1-hour timeframe tables.
 """
 
 import argparse
@@ -21,6 +21,7 @@ from config import (
 TABLES = {
     'week': 'tbl_scanner_tickers',
     'day': 'tbl_scanner_tickers_daily',
+    'hour': 'tbl_scanner_tickers_1hour',
 }
 
 
@@ -97,6 +98,11 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
         try:
             with conn.cursor() as cur:
                 for _, row in indicators.iterrows():
+                    date_val = row['date']
+                    if hasattr(date_val, 'to_pydatetime'):
+                        date_param = date_val.to_pydatetime()
+                    else:
+                        date_param = date_val
                     cur.execute(
                         f"""
                         UPDATE {table}
@@ -116,7 +122,7 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
                             None if pd.isna(row['ppo_histogram']) else float(row['ppo_histogram']),
                             bool(row['ppo_crossover']),
                             ticker,
-                            row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else row['date'],
+                            date_param,
                         ),
                     )
             conn.commit()
