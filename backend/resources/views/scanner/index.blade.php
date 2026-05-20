@@ -66,15 +66,22 @@
                 <thead>
                     <tr>
                         <th>Ticker</th>
-                        <th>Date</th>
+                        <th>Crossover</th>
                         <th>Close</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach ($results as $row)
+                        @php
+                            $mc = \Carbon\Carbon::parse($row->macd_cross_date);
+                            $pc = \Carbon\Carbon::parse($row->ppo_cross_date);
+                            $mu = (int)($timeframe === '1hour' ? $mc->diffInHours() : $mc->diffInDays());
+                            $pu = (int)($timeframe === '1hour' ? $pc->diffInHours() : $pc->diffInDays());
+                            $unit = $timeframe === '1hour' ? 'h' : 'd';
+                        @endphp
                         <tr data-ticker="{{ $row->ticker }}">
                             <td class="ticker">{{ $row->ticker }}</td>
-                            <td>{{ $row->date }}</td>
+                            <td style="font-size:11px;"><span>M: {{ $mu }}{{ $unit }} ago</span> <span>P: {{ $pu }}{{ $unit }} ago</span></td>
                             <td class="num {{ $row->close >= 0 ? 'pos' : 'neg' }}">{{ number_format($row->close, 2) }}</td>
                         </tr>
                     @endforeach
