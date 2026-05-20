@@ -8,6 +8,10 @@ from data_fetcher import fetch_incremental_data, load_data_from_db, append_bars_
 
 def fetch_and_update_ticker(symbol, timeframe='1Hour'):
     """Fetch incremental data for a ticker and update database"""
+    if symbol == 'BLENDED':
+        print(f"Skipping {symbol}: synthetic portfolio ticker, no market data")
+        return True
+
     print(f"\n{'='*60}")
     print(f"Updating {symbol}")
     print(f"{'='*60}")
@@ -84,6 +88,8 @@ def main():
     }
 
     for symbol in tickers:
+        if symbol == 'BLENDED':
+            continue
         if fetch_and_update_ticker(symbol, timeframe):
             results['updated'].append(symbol)
         else:

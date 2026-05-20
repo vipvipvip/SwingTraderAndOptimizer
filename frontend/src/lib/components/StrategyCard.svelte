@@ -7,6 +7,7 @@
   const fmt = {
     sharpe: (v) => (v == null ? '-' : (+v).toFixed(2)),
     pct:    (v) => (v == null ? '-' : (+v * 100).toFixed(1) + '%'),
+    dec2:   (v) => (v == null ? '-' : (+v).toFixed(2)),
   }
 </script>
 
@@ -41,6 +42,13 @@
     font-size: 20px;
     font-weight: 600;
     color: #333;
+  }
+
+  .price {
+    font-size: 18px;
+    font-weight: 500;
+    color: #555;
+    margin-left: auto;
   }
 
   .badge {
@@ -98,6 +106,7 @@
   <div class="header">
     <div class="symbol">{isPortfolio ? 'PORTFOLIO' : strategy.symbol}</div>
     <div class="badge" class:portfolio-badge={isPortfolio}>{isPortfolio ? 'PORTFOLIO' : 'ACTIVE'}</div>
+    <div class="price">${fmt.dec2(strategy.price)}</div>
   </div>
 
   <div class="metrics">
@@ -137,6 +146,18 @@
         <span>Capital:</span>
         <span>Shared pool ($100k)</span>
       </div>
+      <div class="param-row">
+        <span>High:</span>
+        <span>{fmt.dec2(strategy.high)}</span>
+      </div>
+      <div class="param-row">
+        <span>Stop:</span>
+        <span>{fmt.dec2(strategy.stop)}</span>
+      </div>
+      <div class="param-row">
+        <span>ATR:</span>
+        <span>{fmt.dec2(strategy.atr)}</span>
+      </div>
     </div>
   {:else}
     <div class="params">
@@ -155,6 +176,18 @@
       <div class="param-row">
         <span>Trades:</span>
         <span>{strategy.params?.total_trades ?? '-'}</span>
+      </div>
+      <div class="param-row">
+        <span>High:</span>
+        <span>{fmt.dec2(strategy.high)}</span>
+      </div>
+      <div class="param-row">
+        <span>Stop:</span>
+        <span>{fmt.dec2(strategy.stop)}</span>
+      </div>
+      <div class="param-row">
+        <span>ATR:</span>
+        <span>{fmt.dec2(strategy.atr)}</span>
       </div>
     </div>
   {/if}

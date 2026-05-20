@@ -147,6 +147,8 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     all_ticker_symbols = all_tickers if all_tickers else tickers
 
     for symbol in all_ticker_symbols:
+        if symbol == 'BLENDED':
+            continue
         fetch_and_update_ticker(symbol, timeframe=timeframe)
 
     results = []
