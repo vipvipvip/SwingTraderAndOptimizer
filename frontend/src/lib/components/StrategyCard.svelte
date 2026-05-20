@@ -166,7 +166,7 @@
         <span>Chandelier({strategy.params?.macd_fast}, {strategy.params?.bb_std})</span>
       </div>
       <div class="param-row">
-        <span>ATR:</span>
+        <span>ATR Period:</span>
         <span>({strategy.params?.bb_period})</span>
       </div>
       <div class="param-row">
