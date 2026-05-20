@@ -1,0 +1,91 @@
+"""Hourly price snapshot: capture current prices for all scanner tickers.
+
+Replaces populate_tickers.py for the 1hour timeframe since Alpaca's free
+IEX tier does not provide historical hourly bars. Instead, we capture a
+price snapshot from the latest trade once per hour during market hours.
+"""
+
+import os
+import sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockLatestTradeRequest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import API_KEY, SECRET_KEY, get_db_conn
+
+NY = ZoneInfo('America/New_York')
+TABLE = 'tbl_scanner_tickers_1hour'
+BATCH_SIZE = 200
+
+
+def get_tickers():
+    conn = get_db_conn()
+    try:
+        tickers = pd.read_sql(
+            "SELECT DISTINCT ticker FROM tbl_scanner_tickers ORDER BY ticker", conn
+        )['ticker'].tolist()
+    finally:
+        conn.close()
+    return tickers
+
+
+def capture_prices(tickers):
+    client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
+    prices = {}
+    total = len(tickers)
+    for i in range(0, total, BATCH_SIZE):
+        batch = tickers[i:i + BATCH_SIZE]
+        request = StockLatestTradeRequest(
+            symbol_or_symbols=batch, feed='iex',
+        )
+        response = client.get_stock_latest_trade(request)
+        for sym, trade in response.items():
+            prices[sym] = {
+                'price': float(trade.price),
+                'size': int(trade.size),
+            }
+        print(f"  fetched {min(i + BATCH_SIZE, total)}/{total}")
+    return prices
+
+
+def upsert_prices(prices):
+    now = datetime.now(NY)
+    hour_start = now.replace(minute=0, second=0, microsecond=0)
+    conn = get_db_conn()
+    try:
+        with conn.cursor() as cur:
+            for ticker, data in prices.items():
+                p = data['price']
+                cur.execute(
+                    f"""
+                    INSERT INTO {TABLE} (ticker, date, open, high, low, close, volume)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (ticker, date) DO UPDATE SET
+                        high = GREATEST({TABLE}.high, EXCLUDED.high),
+                        low = LEAST({TABLE}.low, EXCLUDED.low),
+                        close = EXCLUDED.close
+                    """,
+                    (ticker, hour_start, p, p, p, p, data['size']),
+                )
+        conn.commit()
+        print(f"Upserted {len(prices)} rows at {hour_start}")
+    finally:
+        conn.close()
+
+
+def main():
+    print("Capturing hourly price snapshots...")
+    tickers = get_tickers()
+    print(f"Processing {len(tickers)} tickers")
+    prices = capture_prices(tickers)
+    print(f"Got prices for {len(prices)} tickers")
+    upsert_prices(prices)
+    print("Done.")
+
+
+if __name__ == '__main__':
+    main()

@@ -18,15 +18,22 @@ class ScannerController extends Controller
 
     public function index(Request $request)
     {
-        $weeks = (int) $request->query('weeks', 3);
         $timeframe = $request->query('timeframe', 'weekly');
         $table = $this->tableForTimeframe($timeframe);
+
+        if ($timeframe === '1hour') {
+            $lookback = (int) $request->query('hours', 40);
+            $interval = "INTERVAL '1 hour' * ?::int";
+        } else {
+            $lookback = (int) $request->query('weeks', 3);
+            $interval = "INTERVAL '1 week' * ?::int";
+        }
 
         $results = DB::select("
             WITH matched AS (
                 SELECT ticker
                 FROM {$table}
-                WHERE date >= CURRENT_DATE - INTERVAL '1 week' * ?::int
+                WHERE date >= CURRENT_DATE - {$interval}
                 GROUP BY ticker
                 HAVING BOOL_OR(macd_crossover) = true
                    AND BOOL_OR(ppo_crossover) = true
@@ -55,7 +62,7 @@ class ScannerController extends Controller
                 ORDER BY date DESC LIMIT 1
             ) pcd ON true
             ORDER BY l.ticker
-        ", [$weeks]);
+        ", [$lookback]);
 
         $total_scanned = DB::table($table)
             ->distinct('ticker')
@@ -68,7 +75,7 @@ class ScannerController extends Controller
             'results' => $results,
             'total_scanned' => $total_scanned,
             'total_signals' => count($results),
-            'weeks' => $weeks,
+            'weeks' => $lookback,
             'timeframe' => $timeframe,
             'latest_run' => $latest_run,
         ]);

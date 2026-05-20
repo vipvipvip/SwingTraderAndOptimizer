@@ -9,7 +9,5 @@ WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/populate_tickers.py --timeframe week --workers 10
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/compute_indicators.py --timeframe week --workers 10
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/populate_tickers.py --timeframe day --workers 10
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/compute_indicators.py --timeframe day --workers 10
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/populate_tickers.py --timeframe hour --workers 10
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/compute_indicators.py --timeframe hour --workers 10
+
 User=dikesh

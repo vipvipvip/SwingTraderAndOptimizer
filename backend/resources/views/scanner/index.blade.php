@@ -44,11 +44,17 @@
         <div class="divider"></div>
         <label style="color:#8b949e;font-size:13px;">Lookback:</label>
         <select onchange="changeLookback(this.value)">
-            <option value="1" {{ $weeks == 1 ? 'selected' : '' }}>1w</option>
-            <option value="2" {{ $weeks == 2 ? 'selected' : '' }}>2w</option>
-            <option value="3" {{ $weeks == 3 ? 'selected' : '' }}>3w</option>
-            <option value="4" {{ $weeks == 4 ? 'selected' : '' }}>4w</option>
-            <option value="8" {{ $weeks == 8 ? 'selected' : '' }}>8w</option>
+            @if ($timeframe === '1hour')
+                @for ($h = 1; $h <= 40; $h++)
+                    <option value="{{ $h }}" {{ $weeks == $h ? 'selected' : '' }}>{{ $h }}h</option>
+                @endfor
+            @else
+                <option value="1" {{ $weeks == 1 ? 'selected' : '' }}>1w</option>
+                <option value="2" {{ $weeks == 2 ? 'selected' : '' }}>2w</option>
+                <option value="3" {{ $weeks == 3 ? 'selected' : '' }}>3w</option>
+                <option value="4" {{ $weeks == 4 ? 'selected' : '' }}>4w</option>
+                <option value="8" {{ $weeks == 8 ? 'selected' : '' }}>8w</option>
+            @endif
         </select>
         <span class="scanned">{{ number_format($total_scanned) }} tickers</span>
         <span class="signals">{{ $total_signals }} signals</span>
@@ -88,7 +94,6 @@
     <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
     <script>
         const currentTimeframe = '{{ $timeframe }}';
-        const currentWeeks = {{ $weeks }};
         let chartInstance = null;
         let activeTicker = null;
         let selectedIndex = -1;
@@ -98,11 +103,14 @@
         }
 
         function changeTimeframe(tf) {
-            window.location = '/scanner?timeframe=' + tf + '&weeks=' + currentWeeks;
+            const def = tf === '1hour' ? 40 : 3;
+            const param = tf === '1hour' ? 'hours' : 'weeks';
+            window.location = '/scanner?timeframe=' + tf + '&' + param + '=' + def;
         }
 
         function changeLookback(w) {
-            window.location = '/scanner?timeframe=' + currentTimeframe + '&weeks=' + w;
+            const param = currentTimeframe === '1hour' ? 'hours' : 'weeks';
+            window.location = '/scanner?timeframe=' + currentTimeframe + '&' + param + '=' + w;
         }
 
         function selectRow(index) {
