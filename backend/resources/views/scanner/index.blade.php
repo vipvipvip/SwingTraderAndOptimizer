@@ -230,21 +230,53 @@
             const macdHist = macdC.addHistogramSeries({ priceFormat:{ type:'volume' }, priceScaleId:'' }); macdHist.setData(ind.map(i => ({ time:parseTime(i.date), value:parseFloat(i.macd_histogram||0), color:(i.macd_histogram||0)>=0?'rgba(63,185,80,0.5)':'rgba(248,81,73,0.5)' })));
 
             const ppoLine = ppoC.addLineSeries({ color:'#3fb950', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoLine.setData(ind.map(i => ({ time:parseTime(i.date), value:parseFloat(i.ppo_line||0) }))); allLineSeries.push({ series:ppoLine, color:'#3fb950' });
-            const ppoZero = ppoC.addLineSeries({ color:'#f85149', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoZero.setData(ind.map(i => ({ time:parseTime(i.date), value:0 }))); allLineSeries.push({ series:ppoZero, color:'#f85149' });
+            const ppoSig = ppoC.addLineSeries({ color:'#ffa657', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoSig.setData(ind.map(i => ({ time:parseTime(i.date), value:parseFloat(i.ppo_signal||0) }))); allLineSeries.push({ series:ppoSig, color:'#ffa657' });
+            const ppoZero = ppoC.addLineSeries({ color:'#f85149', lineWidth:1, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoZero.setData(ind.map(i => ({ time:parseTime(i.date), value:0 }))); allLineSeries.push({ series:ppoZero, color:'#f85149' });
 
+            const priceMarkers = [], macdMarkers = [], ppoMarkers = [];
+            for (let i = 1; i < candleData.length; i++) {
+                const pc = candleData[i], pp = candleData[i-1];
+                const c10 = ema10.find(e => e.time === pc.time)?.value;
+                const p10 = ema10.find(e => e.time === pp.time)?.value;
+                const c40 = sma40.find(e => e.time === pc.time)?.value;
+                const p40 = sma40.find(e => e.time === pp.time)?.value;
+                if (c10 && p10 && c40 && p40) {
+                    if (c10 > c40 && p10 <= p40) priceMarkers.push({ time:pc.time, position:'belowBar', shape:'arrowUp', color:'#3fb950', size:1 });
+                    if (c10 < c40 && p10 >= p40) priceMarkers.push({ time:pc.time, position:'aboveBar', shape:'arrowDown', color:'#f85149', size:1 });
+                }
+            }
+            for (let i = 1; i < ind.length; i++) {
+                const c = ind[i], p = ind[i-1];
+                const t = parseTime(c.date);
+                const cml = parseFloat(c.macd_line), pml = parseFloat(p.macd_line);
+                const cms = parseFloat(c.macd_signal), pms = parseFloat(p.macd_signal);
+                if (cml > cms && pml <= pms) macdMarkers.push({ time:t, position:'belowBar', shape:'arrowUp', color:'#3fb950', size:1 });
+                if (cml < cms && pml >= pms) macdMarkers.push({ time:t, position:'aboveBar', shape:'arrowDown', color:'#f85149', size:1 });
+                const cpl = parseFloat(c.ppo_line), ppl = parseFloat(p.ppo_line);
+                const cps = parseFloat(c.ppo_signal), pps = parseFloat(p.ppo_signal);
+                if (cpl > cps && ppl <= pps) ppoMarkers.push({ time:t, position:'belowBar', shape:'arrowUp', color:'#3fb950', size:1 });
+                if (cpl < cps && ppl >= pps) ppoMarkers.push({ time:t, position:'aboveBar', shape:'arrowDown', color:'#f85149', size:1 });
+            }
+
+            let crosshairTime = null;
             function syncCrosshair(param) {
-                const time = param.time ? param.time : null;
+                crosshairTime = param.time ? param.time : null;
                 allLineSeries.forEach(({ series, color }) => {
-                    if (time) {
-                        series.setMarkers([{ time, position:'inBar', shape:'circle', color, size:2 }]);
+                    if (series === ema10s) {
+                        ema10s.setMarkers(crosshairTime ? [...priceMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : priceMarkers);
+                    } else if (series === macdLine) {
+                        macdLine.setMarkers(crosshairTime ? [...macdMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : macdMarkers);
+                    } else if (series === ppoLine) {
+                        ppoLine.setMarkers(crosshairTime ? [...ppoMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : ppoMarkers);
                     } else {
-                        series.setMarkers([]);
+                        series.setMarkers(crosshairTime ? [{ time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : []);
                     }
                 });
             }
             chart.subscribeCrosshairMove(syncCrosshair);
             macdC.subscribeCrosshairMove(syncCrosshair);
             ppoC.subscribeCrosshairMove(syncCrosshair);
+            syncCrosshair({});
             let zoomSyncing = false;
             function onZoomSync(source, range) {
                 if (zoomSyncing || !range) return;
