@@ -33,6 +33,8 @@
 </head>
 <body>
     <div class="top-bar">
+        <span style="color:#8b949e;font-size:13px;">as of: {{ $timeframe === '1hour' ? \Carbon\Carbon::parse($latest_run)->format('M j, g:ia') : \Carbon\Carbon::parse($latest_run)->format('M j, Y') }}</span>
+        <div class="divider"></div>
         <label style="color:#8b949e;font-size:13px;">Timeframe:</label>
         <select onchange="changeTimeframe(this.value)">
             <option value="weekly" {{ $timeframe == 'weekly' ? 'selected' : '' }}>Weekly</option>
