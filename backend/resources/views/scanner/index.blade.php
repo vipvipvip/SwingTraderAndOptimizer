@@ -21,6 +21,10 @@
         .table-wrap tr:hover td { background: #23252f; }
         .table-wrap tr { cursor: pointer; }
         .table-wrap tr.active td { background: #1a2a3a; }
+        .table-wrap tr.new-row td { background: #14281a; }
+        .table-wrap tr.new-row:hover td { background: #1a3322; }
+        .table-wrap tr.new-row.active td { background: #1a2a3a; }
+        .table-wrap .new-badge { display: inline-block; font-size: 9px; font-weight: 700; color: #3fb950; background: #1a3322; padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: middle; }
         .table-wrap .ticker { font-weight: 600; color: #58a6ff; }
         .table-wrap .num { font-family: 'JetBrains Mono', 'Fira Code', monospace; text-align: right; }
         .table-wrap .pos { color: #3fb950; }
@@ -101,6 +105,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
     <script>
         const currentTimeframe = '{{ $timeframe }}';
+        const currentLookback = {{ $weeks }};
         let chartInstance = null;
         let activeTicker = null;
         let selectedIndex = -1;
@@ -165,6 +170,34 @@
                 closeChart();
             }
         });
+
+        (function markNewRows() {
+            const table = document.getElementById('scannerTable');
+            if (!table) return;
+            const rows = getRows();
+            const currentTickers = Array.from(rows).map(r => r.dataset.ticker);
+            const storageKey = 'scanner_tickers_' + currentTimeframe;
+            const prev = (() => { try { return JSON.parse(localStorage.getItem(storageKey)); } catch { return null; } })();
+            if (prev && prev.tickers && prev.tickers.length > 0 && prev.lookback !== currentLookback) {
+                const prevSet = new Set(prev.tickers);
+                currentTickers.forEach((t, i) => {
+                    if (!prevSet.has(t)) {
+                        const row = rows[i];
+                        if (row) {
+                            row.classList.add('new-row');
+                            const td = row.querySelector('.ticker');
+                            if (td) {
+                                const badge = document.createElement('span');
+                                badge.className = 'new-badge';
+                                badge.textContent = 'NEW';
+                                td.appendChild(badge);
+                            }
+                        }
+                    }
+                });
+            }
+            try { localStorage.setItem(storageKey, JSON.stringify({ tickers: currentTickers, lookback: currentLookback })); } catch {}
+        })();
 
         document.getElementById('scannerTable')?.addEventListener('click', e => {
             const row = e.target.closest('tr');
