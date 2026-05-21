@@ -49,6 +49,11 @@ class RunNightlyOptimizer extends Command
             $returnCode = proc_close($process);
             if ($returnCode === 0) {
                 $this->info('Optimization completed successfully');
+                try {
+                    file_put_contents(storage_path('optimizer_last_run.txt'), now()->format('Y-m-d H:i:s'));
+                } catch (\Exception $e) {
+                    $this->warn('Could not write optimizer status file: ' . $e->getMessage());
+                }
                 return 0;
             } else {
                 $this->error("Optimization failed with code $returnCode");
