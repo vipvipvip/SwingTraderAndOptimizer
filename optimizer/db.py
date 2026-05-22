@@ -73,8 +73,8 @@ class StrategyDB:
             cursor.execute('''
                 INSERT INTO strategy_parameters
                 (ticker_id, macd_fast, bb_period, bb_std,
-                 win_rate, sharpe_ratio, total_return, total_trades, base_case, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
+                 win_rate, sharpe_ratio, total_return, total_trades, max_drawdown, base_case, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
             ''', (
                 ticker_id,
                 period,  # macd_fast = chandelier period
@@ -83,7 +83,8 @@ class StrategyDB:
                 float(metrics['win_rate']),
                 float(metrics['sharpe_ratio']),
                 float(metrics['total_return']),
-                int(metrics['total_trades'])
+                int(metrics['total_trades']),
+                float(metrics.get('max_drawdown', 0))
             ))
 
             conn.commit()

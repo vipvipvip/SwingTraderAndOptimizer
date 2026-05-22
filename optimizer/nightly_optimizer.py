@@ -344,11 +344,10 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     else:
         cursor.execute('''
             INSERT INTO strategy_parameters
-            (ticker_id, macd_fast, macd_slow, macd_signal, bb_period, bb_std,
-             ema_signal, sma_signal, sma_50, sma_200, ppo_fast, ppo_slow,
+            (ticker_id, macd_fast, bb_period, bb_std,
              win_rate, sharpe_ratio, total_return, total_trades, max_drawdown,
              base_case, created_at, updated_at)
-            VALUES (%s, %s, 0, 0, %s, %s, 0, 0, 0, 0, 0, 0,
+            VALUES (%s, %s, %s, %s,
                     %s, %s, %s, %s, %s, true, NOW(), NOW())
         ''', (
             blended_id, first['macd_fast'], first['macd_fast'], first['bb_std'],

@@ -82,7 +82,7 @@ def main():
     if now.weekday() >= 5:
         print(f"Skipping: weekend ({now.strftime('%A')})")
         return
-    if now.hour < 9 or (now.hour == 9 and now.minute < 30) or now.hour >= 16:
+    if now.hour < 9 or (now.hour == 9 and now.minute < 30) or now.hour > 16:
         print(f"Skipping: outside market hours ({now.hour}:{now.minute:02d} ET)")
         return
 
