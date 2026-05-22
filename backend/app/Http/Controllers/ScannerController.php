@@ -21,65 +21,78 @@ class ScannerController extends Controller
         $timeframe = $request->query('timeframe', 'weekly');
         $table = $this->tableForTimeframe($timeframe);
 
-        if ($timeframe === '1hour') {
-            $lookback = (int) $request->query('hours', 40);
-            $interval = "INTERVAL '1 hour' * ?::int";
-        } else {
-            $lookback = (int) $request->query('weeks', 3);
-            $interval = "INTERVAL '1 week' * ?::int";
-        }
-
         $results = DB::select("
-            WITH matched AS (
-                SELECT ticker
-                FROM {$table}
-                WHERE date >= CURRENT_DATE - {$interval}
-                GROUP BY ticker
-                HAVING BOOL_OR(macd_crossover) = true
-                   AND BOOL_OR(ppo_crossover) = true
-                   AND BOOL_OR(sma_crossover) = true
+            WITH cross_dates AS (
+                SELECT DISTINCT ON (ticker)
+                       ticker,
+                       mcd.date AS macd_cross_date,
+                       pcd.date AS ppo_cross_date,
+                       scd.date AS sma_cross_date,
+                       lc.cross_bullish
+                FROM {$table} t
+                LEFT JOIN LATERAL (
+                    SELECT date FROM {$table}
+                    WHERE ticker = t.ticker AND macd_crossover = true
+                    ORDER BY date DESC LIMIT 1
+                ) mcd ON true
+                LEFT JOIN LATERAL (
+                    SELECT date FROM {$table}
+                    WHERE ticker = t.ticker AND ppo_crossover = true
+                    ORDER BY date DESC LIMIT 1
+                ) pcd ON true
+                LEFT JOIN LATERAL (
+                    SELECT date FROM {$table}
+                    WHERE ticker = t.ticker AND sma_crossover = true
+                    ORDER BY date DESC LIMIT 1
+                ) scd ON true
+                LEFT JOIN LATERAL (
+                    SELECT
+                        CASE WHEN macd_crossover OR ppo_crossover OR sma_crossover
+                             THEN true ELSE false
+                        END AS cross_bullish
+                    FROM {$table}
+                    WHERE ticker = t.ticker
+                      AND (macd_crossover OR macd_cross_bearish
+                           OR ppo_crossover OR ppo_cross_bearish
+                           OR sma_crossover OR sma_cross_bearish)
+                    ORDER BY date DESC LIMIT 1
+                ) lc ON true
+                WHERE mcd.date IS NOT NULL
+                  AND pcd.date IS NOT NULL
+                  AND scd.date IS NOT NULL
             ),
             latest AS (
                 SELECT DISTINCT ON (ticker)
                        ticker, date, close,
-                       macd_line::float8, macd_signal::float8,
-                       ppo_line::float8
+                       atr_stop::float8
                 FROM {$table}
-                WHERE ticker IN (SELECT ticker FROM matched)
+                WHERE ticker IN (SELECT ticker FROM cross_dates)
                 ORDER BY ticker, date DESC
             )
             SELECT l.*,
-                   mcd.date AS macd_cross_date,
-                   pcd.date AS ppo_cross_date,
-                   scd.date AS sma_cross_date
+                   cd.macd_cross_date,
+                   cd.ppo_cross_date,
+                   cd.sma_cross_date,
+                   cd.cross_bullish
             FROM latest l
-            LEFT JOIN LATERAL (
-                SELECT date FROM {$table}
-                WHERE ticker = l.ticker AND macd_crossover = true
-                ORDER BY date DESC LIMIT 1
-            ) mcd ON true
-            LEFT JOIN LATERAL (
-                SELECT date FROM {$table}
-                WHERE ticker = l.ticker AND ppo_crossover = true
-                ORDER BY date DESC LIMIT 1
-            ) pcd ON true
-            LEFT JOIN LATERAL (
-                SELECT date FROM {$table}
-                WHERE ticker = l.ticker AND sma_crossover = true
-                ORDER BY date DESC LIMIT 1
-            ) scd ON true
-            ORDER BY l.ticker
-        ", [$lookback]);
+            JOIN cross_dates cd USING (ticker)
+            ORDER BY GREATEST(cd.macd_cross_date, cd.ppo_cross_date, cd.sma_cross_date) DESC
+        ");
 
-        $results = collect($results)->map(function ($row) {
-            $ts = array_filter([
-                strtotime($row->macd_cross_date ?? ''),
-                strtotime($row->ppo_cross_date ?? ''),
-                strtotime($row->sma_cross_date ?? ''),
-            ]);
-            $row->convergence_seconds = count($ts) === 3 ? max($ts) - min($ts) : null;
-            return $row;
-        })->sortBy('convergence_seconds')->values()->all();
+        $results = collect($results)
+            ->filter(fn($r) => $r->cross_bullish && $r->atr_stop !== null)
+            ->take(50)
+->map(function ($r) {
+                $dist = (float)$r->close - (float)$r->atr_stop;
+                $r->stop_dist_dollar = round($dist, 2);
+                $r->stop_dist_pct = (float)$r->close > 0
+                    ? round($dist / (float)$r->close * 100, 2)
+                    : null;
+                return $r;
+            })
+            ->sortBy('stop_dist_pct')
+            ->values()
+            ->all();
 
         $total_scanned = DB::table($table)
             ->distinct('ticker')
@@ -92,7 +105,6 @@ class ScannerController extends Controller
             'results' => $results,
             'total_scanned' => $total_scanned,
             'total_signals' => count($results),
-            'weeks' => $lookback,
             'timeframe' => $timeframe,
             'latest_run' => $latest_run,
         ]);
@@ -125,7 +137,8 @@ class ScannerController extends Controller
         }
 
         $latest = DB::selectOne("
-            SELECT date, close, macd_line::float8, macd_signal::float8, ppo_line::float8
+            SELECT date, close, macd_line::float8, macd_signal::float8, ppo_line::float8,
+                   atr_stop::float8
             FROM {$table}
             WHERE ticker = ?
             ORDER BY date DESC LIMIT 1

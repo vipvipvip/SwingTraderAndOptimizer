@@ -22,6 +22,9 @@ PPO_FAST = 12
 PPO_SLOW = 26
 PPO_SIGNAL = 9
 
+ATR_PERIOD = 14
+ATR_MULT = 2.0
+
 TABLE = 'tbl_scanner_tickers'
 
 

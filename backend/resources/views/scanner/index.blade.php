@@ -7,58 +7,45 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; height: 100vh; display: flex; flex-direction: column; }
-        .top-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #1c1e26; border-bottom: 1px solid #2d2f3a; flex-shrink: 0; }
-        .top-bar select { background: #0f1117; border: 1px solid #2d2f3a; color: #e1e4e8; padding: 4px 8px; border-radius: 4px; font-size: 13px; }
-        .top-bar .signals { font-size: 13px; color: #3fb950; margin-left: auto; }
-        .top-bar .scanned { font-size: 13px; color: #8b949e; }
-        .divider { width:1px; height:20px; background:#2d2f3a; }
-        .table-wrap { flex-shrink: 0; overflow-y: auto; max-height: 210px; border-bottom: 1px solid #2d2f3a; }
-        .table-wrap table { width: 100%; border-collapse: collapse; }
+        .top-bar { display: flex; align-items: center; gap: 10px; padding: 6px 14px; background: #1c1e26; border-bottom: 1px solid #2d2f3a; flex-shrink: 0; }
+        .top-bar select { background: #0f1117; border: 1px solid #2d2f3a; color: #e1e4e8; padding: 3px 6px; border-radius: 4px; font-size: 12px; }
+        .top-bar .signals { font-size: 12px; color: #3fb950; margin-left: auto; }
+        .top-bar .scanned { font-size: 12px; color: #8b949e; }
+        .divider { width:1px; height:16px; background:#2d2f3a; }
+        .table-wrap { flex-shrink: 0; overflow-y: auto; max-height: 180px; border-bottom: 1px solid #2d2f3a; }
+        .table-wrap table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
         .table-wrap thead { position: sticky; top: 0; z-index: 1; }
-        .table-wrap th { background: #23252f; padding: 6px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #8b949e; }
-        .table-wrap td { padding: 5px 12px; font-size: 12px; border-bottom: 1px solid #1c1e26; }
+        .table-wrap th { background: #23252f; padding: 3px 5px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.3px; color: #8b949e; white-space: nowrap; }
+        .table-wrap td { padding: 2px 5px; font-size: 10px; border-bottom: 1px solid #1c1e26; white-space: nowrap; }
         .table-wrap tr:last-child td { border-bottom: none; }
         .table-wrap tr:hover td { background: #23252f; }
         .table-wrap tr { cursor: pointer; }
         .table-wrap tr.active td { background: #1a2a3a; }
         .table-wrap tr.new-row td { background: #14281a; }
         .table-wrap tr.new-row:hover td { background: #1a3322; }
-        .table-wrap tr.new-row.active td { background: #1a2a3a; }
-        .table-wrap .new-badge { display: inline-block; font-size: 9px; font-weight: 700; color: #3fb950; background: #1a3322; padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: middle; }
-        .table-wrap .ticker { font-weight: 600; color: #58a6ff; }
+        .table-wrap .new-badge { display: inline-block; font-size: 8px; font-weight: 700; color: #3fb950; background: #1a3322; padding: 1px 4px; border-radius: 3px; margin-left: 4px; vertical-align: middle; }
+        .table-wrap .ticker { font-weight: 600; }
+        .table-wrap .ticker-bull { color: #3fb950; }
+        .table-wrap .ticker-bear { color: #f85149; }
         .table-wrap .num { font-family: 'JetBrains Mono', 'Fira Code', monospace; text-align: right; }
         .table-wrap .pos { color: #3fb950; }
         .table-wrap .neg { color: #f85149; }
+        .cross-dot { display:inline-block; width:4px; height:4px; border-radius:50%; margin-right:1px; vertical-align:middle; }
         .chart-wrap { flex: 1; min-height: 0; padding: 4px; display: flex; flex-direction: column; }
         .chart-wrap .chart-inner { flex: 1; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
-        .chart-wrap .chart-panel { min-height: 0; }
         .empty-chart { display: flex; align-items: center; justify-content: center; height: 100%; color: #4a4d59; font-size: 15px; }
     </style>
 </head>
 <body>
     <div class="top-bar">
-        <span style="color:#8b949e;font-size:13px;">as of: {{ $timeframe === '1hour' ? \Carbon\Carbon::parse($latest_run)->format('M j, g:ia') : \Carbon\Carbon::parse($latest_run)->format('M j, Y') }}</span>
+        <span style="color:#8b949e;font-size:12px;">as of: {{ $timeframe === '1hour' ? \Carbon\Carbon::parse($latest_run)->format('M j, g:ia') : \Carbon\Carbon::parse($latest_run)->format('M j, Y') }}</span>
         <div class="divider"></div>
-        <label style="color:#8b949e;font-size:13px;">Timeframe:</label>
+        <label style="color:#8b949e;font-size:12px;">Time:</label>
         <select onchange="changeTimeframe(this.value)">
-            <option value="weekly" {{ $timeframe == 'weekly' ? 'selected' : '' }}>Weekly</option>
-            <option value="daily" {{ $timeframe == 'daily' ? 'selected' : '' }}>Daily</option>
-            <option value="1hour" {{ $timeframe == '1hour' ? 'selected' : '' }}>1Hour</option>
-        </select>
-        <div class="divider"></div>
-        <label style="color:#8b949e;font-size:13px;">Lookback:</label>
-        <select onchange="changeLookback(this.value)">
-            @if ($timeframe === '1hour')
-                @for ($h = 1; $h <= 40; $h++)
-                    <option value="{{ $h }}" {{ $weeks == $h ? 'selected' : '' }}>{{ $h }}h</option>
-                @endfor
-            @else
-                <option value="1" {{ $weeks == 1 ? 'selected' : '' }}>1w</option>
-                <option value="2" {{ $weeks == 2 ? 'selected' : '' }}>2w</option>
-                <option value="3" {{ $weeks == 3 ? 'selected' : '' }}>3w</option>
-                <option value="4" {{ $weeks == 4 ? 'selected' : '' }}>4w</option>
-                <option value="8" {{ $weeks == 8 ? 'selected' : '' }}>8w</option>
-            @endif
+            <option value="weekly" {{ $timeframe == 'weekly' ? 'selected' : '' }}>W</option>
+            <option value="daily" {{ $timeframe == 'daily' ? 'selected' : '' }}>D</option>
+            <option value="1hour" {{ $timeframe == '1hour' ? 'selected' : '' }}>1H</option>
         </select>
         <span class="scanned">{{ number_format($total_scanned) }} tickers</span>
         <span class="signals">{{ $total_signals }} signals</span>
@@ -67,34 +54,42 @@
     @if (count($results) > 0)
         <div class="table-wrap" id="tableWrap">
             <table id="scannerTable">
+                <colgroup>
+                    <col style="width:42px;">
+                    <col style="width:108px;">
+                    <col style="width:52px;">
+                    <col style="width:72px;">
+                    <col style="width:48px;">
+                </colgroup>
                 <thead>
                     <tr>
                         <th>Ticker</th>
-                        <th>Signals</th>
-                        <th>Convergence</th>
-                        <th>Close</th>
+                        <th>Crossovers</th>
+                        <th style="text-align:right;">Stop</th>
+                        <th style="text-align:right;">Dist</th>
+                        <th style="text-align:right;">Close</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach ($results as $row)
                         @php
-                            $mc = \Carbon\Carbon::parse($row->macd_cross_date);
-                            $pc = \Carbon\Carbon::parse($row->ppo_cross_date);
-                            $sc = \Carbon\Carbon::parse($row->sma_cross_date);
-                            $mu = (int)($timeframe === '1hour' ? $mc->diffInHours() : $mc->diffInDays());
-                            $pu = (int)($timeframe === '1hour' ? $pc->diffInHours() : $pc->diffInDays());
-                            $su = (int)($timeframe === '1hour' ? $sc->diffInHours() : $sc->diffInDays());
-                            $unit = $timeframe === '1hour' ? 'h' : 'd';
-                            $conv = $row->convergence_seconds !== null
-                                ? ($timeframe === '1hour'
-                                    ? round($row->convergence_seconds / 3600) . 'h'
-                                    : round($row->convergence_seconds / 86400) . 'd')
-                                : '-';
+                            $fmt = $timeframe === '1hour' ? 'M j, g:ia' : 'M j';
+                            $md = \Carbon\Carbon::parse($row->macd_cross_date)->format($fmt);
+                            $pd = \Carbon\Carbon::parse($row->ppo_cross_date)->format($fmt);
+                            $sd = \Carbon\Carbon::parse($row->sma_cross_date)->format($fmt);
+                            $atr = $row->atr_stop !== null ? number_format((float)$row->atr_stop, 2) : '-';
+                            $distD = $row->stop_dist_dollar !== null ? number_format($row->stop_dist_dollar, 2) : '-';
+                            $distP = $row->stop_dist_pct !== null ? number_format($row->stop_dist_pct, 1) . '%' : '-';
                         @endphp
                         <tr data-ticker="{{ $row->ticker }}">
-                            <td class="ticker">{{ $row->ticker }}</td>
-                            <td style="font-size:11px;"><span style="color:#58a6ff;">M: {{ $mu }}{{ $unit }} ago</span> <span style="color:#3fb950;">P: {{ $pu }}{{ $unit }} ago</span> <span style="color:#f0883e;">S: {{ $su }}{{ $unit }} ago</span></td>
-                            <td class="num" style="font-size:11px;">{{ $conv }}</td>
+                            <td class="ticker {{ $row->cross_bullish ? 'ticker-bull' : 'ticker-bear' }}">{{ $row->ticker }}</td>
+                            <td style="font-size:10px; line-height:1.5; letter-spacing:-0.2px;">
+                                <span class="cross-dot" style="background:#58a6ff;"></span>{{ $md }}
+                                <span class="cross-dot" style="background:#3fb950;margin-left:3px;"></span>{{ $pd }}
+                                <span class="cross-dot" style="background:#f0883e;margin-left:3px;"></span>{{ $sd }}
+                            </td>
+                            <td class="num">{{ $atr }}</td>
+                            <td class="num">{{ $distD }} <span style="color:#8b949e;font-size:10px;">{{ $distP }}</span></td>
                             <td class="num {{ $row->close >= 0 ? 'pos' : 'neg' }}">{{ number_format($row->close, 2) }}</td>
                         </tr>
                     @endforeach
@@ -114,7 +109,6 @@
     <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
     <script>
         const currentTimeframe = '{{ $timeframe }}';
-        const currentLookback = {{ $weeks }};
         let chartInstance = null;
         let activeTicker = null;
         let selectedIndex = -1;
@@ -124,14 +118,7 @@
         }
 
         function changeTimeframe(tf) {
-            const def = tf === '1hour' ? 40 : 3;
-            const param = tf === '1hour' ? 'hours' : 'weeks';
-            window.location = '/scanner?timeframe=' + tf + '&' + param + '=' + def;
-        }
-
-        function changeLookback(w) {
-            const param = currentTimeframe === '1hour' ? 'hours' : 'weeks';
-            window.location = '/scanner?timeframe=' + currentTimeframe + '&' + param + '=' + w;
+            window.location = '/scanner?timeframe=' + tf;
         }
 
         function selectRow(index) {
@@ -179,34 +166,6 @@
                 closeChart();
             }
         });
-
-        (function markNewRows() {
-            const table = document.getElementById('scannerTable');
-            if (!table) return;
-            const rows = getRows();
-            const currentTickers = Array.from(rows).map(r => r.dataset.ticker);
-            const storageKey = 'scanner_tickers_' + currentTimeframe;
-            const prev = (() => { try { return JSON.parse(localStorage.getItem(storageKey)); } catch { return null; } })();
-            if (prev && prev.tickers && prev.tickers.length > 0 && prev.lookback !== currentLookback) {
-                const prevSet = new Set(prev.tickers);
-                currentTickers.forEach((t, i) => {
-                    if (!prevSet.has(t)) {
-                        const row = rows[i];
-                        if (row) {
-                            row.classList.add('new-row');
-                            const td = row.querySelector('.ticker');
-                            if (td) {
-                                const badge = document.createElement('span');
-                                badge.className = 'new-badge';
-                                badge.textContent = 'NEW';
-                                td.appendChild(badge);
-                            }
-                        }
-                    }
-                });
-            }
-            try { localStorage.setItem(storageKey, JSON.stringify({ tickers: currentTickers, lookback: currentLookback })); } catch {}
-        })();
 
         document.getElementById('scannerTable')?.addEventListener('click', e => {
             const row = e.target.closest('tr');
@@ -280,6 +239,13 @@
                 sma200.push({ time: c.time, value: sum / period200 });
             });
             const sma200s = chart.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }); sma200s.setData(sma200); allLineSeries.push({ series:sma200s, color:'#58a6ff' });
+
+            if (d.latest && d.latest.atr_stop != null) {
+                const atrLine = chart.addLineSeries({ color:'#f0883e', lineWidth:1, lineStyle:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } });
+                const atrVal = parseFloat(d.latest.atr_stop);
+                atrLine.setData(candleData.map(c => ({ time: c.time, value: atrVal })));
+                allLineSeries.push({ series:atrLine, color:'#f0883e' });
+            }
 
             const ind = d.indicators;
             function nn(v) { return v != null && !isNaN(v); }

@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     MACD_FAST, MACD_SLOW, MACD_LENGTH,
     PPO_FAST, PPO_SLOW, PPO_SIGNAL,
+    ATR_PERIOD, ATR_MULT,
     get_db_conn,
 )
 
@@ -66,8 +67,18 @@ def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
         True, False,
     )
 
+    macd_cross_bearish = np.where(
+        (macd_line < macd_signal) & (macd_line.shift(1) >= macd_signal.shift(1)),
+        True, False,
+    )
+
     ppo_crossover = np.where(
         (ppo_line > 0) & (ppo_line.shift(1) <= 0),
+        True, False,
+    )
+
+    ppo_cross_bearish = np.where(
+        (ppo_line < 0) & (ppo_line.shift(1) >= 0),
         True, False,
     )
 
@@ -75,6 +86,18 @@ def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
         (sma_fast > sma_slow) & (sma_fast.shift(1) <= sma_slow.shift(1)),
         True, False,
     )
+
+    sma_cross_bearish = np.where(
+        (sma_fast < sma_slow) & (sma_fast.shift(1) >= sma_slow.shift(1)),
+        True, False,
+    )
+
+    high_low = df['high'].astype(float) - df['low'].astype(float)
+    high_pc = (df['high'].astype(float) - df['close'].astype(float).shift(1)).abs()
+    low_pc = (df['low'].astype(float) - df['close'].astype(float).shift(1)).abs()
+    tr = pd.concat([high_low, high_pc, low_pc], axis=1).max(axis=1)
+    atr = tr.rolling(window=ATR_PERIOD).mean()
+    atr_stop = close - atr * ATR_MULT
 
     return pd.DataFrame({
         'date': df['date'],
@@ -87,6 +110,10 @@ def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
         'ppo_histogram': ppo_histogram,
         'ppo_crossover': ppo_crossover,
         'sma_crossover': sma_crossover,
+        'macd_cross_bearish': macd_cross_bearish,
+        'ppo_cross_bearish': ppo_cross_bearish,
+        'sma_cross_bearish': sma_cross_bearish,
+        'atr_stop': atr_stop,
     })
 
 
@@ -113,9 +140,11 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
                         f"""
                         UPDATE {table}
                         SET macd_line = %s, macd_signal = %s, macd_histogram = %s,
-                            macd_crossover = %s,
+                            macd_crossover = %s, macd_cross_bearish = %s,
                             ppo_line = %s, ppo_signal = %s, ppo_histogram = %s,
-                            ppo_crossover = %s, sma_crossover = %s
+                            ppo_crossover = %s, ppo_cross_bearish = %s,
+                            sma_crossover = %s, sma_cross_bearish = %s,
+                            atr_stop = %s
                         WHERE ticker = %s AND date = %s
                         """,
                         (
@@ -123,11 +152,15 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
                             None if pd.isna(row['macd_signal']) else float(row['macd_signal']),
                             None if pd.isna(row['macd_histogram']) else float(row['macd_histogram']),
                             bool(row['macd_crossover']),
+                            bool(row['macd_cross_bearish']),
                             None if pd.isna(row['ppo_line']) else float(row['ppo_line']),
                             None if pd.isna(row['ppo_signal']) else float(row['ppo_signal']),
                             None if pd.isna(row['ppo_histogram']) else float(row['ppo_histogram']),
                             bool(row['ppo_crossover']),
+                            bool(row['ppo_cross_bearish']),
                             bool(row['sma_crossover']),
+                            bool(row['sma_cross_bearish']),
+                            None if pd.isna(row['atr_stop']) else float(row['atr_stop']),
                             ticker,
                             date_param,
                         ),
@@ -136,7 +169,11 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
         finally:
             conn.close()
 
-        crossovers = indicators['macd_crossover'].sum() + indicators['ppo_crossover'].sum() + indicators['sma_crossover'].sum()
+        crossovers = (indicators['macd_crossover'].sum() + indicators['ppo_crossover'].sum()
+                      + indicators['sma_crossover'].sum()
+                      + indicators['macd_cross_bearish'].sum()
+                      + indicators['ppo_cross_bearish'].sum()
+                      + indicators['sma_cross_bearish'].sum())
         return ticker, crossovers, 'ok'
     except Exception as e:
         return ticker, 0, str(e)
