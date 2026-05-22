@@ -22,7 +22,11 @@
       if (!liveRes.ok) throw new Error('Failed to load live trades')
 
       const liveData = await liveRes.json()
-      liveTrades = liveData.filter(t => t.status === 'closed').sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
+      liveTrades = liveData.sort((a, b) => {
+        const aTime = a.entry_at ? new Date(a.entry_at) : new Date(0)
+        const bTime = b.entry_at ? new Date(b.entry_at) : new Date(0)
+        return bTime - aTime
+      })
 
       if (backtestRes.ok) {
         const btData = await backtestRes.json()
@@ -51,7 +55,11 @@
     const pool = filterType === 'all' ? [...filteredBacktest, ...filteredLive]
       : filterType === 'backtest' ? filteredBacktest
       : filteredLive
-    return pool.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
+    return pool.sort((a, b) => {
+      const aTime = a.exit_at || a.entry_at
+      const bTime = b.exit_at || b.entry_at
+      return new Date(bTime) - new Date(aTime)
+    })
   })()
 
   function formatDate(dateStr) {
@@ -141,6 +149,11 @@
   }
 
   .status-open {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  .trade-type-open {
     background: #fef3c7;
     color: #92400e;
   }
@@ -310,21 +323,21 @@
             {#each displayTrades as trade (trade.id || Math.random())}
               <tr>
                 <td>
-                  <span class="trade-type-badge" class:trade-type-backtest={!trade.status} class:trade-type-live={trade.status}>
-                    {trade.status ? 'Live' : 'Backtest'}
+                  <span class="trade-type-badge" class:trade-type-live={trade.status === 'closed'} class:trade-type-open={trade.status === 'open'}>
+                    {trade.status === 'open' ? 'Open' : trade.status === 'closed' ? 'Live' : 'Backtest'}
                   </span>
                 </td>
                 <td><span class="symbol">{trade.symbol}</span></td>
                 <td>{trade.allocation_weight ? trade.source_symbol + ' ' + trade.allocation_weight + '%' : (trade.quantity || '-')}</td>
                 <td>${formatPrice(trade.entry_price)}</td>
-                <td>${formatPrice(trade.exit_price)}</td>
+                <td>${trade.exit_price ? formatPrice(trade.exit_price) : '-'}</td>
                 <td>{formatDate(trade.entry_at)}</td>
-                <td>{formatDate(trade.exit_at)}{trade.simulated_close ? ' *' : ''}</td>
+                <td>{formatDate(trade.exit_at)}{!trade.exit_at ? ' *' : ''}{trade.simulated_close ? ' *' : ''}</td>
                 <td class={trade.pnl_dollar > 0 ? 'pnl-positive' : 'pnl-negative'}>
-                  ${formatPrice(trade.pnl_dollar)}
+                  {trade.pnl_dollar != null ? `$${formatPrice(trade.pnl_dollar)}` : '-'}
                 </td>
                 <td class={trade.return > 0 ? 'pnl-positive' : 'pnl-negative'}>
-                  {(trade.return * 100).toFixed(2)}%
+                  {trade.return != null ? `${(trade.return * 100).toFixed(2)}%` : '-'}
                 </td>
                 <td class="portfolio-value">
                   ${formatPrice(trade.portfolio_value)}
@@ -334,8 +347,8 @@
           </tbody>
         </table>
       </div>
-      {#if displayTrades.some(t => t.simulated_close)}
-        <div class="simulated-note">* simulated close (no sell signal generated)</div>
+      {#if displayTrades.some(t => t.simulated_close || !t.exit_at)}
+        <div class="simulated-note">* position still open</div>
       {/if}
     {/if}
   {/if}
