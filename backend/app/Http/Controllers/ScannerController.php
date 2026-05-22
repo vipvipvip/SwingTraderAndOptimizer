@@ -37,6 +37,7 @@ class ScannerController extends Controller
                 GROUP BY ticker
                 HAVING BOOL_OR(macd_crossover) = true
                    AND BOOL_OR(ppo_crossover) = true
+                   AND BOOL_OR(sma_crossover) = true
             ),
             latest AS (
                 SELECT DISTINCT ON (ticker)
@@ -49,7 +50,8 @@ class ScannerController extends Controller
             )
             SELECT l.*,
                    mcd.date AS macd_cross_date,
-                   pcd.date AS ppo_cross_date
+                   pcd.date AS ppo_cross_date,
+                   scd.date AS sma_cross_date
             FROM latest l
             LEFT JOIN LATERAL (
                 SELECT date FROM {$table}
@@ -61,8 +63,23 @@ class ScannerController extends Controller
                 WHERE ticker = l.ticker AND ppo_crossover = true
                 ORDER BY date DESC LIMIT 1
             ) pcd ON true
+            LEFT JOIN LATERAL (
+                SELECT date FROM {$table}
+                WHERE ticker = l.ticker AND sma_crossover = true
+                ORDER BY date DESC LIMIT 1
+            ) scd ON true
             ORDER BY l.ticker
         ", [$lookback]);
+
+        $results = collect($results)->map(function ($row) {
+            $ts = array_filter([
+                strtotime($row->macd_cross_date ?? ''),
+                strtotime($row->ppo_cross_date ?? ''),
+                strtotime($row->sma_cross_date ?? ''),
+            ]);
+            $row->convergence_seconds = count($ts) === 3 ? max($ts) - min($ts) : null;
+            return $row;
+        })->sortBy('convergence_seconds')->values()->all();
 
         $total_scanned = DB::table($table)
             ->distinct('ticker')
@@ -97,7 +114,7 @@ class ScannerController extends Controller
         $indicators = DB::select("
             SELECT date, macd_line::float8, macd_signal::float8, macd_histogram::float8,
                    ppo_line::float8, ppo_signal::float8, ppo_histogram::float8,
-                   macd_crossover, ppo_crossover
+                   macd_crossover, ppo_crossover, sma_crossover
             FROM {$table}
             WHERE ticker = ?
             ORDER BY date ASC

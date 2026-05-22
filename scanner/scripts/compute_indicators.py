@@ -71,6 +71,11 @@ def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
         True, False,
     )
 
+    sma_crossover = np.where(
+        (sma_fast > sma_slow) & (sma_fast.shift(1) <= sma_slow.shift(1)),
+        True, False,
+    )
+
     return pd.DataFrame({
         'date': df['date'],
         'macd_line': macd_line,
@@ -81,6 +86,7 @@ def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
         'ppo_signal': ppo_signal,
         'ppo_histogram': ppo_histogram,
         'ppo_crossover': ppo_crossover,
+        'sma_crossover': sma_crossover,
     })
 
 
@@ -109,7 +115,7 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
                         SET macd_line = %s, macd_signal = %s, macd_histogram = %s,
                             macd_crossover = %s,
                             ppo_line = %s, ppo_signal = %s, ppo_histogram = %s,
-                            ppo_crossover = %s
+                            ppo_crossover = %s, sma_crossover = %s
                         WHERE ticker = %s AND date = %s
                         """,
                         (
@@ -121,6 +127,7 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
                             None if pd.isna(row['ppo_signal']) else float(row['ppo_signal']),
                             None if pd.isna(row['ppo_histogram']) else float(row['ppo_histogram']),
                             bool(row['ppo_crossover']),
+                            bool(row['sma_crossover']),
                             ticker,
                             date_param,
                         ),
@@ -129,7 +136,7 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
         finally:
             conn.close()
 
-        crossovers = indicators['macd_crossover'].sum() + indicators['ppo_crossover'].sum()
+        crossovers = indicators['macd_crossover'].sum() + indicators['ppo_crossover'].sum() + indicators['sma_crossover'].sum()
         return ticker, crossovers, 'ok'
     except Exception as e:
         return ticker, 0, str(e)

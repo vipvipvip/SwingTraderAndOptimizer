@@ -70,7 +70,8 @@
                 <thead>
                     <tr>
                         <th>Ticker</th>
-                        <th>Crossover</th>
+                        <th>Signals</th>
+                        <th>Convergence</th>
                         <th>Close</th>
                     </tr>
                 </thead>
@@ -79,13 +80,21 @@
                         @php
                             $mc = \Carbon\Carbon::parse($row->macd_cross_date);
                             $pc = \Carbon\Carbon::parse($row->ppo_cross_date);
+                            $sc = \Carbon\Carbon::parse($row->sma_cross_date);
                             $mu = (int)($timeframe === '1hour' ? $mc->diffInHours() : $mc->diffInDays());
                             $pu = (int)($timeframe === '1hour' ? $pc->diffInHours() : $pc->diffInDays());
+                            $su = (int)($timeframe === '1hour' ? $sc->diffInHours() : $sc->diffInDays());
                             $unit = $timeframe === '1hour' ? 'h' : 'd';
+                            $conv = $row->convergence_seconds !== null
+                                ? ($timeframe === '1hour'
+                                    ? round($row->convergence_seconds / 3600) . 'h'
+                                    : round($row->convergence_seconds / 86400) . 'd')
+                                : '-';
                         @endphp
                         <tr data-ticker="{{ $row->ticker }}">
                             <td class="ticker">{{ $row->ticker }}</td>
-                            <td style="font-size:11px;"><span>M: {{ $mu }}{{ $unit }} ago</span> <span>P: {{ $pu }}{{ $unit }} ago</span></td>
+                            <td style="font-size:11px;"><span style="color:#58a6ff;">M: {{ $mu }}{{ $unit }} ago</span> <span style="color:#3fb950;">P: {{ $pu }}{{ $unit }} ago</span> <span style="color:#f0883e;">S: {{ $su }}{{ $unit }} ago</span></td>
+                            <td class="num" style="font-size:11px;">{{ $conv }}</td>
                             <td class="num {{ $row->close >= 0 ? 'pos' : 'neg' }}">{{ number_format($row->close, 2) }}</td>
                         </tr>
                     @endforeach
@@ -282,7 +291,7 @@
             const ppoSig = ppoC.addLineSeries({ color:'#ffa657', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoSig.setData(ind.filter(i => nn(i.ppo_signal)).map(i => ({ time:parseTime(i.date), value:parseFloat(i.ppo_signal) }))); allLineSeries.push({ series:ppoSig, color:'#ffa657' });
             const ppoZero = ppoC.addLineSeries({ color:'#f85149', lineWidth:1, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoZero.setData(ind.map(i => ({ time:parseTime(i.date), value:0 }))); allLineSeries.push({ series:ppoZero, color:'#f85149' });
 
-            const priceMarkers = [], macdMarkers = [], ppoMarkers = [];
+            const priceMarkers = [], macdMarkers = [], ppoMarkers = [], smaMarkers = [];
             for (let i = 1; i < candleData.length; i++) {
                 const pc = candleData[i], pp = candleData[i-1];
                 const c10 = ema10.find(e => e.time === pc.time)?.value;
@@ -305,14 +314,17 @@
                 const cps = parseFloat(c.ppo_signal), pps = parseFloat(p.ppo_signal);
                 if (cpl > cps && ppl <= pps) ppoMarkers.push({ time:t, position:'belowBar', shape:'arrowUp', color:'#3fb950', size:1 });
                 if (cpl < cps && ppl >= pps) ppoMarkers.push({ time:t, position:'aboveBar', shape:'arrowDown', color:'#f85149', size:1 });
+                if (c.sma_crossover) smaMarkers.push({ time:t, position:'belowBar', shape:'diamond', color:'#f0883e', size:1 });
             }
+
+            const allPriceMarkers = [...priceMarkers, ...smaMarkers];
 
             let crosshairTime = null;
             function syncCrosshair(param) {
                 crosshairTime = param.time ? param.time : null;
                 allLineSeries.forEach(({ series, color }) => {
                     if (series === ema10s) {
-                        ema10s.setMarkers(crosshairTime ? [...priceMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : priceMarkers);
+                        ema10s.setMarkers(crosshairTime ? [...allPriceMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : allPriceMarkers);
                     } else if (series === macdLine) {
                         macdLine.setMarkers(crosshairTime ? [...macdMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : macdMarkers);
                     } else if (series === ppoLine) {
