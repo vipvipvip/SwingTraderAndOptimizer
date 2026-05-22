@@ -131,6 +131,8 @@ class EquityService
                 if (!$ticker) continue;
 
                 $qty = intval($order['filled_qty'] ?? $order['qty'] ?? 0);
+                // Skip test/force orders (qty=1) — only sync real allocation-based trades
+                if ($qty <= 1) continue;
                 $price = floatval($order['filled_avg_price'] ?? 0);
                 $created_at = $order['created_at'] ?? now()->toDateTimeString();
 

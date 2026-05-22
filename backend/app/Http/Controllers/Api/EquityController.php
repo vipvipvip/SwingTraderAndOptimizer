@@ -118,21 +118,32 @@ class EquityController extends Controller
      */
     public function pnlSummary()
     {
-        $closedTrades = LiveTrade::where('status', 'closed')
-            ->where(function ($q) {
-                $q->whereNull('strategy_signal')
-                  ->orWhere('strategy_signal', '!=', 'FORCE_TEST');
-            })
-            ->get();
-        $totalPnl = $closedTrades->sum('pnl_dollar');
-        $winCount = $closedTrades->where('pnl_dollar', '>', 0)->count();
-        $winRate = $closedTrades->count() > 0 ? ($winCount / $closedTrades->count()) * 100 : 0;
+        $account = $this->alpacaService->getAccount();
+        $positions = $this->alpacaService->getPositions();
+
+        $totalUnrealizedPnl = 0;
+        $positionDetails = [];
+        foreach ($positions as $pos) {
+            $pnl = floatval($pos['unrealized_pnl'] ?? 0);
+            $totalUnrealizedPnl += $pnl;
+            $positionDetails[] = [
+                'symbol' => $pos['symbol'],
+                'qty' => $pos['qty'],
+                'avg_entry_price' => $pos['avg_entry_price'],
+                'current_price' => $pos['current_price'],
+                'unrealized_pnl' => round($pnl, 2),
+                'is_open' => true,
+            ];
+        }
 
         return response()->json([
-            'total_pnl' => $totalPnl,
-            'win_rate' => round($winRate, 2),
-            'closed_trades' => $closedTrades->count(),
-            'winning_trades' => $winCount,
+            'account_equity' => round(floatval($account['equity'] ?? 0), 2),
+            'cash' => round(floatval($account['cash'] ?? 0), 2),
+            'buying_power' => round(floatval($account['buying_power'] ?? 0), 2),
+            'unrealized_pnl' => round($totalUnrealizedPnl, 2),
+            'open_positions' => count($positions),
+            'positions' => $positionDetails,
+            'note' => 'All figures from Alpaca. Trades are open; P&L is unrealized.',
         ]);
     }
 }

@@ -76,24 +76,26 @@
 {:else if pnl}
   <div class="grid">
     <div class="stat-box">
-      <div class="label">Total P&L</div>
-      <div class="value" class:positive={pnl.total_pnl >= 0} class:negative={pnl.total_pnl < 0}>
-        {formatCurrency(pnl.total_pnl)}
+      <div class="label">Unrealized P&L *</div>
+      <div class="value" class:positive={(pnl.unrealized_pnl || 0) >= 0} class:negative={(pnl.unrealized_pnl || 0) < 0}>
+        {formatCurrency(pnl.unrealized_pnl || 0)}
       </div>
+      <small style="color: #999;">* positions open</small>
     </div>
     <div class="stat-box">
-      <div class="label">Win Rate</div>
-      <div class="value">{pnl.win_rate.toFixed(1)}%</div>
+      <div class="label">Open Positions</div>
+      <div class="value">{pnl.open_positions || 0}</div>
     </div>
     <div class="stat-box">
-      <div class="label">Closed Trades</div>
-      <div class="value">{pnl.closed_trades}</div>
+      <div class="label">Account Equity</div>
+      <div class="value">{formatCurrency(pnl.account_equity || 0)}</div>
     </div>
     <div class="stat-box">
-      <div class="label">Winning Trades</div>
-      <div class="value">{pnl.winning_trades}</div>
+      <div class="label">Buying Power</div>
+      <div class="value">{formatCurrency(pnl.buying_power || 0)}</div>
     </div>
   </div>
+  <p style="text-align: center; color: #999; font-size: 12px; margin-top: 8px;">{pnl.note}</p>
 {:else}
   <div class="empty">No trade data</div>
 {/if}

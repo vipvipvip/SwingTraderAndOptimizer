@@ -62,7 +62,7 @@
         <h2 style="margin-bottom: 20px; font-size: 18px;">Strategy Parameters</h2>
         <div class="ticker-cards" id="tickers"></div>
 
-        <h2 style="margin-bottom: 20px; font-size: 18px;">Equity Curve - SPY</h2>
+        <h2 style="margin-bottom: 20px; font-size: 18px;">Equity Curve - QQQ</h2>
         <div class="chart-container">
             <canvas id="equityChart"></canvas>
         </div>
@@ -75,18 +75,28 @@
     <script>
         const API_BASE = 'http://localhost:9000/api/v1';
 
-        async function fetchAPI(endpoint) {
+        let chartInstance = null;
+
+        async function fetchAPI(endpoint, timeoutMs = 5000) {
             try {
-                const res = await fetch(`${API_BASE}${endpoint}`);
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), timeoutMs);
+                const res = await fetch(`${API_BASE}${endpoint}`, { signal: controller.signal });
+                clearTimeout(timer);
                 if (!res.ok) throw new Error(`${res.status}`);
                 return await res.json();
             } catch (err) {
-                console.error(`API Error: ${endpoint}`, err);
+                if (err.name === 'AbortError') {
+                    console.warn(`API Timeout: ${endpoint}`);
+                } else {
+                    console.error(`API Error: ${endpoint}`, err);
+                }
                 return null;
             }
         }
 
         async function loadDashboard() {
+            try {
             document.getElementById('status').textContent = 'Loading data...';
 
             // Load account data
@@ -96,11 +106,15 @@
                 document.getElementById('buying-power').textContent = `$${parseFloat(account.buying_power || 0).toFixed(2)}`;
             }
 
-            // Load P&L summary
+            // Load P&L summary (from Alpaca)
             const pnl = await fetchAPI('/trades/pnl');
             if (pnl) {
-                document.getElementById('total-pnl').textContent = `$${parseFloat(pnl.total_pnl || 0).toFixed(2)}`;
-                document.getElementById('win-rate').textContent = `${parseFloat(pnl.win_rate || 0).toFixed(1)}%`;
+                const upnl = parseFloat(pnl.unrealized_pnl || 0);
+                const sign = upnl >= 0 ? '+' : '';
+                document.getElementById('total-pnl').textContent = `${sign}$${upnl.toFixed(2)}*`;
+                document.getElementById('total-pnl').className = upnl >= 0 ? 'value success' : 'value error';
+                document.getElementById('win-rate').textContent = pnl.open_positions;
+                document.querySelector('#win-rate').closest('.card').querySelector('h2').textContent = 'Open Positions';
             }
 
             // Load tickers & strategies
@@ -133,23 +147,29 @@
                 `).join('');
             }
 
-            // Load equity curve for SPY
-            const equityCurve = await fetchAPI('/equity/SPY');
+            // Load equity curve for primary ticker
+            const equityCurve = await fetchAPI('/equity/QQQ');
             if (equityCurve && (equityCurve.backtest || equityCurve.live)) {
                 drawEquityChart(equityCurve);
             }
 
             document.getElementById('status').textContent = `Connected • ${new Date().toLocaleTimeString()}`;
+            } catch (e) {
+                console.error('Dashboard error:', e);
+                document.getElementById('status').textContent = 'Error loading dashboard';
+            }
         }
 
         function drawEquityChart(data) {
             const ctx = document.getElementById('equityChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
             const backtestDates = (data.backtest || []).map(d => d.date);
             const backtestValues = (data.backtest || []).map(d => d.value);
             const liveDates = (data.live || []).map(d => d.date);
             const liveValues = (data.live || []).map(d => d.value);
 
-            new Chart(ctx, {
+            if (typeof Chart === 'undefined') return;
+            chartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: backtestDates.length > 0 ? backtestDates : liveDates,
