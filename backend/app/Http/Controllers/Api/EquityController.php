@@ -118,7 +118,12 @@ class EquityController extends Controller
      */
     public function pnlSummary()
     {
-        $closedTrades = LiveTrade::where('status', 'closed')->get();
+        $closedTrades = LiveTrade::where('status', 'closed')
+            ->where(function ($q) {
+                $q->whereNull('strategy_signal')
+                  ->orWhere('strategy_signal', '!=', 'FORCE_TEST');
+            })
+            ->get();
         $totalPnl = $closedTrades->sum('pnl_dollar');
         $winCount = $closedTrades->where('pnl_dollar', '>', 0)->count();
         $winRate = $closedTrades->count() > 0 ? ($winCount / $closedTrades->count()) * 100 : 0;

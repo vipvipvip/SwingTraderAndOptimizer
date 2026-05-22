@@ -170,9 +170,13 @@ class EquityService
 
             // Process sell orders - match with open buys and close them
             foreach ($sellOrders as $sellOrder) {
+                $sellTime = $sellOrder['created_at'];
+
+                // Only match sell orders to buys that entered before the sell
                 $openBuy = LiveTrade::where('ticker_id', $sellOrder['ticker_id'])
                     ->where('status', 'open')
                     ->where('side', 'BUY')
+                    ->where('entry_at', '<=', $sellTime)
                     ->orderBy('entry_at')
                     ->first();
 
@@ -185,7 +189,7 @@ class EquityService
 
                     $openBuy->update([
                         'exit_price' => $exit_price,
-                        'exit_at' => $sellOrder['created_at'],
+                        'exit_at' => $sellTime,
                         'status' => 'closed',
                         'pnl_dollar' => $pnl_dollar,
                         'pnl_pct' => $pnl_pct,
