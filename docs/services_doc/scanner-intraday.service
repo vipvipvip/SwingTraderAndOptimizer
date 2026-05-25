@@ -1,0 +1,12 @@
+[Unit]
+Description=SwingTrader scanner intraday update (1 hour data)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/capture_hourly.py
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/compute_indicators.py --timeframe hour --workers 10
+
+User=dikesh
