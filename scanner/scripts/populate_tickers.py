@@ -144,20 +144,25 @@ def main():
 
     client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 
+    # Read tickers from the existing price table (avoids Wikipedia dependency)
+    conn = get_db_conn()
+    try:
+        tickers = pd.read_sql(
+            f"SELECT DISTINCT ticker FROM {table} ORDER BY ticker", conn
+        )['ticker'].tolist()
+    finally:
+        conn.close()
+
+    if not tickers:
+        print(f"Table {table} is empty, fetching SP500 ticker list from Wikipedia...")
+        tickers = fetch_sp500_tickers()
+        print(f"Fetched {len(tickers)} SP500 tickers from Wikipedia")
+
     if args.timeframe == 'hour':
-        conn = get_db_conn()
-        try:
-            tickers = pd.read_sql(
-                "SELECT DISTINCT ticker FROM tbl_scanner_tickers ORDER BY ticker", conn
-            )['ticker'].tolist()
-        finally:
-            conn.close()
         start = datetime.now(NY) - timedelta(days=90)
         print(f"Processing {len(tickers)} tickers (1-hour timeframe, 3-month lookback) "
               f"with {args.workers} workers into {table}...")
     else:
-        print(f"Fetching SP500 ticker list...")
-        tickers = fetch_sp500_tickers()
         start = None
         print(f"Processing {len(tickers)} tickers ({args.timeframe} timeframe) "
               f"with {args.workers} workers into {table}...")

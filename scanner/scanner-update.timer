@@ -1,8 +1,8 @@
 [Unit]
-Description=Weekly scanner data update (Saturday 9 AM)
+Description=Daily scanner data update (weekdays 9 AM ET)
 
 [Timer]
-OnCalendar=Sat *-*-* 09:00:00
+OnCalendar=Mon..Fri *-*-* 09:00:00
 Persistent=true
 
 [Install]
