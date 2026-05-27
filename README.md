@@ -138,7 +138,7 @@ After=network.target
 [Service]
 Type=simple
 User=dikesh
-WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/backend
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/backend
 ExecStart=/usr/bin/php artisan serve --host=0.0.0.0 --port=9000
 Restart=always
 RestartSec=5

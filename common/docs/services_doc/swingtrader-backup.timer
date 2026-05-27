@@ -1,0 +1,11 @@
+[Unit]
+Description=PostgreSQL SwingTrader Database Backup Timer
+Requires=swingtrader-backup.service
+
+[Timer]
+OnCalendar=*-*-* 16:15:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,22 @@
+[Unit]
+Description=SwingTrader Laravel Backend
+After=network.target swingtrader-db.service
+Wants=swingtrader-db.service
+
+[Service]
+Type=simple
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/backend
+EnvironmentFile=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/backend/.env
+Environment="APP_ENV=local"
+ExecStartPre=/usr/bin/php artisan config:clear
+ExecStartPre=/usr/bin/php artisan cache:clear
+ExecStart=/usr/bin/php artisan serve --host=0.0.0.0 --port=9000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=swingtrader-backend
+
+[Install]
+WantedBy=multi-user.target
