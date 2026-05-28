@@ -10,7 +10,7 @@ SECRET_KEY = os.getenv('ALPACA_SECRET_KEY')
 DB_CONFIG = {
     'host': '127.0.0.1',
     'port': 5432,
-    'database': 'swingtrader',
+    'database': 'swingtrader_markov',
     'user': 'swingtrader',
     'password': 'swingtrader_dev_password',
 }
@@ -24,6 +24,11 @@ PPO_SIGNAL = 9
 
 ATR_PERIOD = 14
 ATR_MULT = 2.0
+
+HMM_N_STATES = 3
+HMM_LOOKBACK = 20
+HMM_SEED = 42
+HMM_MIN_TRAIN = 252
 
 TABLE = 'tbl_scanner_tickers'
 

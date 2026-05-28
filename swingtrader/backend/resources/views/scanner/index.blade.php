@@ -243,6 +243,7 @@
 
             const pricePanel = document.createElement('div'); pricePanel.style.flex = '3'; body.appendChild(pricePanel);
             pricePanel.style.position = 'relative';
+            const regimePanel = document.createElement('div'); regimePanel.style.flex = '0.4'; body.appendChild(regimePanel);
             const macdPanel = document.createElement('div'); macdPanel.style.flex = '2'; body.appendChild(macdPanel);
             const ppoPanel = document.createElement('div'); ppoPanel.style.flex = '2'; body.appendChild(ppoPanel);
 
@@ -255,15 +256,18 @@
                 timeScale: { borderColor:'#2d2f3a', timeVisible:isIntraday, secondsVisible:false, rightOffset:4 },
             };
             const sub = { ...base, rightPriceScale: { ...base.rightPriceScale, scaleMargins: { top:0.1, bottom:0.1 } }, timeScale: { ...base.timeScale, visible:false } };
+            const subRegime = { ...base, rightPriceScale: { ...base.rightPriceScale, scaleMargins: { top:0.0, bottom:0.0 } }, timeScale: { ...base.timeScale, visible:false } };
 
             const chart = LightweightCharts.createChart(pricePanel, base);
             const macdC = LightweightCharts.createChart(macdPanel, sub);
             const ppoC = LightweightCharts.createChart(ppoPanel, sub);
+            const regimeC = LightweightCharts.createChart(regimePanel, subRegime);
             const allLineSeries = [];
 
             const candleData = d.bars.map(b => ({ time:parseTime(b.date), open:parseFloat(b.open), high:parseFloat(b.high), low:parseFloat(b.low), close:parseFloat(b.close) }));
-            chart.addCandlestickSeries({ upColor:'#3fb950', downColor:'#f85149', borderDownColor:'#f85149', borderUpColor:'#3fb950', wickDownColor:'#f85149', wickUpColor:'#3fb950', priceLineVisible:false, lastValueVisible:false })
-                .setData(candleData);
+            const candleSeries = chart.addCandlestickSeries({ upColor:'#3fb950', downColor:'#f85149', borderDownColor:'#f85149', borderUpColor:'#3fb950', wickDownColor:'#f85149', wickUpColor:'#3fb950', priceLineVisible:false, lastValueVisible:false });
+            candleSeries.setData(candleData);
+            allLineSeries.push({ series: candleSeries, color: '#3fb950' });
 
             const ema10 = [];
             const period = 10, mult = 2 / (period + 1);
@@ -302,6 +306,32 @@
 
             const ind = d.indicators;
             function nn(v) { return v != null && !isNaN(v); }
+
+            // Regime panel — colored background fill
+            const regimeColors = { 'Bull': 'rgba(63,185,80,0.55)', 'Bear': 'rgba(248,81,73,0.55)', 'Choppy': 'rgba(240,136,62,0.5)' };
+            const good = ind.filter(i => i.hmm_regime);
+            if (good.length > 1) {
+                const backgroundData = good.map(i => ({
+                    time: parseTime(i.date),
+                    value: regimeColors[i.hmm_regime] === regimeColors.Bull ? 2 : regimeColors[i.hmm_regime] === regimeColors.Bear ? 0 : 1,
+                    color: regimeColors[i.hmm_regime] || 'rgba(128,128,128,0.3)'
+                }));
+                if (backgroundData.length > 1) {
+                    regimeC.addHistogramSeries({ priceFormat: { type: 'volume' } }).setData(backgroundData);
+                    regimeC.priceScale('right').applyOptions({ scaleMargins: { top: 0.0, bottom: 0.0 } });
+                    regimeC.timeScale().setVisibleRange({ from: backgroundData[0].time, to: backgroundData[backgroundData.length-1].time });
+                }
+            }
+            // Regime badge on price panel
+            if (good.length > 0) {
+                const latest = good[good.length - 1];
+                const r = latest.hmm_regime;
+                const badge = document.createElement('div');
+                badge.style.cssText = 'position:absolute;top:8px;right:8px;z-index:1000;font-size:11px;padding:3px 10px;border-radius:5px;background:' + (regimeColors[r].replace('0.5', '0.85')||'#555') + ';color:#fff;border:1px solid rgba(255,255,255,0.3);';
+                const pct = Math.round(parseFloat(latest['hmm_' + r.toLowerCase() + '_prob'] || 0) * 100);
+                badge.textContent = r + ' ' + pct + '%';
+                pricePanel.appendChild(badge);
+            }
             const macdLine = macdC.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); macdLine.setData(ind.filter(i => nn(i.macd_line)).map(i => ({ time:parseTime(i.date), value:parseFloat(i.macd_line) }))); allLineSeries.push({ series:macdLine, color:'#58a6ff' });
             const macdSig = macdC.addLineSeries({ color:'#ffa657', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); macdSig.setData(ind.filter(i => nn(i.macd_signal)).map(i => ({ time:parseTime(i.date), value:parseFloat(i.macd_signal) }))); allLineSeries.push({ series:macdSig, color:'#ffa657' });
             const macdHist = macdC.addHistogramSeries({ priceFormat:{ type:'volume' }, priceScaleId:'' }); macdHist.setData(ind.filter(i => nn(i.macd_histogram)).map(i => ({ time:parseTime(i.date), value:parseFloat(i.macd_histogram), color:i.macd_histogram>=0?'rgba(63,185,80,0.5)':'rgba(248,81,73,0.5)' })));
@@ -338,21 +368,29 @@
 
             const allPriceMarkers = [...priceMarkers, ...smaMarkers];
 
-            let crosshairTime = null;
-            function syncCrosshair(param) {
-                crosshairTime = param.time ? param.time : null;
-                allLineSeries.forEach(({ series, color }) => {
-                    if (series === ema10s) {
-                        ema10s.setMarkers(crosshairTime ? [...allPriceMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : allPriceMarkers);
-                    } else if (series === macdLine) {
-                        macdLine.setMarkers(crosshairTime ? [...macdMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : macdMarkers);
-                    } else if (series === ppoLine) {
-                        ppoLine.setMarkers(crosshairTime ? [...ppoMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : ppoMarkers);
-                    } else {
-                        series.setMarkers(crosshairTime ? [{ time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : []);
-                    }
-                });
-            }
+             let crosshairTime = null;
+             let syncingCrosshair = false;
+              function syncCrosshair(param) {
+                  if (syncingCrosshair) return;
+                  syncingCrosshair = true;
+                  try {
+                      crosshairTime = param.time ? param.time : null;
+                      const cc = '#f0f0f0';
+                      allLineSeries.forEach(({ series, color }) => {
+                          if (series === ema10s) {
+                              ema10s.setMarkers(crosshairTime ? [...allPriceMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color:cc, size:2 }] : allPriceMarkers);
+                          } else if (series === macdLine) {
+                              macdLine.setMarkers(crosshairTime ? [...macdMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color:cc, size:2 }] : macdMarkers);
+                          } else if (series === ppoLine) {
+                              ppoLine.setMarkers(crosshairTime ? [...ppoMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color:cc, size:2 }] : ppoMarkers);
+                          } else if (series !== candleSeries) {
+                              series.setMarkers(crosshairTime ? [{ time:crosshairTime, position:'inBar', shape:'circle', color:cc, size:2 }] : []);
+                          }
+                      });
+                  } finally {
+                      syncingCrosshair = false;
+                  }
+              }
             chart.subscribeCrosshairMove(syncCrosshair);
             macdC.subscribeCrosshairMove(syncCrosshair);
             ppoC.subscribeCrosshairMove(syncCrosshair);
@@ -365,11 +403,13 @@
                 if (source !== chart) chart.timeScale().setVisibleRange(rr);
                 if (source !== macdC) macdC.timeScale().setVisibleRange(rr);
                 if (source !== ppoC) ppoC.timeScale().setVisibleRange(rr);
+                if (source !== regimeC) regimeC.timeScale().setVisibleRange(rr);
                 zoomSyncing = false;
             }
             chart.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(chart, r));
             macdC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(macdC, r));
             ppoC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(ppoC, r));
+            regimeC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(regimeC, r));
 
             chart.timeScale().fitContent();
             chartInstance = chart;

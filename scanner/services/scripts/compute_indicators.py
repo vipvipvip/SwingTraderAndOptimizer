@@ -1,4 +1,4 @@
-"""Phase 2: Compute MACD and PPO indicators, detect crossovers.
+"""Phase 2: Compute MACD, PPO, SMA crossovers and HMM regime probabilities.
 
 Supports weekly, daily, and 1-hour timeframe tables.
 """
@@ -6,16 +6,27 @@ Supports weekly, daily, and 1-hour timeframe tables.
 import argparse
 import os
 import sys
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+_common_scripts = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', '..', '..', 'common', 'scripts')
+)
+if _common_scripts not in sys.path:
+    sys.path.insert(0, _common_scripts)
+
+from markov_regime import MarkovRegime
+
 from config import (
     MACD_FAST, MACD_SLOW, MACD_LENGTH,
     PPO_FAST, PPO_SLOW, PPO_SIGNAL,
     ATR_PERIOD, ATR_MULT,
+    HMM_N_STATES, HMM_LOOKBACK, HMM_SEED,
     get_db_conn,
 )
 
@@ -117,7 +128,8 @@ def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
     })
 
 
-def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow):
+def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow,
+                   hmm_states=0, hmm_lookback=20, hmm_seed=42):
     try:
         df = load_ticker_data(ticker, table)
         if df is None or len(df) < max(macd_slow, ppo_slow) + 1:
@@ -126,6 +138,24 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
         indicators = compute_indicators(
             df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
         )
+
+        hmm_result = None
+        if hmm_states > 0:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                regime = MarkovRegime(n_states=hmm_states, lookback=hmm_lookback, seed=hmm_seed)
+                hmm_result = regime.fit_predict(df)
+
+        indicators['hmm_regime'] = None
+        indicators['hmm_bull_prob'] = np.nan
+        indicators['hmm_bear_prob'] = np.nan
+        indicators['hmm_choppy_prob'] = np.nan
+        if hmm_result is not None:
+            for col in ['hmm_bull_prob', 'hmm_bear_prob', 'hmm_choppy_prob']:
+                if col in hmm_result.columns:
+                    indicators.loc[hmm_result.index, col] = hmm_result[col].values
+            if 'hmm_regime' in hmm_result.columns:
+                indicators.loc[hmm_result.index, 'hmm_regime'] = hmm_result['hmm_regime'].values
 
         conn = get_db_conn()
         try:
@@ -144,7 +174,9 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
                             ppo_line = %s, ppo_signal = %s, ppo_histogram = %s,
                             ppo_crossover = %s, ppo_cross_bearish = %s,
                             sma_crossover = %s, sma_cross_bearish = %s,
-                            atr_stop = %s
+                            atr_stop = %s,
+                            hmm_regime = %s, hmm_bull_prob = %s,
+                            hmm_bear_prob = %s, hmm_choppy_prob = %s
                         WHERE ticker = %s AND date = %s
                         """,
                         (
@@ -161,6 +193,10 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
                             bool(row['sma_crossover']),
                             bool(row['sma_cross_bearish']),
                             None if pd.isna(row['atr_stop']) else float(row['atr_stop']),
+                            None if pd.isna(row['hmm_regime']) else str(row['hmm_regime']),
+                            None if pd.isna(row['hmm_bull_prob']) else float(row['hmm_bull_prob']),
+                            None if pd.isna(row['hmm_bear_prob']) else float(row['hmm_bear_prob']),
+                            None if pd.isna(row['hmm_choppy_prob']) else float(row['hmm_choppy_prob']),
                             ticker,
                             date_param,
                         ),
@@ -180,7 +216,7 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Compute MACD/PPO indicators for scanner tickers')
+    parser = argparse.ArgumentParser(description='Compute MACD/PPO/SMA indicators and HMM regime probabilities')
     parser.add_argument('--timeframe', choices=list(TABLES.keys()), default='week',
                         help='Timeframe table to process (default: week)')
     parser.add_argument('--macd-fast', type=int, default=MACD_FAST)
@@ -188,7 +224,11 @@ def main():
     parser.add_argument('--macd-length', type=int, default=MACD_LENGTH)
     parser.add_argument('--ppo-fast', type=int, default=PPO_FAST)
     parser.add_argument('--ppo-slow', type=int, default=PPO_SLOW)
+    parser.add_argument('--hmm-states', type=int, default=HMM_N_STATES)
+    parser.add_argument('--hmm-lookback', type=int, default=HMM_LOOKBACK)
+    parser.add_argument('--hmm-seed', type=int, default=HMM_SEED)
     parser.add_argument('--workers', type=int, default=10)
+    parser.add_argument('--no-hmm', action='store_true', help='Skip HMM regime computation')
     args = parser.parse_args()
 
     table = TABLES[args.timeframe]
@@ -203,17 +243,21 @@ def main():
 
     print(f"Computing indicators for {len(tickers)} tickers on {table} "
           f"(MACD {args.macd_fast}/{args.macd_slow}/{args.macd_length}, "
-          f"PPO {args.ppo_fast}/{args.ppo_slow})...")
+          f"PPO {args.ppo_fast}/{args.ppo_slow}, "
+          f"HMM {'' if not args.no_hmm else 'DISABLED'})...")
 
     total = len(tickers)
     done = 0
     total_crossovers = 0
+
+    hmm_states = 0 if args.no_hmm else args.hmm_states
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {
             executor.submit(
                 process_ticker, t, table, args.macd_fast, args.macd_slow,
                 args.macd_length, args.ppo_fast, args.ppo_slow,
+                hmm_states, args.hmm_lookback, args.hmm_seed,
             ): t for t in tickers
         }
 

@@ -37,7 +37,7 @@ def get_param_grid(timeframe):
     return PARAM_GRIDS['1Day']
 
 
-def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocation_weight=10):
+def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocation_weight=10, use_hmm=True):
     """
     Optimize strategy parameters for a single ticker.
 
@@ -69,7 +69,7 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
 
     combos = 3 ** len(param_grid)
     print(f"Testing {combos} parameter combinations...")
-    optimizer = ParameterOptimizer(df, symbol=symbol, allocation_weight=allocation_weight)
+    optimizer = ParameterOptimizer(df, symbol=symbol, allocation_weight=allocation_weight, use_hmm=use_hmm)
     results = optimizer.optimize(param_grid)
 
     best_result = results[0]
@@ -95,17 +95,17 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
     }
 
 
-def _optimize_with_ticker_label(symbol, timeframe, param_grid):
+def _optimize_with_ticker_label(symbol, timeframe, param_grid, use_hmm=True):
     """Wrapper to show ticker label in parallel output."""
     print(f"\n[{symbol}] Starting optimization...")
     # Create DB connection inside worker to avoid pickle issues
     db = StrategyDB()
     allocation_weight = db.get_laravel_allocation_weight(symbol, default=10)
     db.close()
-    return optimize_ticker(symbol, timeframe, param_grid=param_grid, use_cache=True, allocation_weight=allocation_weight)
+    return optimize_ticker(symbol, timeframe, param_grid=param_grid, use_cache=True, allocation_weight=allocation_weight, use_hmm=use_hmm)
 
 
-def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jobs=None):
+def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jobs=None, use_hmm=True):
     """
     Run nightly optimization for multiple tickers in parallel.
 
@@ -156,7 +156,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     # Run optimizations in parallel using joblib
     results = Parallel(n_jobs=n_jobs, verbose=10)(
-        delayed(_optimize_with_ticker_label)(symbol, timeframe, param_grid)
+        delayed(_optimize_with_ticker_label)(symbol, timeframe, param_grid, use_hmm=use_hmm)
         for symbol in tickers
     )
 
@@ -420,9 +420,14 @@ if __name__ == '__main__':
             default=['QQQ', 'VTI', 'VTV'],
             help='Symbols to optimize (default: QQQ VTI VTV)'
         )
+        parser.add_argument(
+            '--no-hmm',
+            action='store_true',
+            help='Disable HMM regime filtering'
+        )
         args = parser.parse_args()
 
-        run_nightly_optimization(tickers=args.tickers, timeframe=args.timeframe)
+        run_nightly_optimization(tickers=args.tickers, timeframe=args.timeframe, use_hmm=not args.no_hmm)
         sys.exit(0)
     except Exception as e:
         print(f"\nFATAL ERROR: {e}", file=sys.stderr)

@@ -1,21 +1,16 @@
 """Parameter grid search optimizer - find optimal MACD, SMA, BB settings"""
 import itertools
 import json
-import os
-import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'common', 'scripts'))
-from markov_regime import MarkovRegime
-
 
 class ParameterOptimizer:
     """Grid search optimizer for strategy parameters"""
 
-    def __init__(self, data_df, initial_capital=100000, symbol=None, allocation_weight=10, use_hmm=True):
+    def __init__(self, data_df, initial_capital=100000, symbol=None, allocation_weight=10):
         self.data = data_df.copy()
         # Convert Decimal types from PostgreSQL to float
         for col in ['open', 'high', 'low', 'close', 'volume']:
@@ -25,39 +20,6 @@ class ParameterOptimizer:
         self.results = []
         self.symbol = symbol  # For progress tracking (e.g., 'SPY')
         self.allocation_weight = float(allocation_weight)  # Capital allocation percentage per trade (default 10%)
-        self.use_hmm = use_hmm  # Enable HMM regime filtering
-
-    def _load_hmm_regime_data(self, symbol, timeframe):
-        """Load HMM regime data for regime filtering"""
-        try:
-            timeframe_map = {
-                '1Day': 'tbl_scanner_tickers',
-                '1Hour': 'tbl_scanner_tickers_hourly',
-            }
-            table_name = timeframe_map.get(timeframe, 'tbl_scanner_tickers')
-            from dotenv import load_dotenv
-            load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
-            db_url = os.getenv('DATABASE_URL')
-            if not db_url:
-                return None
-            import psycopg2
-            conn = psycopg2.connect(db_url)
-            query = f"""
-                SELECT date, hmm_regime, hmm_bull_prob, hmm_bear_prob, hmm_choppy_prob
-                FROM {table_name}
-                WHERE ticker = %s
-                ORDER BY date
-            """
-            df = pd.read_sql(query, conn, params=(symbol,))
-            conn.close()
-            if df.empty:
-                return None
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
-            return df
-        except Exception as exc:
-            print(f"  [HMM] Failed to load {symbol} {timeframe}: {exc}")
-            return None
 
     def optimize(self, param_grid):
         """
@@ -134,23 +96,6 @@ class ParameterOptimizer:
         # Cost model: 0.05% round-trip (slippage + commission)
         cost_per_trade = 0.0005
 
-        # Compute HMM regime probabilities from price data
-        if self.use_hmm:
-            try:
-                regime_mod = MarkovRegime(n_states=3)
-                hmm_result = regime_mod.fit_predict(data)
-                if hmm_result is not None and 'hmm_regime' in hmm_result.columns:
-                    data['hmm_regime_signal'] = hmm_result['hmm_regime']
-                    data['hmm_regime_available'] = data['hmm_regime_signal'].notna()
-                    data['hmm_regime_signal'] = data['hmm_regime_signal'].ffill()
-            except Exception as exc:
-                print(f"  [HMM] Computation failed: {exc}")
-                data['hmm_regime_signal'] = np.nan
-                data['hmm_regime_available'] = False
-        if not self.use_hmm or 'hmm_regime_available' not in data.columns:
-            data['hmm_regime_signal'] = np.nan
-            data['hmm_regime_available'] = False
-
         # Chandelier Exit for growth trend following (params from optimizer grid)
         chandelier_period = int(params.get('macd_fast', 18))
         chandelier_mult = float(params.get('bb_std', 3.0))
@@ -182,21 +127,13 @@ class ParameterOptimizer:
             if i < warmup:
                 continue
 
-            # HMM override: reduce position size in Bear regime
-            hmm_override = 1.0
-            if self.use_hmm and data['hmm_regime_available'].iloc[i]:
-                r = data['hmm_regime_signal'].iloc[i]
-                if r == 'Bear':
-                    hmm_override = 0.5
-            effective_alloc = self.allocation_weight * hmm_override
-
             price_open = data['open'].iloc[i]
             price_close = data['close'].iloc[i]
             price_high = data['high'].iloc[i]
 
             if pending_exit and position_active:
                 exit_price = price_open
-                allocated = equity_before_trade * (effective_alloc / 100)
+                allocated = equity_before_trade * (self.allocation_weight / 100)
                 deployed = allocated * (1 - cost_per_trade)
                 shares_amount = deployed / entry_price
                 proceeds = shares_amount * exit_price
@@ -215,7 +152,7 @@ class ParameterOptimizer:
                     'pnl_dollar': net_dollar,
                     'pnl_pct': net_pnl,
                     'days_held': days_held,
-                    'allocation_pct': effective_alloc,
+                    'allocation_pct': self.allocation_weight,
                 })
 
                 current_equity = trade_equity_curve[-1] + net_dollar
@@ -248,7 +185,7 @@ class ParameterOptimizer:
             if i == len(data) - 1 and position_active:
                 simulated_close = not pending_exit
                 exit_price = price_close
-                allocated = equity_before_trade * (effective_alloc / 100)
+                allocated = equity_before_trade * (self.allocation_weight / 100)
                 deployed = allocated * (1 - cost_per_trade)
                 shares_amount = deployed / entry_price
                 proceeds = shares_amount * exit_price
@@ -268,7 +205,7 @@ class ParameterOptimizer:
                     'pnl_pct': net_pnl,
                     'days_held': days_held,
                     'simulated_close': simulated_close,
-                    'allocation_pct': effective_alloc,
+                    'allocation_pct': self.allocation_weight,
                 })
 
                 current_equity = trade_equity_curve[-1] + net_dollar
@@ -279,7 +216,7 @@ class ParameterOptimizer:
                 pending_exit = False
 
             if position_active:
-                shares_amount = (equity_before_trade * (effective_alloc / 100)) / entry_price
+                shares_amount = (equity_before_trade * (self.allocation_weight / 100)) / entry_price
                 unrealized_pnl = shares_amount * (price_close - entry_price)
                 bar_equity.append(equity_before_trade + unrealized_pnl)
             else:
@@ -314,7 +251,7 @@ class ParameterOptimizer:
         return trades, metrics, trade_equity_curve, trade_equity_dates
 
     @staticmethod
-    def backtest_portfolio(ticker_data, ticker_params, initial_capital=100000, cost_per_trade=0.0005, use_hmm=False, hmm_data=None, hmm_skip=None):
+    def backtest_portfolio(ticker_data, ticker_params, initial_capital=100000, cost_per_trade=0.0005):
         """
         Backtest multiple tickers with shared capital pool.
         Capital is deployed when any ticker signals entry; when a ticker exits,
@@ -330,10 +267,6 @@ class ParameterOptimizer:
                           {macd_fast: period, bb_std: multiplier}
             initial_capital: starting cash
             cost_per_trade: round-trip transaction cost
-            use_hmm: enable HMM regime filtering
-            hmm_data: dict of {symbol: DataFrame} with HMM regime columns
-                      (hmm_regime, hmm_bull_prob, hmm_bear_prob, hmm_choppy_prob)
-            hmm_skip: set of ticker symbols to skip HMM filtering for
 
         Returns:
             trades, metrics, equity_curve, equity_dates
@@ -379,28 +312,6 @@ class ParameterOptimizer:
             tr_data[sym] = tr
             atr_data[sym] = atr
             aligned[sym] = d
-
-        # Precompute HMM regimes if enabled
-        hmm_regimes = {}
-        if use_hmm:
-            if hmm_data is not None:
-                for sym, hmm_df in hmm_data.items():
-                    if 'hmm_regime' in hmm_df.columns:
-                        hmm_regimes[sym] = hmm_df['hmm_regime']
-            else:
-                try:
-                    script_dir = os.path.dirname(os.path.abspath(__file__))
-                    common_dir = os.path.abspath(os.path.join(script_dir, '..', '..', '..', 'common', 'scripts'))
-                    if common_dir not in sys.path:
-                        sys.path.insert(0, common_dir)
-                    from markov_regime import MarkovRegime
-                    for sym, d in aligned.items():
-                        mr = MarkovRegime(n_states=3, seed=42)
-                        result = mr.fit_predict(d)
-                        if result is not None:
-                            hmm_regimes[sym] = result.set_index(d.index)['hmm_regime']
-                except Exception:
-                    hmm_regimes = {}
 
         warmup = max(int(p.get('macd_fast', 18)) for p in ticker_params.values())
 
@@ -453,29 +364,22 @@ class ParameterOptimizer:
                 del positions[sym]
                 pending_exit[sym] = False
 
-            # --- Process entries (proportional split with HMM override) ---
+            # --- Process entries (equal split among entering tickers) ---
             entering_today = [sym for sym in ticker_data
                               if pending_entry.get(sym) and sym not in positions and cash > 0]
             if entering_today:
+                # Total equity before new entries (cash + current market value of open positions)
                 total_equity = cash
                 for sym, pos in positions.items():
                     total_equity += pos['shares'] * aligned[sym]['close'].iloc[i]
 
-                total_override = sum(
-                    pending_entry[sym] if isinstance(pending_entry[sym], (int, float)) else 1.0
-                    for sym in entering_today
-                )
-                amounts = {}
+                amount_each = cash / len(entering_today)
                 for sym in entering_today:
-                    override = pending_entry[sym] if isinstance(pending_entry[sym], (int, float)) else 1.0
-                    amounts[sym] = cash * (override / total_override)
-                for sym in entering_today:
-                    effective_amount = amounts[sym]
                     entry_price = aligned[sym]['open'].iloc[i]
-                    cost = effective_amount * cost_per_trade
-                    buy_amount = effective_amount - cost
+                    cost = amount_each * cost_per_trade
+                    buy_amount = amount_each - cost
                     shares = buy_amount / entry_price
-                    allocation_pct = round(effective_amount / total_equity * 100, 2)
+                    allocation_pct = round(amount_each / total_equity * 100, 2)
                     positions[sym] = {
                         'shares': shares,
                         'entry_price': entry_price,
@@ -484,7 +388,7 @@ class ParameterOptimizer:
                     }
                     high_since[sym] = aligned[sym]['high'].iloc[i]
                     pending_entry[sym] = False
-                    cash -= effective_amount
+                    cash -= amount_each
 
             # --- Generate signals ---
             for sym in ticker_data:
@@ -492,25 +396,9 @@ class ParameterOptimizer:
                 close = d['close'].iloc[i]
                 high = d['high'].iloc[i]
 
-                # HMM regime check
-                if use_hmm and sym in hmm_regimes and (hmm_skip is None or sym not in hmm_skip):
-                    hmm_s = hmm_regimes[sym]
-                    if isinstance(hmm_s, pd.Series):
-                        val = hmm_s.reindex([common_index[i]], method='ffill').iloc[0] if i < len(common_index) else None
-                    else:
-                        val = hmm_s.iloc[i] if i < len(hmm_s) else None
-                    regime = str(val) if val is not None and not pd.isna(val) else None
-                else:
-                    regime = None
-
-                # HMM override: reduce position size in Bear, but always allow entry
-                hmm_alloc_override = 1.0
-                if use_hmm and regime == 'Bear':
-                    hmm_alloc_override = float(ticker_params[sym].get('hmm_bear_factor', 0.5))
-
                 # Always ready to enter when not in position
                 if sym not in positions and not pending_entry[sym]:
-                    pending_entry[sym] = hmm_alloc_override  # store override factor
+                    pending_entry[sym] = True
 
                 # Chandelier exit
                 if sym in positions and not pending_exit[sym]:

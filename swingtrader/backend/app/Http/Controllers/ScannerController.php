@@ -126,7 +126,9 @@ class ScannerController extends Controller
         $indicators = DB::select("
             SELECT date, macd_line::float8, macd_signal::float8, macd_histogram::float8,
                    ppo_line::float8, ppo_signal::float8, ppo_histogram::float8,
-                   macd_crossover, ppo_crossover, sma_crossover
+                   macd_crossover, ppo_crossover, sma_crossover,
+                   hmm_regime, hmm_bull_prob::float8, hmm_bear_prob::float8,
+                   hmm_choppy_prob::float8
             FROM {$table}
             WHERE ticker = ?
             ORDER BY date ASC

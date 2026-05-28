@@ -1,8 +1,10 @@
 """PostgreSQL database management for strategy parameters"""
+import os
 import psycopg2
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from dotenv import load_dotenv
 
 
 class StrategyDB:
@@ -15,13 +17,18 @@ class StrategyDB:
     def connect(self):
         """Connect to PostgreSQL"""
         try:
-            self.conn = psycopg2.connect(
-                host='127.0.0.1',
-                port=5432,
-                database='swingtrader',
-                user='swingtrader',
-                password='swingtrader_dev_password'
-            )
+            load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+            db_url = os.getenv('DATABASE_URL')
+            if db_url and db_url.startswith('postgresql://'):
+                self.conn = psycopg2.connect(db_url)
+            else:
+                self.conn = psycopg2.connect(
+                    host='127.0.0.1',
+                    port=5432,
+                    database='swingtrader',
+                    user='swingtrader',
+                    password='swingtrader_dev_password'
+                )
         except Exception as e:
             print(f"Error connecting to PostgreSQL: {e}")
             raise

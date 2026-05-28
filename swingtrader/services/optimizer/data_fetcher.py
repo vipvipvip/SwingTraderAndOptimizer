@@ -246,13 +246,18 @@ def load_data(symbol, timeframe='1Day'):
 def load_data_from_db(symbol):
     """Load OHLCV data for a symbol from PostgreSQL bars table"""
     try:
-        conn = psycopg2.connect(
-            host='127.0.0.1',
-            port=5432,
-            database='swingtrader',
-            user='swingtrader',
-            password='swingtrader_dev_password'
-        )
+        load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+        db_url = os.getenv('DATABASE_URL')
+        if db_url and db_url.startswith('postgresql://'):
+            conn = psycopg2.connect(db_url)
+        else:
+            conn = psycopg2.connect(
+                host='127.0.0.1',
+                port=5432,
+                database='swingtrader',
+                user='swingtrader',
+                password='swingtrader_dev_password'
+            )
         cursor = conn.cursor()
 
         # Get ticker_id
