@@ -40,3 +40,4 @@ backend/storage/trades_last_run.txt
 
 backend/storage/trades_last_run.txt
 swingtrader/services/optimizer/.env
+scanner/scripts

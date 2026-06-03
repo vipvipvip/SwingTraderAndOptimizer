@@ -28,8 +28,8 @@ class ParameterOptimizer:
         Args:
             param_grid: dict with lists of values for each parameter
                 {
-                    'macd_fast': [14, 18, 22],
-                    'bb_std': [2.5, 3.0, 3.5],
+                    'chandelier_period': [14, 18, 22],
+                    'chandelier_mult':      [2.5, 3.0, 3.5],
                 }
 
         Returns:
@@ -44,11 +44,13 @@ class ParameterOptimizer:
         print(f"\nTesting {len(combinations)} parameter combinations...")
         print(f"This may take a few minutes...\n")
 
+        entry_mode = 'chandelier_entry' if 'chandelier_entry_mult' in param_names else 'always'
+
         for idx, combo in enumerate(combinations):
             params = dict(zip(param_names, combo))
 
             # Run backtest with these parameters
-            trades, metrics, equity_curve, equity_dates = self._backtest_with_params(params)
+            trades, metrics, equity_curve, equity_dates = self._backtest_with_params(params, entry_mode=entry_mode)
 
             # Store results
             result = {
@@ -77,8 +79,37 @@ class ParameterOptimizer:
 
         return self.results
 
-    def _backtest_with_params(self, params):
-        """Run backtest with specific parameters"""
+    @staticmethod
+    def _compute_ppo(close_prices):
+        """Compute PPO (Percentage Price Oscillator) from close prices.
+
+        PPO = ((12-period EMA - 26-period EMA) / 26-period EMA) * 100
+        Returns numpy array of PPO values (same length as input, NaN until warmup).
+        """
+        close = pd.Series(close_prices)
+        ema_12 = close.ewm(span=12, adjust=False).mean()
+        ema_26 = close.ewm(span=26, adjust=False).mean()
+        ppo = ((ema_12 - ema_26) / ema_26) * 100
+        return ppo.values
+
+    @staticmethod
+    def _compute_ema_sma_cross(close_prices, fast_period, slow_period):
+        """Compute EMA(fast) / SMA(slow) crossover signals.
+
+        Returns (ema_fast, sma_slow) arrays for bar-by-bar checking.
+        """
+        close = pd.Series(close_prices)
+        ema_fast = close.ewm(span=fast_period, adjust=False).mean()
+        sma_slow = close.rolling(window=slow_period).mean()
+        return ema_fast.values, sma_slow.values
+
+    def _backtest_with_params(self, params, entry_mode='always'):
+        """Run backtest with specific parameters
+
+        Args:
+            params: dict with 'chandelier_period' and 'chandelier_mult'
+            entry_mode: 'always', 'ppo_zero_cross', 'ema_sma_cross', or 'chandelier_entry'
+        """
         data = self.data.copy()
 
         # Use daily bars if available (UTC hour=4/5, min=0 = NY midnight EDT/EST)
@@ -87,140 +118,170 @@ class ParameterOptimizer:
             data = data[daily_mask].copy()
             data.index = data.index.normalize()
         else:
-            # Resample hourly to daily
             data = data.resample('1D').agg({
                 'open': 'first', 'high': 'max', 'low': 'min',
                 'close': 'last', 'volume': 'sum'
             }).dropna()
 
-        # Cost model: 0.05% round-trip (slippage + commission)
+        n = len(data)
+        if n < 2:
+            return [], self._empty_metrics(), [], []
+
         cost_per_trade = 0.0005
 
-        # Chandelier Exit for growth trend following (params from optimizer grid)
-        chandelier_period = int(params.get('macd_fast', 18))
-        chandelier_mult = float(params.get('bb_std', 3.0))
+        chandelier_period = int(params.get('chandelier_period', 18))
+        chandelier_mult = float(params.get('chandelier_mult', 3.0))
 
-        prev_close = data['close'].shift(1)
-        tr = pd.concat([
-            data['high'] - data['low'],
-            (data['high'] - prev_close).abs(),
-            (data['low'] - prev_close).abs()
-        ], axis=1).max(axis=1)
-        atr = tr.rolling(window=chandelier_period).mean()
+        # Pre-extract numpy arrays for speed
+        open_p = data['open'].values.astype(float)
+        high_p = data['high'].values.astype(float)
+        low_p = data['close'].values.astype(float)
+        close_p = data['close'].values.astype(float)
 
-        warmup = chandelier_period
+        # Compute entry indicators
+        ppo_values = None
+        ppo_warmup = 0
+        ema_fast_values = None
+        sma_slow_values = None
+        ema_sma_warmup = 0
+        fast_ema_period = 24
+        slow_sma_period = 52
 
-        # Simulate trades with chandelier exit
+        if entry_mode == 'ppo_zero_cross':
+            ppo_values = self._compute_ppo(close_p)
+            ppo_warmup = 27  # 26 bars EMA warmup + 1 to detect cross
+        elif entry_mode == 'ema_sma_cross':
+            fast_ema_period = int(params.get('ema_sma_fast', 10))
+            slow_sma_period = int(params.get('ema_sma_slow', 40))
+            ema_fast_values, sma_slow_values = self._compute_ema_sma_cross(
+                close_p, fast_ema_period, slow_sma_period
+            )
+            ema_sma_warmup = slow_sma_period + 1  # SMA needs full window
+
+        # Pre-compute rolling high for Chandelier entry
+        rolling_high = None
+        chandelier_entry_mult = None
+        if entry_mode == 'chandelier_entry':
+            chandelier_entry_mult = float(params.get('chandelier_entry_mult', 1.0))
+            rolling_high = pd.Series(high_p).rolling(window=chandelier_period, min_periods=1).max().values
+
+        prev_close = np.roll(close_p, 1)
+        prev_close[0] = close_p[0]
+        tr = np.maximum.reduce([
+            high_p - low_p,
+            np.abs(high_p - prev_close),
+            np.abs(low_p - prev_close)
+        ])
+        atr_series = pd.Series(tr).rolling(window=chandelier_period).mean()
+        atr = atr_series.values
+
+        warmup = max(chandelier_period, ppo_warmup, ema_sma_warmup)
+        alloc = 1.0  # Single-ticker backtest: always fully invested (allocation only splits capital in portfolio backtest)
+
         trades = []
         bar_equity = [self.initial_capital]
-        trade_equity_curve = [self.initial_capital]
-        trade_equity_dates = [str(data.index[0])]
+        trade_equity = [self.initial_capital]
+        trade_dates = [str(data.index[0])]
         position_active = False
         pending_entry = False
         pending_exit = False
-        entry_price = None
-        entry_idx = None
-        equity_before_trade = self.initial_capital
-        high_since_entry = 0
+        entry_price = 0.0
+        entry_idx = 0
+        equity_before = self.initial_capital
+        high_since = 0.0
 
-        for i in range(len(data)):
-            if i < warmup:
-                continue
-
-            price_open = data['open'].iloc[i]
-            price_close = data['close'].iloc[i]
-            price_high = data['high'].iloc[i]
+        for i in range(warmup, n):
+            po = open_p[i]
+            pc = close_p[i]
+            ph = high_p[i]
 
             if pending_exit and position_active:
-                exit_price = price_open
-                allocated = equity_before_trade * (self.allocation_weight / 100)
+                allocated = equity_before * alloc
                 deployed = allocated * (1 - cost_per_trade)
-                shares_amount = deployed / entry_price
-                proceeds = shares_amount * exit_price
-                net_proceeds = proceeds * (1 - cost_per_trade)
+                shares = deployed / entry_price
+                net_proceeds = shares * po * (1 - cost_per_trade)
                 net_dollar = net_proceeds - deployed
                 net_pnl = net_dollar / deployed
 
-                days_held = round(i - entry_idx, 1)
-
                 trades.append({
                     'entry_price': entry_price,
-                    'exit_price': exit_price,
+                    'exit_price': po,
                     'entry_at': str(data.index[entry_idx]),
                     'exit_at': str(data.index[i]),
                     'return': net_pnl,
                     'pnl_dollar': net_dollar,
                     'pnl_pct': net_pnl,
-                    'days_held': days_held,
-                    'allocation_pct': self.allocation_weight,
+                    'days_held': round(i - entry_idx, 1),
+                    'allocation_pct': 100,
                 })
 
-                current_equity = trade_equity_curve[-1] + net_dollar
-                trade_equity_curve.append(current_equity)
-                trade_equity_dates.append(str(data.index[i]))
-
+                trade_equity.append(trade_equity[-1] + net_dollar)
+                trade_dates.append(str(data.index[i]))
                 position_active = False
                 pending_exit = False
 
             if pending_entry and not position_active:
-                entry_price = price_open
+                entry_price = po
                 entry_idx = i
-                equity_before_trade = trade_equity_curve[-1]
+                equity_before = trade_equity[-1]
                 position_active = True
-                high_since_entry = price_high
+                high_since = ph
                 pending_entry = False
 
-            # Always ready to enter after warmup
             if not position_active and not pending_entry:
-                pending_entry = True
+                if entry_mode == 'ppo_zero_cross':
+                    if ppo_values[i] > 0 and ppo_values[i - 1] <= 0:
+                        pending_entry = True
+                elif entry_mode == 'ema_sma_cross':
+                    if (ema_fast_values[i] > sma_slow_values[i]
+                            and ema_fast_values[i - 1] <= sma_slow_values[i - 1]):
+                        pending_entry = True
+                elif entry_mode == 'chandelier_entry':
+                    entry_level = rolling_high[i] - atr[i] * chandelier_entry_mult
+                    if pc > entry_level:
+                        pending_entry = True
+                else:
+                    pending_entry = True
 
-            # Chandelier exit: close drops below (highest high - ATR * mult)
             if position_active and not pending_exit:
-                high_since_entry = max(high_since_entry, price_high)
-                stop_level = high_since_entry - atr.iloc[i] * chandelier_mult
-                if price_close < stop_level:
+                if ph > high_since:
+                    high_since = ph
+                stop_level = high_since - atr[i] * chandelier_mult
+                if pc < stop_level:
                     pending_exit = True
 
-            # Record open position at end of data
-            if i == len(data) - 1 and position_active:
+            if i == n - 1 and position_active:
                 simulated_close = not pending_exit
-                exit_price = price_close
-                allocated = equity_before_trade * (self.allocation_weight / 100)
+                allocated = equity_before * alloc
                 deployed = allocated * (1 - cost_per_trade)
-                shares_amount = deployed / entry_price
-                proceeds = shares_amount * exit_price
-                net_proceeds = proceeds * (1 - cost_per_trade)
+                shares = deployed / entry_price
+                net_proceeds = shares * pc * (1 - cost_per_trade)
                 net_dollar = net_proceeds - deployed
                 net_pnl = net_dollar / deployed
 
-                days_held = round(i - entry_idx, 1)
-
                 trades.append({
                     'entry_price': entry_price,
-                    'exit_price': exit_price,
+                    'exit_price': pc,
                     'entry_at': str(data.index[entry_idx]),
                     'exit_at': str(data.index[i]),
                     'return': net_pnl,
                     'pnl_dollar': net_dollar,
                     'pnl_pct': net_pnl,
-                    'days_held': days_held,
+                    'days_held': round(i - entry_idx, 1),
                     'simulated_close': simulated_close,
-                    'allocation_pct': self.allocation_weight,
+                    'allocation_pct': 100,
                 })
 
-                current_equity = trade_equity_curve[-1] + net_dollar
-                trade_equity_curve.append(current_equity)
-                trade_equity_dates.append(str(data.index[i]))
-
+                trade_equity.append(trade_equity[-1] + net_dollar)
+                trade_dates.append(str(data.index[i]))
                 position_active = False
                 pending_exit = False
 
             if position_active:
-                shares_amount = (equity_before_trade * (self.allocation_weight / 100)) / entry_price
-                unrealized_pnl = shares_amount * (price_close - entry_price)
-                bar_equity.append(equity_before_trade + unrealized_pnl)
+                shares = (equity_before * alloc) / entry_price
+                bar_equity.append(equity_before + shares * (pc - entry_price))
             else:
-                bar_equity.append(trade_equity_curve[-1])
+                bar_equity.append(trade_equity[-1])
 
         # Calculate metrics
         if trades:
@@ -232,51 +293,51 @@ class ParameterOptimizer:
                 'winning_trades': wins,
                 'win_rate': wins / len(trades_df),
                 'avg_return': trades_df['return'].mean(),
-                'total_return': (trade_equity_curve[-1] - self.initial_capital) / self.initial_capital,
+                'total_return': (trade_equity[-1] - self.initial_capital) / self.initial_capital,
                 'sharpe_ratio': sharpe,
-                'max_drawdown': self._calculate_max_drawdown(trade_equity_curve)
+                'max_drawdown': self._calculate_max_drawdown(trade_equity)
             }
         else:
-            metrics = {
-                'total_trades': 0,
-                'winning_trades': 0,
-                'win_rate': 0,
-                'avg_return': 0,
-                'total_return': 0,
-                'sharpe_ratio': 0,
-                'max_drawdown': 0
-            }
+            metrics = self._empty_metrics()
             trades = []
 
-        return trades, metrics, trade_equity_curve, trade_equity_dates
+        return trades, metrics, trade_equity, trade_dates
 
     @staticmethod
-    def backtest_portfolio(ticker_data, ticker_params, initial_capital=100000, cost_per_trade=0.0005):
-        """
-        Backtest multiple tickers with shared capital pool.
-        Capital is deployed when any ticker signals entry; when a ticker exits,
-        proceeds return to the pool for any ticker to use.
+    def _empty_metrics():
+        return {
+            'total_trades': 0,
+            'winning_trades': 0,
+            'win_rate': 0,
+            'avg_return': 0,
+            'total_return': 0,
+            'sharpe_ratio': 0,
+            'max_drawdown': 0
+        }
 
-        Each entry uses all available cash at that time. If multiple tickers
-        enter at different times, they each use whatever cash is available.
-        When cash is depleted, subsequent entries wait for an exit to free cash.
+    @staticmethod
+    def backtest_portfolio(ticker_data, ticker_params, initial_capital=100000,
+                           cost_per_trade=0.0005):
+        """
+        Single-pool portfolio backtest:
+        - All capital in one pool, split equally among tickers that trigger on the same bar
+        - If only one ticker triggers, it gets all available cash
+        - When a position exits, freed cash is redistributed equally to remaining
+          in-position tickers immediately (buy more shares at same bar's open)
 
         Args:
-            ticker_data: dict of {symbol: DataFrame} with OHLCV data, daily bars
-            ticker_params: dict of {symbol: dict} with CHAND params
-                          {macd_fast: period, bb_std: multiplier}
+            ticker_data:     dict of {symbol: DataFrame} with OHLCV data
+            ticker_params:   dict of {symbol: dict} with CHAND params
             initial_capital: starting cash
-            cost_per_trade: round-trip transaction cost
-
-        Returns:
-            trades, metrics, equity_curve, equity_dates
+            cost_per_trade:  round-trip transaction cost fraction
         """
-        n_tickers = len(ticker_data)
-        if n_tickers == 0:
-            return [], {'total_trades': 0, 'winning_trades': 0, 'win_rate': 0,
-                        'avg_return': 0, 'total_return': 0, 'sharpe_ratio': 0, 'max_drawdown': 0}, [], []
+        tickers = list(ticker_data.keys())
+        empty = {'total_trades': 0, 'winning_trades': 0, 'win_rate': 0,
+                 'avg_return': 0, 'total_return': 0, 'sharpe_ratio': 0, 'max_drawdown': 0}
+        if not tickers:
+            return [], empty, [], []
 
-        # Align all tickers to a common date index
+        # Align all tickers to common date index and filter to daily bars
         common_index = None
         aligned = {}
         for sym, df in ticker_data.items():
@@ -284,185 +345,156 @@ class ParameterOptimizer:
             for col in ['open', 'high', 'low', 'close', 'volume']:
                 if col in d.columns:
                     d[col] = d[col].astype(float)
-            # Filter to daily bars (UTC hour=4/5, min=0 = NY midnight EDT/EST)
             daily_mask = (d.index.minute == 0) & (d.index.hour.isin([4, 5]))
             if daily_mask.any():
                 d = d[daily_mask].copy()
                 d.index = d.index.normalize()
             aligned[sym] = d
-            if common_index is None:
-                common_index = d.index
-            else:
-                common_index = common_index.intersection(d.index)
+            common_index = d.index if common_index is None else common_index.intersection(d.index)
 
-        # Precompute ATR for each ticker
+        # Precompute ATR and rolling high for each ticker
         atr_data = {}
-        tr_data = {}
-        for sym, d in aligned.items():
-            d = d.loc[common_index]
+        rolling_high_data = {}
+        for sym in tickers:
+            d = aligned[sym].loc[common_index]
             p = ticker_params.get(sym, {})
-            period = int(p.get('macd_fast', 18))
+            period = int(p.get('chandelier_period', 18))
             prev_close = d['close'].shift(1)
             tr = pd.concat([
                 d['high'] - d['low'],
                 (d['high'] - prev_close).abs(),
                 (d['low'] - prev_close).abs()
             ], axis=1).max(axis=1)
-            atr = tr.rolling(window=period).mean()
-            tr_data[sym] = tr
-            atr_data[sym] = atr
+            atr_data[sym] = tr.rolling(window=period).mean()
+            if p.get('chandelier_entry_mult') is not None:
+                rolling_high_data[sym] = d['high'].rolling(window=period, min_periods=1).max()
             aligned[sym] = d
 
-        warmup = max(int(p.get('macd_fast', 18)) for p in ticker_params.values())
-
-        # State per ticker
-        positions = {}      # symbol -> {shares, entry_price, entry_idx, entry_equity}
-        pending_entry = {}  # symbol -> bool
-        pending_exit = {}   # symbol -> bool
-        high_since = {}     # symbol -> float
-
-        for sym in ticker_data:
-            pending_entry[sym] = False
-            pending_exit[sym] = False
-            high_since[sym] = 0
+        warmup = max(int(p.get('chandelier_period', 18)) for p in ticker_params.values())
 
         cash = initial_capital
+        positions = {}           # sym -> {shares, entry_price, entry_idx, entry_at, allocation_pct}
+        pend_entry = {sym: False for sym in tickers}
+        pend_exit  = {sym: False for sym in tickers}
+        high_since = {sym: 0.0  for sym in tickers}
+
         trades = []
         equity_curve = [initial_capital]
-        equity_dates = [str(common_index[0])]
+        equity_dates  = [str(common_index[0])]
+
+        def _make_trade(sym, pos, exit_price, exit_date, simulated=False):
+            cost = pos['shares'] * pos['entry_price']
+            net  = pos['shares'] * exit_price * (1 - cost_per_trade)
+            pnl  = net - cost
+            return {
+                'symbol': sym,
+                'entry_price': pos['entry_price'],
+                'exit_price': exit_price,
+                'entry_at': pos['entry_at'],
+                'exit_at': str(exit_date),
+                'return': pnl / cost if cost else 0,
+                'pnl_dollar': pnl,
+                'pnl_pct': pnl / cost if cost else 0,
+                'days_held': round(pos.get('days', 0), 1),
+                'allocation_pct': pos.get('allocation_pct', 0),
+                'simulated_close': simulated,
+            }
+
+        def _buy_shares(amount, price):
+            return amount * (1 - cost_per_trade) / price if price > 0 else 0
 
         for i in range(len(common_index)):
             if i < warmup:
                 continue
-
             date = common_index[i]
 
-            # --- Process exits for all tickers first ---
-            for sym in ticker_data:
-                if not pending_exit.get(sym) or sym not in positions:
+            # ── 1. Process exits ────────────────────────────────────────────
+            exited = []
+            for sym in list(positions.keys()):
+                if not pend_exit[sym]:
                     continue
-                pos = positions[sym]
-                exit_price = aligned[sym]['open'].iloc[i]
-                proceeds = pos['shares'] * exit_price
-                net_proceeds = proceeds * (1 - cost_per_trade)
-                net_pnl = net_proceeds - (pos['shares'] * pos['entry_price'])
-
-                days_held = round(i - pos['entry_idx'], 1)
-                trades.append({
-                    'symbol': sym,
-                    'entry_price': pos['entry_price'],
-                    'exit_price': exit_price,
-                    'entry_at': str(common_index[pos['entry_idx']]),
-                    'exit_at': str(date),
-                    'return': net_pnl / (pos['shares'] * pos['entry_price']),
-                    'pnl_dollar': net_pnl,
-                    'pnl_pct': net_pnl / (pos['shares'] * pos['entry_price']),
-                    'days_held': days_held,
-                    'allocation_pct': pos.get('allocation_pct', 0),
-                })
-                cash += net_proceeds
+                ep = aligned[sym]['open'].iloc[i]
+                positions[sym]['days'] = i - positions[sym]['entry_idx']
+                trades.append(_make_trade(sym, positions[sym], ep, date))
+                cash += positions[sym]['shares'] * ep * (1 - cost_per_trade)
                 del positions[sym]
-                pending_exit[sym] = False
+                pend_exit[sym] = False
+                exited.append(sym)
 
-            # --- Process entries (equal split among entering tickers) ---
-            entering_today = [sym for sym in ticker_data
-                              if pending_entry.get(sym) and sym not in positions and cash > 0]
-            if entering_today:
-                # Total equity before new entries (cash + current market value of open positions)
-                total_equity = cash
-                for sym, pos in positions.items():
-                    total_equity += pos['shares'] * aligned[sym]['close'].iloc[i]
-
-                amount_each = cash / len(entering_today)
-                for sym in entering_today:
-                    entry_price = aligned[sym]['open'].iloc[i]
-                    cost = amount_each * cost_per_trade
-                    buy_amount = amount_each - cost
-                    shares = buy_amount / entry_price
-                    allocation_pct = round(amount_each / total_equity * 100, 2)
+            # ── 3. New entries — split cash equally among triggering tickers ─
+            entering = [sym for sym in tickers
+                        if pend_entry[sym] and sym not in positions]
+            if entering and cash > 0:
+                amount_each = cash / len(entering)
+                total_eq = cash + sum(
+                    pos['shares'] * aligned[s]['close'].iloc[i]
+                    for s, pos in positions.items()
+                )
+                for sym in entering:
+                    ep = aligned[sym]['open'].iloc[i]
                     positions[sym] = {
-                        'shares': shares,
-                        'entry_price': entry_price,
+                        'shares': _buy_shares(amount_each, ep),
+                        'entry_price': ep,
                         'entry_idx': i,
-                        'allocation_pct': allocation_pct,
+                        'entry_at': str(date),
+                        'allocation_pct': round(amount_each / total_eq * 100, 2),
                     }
                     high_since[sym] = aligned[sym]['high'].iloc[i]
-                    pending_entry[sym] = False
+                    pend_entry[sym] = False
                     cash -= amount_each
 
-            # --- Generate signals ---
-            for sym in ticker_data:
-                d = aligned[sym]
-                close = d['close'].iloc[i]
-                high = d['high'].iloc[i]
+            # ── 4. Generate signals ─────────────────────────────────────────
+            for sym in tickers:
+                close = aligned[sym]['close'].iloc[i]
+                high  = aligned[sym]['high'].iloc[i]
 
-                # Always ready to enter when not in position
-                if sym not in positions and not pending_entry[sym]:
-                    pending_entry[sym] = True
-
-                # Chandelier exit
-                if sym in positions and not pending_exit[sym]:
+                if sym in positions and not pend_exit[sym]:
                     high_since[sym] = max(high_since[sym], high)
-                    stop = high_since[sym] - atr_data[sym].iloc[i] * float(ticker_params[sym].get('bb_std', 3.0))
+                    stop = high_since[sym] - atr_data[sym].iloc[i] * float(ticker_params[sym].get('chandelier_mult', 3.0))
                     if close < stop:
-                        pending_exit[sym] = True
+                        pend_exit[sym] = True
 
-            # --- Record open positions at end of data ---
+                if sym not in positions and not pend_entry[sym]:
+                    em = ticker_params[sym].get('chandelier_entry_mult')
+                    if em is not None and sym in rolling_high_data and not pd.isna(rolling_high_data[sym].iloc[i]):
+                        if close > rolling_high_data[sym].iloc[i] - atr_data[sym].iloc[i] * float(em):
+                            pend_entry[sym] = True
+                    else:
+                        pend_entry[sym] = True
+
+            # ── 5. Force-close all positions at end of data ─────────────────
             if i == len(common_index) - 1:
-                for sym in list(positions.keys()):
-                    pos = positions[sym]
-                    d = aligned[sym]
-                    simulated_close = not pending_exit.get(sym, False)
-                    exit_price = d['close'].iloc[i]
-                    proceeds = pos['shares'] * exit_price
-                    net_proceeds = proceeds * (1 - cost_per_trade)
-                    net_pnl = net_proceeds - (pos['shares'] * pos['entry_price'])
-
-                    days_held = round(i - pos['entry_idx'], 1)
-                    trades.append({
-                        'symbol': sym,
-                        'entry_price': pos['entry_price'],
-                        'exit_price': exit_price,
-                        'entry_at': str(common_index[pos['entry_idx']]),
-                        'exit_at': str(common_index[i]),
-                        'return': net_pnl / (pos['shares'] * pos['entry_price']),
-                        'pnl_dollar': net_pnl,
-                        'pnl_pct': net_pnl / (pos['shares'] * pos['entry_price']),
-                        'days_held': days_held,
-                        'simulated_close': simulated_close,
-                        'allocation_pct': pos.get('allocation_pct', 0),
-                    })
-                    cash += net_proceeds
+                for sym, pos in list(positions.items()):
+                    ep = aligned[sym]['close'].iloc[i]
+                    pos['days'] = i - pos['entry_idx']
+                    trades.append(_make_trade(sym, pos, ep, date,
+                                              simulated=not pend_exit.get(sym, False)))
+                    cash += pos['shares'] * ep * (1 - cost_per_trade)
                     del positions[sym]
-                    pending_exit[sym] = False
 
-            # --- Track equity ---
-            positions_value = cash
-            for sym, pos in positions.items():
-                positions_value += pos['shares'] * aligned[sym]['close'].iloc[i]
-            equity_curve.append(positions_value)
+            # ── 6. Track equity ─────────────────────────────────────────────
+            equity = cash + sum(
+                pos['shares'] * aligned[sym]['close'].iloc[i]
+                for sym, pos in positions.items()
+            )
+            equity_curve.append(equity)
             equity_dates.append(str(date))
 
         # Calculate metrics
         if trades:
             trades_df = pd.DataFrame(trades)
             wins = (trades_df['return'] > 0).sum()
-            sharpe = ParameterOptimizer._calculate_sharpe(equity_curve)
             metrics = {
                 'total_trades': len(trades_df),
-                'winning_trades': wins,
+                'winning_trades': int(wins),
                 'win_rate': wins / len(trades_df),
-                'avg_return': trades_df['return'].mean(),
+                'avg_return': float(trades_df['return'].mean()),
                 'total_return': (equity_curve[-1] - initial_capital) / initial_capital,
-                'sharpe_ratio': sharpe,
-                'max_drawdown': ParameterOptimizer._calculate_max_drawdown(equity_curve)
+                'sharpe_ratio': ParameterOptimizer._calculate_sharpe(equity_curve),
+                'max_drawdown': ParameterOptimizer._calculate_max_drawdown(equity_curve),
             }
         else:
-            metrics = {
-                'total_trades': 0, 'winning_trades': 0, 'win_rate': 0,
-                'avg_return': 0, 'total_return': 0, 'sharpe_ratio': 0, 'max_drawdown': 0
-            }
-            trades = []
+            metrics = empty
 
         return trades, metrics, equity_curve, equity_dates
 
@@ -499,7 +531,7 @@ class ParameterOptimizer:
             params = result['params']
             metrics = result['metrics']
 
-            param_str = f"CHAND(period={params['macd_fast']}, mult={params['bb_std']})"
+            param_str = f"CHAND(period={params['chandelier_period']}, mult={params['chandelier_mult']})"
 
             print(
                 f"{idx+1:<6} "

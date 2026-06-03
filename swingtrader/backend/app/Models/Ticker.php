@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Ticker extends Model
 {
+    protected $table = 'tbl_etf_tickers';
     public $timestamps = false;
     protected $fillable = ['symbol', 'enabled', 'allocation_weight'];
 

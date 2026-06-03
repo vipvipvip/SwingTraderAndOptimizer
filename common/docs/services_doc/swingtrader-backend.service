@@ -1,7 +1,7 @@
 [Unit]
 Description=SwingTrader Laravel Backend
-After=network.target mysql.service
-Wants=mysql.service
+After=network.target swingtrader-db.service
+Wants=swingtrader-db.service
 
 [Service]
 Type=simple

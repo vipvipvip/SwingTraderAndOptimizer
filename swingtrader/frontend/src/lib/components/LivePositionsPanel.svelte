@@ -5,6 +5,7 @@
   let positions = []
   let account = {}
   let loading = true
+  let error = false
 
   async function loadPositions() {
     try {
@@ -13,13 +14,14 @@
 
       const [posData, acctData] = await Promise.all([
         api.account.positions(),
-        fetch('/api/v1/account', { signal: controller.signal }).then(r => r.json())
+        api.account.get()
       ])
       positions = posData
       account = acctData
       clearTimeout(timeoutId)
     } catch (e) {
       console.error('Failed to load positions:', e)
+      error = true
     } finally {
       loading = false
     }
@@ -88,6 +90,8 @@
 
 {#if loading}
   <p style="text-align: center; color: #999;">Loading...</p>
+{:else if error}
+  <div class="empty">Failed to load positions</div>
 {:else if positions.length === 0}
   <div class="empty">No open positions</div>
 {:else}

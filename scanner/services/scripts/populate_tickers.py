@@ -43,6 +43,28 @@ def fetch_sp500_tickers():
     return tickers
 
 
+def ensure_ticker_in_stock(symbol):
+    conn = get_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM tbl_stock_tickers WHERE symbol = %s', (symbol,))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+            cur.execute(
+                "INSERT INTO tbl_stock_tickers (symbol, enabled, created_at, updated_at) "
+                "VALUES (%s, true, NOW(), NOW()) "
+                "ON CONFLICT (symbol) DO NOTHING",
+                (symbol,)
+            )
+            conn.commit()
+            cur.execute('SELECT id FROM tbl_stock_tickers WHERE symbol = %s', (symbol,))
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
+
+
 def fetch_bars(symbol, client, tf_name, start=None):
     end = datetime.now(NY)
     if start is None:
@@ -88,6 +110,12 @@ def process_ticker(symbol, client, tf_name, start=None):
     try:
         table = TIMEFRAMES[tf_name]['table']
         is_hourly = tf_name == 'hour'
+
+        # Ensure ticker exists in tbl_stock_tickers and get its id
+        ticker_id = ensure_ticker_in_stock(symbol)
+        if ticker_id is None:
+            return symbol, 0, 'failed to create ticker'
+
         bars = fetch_bars(symbol, client, tf_name, start)
         if not bars or len(bars) == 0:
             return symbol, 0, 'no data'
@@ -98,7 +126,7 @@ def process_ticker(symbol, client, tf_name, start=None):
             if ts.tzinfo is not None:
                 ts = ts.astimezone(NY)
             rows.append((
-                symbol,
+                ticker_id,
                 ts if is_hourly else ts.date(),
                 float(bar.open),
                 float(bar.high),
@@ -110,16 +138,16 @@ def process_ticker(symbol, client, tf_name, start=None):
         conn = get_db_conn()
         try:
             with conn.cursor() as cur:
-                cur.execute(f"DELETE FROM {table} WHERE ticker = %s", (symbol,))
+                cur.execute(f"DELETE FROM {table} WHERE ticker_id = %s", (ticker_id,))
                 if is_hourly:
                     rows = [(r[0], r[1].replace(tzinfo=None) if hasattr(r[1], 'tzinfo') and r[1].tzinfo is not None else r[1], *r[2:]) for r in rows]
                 execute_values(
                     cur,
                     f"""
                         INSERT INTO {table}
-                        (ticker, date, open, high, low, close, volume)
+                        (ticker_id, date, open, high, low, close, volume)
                         VALUES %s
-                        ON CONFLICT (ticker, date) DO NOTHING
+                        ON CONFLICT (ticker_id, date) DO NOTHING
                     """,
                     rows,
                 )
@@ -144,12 +172,15 @@ def main():
 
     client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 
-    # Read tickers from the existing price table (avoids Wikipedia dependency)
+    # Read existing tickers from tbl_stock_tickers
     conn = get_db_conn()
     try:
         tickers = pd.read_sql(
-            f"SELECT DISTINCT ticker FROM {table} ORDER BY ticker", conn
-        )['ticker'].tolist()
+            f"""SELECT DISTINCT e.symbol
+                FROM {table} s
+                JOIN tbl_stock_tickers e ON e.id = s.ticker_id
+                ORDER BY e.symbol""", conn
+        )['symbol'].tolist()
     finally:
         conn.close()
 

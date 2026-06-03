@@ -62,6 +62,26 @@
         <h2 style="margin-bottom: 20px; font-size: 18px;">Strategy Parameters</h2>
         <div class="ticker-cards" id="tickers"></div>
 
+        <h2 style="margin-bottom: 20px; font-size: 18px;">Recent Trades</h2>
+        <div style="background: #1a1f27; border: 1px solid #2a3039; border-radius: 8px; margin-bottom: 30px; overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <thead>
+                    <tr style="border-bottom: 1px solid #2a3039; color: #888; text-transform: uppercase; letter-spacing: 0.5px;">
+                        <th style="padding: 12px 16px; text-align: left;">Symbol</th>
+                        <th style="padding: 12px 16px; text-align: left;">Side</th>
+                        <th style="padding: 12px 16px; text-align: right;">Entry Price</th>
+                        <th style="padding: 12px 16px; text-align: right;">Exit Price</th>
+                        <th style="padding: 12px 16px; text-align: right;">P&L</th>
+                        <th style="padding: 12px 16px; text-align: left;">Entry At</th>
+                        <th style="padding: 12px 16px; text-align: left;">Exit At</th>
+                    </tr>
+                </thead>
+                <tbody id="trades-body">
+                    <tr><td colspan="7" style="padding: 20px; text-align: center; color: #888;" class="loading">Loading trades...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
         <h2 style="margin-bottom: 20px; font-size: 18px;">Equity Curve - QQQ</h2>
         <div class="chart-container">
             <canvas id="equityChart"></canvas>
@@ -140,8 +160,18 @@
                             </div>
                             <div class="metric">
                                 <span class="label">Chandelier</span>
-                                <span class="val">(${t.params.macd_fast},${t.params.bb_period},${t.params.bb_std})</span>
+                                <span class="val">(${t.params.chandelier_period},${t.params.atr_period},${t.params.chandelier_mult})</span>
                             </div>
+                            ${t.params.price ? `
+                            <div class="metric">
+                                <span class="label">${t.params.in_position ? 'Buy Price' : (t.params.entry_level ? 'Entry Level' : 'Re-entry Price')}</span>
+                                <span class="val">$${parseFloat(t.params.price).toFixed(2)}${t.params.in_position && t.params.pnl_unrealized ? ' <span class="' + (t.params.pnl_unrealized > 0 ? 'success' : 'error') + '">(' + (t.params.pnl_unrealized > 0 ? '+' : '') + t.params.pnl_unrealized + '%)</span>' : ''}</span>
+                            </div>
+                            <div class="metric">
+                                <span class="label">ATR / Stop</span>
+                                <span class="val">${t.params.atr ? parseFloat(t.params.atr).toFixed(2) : '?'} / ${t.params.stop ? '$' + parseFloat(t.params.stop).toFixed(2) : '?'}</span>
+                            </div>
+                            ` : ''}
                         ` : '<div class="loading">No parameters optimized yet</div>'}
                     </div>
                 `).join('');
@@ -152,6 +182,9 @@
             if (equityCurve && (equityCurve.backtest || equityCurve.live)) {
                 drawEquityChart(equityCurve);
             }
+
+            // Load recent trades
+            await loadTrades();
 
             document.getElementById('status').textContent = `Connected • ${new Date().toLocaleTimeString()}`;
             } catch (e) {
@@ -205,6 +238,31 @@
                     }
                 }
             });
+        }
+
+        async function loadTrades() {
+            const trades = await fetchAPI('/trades/live');
+            const tbody = document.getElementById('trades-body');
+            if (!trades || trades.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="padding: 20px; text-align: center; color: #888;">No trades yet</td></tr>';
+                return;
+            }
+            tbody.innerHTML = trades.slice(0, 20).map(t => {
+                const pnl = parseFloat(t.pnl_dollar || 0);
+                const pnlClass = pnl > 0 ? 'success' : (pnl < 0 ? 'error' : '');
+                const side = t.side || (t.exit_price ? 'closed' : 'open');
+                return `
+                    <tr style="border-bottom: 1px solid #2a3039;">
+                        <td style="padding: 10px 16px; font-weight: 600;">${t.symbol}</td>
+                        <td style="padding: 10px 16px;">${t.status}</td>
+                        <td style="padding: 10px 16px; text-align: right;">${t.entry_price ? '$' + parseFloat(t.entry_price).toFixed(2) : '—'}</td>
+                        <td style="padding: 10px 16px; text-align: right;">${t.exit_price ? '$' + parseFloat(t.exit_price).toFixed(2) : '—'}</td>
+                        <td style="padding: 10px 16px; text-align: right;" class="${pnlClass}">${pnlClass ? (pnl > 0 ? '+' : '') : ''}${pnl.toFixed(2)}</td>
+                        <td style="padding: 10px 16px;">${t.entry_at ? new Date(t.entry_at).toLocaleDateString() : '—'}</td>
+                        <td style="padding: 10px 16px;">${t.exit_at ? new Date(t.exit_at).toLocaleDateString() : '—'}</td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         async function triggerOptimizer() {

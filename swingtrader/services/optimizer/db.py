@@ -37,7 +37,7 @@ class StrategyDB:
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
-            cursor.execute('INSERT INTO tickers (symbol, enabled) VALUES (%s, true)', (symbol,))
+            cursor.execute('INSERT INTO tbl_etf_tickers (symbol, enabled) VALUES (%s, true)', (symbol,))
             conn.commit()
             ticker_id = self.get_ticker_id(symbol)
             return ticker_id
@@ -53,7 +53,7 @@ class StrategyDB:
         """Get ticker ID by symbol"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT id FROM tickers WHERE symbol = %s', (symbol,))
+        cursor.execute('SELECT id FROM tbl_etf_tickers WHERE symbol = %s', (symbol,))
         row = cursor.fetchone()
         return row[0] if row else None
 
@@ -67,19 +67,20 @@ class StrategyDB:
         try:
             # Insert new optimization candidate row (base_case=0)
             # Does NOT touch existing base_case=1 rows
-            # macd_fast = chandelier period, bb_std = chandelier mult, bb_period = ATR period
-            period = int(params.get('macd_fast', 18))
-            mult = float(params.get('bb_std', 3.0))
+            period = int(params.get('chandelier_period', 18))
+            mult = float(params.get('chandelier_mult', 3.0))
+            entry_mult = float(params.get('chandelier_entry_mult', 1.5))
             cursor.execute('''
                 INSERT INTO strategy_parameters
-                (ticker_id, macd_fast, bb_period, bb_std,
+                (ticker_id, chandelier_period, atr_period, chandelier_mult, chandelier_entry_mult,
                  win_rate, sharpe_ratio, total_return, total_trades, max_drawdown, base_case, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
             ''', (
                 ticker_id,
-                period,  # macd_fast = chandelier period
-                period,  # bb_period = ATR period (same as chandelier period)
-                mult,    # bb_std = chandelier multiplier
+                period,  # chandelier_period
+                period,  # atr_period (same as chandelier_period)
+                mult,    # chandelier_mult
+                entry_mult,  # chandelier_entry_mult
                 float(metrics['win_rate']),
                 float(metrics['sharpe_ratio']),
                 float(metrics['total_return']),
@@ -103,8 +104,8 @@ class StrategyDB:
             return None
 
         cursor.execute('''
-            SELECT bb_period, bb_std, win_rate, sharpe_ratio, total_return,
-                   total_trades
+            SELECT atr_period, chandelier_mult, chandelier_entry_mult,
+                   win_rate, sharpe_ratio, total_return, total_trades
             FROM strategy_parameters
             WHERE ticker_id = %s AND base_case = true
         ''', (ticker_id,))
@@ -114,13 +115,14 @@ class StrategyDB:
             return None
 
         return {
-            'bb_period': row[0],
-            'bb_std': row[1],
+            'atr_period': row[0],
+            'chandelier_mult': row[1],
+            'chandelier_entry_mult': float(row[2]) if row[2] is not None else None,
             'metrics': {
-                'win_rate': row[2],
-                'sharpe_ratio': row[3],
-                'total_return': row[4],
-                'total_trades': row[5]
+                'win_rate': row[3],
+                'sharpe_ratio': row[4],
+                'total_return': row[5],
+                'total_trades': row[6]
             }
         }
 
@@ -160,7 +162,7 @@ class StrategyDB:
         """Get all enabled tickers"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT symbol FROM tickers WHERE enabled = true')
+        cursor.execute('SELECT symbol FROM tbl_etf_tickers WHERE enabled = true')
         return [row[0] for row in cursor.fetchall()]
 
     def get_optimization_history(self, symbol, limit=10):
@@ -239,7 +241,7 @@ class StrategyDB:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                'SELECT allocation_weight FROM tickers WHERE symbol = %s',
+                'SELECT allocation_weight FROM tbl_etf_tickers WHERE symbol = %s',
                 (symbol,)
             )
             row = cursor.fetchone()
@@ -294,7 +296,7 @@ class StrategyDB:
             cursor.execute('''
                 UPDATE strategy_parameters
                 SET win_rate = %s, sharpe_ratio = %s, total_return = %s, total_trades = %s, updated_at = NOW()
-                WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
+                WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
                 AND base_case = true
             ''', (
                 float(metrics['win_rate']),

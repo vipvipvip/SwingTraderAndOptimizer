@@ -201,32 +201,26 @@ class AdminController extends Controller
         $lastOptimizerRun = null;
         $lastTradesRun = null;
 
-        // Get last optimizer run from status file (written by RunNightlyOptimizer)
-        $optFile = storage_path('optimizer_last_run.txt');
-        if (file_exists($optFile)) {
-            try {
-                $lastOptimizerRun = trim(file_get_contents($optFile));
-            } catch (\Exception $e) {
-                // Silently fail, fall back to old SQLite DB
+        // Get last optimizer run from PostgreSQL (canonical source)
+        try {
+            $latestRun = \Illuminate\Support\Facades\DB::table('optimization_history')
+                ->selectRaw('MAX(run_date) as latest_run')
+                ->first();
+            if ($latestRun && $latestRun->latest_run) {
+                $lastOptimizerRun = Carbon::parse($latestRun->latest_run, 'UTC')
+                    ->setTimezone('America/New_York')
+                    ->toDateTimeString();
             }
+        } catch (\Exception $e) {
+            // Silently fail
         }
 
-        // Fallback to SQLite DB if file not available
+        // Fallback to status file (written by RunNightlyOptimizer)
         if (!$lastOptimizerRun) {
-            $dbPath = base_path('../optimizer/optimized_params/strategy_params.db');
-            if (file_exists($dbPath)) {
+            $optFile = storage_path('optimizer_last_run.txt');
+            if (file_exists($optFile)) {
                 try {
-                    $sqliteConn = new \SQLite3($dbPath);
-                    $result = $sqliteConn->querySingle(
-                        'SELECT MAX(run_date) as latest_run FROM optimization_history',
-                        true
-                    );
-                    if ($result && $result['latest_run']) {
-                        $lastOptimizerRun = Carbon::parse($result['latest_run'], 'UTC')
-                            ->setTimezone('America/New_York')
-                            ->toDateTimeString();
-                    }
-                    $sqliteConn->close();
+                    $lastOptimizerRun = trim(file_get_contents($optFile));
                 } catch (\Exception $e) {
                     // Silently fail
                 }

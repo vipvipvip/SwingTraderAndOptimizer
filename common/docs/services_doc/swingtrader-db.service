@@ -1,0 +1,18 @@
+[Unit]
+Description=SwingTrader PostgreSQL Container
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer
+ExecStart=/usr/bin/docker compose up -d --wait --remove-orphans
+ExecStop=/usr/bin/docker compose stop
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=swingtrader-db
+
+[Install]
+WantedBy=multi-user.target

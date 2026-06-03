@@ -15,15 +15,17 @@ from db import StrategyDB
 load_dotenv()
 
 # Parameter grids tuned per timeframe
-# Chandelier Exit: period (macd_fast) and multiplier (bb_std)
+# Chandelier Exit: period (chandelier_period), multiplier (chandelier_mult), entry mult (chandelier_entry_mult)
 PARAM_GRIDS = {
     '1Day': {
-        'macd_fast':   [14, 18, 22],
-        'bb_std':      [2.5, 3.0, 3.5],
+        'chandelier_period':       [14, 18, 22],
+        'chandelier_mult':         [2.5, 3.0, 3.5],
+        'chandelier_entry_mult':   [1.0, 1.5, 2.0],
     },
     '1Hour': {
-        'macd_fast':   [14, 18, 22],
-        'bb_std':      [2.5, 3.0, 3.5],
+        'chandelier_period':       [14, 18, 22],
+        'chandelier_mult':         [2.5, 3.0, 3.5],
+        'chandelier_entry_mult':   [1.0, 1.5, 2.0],
     },
 }
 
@@ -151,7 +153,6 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
             continue
         fetch_and_update_ticker(symbol, timeframe=timeframe)
 
-    results = []
     total_time = time.time()
 
     # Run optimizations in parallel using joblib
@@ -229,13 +230,18 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     for sym in tickers:
         candidates = []
         cursor.execute('''
-            SELECT macd_fast, bb_std FROM strategy_parameters
-            WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
+            SELECT chandelier_period, chandelier_mult, chandelier_entry_mult
+            FROM strategy_parameters
+            WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
             AND base_case = true LIMIT 1
         ''', (sym,))
         row = cursor.fetchone()
         if row:
-            candidates.append({'macd_fast': int(row[0]), 'bb_std': float(row[1])})
+            candidates.append({
+                'chandelier_period': int(row[0]),
+                'chandelier_mult': float(row[1]),
+                'chandelier_entry_mult': float(row[2]) if row[2] is not None else 1.5,
+            })
         for result in results:
             if result['symbol'] == sym:
                 opt = result.get('optimizer')
@@ -246,7 +252,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
         seen = set()
         ticker_candidates[sym] = []
         for c in candidates:
-            k = (c['macd_fast'], c['bb_std'])
+            k = (c['chandelier_period'], c['chandelier_mult'], c.get('chandelier_entry_mult', 1.5))
             if k not in seen:
                 seen.add(k)
                 ticker_candidates[sym].append(c)
@@ -261,13 +267,18 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     current = {}
     for sym in tickers:
         cursor.execute('''
-            SELECT macd_fast, bb_std FROM strategy_parameters
-            WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
+            SELECT chandelier_period, chandelier_mult, chandelier_entry_mult
+            FROM strategy_parameters
+            WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
             AND base_case = true LIMIT 1
         ''', (sym,))
         row = cursor.fetchone()
         if row:
-            current[sym] = {'macd_fast': int(row[0]), 'bb_std': float(row[1])}
+            current[sym] = {
+                'chandelier_period': int(row[0]),
+                'chandelier_mult': float(row[1]),
+                'chandelier_entry_mult': float(row[2]) if row[2] is not None else 1.5,
+            }
         else:
             current[sym] = ticker_candidates[sym][0]
 
@@ -299,81 +310,142 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
         if not improved:
             break
 
+    # Promotion gate: best-ever promoted Sharpe for this exact ticker combination
+    tickers_key = ','.join(sorted(ticker_symbols))
+    cursor.execute('''
+        SELECT MAX(oh.best_sharpe) FROM optimization_history oh
+        JOIN tbl_etf_tickers t ON oh.ticker_id = t.id
+        WHERE t.symbol = 'BLENDED'
+        AND oh.promoted = true
+        AND oh.params::text LIKE %s
+    ''', (f'%{tickers_key.split(",")[0]}%',))
+    row = cursor.fetchone()
+    # Fallback: filter by checking each promoted row's params keys match current tickers
+    cursor.execute('''
+        SELECT best_sharpe, params FROM optimization_history oh
+        JOIN tbl_etf_tickers t ON oh.ticker_id = t.id
+        WHERE t.symbol = 'BLENDED' AND oh.promoted = true
+        ORDER BY oh.best_sharpe DESC LIMIT 20
+    ''')
+    best_ever_sharpe = 0.0
+    for r in cursor.fetchall():
+        if r[1] and set(r[1].keys()) == set(ticker_symbols):
+            best_ever_sharpe = max(best_ever_sharpe, float(r[0]))
+            break
+
+    # Also measure current baseline for reference
+    _, baseline_pmetrics, _, _ = ParameterOptimizer.backtest_portfolio(
+        ticker_data, {sym: ticker_candidates[sym][0] for sym in ticker_symbols}, initial_capital=100000
+    )
+    baseline_sharpe = max(baseline_pmetrics['sharpe_ratio'], best_ever_sharpe)
+    print(f"  Promotion gate: {baseline_sharpe:.4f} (best ever: {best_ever_sharpe:.4f}, current: {baseline_pmetrics['sharpe_ratio']:.4f})")
+
     # Run final portfolio backtest with converged params
     ptrades, pmetrics, pequity, pequity_dates = ParameterOptimizer.backtest_portfolio(
         ticker_data, current, initial_capital=100000
     )
     print(f"  Converged after {iteration+1} iterations")
     print(f"  Portfolio return: {pmetrics['total_return']*100:.2f}%")
-    print(f"  Sharpe: {pmetrics['sharpe_ratio']:.2f}")
+    print(f"  Sharpe: {pmetrics['sharpe_ratio']:.2f} (baseline: {baseline_sharpe:.2f})")
     print(f"  Max DD: {pmetrics['max_drawdown']*100:.2f}%")
     print(f"  Trades: {pmetrics['total_trades']}")
     for sym in ticker_symbols:
         p = current[sym]
-        print(f"  {sym}: CHAND({p['macd_fast']}, {p['bb_std']})")
+        print(f"  {sym}: CHAND({p['chandelier_period']}, {p['chandelier_mult']}, entry_mult={p.get('chandelier_entry_mult',1.5)})")
 
-    # Update base_case=true for each ticker with portfolio-optimized params only
-    # (metrics are kept from individual optimization to show per-ticker performance)
-    for sym in ticker_symbols:
-        p = current[sym]
+    # Always save portfolio coord ascent result to optimization_history for auditing
+    import json as _json
+    cursor.execute("SELECT id FROM tbl_etf_tickers WHERE symbol = 'BLENDED'")
+    blended_id_row = cursor.fetchone()
+    blended_ticker_id = blended_id_row[0] if blended_id_row else None
+    promoted_flag = pmetrics['sharpe_ratio'] > baseline_sharpe
+    if blended_ticker_id:
         cursor.execute('''
-            UPDATE strategy_parameters
-            SET macd_fast = %s, bb_std = %s, bb_period = %s, updated_at = NOW()
-            WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
-            AND base_case = true
+            INSERT INTO optimization_history
+            (ticker_id, run_date, best_sharpe, best_win_rate, best_return,
+             total_combinations, runtime_seconds, params, promoted)
+            VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s)
         ''', (
-            p['macd_fast'], p['bb_std'], p['macd_fast'], sym
+            blended_ticker_id,
+            float(pmetrics['sharpe_ratio']),
+            float(pmetrics['win_rate']),
+            float(pmetrics['total_return']),
+            0,  # not a grid search
+            0,
+            _json.dumps({sym: {k: float(v) if isinstance(v, (int, float)) else v
+                                for k, v in p.items()}
+                          for sym, p in current.items()}),
+            promoted_flag,
         ))
-    conn.commit()
-
-    # Save BLENDED results
-    cursor.execute("SELECT id FROM tickers WHERE symbol = 'BLENDED'")
-    blended_row = cursor.fetchone()
-    if not blended_row:
-        cursor.execute("INSERT INTO tickers (symbol, enabled) VALUES ('BLENDED', true)")
         conn.commit()
-        cursor.execute("SELECT id FROM tickers WHERE symbol = 'BLENDED'")
-        blended_id = cursor.fetchone()[0]
-    else:
-        blended_id = blended_row[0]
 
-    cursor.execute('''
-        SELECT id FROM strategy_parameters
-        WHERE ticker_id = %s AND base_case = true LIMIT 1
-    ''', (blended_id,))
-    existing = cursor.fetchone()
-
-    first = next(iter(current.values()))
-    if existing:
-        cursor.execute('''
-            UPDATE strategy_parameters
-            SET macd_fast = %s, bb_std = %s, win_rate = %s, sharpe_ratio = %s,
-                total_return = %s, total_trades = %s, max_drawdown = %s, updated_at = NOW()
-            WHERE id = %s
-        ''', (
-            first['macd_fast'], first['bb_std'],
-            float(pmetrics['win_rate']), float(pmetrics['sharpe_ratio']),
-            float(pmetrics['total_return']), int(pmetrics['total_trades']),
-            float(pmetrics['max_drawdown']), existing[0]
-        ))
+    # Only promote if new params beat best-ever Sharpe
+    if not promoted_flag:
+        print(f"  ✗ No improvement ({pmetrics['sharpe_ratio']:.4f} <= {baseline_sharpe:.4f}) — keeping current params")
     else:
+        print(f"  ✓ Sharpe improved {baseline_sharpe:.4f} → {pmetrics['sharpe_ratio']:.4f} — promoting new params")
+
+        for sym in ticker_symbols:
+            p = current[sym]
+            cursor.execute('''
+                UPDATE strategy_parameters
+                SET chandelier_period = %s, chandelier_mult = %s,
+                    chandelier_entry_mult = %s, atr_period = %s, updated_at = NOW()
+                WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
+                AND base_case = true
+            ''', (
+                p['chandelier_period'], p['chandelier_mult'],
+                p.get('chandelier_entry_mult', 1.5), p['chandelier_period'], sym
+            ))
+        conn.commit()
+
+        # Save BLENDED results
+        cursor.execute("SELECT id FROM tbl_etf_tickers WHERE symbol = 'BLENDED'")
+        blended_row = cursor.fetchone()
+        if not blended_row:
+            cursor.execute("INSERT INTO tbl_etf_tickers (symbol, enabled) VALUES ('BLENDED', true)")
+            conn.commit()
+            cursor.execute("SELECT id FROM tbl_etf_tickers WHERE symbol = 'BLENDED'")
+            blended_id = cursor.fetchone()[0]
+        else:
+            blended_id = blended_row[0]
+
         cursor.execute('''
-            INSERT INTO strategy_parameters
-            (ticker_id, macd_fast, bb_period, bb_std,
-             win_rate, sharpe_ratio, total_return, total_trades, max_drawdown,
-             base_case, created_at, updated_at)
-            VALUES (%s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, true, NOW(), NOW())
-        ''', (
-            blended_id, first['macd_fast'], first['macd_fast'], first['bb_std'],
-            float(pmetrics['win_rate']), float(pmetrics['sharpe_ratio']),
-            float(pmetrics['total_return']), int(pmetrics['total_trades']),
-            float(pmetrics['max_drawdown']),
-        ))
-    conn.commit()
-    db.save_backtest_trades('BLENDED', ptrades)
-    db.save_equity_curve('BLENDED', pmetrics, pequity, pequity_dates)
-    print("  ✓ Saved BLENDED portfolio results")
+            SELECT id FROM strategy_parameters
+            WHERE ticker_id = %s AND base_case = true LIMIT 1
+        ''', (blended_id,))
+        existing = cursor.fetchone()
+
+        first = next(iter(current.values()))
+        if existing:
+            cursor.execute('''
+                UPDATE strategy_parameters
+                SET chandelier_period = %s, chandelier_mult = %s, win_rate = %s, sharpe_ratio = %s,
+                    total_return = %s, total_trades = %s, max_drawdown = %s, updated_at = NOW()
+                WHERE id = %s
+            ''', (
+                first['chandelier_period'], first['chandelier_mult'],
+                float(pmetrics['win_rate']), float(pmetrics['sharpe_ratio']),
+                float(pmetrics['total_return']), int(pmetrics['total_trades']),
+                float(pmetrics['max_drawdown']), existing[0]
+            ))
+        else:
+            cursor.execute('''
+                INSERT INTO strategy_parameters
+                (ticker_id, chandelier_period, atr_period, chandelier_mult,
+                 win_rate, sharpe_ratio, total_return, total_trades, max_drawdown,
+                 base_case, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, NOW(), NOW())
+            ''', (
+                blended_id, first['chandelier_period'], first['chandelier_period'], first['chandelier_mult'],
+                float(pmetrics['win_rate']), float(pmetrics['sharpe_ratio']),
+                float(pmetrics['total_return']), int(pmetrics['total_trades']),
+                float(pmetrics['max_drawdown']),
+            ))
+        conn.commit()
+        db.save_backtest_trades('BLENDED', ptrades)
+        db.save_equity_curve('BLENDED', pmetrics, pequity, pequity_dates)
+        print("  ✓ Saved BLENDED portfolio results")
 
     total_time = time.time() - total_time
 
@@ -385,7 +457,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     for result in results:
         print(f"{result['symbol']}:")
-        print(f"  Params: CHAND(period={result['params']['macd_fast']}, mult={result['params']['bb_std']})")
+        print(f"  Params: CHAND(period={result['params']['chandelier_period']}, mult={result['params']['chandelier_mult']})")
         print(f"  Sharpe: {result['metrics']['sharpe_ratio']:.2f} | "
               f"Return: {result['metrics']['total_return']*100:.2f}%")
 

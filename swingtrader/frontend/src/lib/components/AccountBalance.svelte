@@ -4,12 +4,14 @@
 
   let account = null
   let loading = true
+  let error = false
 
   async function loadAccount() {
     try {
       account = await api.account.get()
     } catch (e) {
       console.error('Failed to load account:', e)
+      error = true
     } finally {
       loading = false
     }
@@ -70,6 +72,8 @@
   <h3>Account Balance</h3>
   {#if loading}
     <div class="loading">Loading...</div>
+  {:else if error}
+    <div class="loading">Failed to load account data</div>
   {:else if account}
     <div class="stat">
       <div class="stat-label">Equity</div>

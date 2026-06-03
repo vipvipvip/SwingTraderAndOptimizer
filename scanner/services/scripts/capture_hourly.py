@@ -26,11 +26,25 @@ def get_tickers():
     conn = get_db_conn()
     try:
         tickers = pd.read_sql(
-            "SELECT DISTINCT ticker FROM tbl_scanner_tickers ORDER BY ticker", conn
-        )['ticker'].tolist()
+            """SELECT DISTINCT e.symbol
+               FROM tbl_scanner_tickers s
+               JOIN tbl_stock_tickers e ON e.id = s.ticker_id
+               ORDER BY e.symbol""", conn
+        )['symbol'].tolist()
     finally:
         conn.close()
     return tickers
+
+
+def get_ticker_id(symbol):
+    conn = get_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM tbl_stock_tickers WHERE symbol = %s', (symbol,))
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
 
 
 def capture_prices(tickers):
@@ -60,16 +74,19 @@ def upsert_prices(prices):
         with conn.cursor() as cur:
             for ticker, data in prices.items():
                 p = data['price']
+                ticker_id = get_ticker_id(ticker)
+                if ticker_id is None:
+                    continue
                 cur.execute(
                     f"""
-                    INSERT INTO {TABLE} (ticker, date, open, high, low, close, volume)
+                    INSERT INTO {TABLE} (ticker_id, date, open, high, low, close, volume)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (ticker, date) DO UPDATE SET
+                    ON CONFLICT (ticker_id, date) DO UPDATE SET
                         high = GREATEST({TABLE}.high, EXCLUDED.high),
                         low = LEAST({TABLE}.low, EXCLUDED.low),
                         close = EXCLUDED.close
                     """,
-                    (ticker, hour_start, p, p, p, p, data['size']),
+                    (ticker_id, hour_start, p, p, p, p, data['size']),
                 )
         conn.commit()
         print(f"Upserted {len(prices)} rows at {hour_start}")

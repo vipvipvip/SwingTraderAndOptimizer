@@ -86,14 +86,8 @@ class EquityController extends Controller
      */
     public function liveTrades()
     {
-        try {
-            $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
-        } catch (\Exception $e) {
-            \Log::warning('Failed to sync live trades from Alpaca: ' . $e->getMessage());
-        }
-
-        $trades = LiveTrade::orderBy('entry_at', 'desc')->get();
-        return response()->json($trades);
+        $trades = LiveTrade::orderBy('entry_at', 'desc')->paginate(100);
+        return response()->json($trades->items());
     }
 
     /**

@@ -8,7 +8,7 @@ class StrategyParameter extends Model
 {
     public $timestamps = false;
     protected $table = 'strategy_parameters';
-    protected $fillable = ['ticker_id', 'macd_fast', 'bb_period', 'bb_std', 'win_rate', 'sharpe_ratio', 'total_return', 'total_trades'];
+    protected $fillable = ['ticker_id', 'chandelier_period', 'atr_period', 'chandelier_mult', 'chandelier_entry_mult', 'win_rate', 'sharpe_ratio', 'total_return', 'total_trades'];
 
     public function ticker()
     {

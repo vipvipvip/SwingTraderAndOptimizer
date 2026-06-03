@@ -1,6 +1,7 @@
 """Fetch OHLCV data from Alpaca using modern alpaca-py SDK"""
 import os
 import psycopg2
+from psycopg2.extras import execute_values
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
@@ -76,7 +77,7 @@ def fetch_incremental_data(symbol, timeframe='1Hour'):
             password='swingtrader_dev_password'
         )
         cursor = conn.cursor()
-        cursor.execute('SELECT id FROM tickers WHERE symbol = %s', (symbol,))
+        cursor.execute('SELECT id FROM tbl_etf_tickers WHERE symbol = %s', (symbol,))
         row = cursor.fetchone()
         if row:
             ticker_id = row[0]
@@ -256,7 +257,7 @@ def load_data_from_db(symbol):
         cursor = conn.cursor()
 
         # Get ticker_id
-        cursor.execute('SELECT id FROM tickers WHERE symbol = %s', (symbol,))
+        cursor.execute('SELECT id FROM tbl_etf_tickers WHERE symbol = %s', (symbol,))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -324,7 +325,7 @@ def append_bars_to_db(symbol, new_bars):
         cursor = conn.cursor()
 
         # Get ticker_id
-        cursor.execute('SELECT id FROM tickers WHERE symbol = %s', (symbol,))
+        cursor.execute('SELECT id FROM tbl_etf_tickers WHERE symbol = %s', (symbol,))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -345,9 +346,8 @@ def append_bars_to_db(symbol, new_bars):
         inserted = 0
         now = datetime.now(ZoneInfo('America/New_York')).isoformat()
 
+        rows = []
         for timestamp, row_data in new_bars.iterrows():
-            # Convert to UTC for consistent storage
-            # Database stores timestamps as TIMESTAMP WITHOUT TIME ZONE representing UTC times
             if timestamp.tzinfo is not None:
                 ts_stored = timestamp.tz_convert('UTC').replace(tzinfo=None)
             else:
@@ -355,12 +355,7 @@ def append_bars_to_db(symbol, new_bars):
 
             ts_utc = pd.to_datetime(ts_stored, utc=True)
             if last_ts is None or ts_utc > last_ts:
-                cursor.execute('''
-                    INSERT INTO bars
-                    (ticker_id, timestamp, open, high, low, close, volume, source, fetched_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT DO NOTHING
-                ''', (
+                rows.append((
                     ticker_id,
                     ts_stored,
                     float(row_data['open']),
@@ -371,7 +366,19 @@ def append_bars_to_db(symbol, new_bars):
                     'alpaca',
                     now
                 ))
-                inserted += 1
+
+        if rows:
+            execute_values(
+                cursor,
+                '''
+                INSERT INTO bars
+                (ticker_id, timestamp, open, high, low, close, volume, source, fetched_at)
+                VALUES %s
+                ON CONFLICT DO NOTHING
+                ''',
+                rows,
+            )
+            inserted = len(rows)
 
         conn.commit()
         conn.close()

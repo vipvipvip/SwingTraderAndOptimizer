@@ -1,7 +1,7 @@
 [Unit]
 Description=SwingTrader Nightly Optimizer (oneshot)
-After=network.target docker.service
-Wants=docker.service
+After=network.target docker.service swingtrader-db.service
+Wants=docker.service swingtrader-db.service
 
 [Service]
 Type=oneshot

@@ -19,7 +19,8 @@ class Kernel extends ConsoleKernel
             ->everyFiveMinutes()
             ->weekdays()
             ->between('09:30', '16:05')
-            ->timezone('America/New_York');
+            ->timezone('America/New_York')
+            ->withoutOverlapping(10);
 
         $schedule->command('equity:snapshot')
             ->dailyAt('16:05')
@@ -28,7 +29,8 @@ class Kernel extends ConsoleKernel
         $schedule->command('positions:sync')
             ->everyFiveMinutes()
             ->between('09:30', '16:05')
-            ->timezone('America/New_York');
+            ->timezone('America/New_York')
+            ->withoutOverlapping(10);
 
         // Check logs for errors and alert via email
         // Runs after market close to catch trade execution errors

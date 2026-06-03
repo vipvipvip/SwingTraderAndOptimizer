@@ -6,6 +6,7 @@
   import LivePositionsPanel from './lib/components/LivePositionsPanel.svelte'
   import PnlTable from './lib/components/PnlTable.svelte'
   import TradesHistoryTable from './lib/components/TradesHistoryTable.svelte'
+  import { api, apiFetch } from './lib/api'
 
   let strategies = []
   let summary = null
@@ -231,26 +232,25 @@
     setInterval(calculateProfitSummary, 300000)
 
     try {
-      const res = await fetchWithBackoff('/api/v1/strategies')
-      if (!res.ok) throw new Error('Failed to load strategies')
-      const data = await res.json()
+      const data = await api.strategies.list()
       strategies = data.tickers || data
       summary = data.summary || null
       if (strategies.length > 0) {
         selectedSymbol = strategies[0].symbol
       }
 
-      const lastRunsRes = await fetchWithBackoff('/api/v1/admin/last-runs')
-      if (lastRunsRes.ok) {
-        const lastRuns = await lastRunsRes.json()
-        if (lastRuns.last_optimizer_run) {
-          lastOptimizerRunRaw = lastRuns.last_optimizer_run
-          lastOptimizerRun = formatDateTime(lastRuns.last_optimizer_run)
+      try {
+        const lastRunsData = await apiFetch('/admin/last-runs')
+        if (lastRunsData.last_optimizer_run) {
+          lastOptimizerRunRaw = lastRunsData.last_optimizer_run
+          lastOptimizerRun = formatDateTime(lastRunsData.last_optimizer_run)
         }
-        if (lastRuns.last_trades_run) {
-          lastTradesRunRaw = lastRuns.last_trades_run
-          lastTradesRun = formatDateTime(lastRuns.last_trades_run)
+        if (lastRunsData.last_trades_run) {
+          lastTradesRunRaw = lastRunsData.last_trades_run
+          lastTradesRun = formatDateTime(lastRunsData.last_trades_run)
         }
+      } catch (_) {
+        // last-runs is non-critical
       }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error'

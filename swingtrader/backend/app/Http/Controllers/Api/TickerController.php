@@ -37,9 +37,10 @@ class TickerController extends Controller
      *                      @OA\Property(property="sharpe_ratio", type="number", example=1.42),
      *                      @OA\Property(property="win_rate", type="number", example=0.65),
      *                      @OA\Property(property="total_return", type="number", example=0.2348),
-     *                      @OA\Property(property="macd_fast", type="integer", example=18),
-     *                      @OA\Property(property="bb_period", type="integer", example=18),
-     *                      @OA\Property(property="bb_std", type="number", example=3.0)
+ *                      @OA\Property(property="chandelier_period", type="integer", example=18),
+ *                      @OA\Property(property="atr_period", type="integer", example=18),
+ *                      @OA\Property(property="chandelier_mult", type="number", example=3.0),
+ *                      @OA\Property(property="chandelier_entry_mult", type="number", example=1.5, nullable=true)
      *                  )
      *              )
      *          )
@@ -49,41 +50,6 @@ class TickerController extends Controller
     public function index()
     {
         return response()->json($this->strategyService->getAllTickers());
-    }
-
-    /**
-     * @OA\Get(
-     *      path="/api/v1/tickers/{symbol}",
-     *      operationId="getTicker",
-     *      tags={"Tickers"},
-     *      summary="Get ticker details with strategy parameters",
-     *      @OA\Parameter(
-     *          name="symbol",
-     *          in="path",
-     *          description="Ticker symbol (e.g., SPY, QQQ, IWM)",
-     *          required=true,
-     *          @OA\Schema(type="string")
-     *      ),
-     *      @OA\Response(
-     *          response=200,
-     *          description="Ticker with parameters",
-     *          @OA\JsonContent(
-     *              type="object",
-     *              @OA\Property(property="id", type="integer"),
-     *              @OA\Property(property="symbol", type="string"),
-     *              @OA\Property(property="params", type="object")
-     *          )
-     *      ),
-     *      @OA\Response(response=404, description="Ticker not found")
-     * )
-     */
-    public function show($symbol)
-    {
-        $strategy = $this->strategyService->getStrategyForSymbol($symbol);
-        if (!$strategy) {
-            return response()->json(['error' => 'Ticker not found'], 404);
-        }
-        return response()->json($strategy);
     }
 
     public function store(Request $request)

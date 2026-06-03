@@ -13,8 +13,8 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
-    MACD_FAST, MACD_SLOW, MACD_LENGTH,
-    PPO_FAST, PPO_SLOW, PPO_SIGNAL,
+    EMA_FAST, EMA_SLOW, MACD_SIGNAL_PERIOD,
+    PPO_FAST, PPO_SLOW, PPO_SIGNAL_PERIOD,
     ATR_PERIOD, ATR_MULT,
     get_db_conn,
 )
@@ -26,18 +26,18 @@ TABLES = {
 }
 
 
-def load_ticker_data(ticker, table):
+def load_ticker_data(ticker_id, table):
     conn = get_db_conn()
     try:
         df = pd.read_sql(
             f"""
             SELECT date, open, high, low, close, volume
             FROM {table}
-            WHERE ticker = %s
+            WHERE ticker_id = %s
             ORDER BY date ASC
             """,
             conn,
-            params=(ticker,),
+            params=(ticker_id,),
             parse_dates=['date'],
         )
     finally:
@@ -48,18 +48,18 @@ def load_ticker_data(ticker, table):
     return df
 
 
-def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow):
+def compute_indicators(df, ema_fast_period, ema_slow_period, macd_signal_period, ppo_fast_period, ppo_slow_period):
     close = df['close'].astype(float)
 
-    sma_fast = close.rolling(window=macd_fast).mean()
-    sma_slow = close.rolling(window=macd_slow).mean()
+    ema_fast = close.ewm(span=ema_fast_period, adjust=False).mean()
+    ema_slow = close.ewm(span=ema_slow_period, adjust=False).mean()
 
-    macd_line = sma_fast - sma_slow
-    macd_signal = macd_line.rolling(window=macd_length).mean()
+    macd_line = ema_fast - ema_slow
+    macd_signal = macd_line.ewm(span=macd_signal_period, adjust=False).mean()
     macd_histogram = macd_line - macd_signal
 
-    ppo_line = ((sma_fast - sma_slow) / sma_slow.replace(0, np.nan)) * 100
-    ppo_signal = ppo_line.ewm(span=PPO_SIGNAL, adjust=False).mean()
+    ppo_line = ((ema_fast - ema_slow) / ema_slow.replace(0, np.nan)) * 100
+    ppo_signal = ppo_line.ewm(span=PPO_SIGNAL_PERIOD, adjust=False).mean()
     ppo_histogram = ppo_line - ppo_signal
 
     macd_crossover = np.where(
@@ -82,13 +82,14 @@ def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
         True, False,
     )
 
+    sma_slow = close.rolling(window=ema_slow_period).mean()
     sma_crossover = np.where(
-        (sma_fast > sma_slow) & (sma_fast.shift(1) <= sma_slow.shift(1)),
+        (ema_fast > sma_slow) & (ema_fast.shift(1) <= sma_slow.shift(1)),
         True, False,
     )
 
     sma_cross_bearish = np.where(
-        (sma_fast < sma_slow) & (sma_fast.shift(1) >= sma_slow.shift(1)),
+        (ema_fast < sma_slow) & (ema_fast.shift(1) >= sma_slow.shift(1)),
         True, False,
     )
 
@@ -117,14 +118,29 @@ def compute_indicators(df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
     })
 
 
-def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow):
+def get_ticker_id(symbol):
+    conn = get_db_conn()
     try:
-        df = load_ticker_data(ticker, table)
-        if df is None or len(df) < max(macd_slow, ppo_slow) + 1:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM tbl_stock_tickers WHERE symbol = %s', (symbol,))
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def process_ticker(ticker, table, ema_fast_period, ema_slow_period, macd_signal_period, ppo_fast_period, ppo_slow_period):
+    try:
+        ticker_id = get_ticker_id(ticker)
+        if ticker_id is None:
+            return ticker, 0, f'ticker not found in tbl_stock_tickers'
+
+        df = load_ticker_data(ticker_id, table)
+        if df is None or len(df) < max(ema_slow_period, ppo_slow_period) + 1:
             return ticker, 0, f'insufficient data ({len(df) if df is not None else 0} rows)'
 
         indicators = compute_indicators(
-            df, macd_fast, macd_slow, macd_length, ppo_fast, ppo_slow
+            df, ema_fast_period, ema_slow_period, macd_signal_period, ppo_fast_period, ppo_slow_period
         )
 
         conn = get_db_conn()
@@ -145,7 +161,7 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
                             ppo_crossover = %s, ppo_cross_bearish = %s,
                             sma_crossover = %s, sma_cross_bearish = %s,
                             atr_stop = %s
-                        WHERE ticker = %s AND date = %s
+                        WHERE ticker_id = %s AND date = %s
                         """,
                         (
                             None if pd.isna(row['macd_line']) else float(row['macd_line']),
@@ -161,7 +177,7 @@ def process_ticker(ticker, table, macd_fast, macd_slow, macd_length, ppo_fast, p
                             bool(row['sma_crossover']),
                             bool(row['sma_cross_bearish']),
                             None if pd.isna(row['atr_stop']) else float(row['atr_stop']),
-                            ticker,
+                            ticker_id,
                             date_param,
                         ),
                     )
@@ -183,9 +199,9 @@ def main():
     parser = argparse.ArgumentParser(description='Compute MACD/PPO indicators for scanner tickers')
     parser.add_argument('--timeframe', choices=list(TABLES.keys()), default='week',
                         help='Timeframe table to process (default: week)')
-    parser.add_argument('--macd-fast', type=int, default=MACD_FAST)
-    parser.add_argument('--macd-slow', type=int, default=MACD_SLOW)
-    parser.add_argument('--macd-length', type=int, default=MACD_LENGTH)
+    parser.add_argument('--ema-fast', type=int, default=EMA_FAST)
+    parser.add_argument('--ema-slow', type=int, default=EMA_SLOW)
+    parser.add_argument('--macd-signal-period', type=int, default=MACD_SIGNAL_PERIOD)
     parser.add_argument('--ppo-fast', type=int, default=PPO_FAST)
     parser.add_argument('--ppo-slow', type=int, default=PPO_SLOW)
     parser.add_argument('--workers', type=int, default=10)
@@ -196,13 +212,16 @@ def main():
     conn = get_db_conn()
     try:
         tickers = pd.read_sql(
-            f"SELECT DISTINCT ticker FROM {table} ORDER BY ticker", conn
-        )['ticker'].tolist()
+            f"""SELECT DISTINCT e.symbol
+                FROM {table} s
+                JOIN tbl_stock_tickers e ON e.id = s.ticker_id
+                ORDER BY e.symbol""", conn
+        )['symbol'].tolist()
     finally:
         conn.close()
 
     print(f"Computing indicators for {len(tickers)} tickers on {table} "
-          f"(MACD {args.macd_fast}/{args.macd_slow}/{args.macd_length}, "
+          f"(EMA {args.ema_fast}/{args.ema_slow}, "
           f"PPO {args.ppo_fast}/{args.ppo_slow})...")
 
     total = len(tickers)
@@ -212,8 +231,8 @@ def main():
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {
             executor.submit(
-                process_ticker, t, table, args.macd_fast, args.macd_slow,
-                args.macd_length, args.ppo_fast, args.ppo_slow,
+                process_ticker, t, table, args.ema_fast, args.ema_slow,
+                args.macd_signal_period, args.ppo_fast, args.ppo_slow,
             ): t for t in tickers
         }
 

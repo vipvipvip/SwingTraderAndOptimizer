@@ -30,7 +30,8 @@
 
       if (backtestRes.ok) {
         const btData = await backtestRes.json()
-        backtestTrades = btData.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
+        const btArray = Array.isArray(btData) ? btData : (btData.data ?? [])
+        backtestTrades = btArray.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
       }
 
       const allTrades = [...liveTrades, ...backtestTrades]
@@ -320,7 +321,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each displayTrades as trade (trade.id || Math.random())}
+            {#each displayTrades as trade (trade.id || trade.symbol + trade.entry_at + (trade.exit_at || ''))}
               <tr>
                 <td>
                   <span class="trade-type-badge" class:trade-type-live={trade.status === 'closed'} class:trade-type-open={trade.status === 'open'}>

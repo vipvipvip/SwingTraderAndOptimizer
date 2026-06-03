@@ -4,10 +4,16 @@
   export let onClick = undefined
 
   $: isPortfolio = strategy.params?.is_portfolio ?? false
+  $: inPosition = strategy.in_position ?? false
 
   $: subTickers = strategies
     .filter(s => s.symbol !== 'BLENDED')
-    .map(s => `${s.symbol} (${s.params?.macd_fast ?? '?'}, ${s.params?.bb_std ?? '?'})`)
+    .map(s => {
+      const p = s.params
+      const exit = `${p?.chandelier_period ?? '?'}, ${p?.chandelier_mult ?? '?'}`
+      const entry = p?.chandelier_entry_mult != null ? `, e=${p.chandelier_entry_mult}` : ''
+      return `${s.symbol} (${exit}${entry})`
+    })
     .join(' / ')
 
   const fmt = {
@@ -141,10 +147,6 @@
         <span>Chandelier Exit (shared pool)</span>
       </div>
       <div class="param-row">
-        <span>Portfolio Return:</span>
-        <span>{fmt.pct(strategy.params?.total_return)}</span>
-      </div>
-      <div class="param-row">
         <span>Tickers:</span>
         <span>{subTickers}</span>
       </div>
@@ -156,48 +158,53 @@
         <span>Capital:</span>
         <span>Shared pool ($100k)</span>
       </div>
-      <div class="param-row">
-        <span>High:</span>
-        <span>{fmt.dec2(strategy.high)}</span>
-      </div>
-      <div class="param-row">
-        <span>Stop:</span>
-        <span>{fmt.dec2(strategy.stop)}</span>
-      </div>
-      <div class="param-row">
-        <span>ATR:</span>
-        <span>{fmt.dec2(strategy.atr)}</span>
-      </div>
     </div>
   {:else}
     <div class="params">
       <div class="param-row">
         <span>Exit:</span>
-        <span>Chandelier({strategy.params?.macd_fast}, {strategy.params?.bb_std})</span>
+        <span>CHAND({strategy.params?.chandelier_period}, {(+strategy.params?.chandelier_mult).toFixed(1)}× ATR)</span>
       </div>
       <div class="param-row">
-        <span>ATR Period:</span>
-        <span>({strategy.params?.bb_period})</span>
-      </div>
-      <div class="param-row">
-        <span>Re-entry:</span>
-        <span>Always (next bar open)</span>
-      </div>
-      <div class="param-row">
-        <span>Trades:</span>
-        <span>{strategy.params?.total_trades ?? '-'}</span>
-      </div>
-      <div class="param-row">
-        <span>High:</span>
-        <span>{fmt.dec2(strategy.high)}</span>
-      </div>
-      <div class="param-row">
-        <span>Stop:</span>
-        <span>{fmt.dec2(strategy.stop)}</span>
+        <span>Entry:</span>
+        {#if strategy.params?.chandelier_entry_mult != null}
+          <span>Price &gt; High − {(+strategy.params.chandelier_entry_mult).toFixed(1)}× ATR{strategy.entry_level != null ? ` [$${fmt.dec2(strategy.entry_level)}]` : ''}</span>
+        {:else}
+          <span>Always (next bar open)</span>
+        {/if}
       </div>
       <div class="param-row">
         <span>ATR:</span>
         <span>{fmt.dec2(strategy.atr)}</span>
+      </div>
+      {#if inPosition}
+        <div class="param-row">
+          <span>High since entry:</span>
+          <span>{fmt.dec2(strategy.high)}</span>
+        </div>
+        <div class="param-row">
+          <span>Stop level:</span>
+          <span style="color: #d32f2f">${fmt.dec2(strategy.stop)}</span>
+        </div>
+        <div class="param-row">
+          <span>Entry price:</span>
+          <span>${fmt.dec2(strategy.price)}
+            {#if strategy.pnl_unrealized != null}
+              <span style="color: {strategy.pnl_unrealized >= 0 ? '#2e7d32' : '#d32f2f'}">
+                ({strategy.pnl_unrealized >= 0 ? '+' : ''}{strategy.pnl_unrealized}%)
+              </span>
+            {/if}
+          </span>
+        </div>
+      {:else if strategy.entry_level != null}
+        <div class="param-row">
+          <span>Entry level:</span>
+          <span style="color: #1565c0">${fmt.dec2(strategy.entry_level)}</span>
+        </div>
+      {/if}
+      <div class="param-row">
+        <span>Trades:</span>
+        <span>{strategy.params?.total_trades ?? '-'}</span>
       </div>
     </div>
   {/if}

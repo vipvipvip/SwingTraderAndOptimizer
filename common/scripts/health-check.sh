@@ -54,8 +54,8 @@ fi
 echo ""
 echo "--- Market Data ---"
 
-TICKER_COUNT=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM tickers WHERE enabled=true AND symbol != 'BLENDED';" 2>/dev/null || echo "0")
-BAR_COUNT=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM bars b JOIN tickers t ON b.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "0")
+TICKER_COUNT=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM tbl_etf_tickers WHERE enabled=true AND symbol != 'BLENDED';" 2>/dev/null || echo "0")
+BAR_COUNT=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM bars b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "0")
 
 if [ "$BAR_COUNT" -gt 0 ] 2>/dev/null; then
     pass "Bars table has $BAR_COUNT rows across $TICKER_COUNT enabled tickers"
@@ -92,7 +92,7 @@ fi
 echo ""
 echo "--- Strategy Parameters ---"
 
-PARAM_ROWS=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM strategy_parameters sp JOIN tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "0")
+PARAM_ROWS=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "0")
 if [ "$PARAM_ROWS" -ge "$TICKER_COUNT" ] 2>/dev/null; then
     pass "All $TICKER_COUNT enabled tickers have base_case=true parameters"
 else
@@ -100,14 +100,14 @@ else
 fi
 
 # Check parameters are recent
-LAST_PARAM_UPDATE=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT MAX(updated_at)::date FROM strategy_parameters sp JOIN tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "never")
+LAST_PARAM_UPDATE=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT MAX(updated_at)::date FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "never")
 echo "  Parameters last updated: $LAST_PARAM_UPDATE"
 
 # ---- Optimization History ----
 echo ""
 echo "--- Nightly Optimizer ---"
 
-OPT_RUNS=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM optimization_history oh JOIN tickers t ON oh.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "0")
+OPT_RUNS=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM optimization_history oh JOIN tbl_etf_tickers t ON oh.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "0")
 if [ "$OPT_RUNS" -gt 0 ] 2>/dev/null; then
     pass "Optimization history has $OPT_RUNS recorded runs"
 else
@@ -125,12 +125,18 @@ else
     warn "Optimizer log file not found at swingtrader/services/optimizer/logs/nightly.log"
 fi
 
-# Check if optimizer timer is enabled
-if systemctl is-enabled swingtrader-optimizer.timer >/dev/null 2>&1; then
-    pass "Optimizer systemd timer is enabled"
-else
-    warn "Optimizer systemd timer is not enabled"
-fi
+# ---- Timers ----
+echo ""
+echo "--- Timers ---"
+
+for timer in swingtrader-optimizer swingtrader-backup scanner-update scanner-intraday; do
+    if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
+        NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
+        pass "$timer.timer is enabled (next: $NEXT)"
+    else
+        warn "$timer.timer is not enabled"
+    fi
+done
 
 # ---- Systemd Services ----
 echo ""
@@ -144,6 +150,15 @@ for svc in swingtrader-db swingtrader-backend swingtrader-fe-dev; do
         warn "$svc service not found"
     else
         fail "$svc is $STATUS"
+    fi
+done
+
+# Scanner services are oneshot (run on timer, not persistent)
+for svc in scanner-update scanner-intraday; do
+    if systemctl is-enabled "$svc.timer" >/dev/null 2>&1; then
+        pass "$svc (oneshot, triggered by timer)"
+    else
+        warn "$svc timer not enabled"
     fi
 done
 

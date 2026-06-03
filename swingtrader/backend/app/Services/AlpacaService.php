@@ -51,6 +51,7 @@ class AlpacaService
 
     private function makeRequest($method, $url, $params = null, $payload = null, $retries = 0)
     {
+        $response = null;
         try {
             Log::debug('AlpacaService::makeRequest', [
                 'method' => $method,
@@ -81,13 +82,19 @@ class AlpacaService
             ]);
 
             if ($response->failed()) {
-                throw new \Exception("Alpaca API error: " . $response->body());
+                throw new \Exception("Alpaca API error: " . $response->body(), $response->status());
             }
 
             return $response;
         } catch (\Exception $e) {
-            // Retry on connection timeouts or 5xx errors
-            if ($retries < $this->maxRetries && (strpos($e->getMessage(), 'timed out') !== false || strpos($e->getMessage(), '5') !== false)) {
+            $isRetryable = false;
+            if (strpos($e->getMessage(), 'timed out') !== false) {
+                $isRetryable = true;
+            }
+            if ($response && $response->status() >= 500) {
+                $isRetryable = true;
+            }
+            if ($retries < $this->maxRetries && $isRetryable) {
                 usleep($this->retryDelay * 1000);
                 return $this->makeRequest($method, $url, $params, $payload, $retries + 1);
             }

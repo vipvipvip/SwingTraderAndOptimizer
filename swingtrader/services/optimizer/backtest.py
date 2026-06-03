@@ -40,9 +40,9 @@ def backtest_ticker(symbol, timeframe, allocation_weight=None):
 
     # Query strategy_parameters for this ticker (base_case=true only)
     cursor.execute('''
-        SELECT macd_fast, bb_period, bb_std
+        SELECT chandelier_period, atr_period, chandelier_mult, chandelier_entry_mult
         FROM strategy_parameters
-        WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
+        WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
         AND base_case = true
         LIMIT 1
     ''', (symbol,))
@@ -56,13 +56,22 @@ def backtest_ticker(symbol, timeframe, allocation_weight=None):
 
     # Extract parameters from database row
     params = {
-        'macd_fast': int(params_row[0]),
-        'bb_period': int(params_row[1]),
-        'bb_std': float(params_row[2]),
+        'chandelier_period': int(params_row[0]),
+        'atr_period': int(params_row[1]),
+        'chandelier_mult': float(params_row[2]),
     }
+    chandelier_entry_mult = float(params_row[3]) if params_row[3] is not None else None
+    if chandelier_entry_mult is not None:
+        params['chandelier_entry_mult'] = chandelier_entry_mult
+
+    entry_mode = 'chandelier_entry' if chandelier_entry_mult is not None else 'always'
 
     print(f"\n[{symbol}] Backtesting with current parameters:")
-    print(f"  Chandelier: period={params['macd_fast']}, ATR period={params['bb_period']}, mult={params['bb_std']}")
+    print(f"  Chandelier: period={params['chandelier_period']}, ATR period={params['atr_period']}, mult={params['chandelier_mult']}", end='')
+    if chandelier_entry_mult is not None:
+        print(f", entry_mult={chandelier_entry_mult}")
+    else:
+        print()
 
     # Load price data
     data_df = load_data_from_db(symbol)
@@ -74,7 +83,7 @@ def backtest_ticker(symbol, timeframe, allocation_weight=None):
 
     # Run backtest
     optimizer = ParameterOptimizer(data_df, initial_capital=100000, symbol=symbol, allocation_weight=allocation_weight)
-    trades, metrics, equity_curve, equity_dates = optimizer._backtest_with_params(params)
+    trades, metrics, equity_curve, equity_dates = optimizer._backtest_with_params(params, entry_mode=entry_mode)
 
     # Store results in database
     if trades:
@@ -106,7 +115,8 @@ def backtest_params_with_id(symbol, params, params_id=None, test_type='baseline'
     db.close()
 
     optimizer = ParameterOptimizer(data_df, initial_capital=100000, symbol=symbol, allocation_weight=allocation_weight)
-    trades, metrics, equity_curve, equity_dates = optimizer._backtest_with_params(params)
+    entry_mode = 'chandelier_entry' if params.get('chandelier_entry_mult') is not None else 'always'
+    trades, metrics, equity_curve, equity_dates = optimizer._backtest_with_params(params, entry_mode=entry_mode)
 
     return {
         'id': params_id,
@@ -152,7 +162,7 @@ def main():
     parser = argparse.ArgumentParser(description='Backtest with parameter comparison')
     parser.add_argument('--timeframe', default='1Hour', help='Timeframe (default: 1Hour)')
     parser.add_argument('--tickers', nargs='+', default=['QQQ', 'VTI', 'VTV'], help='Tickers to backtest')
-    parser.add_argument('--allocation', type=float, default=None, help='Capital allocation % per trade (default: load from database)')
+    parser.add_argument('--allocation', type=float, default=None, help='Capital allocation percentage per trade (default: load from database)')
     parser.add_argument('--mode', choices=['baseline', 'candidates', 'all'], default='baseline',
                         help='baseline: test base_case=1, candidates: test base_case=0, all: compare both')
 
@@ -179,9 +189,9 @@ def main():
 
             # Get baseline (base_case=1)
             cursor.execute('''
-                SELECT id, macd_fast, bb_period, bb_std
+                SELECT id, chandelier_period, atr_period, chandelier_mult, chandelier_entry_mult
                 FROM strategy_parameters
-                WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
+                WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
                 AND base_case = true
                 LIMIT 1
             ''', (ticker,))
@@ -191,16 +201,19 @@ def main():
                 continue
 
             baseline_params = {
-                'macd_fast': int(baseline_row[1]),
-                'bb_period': int(baseline_row[2]),
-                'bb_std': float(baseline_row[3]),
+                'chandelier_period': int(baseline_row[1]),
+                'atr_period': int(baseline_row[2]),
+                'chandelier_mult': float(baseline_row[3]),
             }
+            entry_mult = float(baseline_row[4]) if baseline_row[4] is not None else None
+            if entry_mult is not None:
+                baseline_params['chandelier_entry_mult'] = entry_mult
 
             # Get candidates (base_case=0)
             cursor.execute('''
-                SELECT id, macd_fast, bb_period, bb_std
+                SELECT id, chandelier_period, atr_period, chandelier_mult, chandelier_entry_mult
                 FROM strategy_parameters
-                WHERE ticker_id = (SELECT id FROM tickers WHERE symbol = %s)
+                WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
                 AND base_case = false
                 ORDER BY sharpe_ratio DESC
                 LIMIT 5
@@ -216,11 +229,14 @@ def main():
                 candidates = []
                 for cand_row in candidate_rows:
                     cand_id = cand_row[0]
-                    cand_params = {
-                        'macd_fast': int(cand_row[1]),
-                        'bb_period': int(cand_row[2]),
-                        'bb_std': float(cand_row[3]),
-                    }
+                cand_params = {
+                    'chandelier_period': int(cand_row[1]),
+                    'atr_period': int(cand_row[2]),
+                    'chandelier_mult': float(cand_row[3]),
+                }
+                cand_entry_mult = float(cand_row[4]) if cand_row[4] is not None else None
+                if cand_entry_mult is not None:
+                    cand_params['chandelier_entry_mult'] = cand_entry_mult
                     print(f"  Backtesting candidate {cand_id}...")
                     result = backtest_params_with_id(ticker, cand_params, cand_id, 'candidate')
                     if result:
