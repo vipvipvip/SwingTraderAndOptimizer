@@ -35,6 +35,47 @@
 - Sharpe chosen as primary optimization target; return as secondary check
 - nightly optimizer runs at 2 AM via systemd, updates parameters if Sharpe improves
 
+### Buy Sell Explantion
+
+**Entry condition:**
+```
+entry_level = rolling_high(period) − ATR(period) × entry_mult
+BUY when: close > entry_level  (and not exited today)
+```
+
+**Exit condition:**
+```
+stop_level = highest_high_since_entry − ATR(period) × chandelier_mult
+SELL when: close < stop_level
+```
+
+**How entry_level drifts down during a decline (conviction filter):**
+
+The entry level is adaptive — it falls automatically when price moves down:
+
+- `rolling_high` rolls lower as old highs fall out of the period-bar window
+- `ATR` increases when volatility rises during the decline
+- Combined: `entry_level = rolling_high − (higher ATR × entry_mult)` drops faster than price alone
+
+Example:
+```
+Trending market:      rolling_high=750, ATR=8,  entry_level = 750 − 8  = 742
+Volatile declining:   rolling_high=740, ATR=18, entry_level = 740 − 18 = 722
+```
+
+During the decline, price stays below the entry_level → no entry triggered.
+When price recovers and pierces **upward through entry_level**, it has recovered at least
+`entry_mult × ATR` from the recent period high. A high-ATR environment requires a larger
+recovery before the signal fires — this is the conviction check.
+
+**entry_mult values:**
+- `1.0` (QQQ, VTI) — tightest: price must be within 1 ATR of rolling high → confirmed uptrend only
+- `2.0` (VTV)      — looser: allows entry up to 2 ATR below rolling high → earlier rebound entry
+
+**Capital allocation:**
+Single shared pool. When multiple tickers signal on the same bar, cash is split equally.
+Cash from an exit sits idle until that same ticker re-signals (no redistribution to others).
+This prevents cascade risk — freed cash does not pile into a position that may also be weakening.
 
 ### Learnings
 
