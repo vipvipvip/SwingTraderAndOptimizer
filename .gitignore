@@ -45,3 +45,4 @@ swingtrader/services/optimizer/__pycache__/
 scanner/services/scripts/__pycache__/
 swingtrader/backend/.env
 scanner/.env
+swingtrader/services/optimizer/__pycache__/
