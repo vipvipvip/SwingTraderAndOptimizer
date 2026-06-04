@@ -118,7 +118,7 @@
   <div class="header">
     <div class="symbol">{isPortfolio ? 'PORTFOLIO' : strategy.symbol}</div>
     <div class="badge" class:portfolio-badge={isPortfolio}>{isPortfolio ? 'PORTFOLIO' : 'ACTIVE'}</div>
-    <div class="price">${fmt.dec2(strategy.price)}</div>
+    <div class="price">${fmt.dec2(strategy.current_price)}</div>
   </div>
 
   <div class="metrics">

@@ -205,6 +205,35 @@ class AlpacaService
     }
 
     /**
+     * Get latest trade price for multiple symbols in one call.
+     * Returns ['QQQ' => 746.10, 'VTI' => 374.31, ...]
+     */
+    public function getLatestPrices(array $symbols): array
+    {
+        $cacheKey = 'latest_prices_' . implode('_', $symbols);
+        $cached = $this->cacheGet($cacheKey);
+        if ($cached !== null) return $cached;
+
+        try {
+            $response = $this->makeRequest('get', 'https://data.alpaca.markets/v2/stocks/trades/latest', [
+                'symbols' => implode(',', $symbols),
+                'feed'    => 'iex',
+            ]);
+            $data = $response->json();
+            $trades = $data['trades'] ?? [];
+            $prices = [];
+            foreach ($trades as $symbol => $trade) {
+                $prices[$symbol] = floatval($trade['p'] ?? 0);
+            }
+            $this->cacheSet($cacheKey, $prices);
+            return $prices;
+        } catch (\Exception $e) {
+            Log::warning('AlpacaService::getLatestPrices error: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
      * Get bars for a symbol
      */
     public function getBars($symbol, $timeframe = '1Hour', $start = null, $end = null, $limit = 1000)

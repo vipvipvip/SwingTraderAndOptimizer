@@ -11,6 +11,33 @@ use Illuminate\Support\Carbon;
 class StrategyService
 {
     use MarketDataTrait;
+
+    private array $livePrices = [];
+
+    public function prefetchLivePrices(array $symbols): void
+    {
+        try {
+            $alpaca = app(AlpacaService::class);
+            // Try positions first (already cached, includes current_price)
+            $positions = $alpaca->getPositions();
+            foreach ($positions as $pos) {
+                if (isset($pos['symbol'], $pos['current_price'])) {
+                    $this->livePrices[$pos['symbol']] = floatval($pos['current_price']);
+                }
+            }
+            // Fetch latest trades for any symbols not covered by positions
+            $missing = array_diff($symbols, array_keys($this->livePrices));
+            if (!empty($missing)) {
+                $latest = $alpaca->getLatestPrices($missing);
+                foreach ($latest as $sym => $price) {
+                    if ($price > 0) $this->livePrices[$sym] = $price;
+                }
+            }
+        } catch (\Exception $e) {
+            // Fall back to last bar close silently
+        }
+    }
+
     private function timestampsToNy($params)
     {
         if (!$params) return null;
@@ -72,6 +99,10 @@ class StrategyService
             $entry['entry_level'] = null;
         }
 
+        $entry['current_price'] = isset($this->livePrices[$symbol])
+            ? round($this->livePrices[$symbol], 2)
+            : round($last['close'], 2);
+
         if ($openTrade) {
             $entry['price'] = round($openTrade->entry_price, 2);
             $entry['pnl_unrealized'] = round(($last['close'] - $openTrade->entry_price) / $openTrade->entry_price * 100, 2);
@@ -89,6 +120,10 @@ class StrategyService
 
     public function getAllTickers()
     {
+        // Prefetch live prices for all enabled tickers in one Alpaca call
+        $symbols = Ticker::whereEnabled(1)->where('symbol', '!=', 'BLENDED')->pluck('symbol')->toArray();
+        $this->prefetchLivePrices($symbols);
+
         $portfolio = Ticker::where('symbol', 'BLENDED')
             ->with('strategyParameter')
             ->first();
