@@ -1,41 +1,6 @@
 ### Current Strategy (6/3/26)
 
-**Chandelier Exit — Always-In Trend Following**
-
-| Ticker | ATR Period | Exit Mult | Entry Mult |
-|--------|-----------|-----------|-----------|
-| QQQ    | 18        | 3.5×      | 1.0×      |
-| VTI    | 14        | 3.0×      | 1.0×      |
-| VTV    | 14        | 2.5×      | 2.0×      |
-
-**Entry rule:** `close > rolling_high(period) − ATR × entry_mult`
-- entry_mult=1.0 (QQQ/VTI): only enter when price is within 1 ATR of the rolling high — confirmed uptrend only
-- entry_mult=2.0 (VTV): allows entry with up to 2 ATR pullback from rolling high
-
-**Exit rule:** `stop = highest_high_since_entry − ATR(period) × exit_mult`
-- Trailing stop from highest high since entry; sell when close crosses below stop
-
-**Capital allocation:** Single shared pool ($100k), split equally among tickers that signal on the same bar. Cash from exits sits idle until that ticker's next entry signal (no redistribution to other positions).
-
-**Backtest results (2-year, daily bars, 0.05% round-trip cost):**
-
-| Metric     | Value   |
-|------------|---------|
-| Return     | 169.2%  |
-| Sharpe     | 1.19    |
-| Win Rate   | 56.9%   |
-| Max DD     | 18.1%   |
-| Trades     | 72      |
-
-**P&L by ticker:** QQQ $56k | VTI $62k | VTV $54k (well balanced)
-
-**Key design decisions:**
-- No redistribution on exit: prevents cascade risk when one ticker exits during a downturn
-- entry_mult=1.0 is the tightest filter — only entering confirmed uptrends near recent highs
-- Sharpe chosen as primary optimization target; return as secondary check
-- nightly optimizer runs at 2 AM via systemd, updates parameters if Sharpe improves
-
-### Buy Sell Explantion
+## Buy Sell Explantion
 
 **Entry condition:**
 ```
