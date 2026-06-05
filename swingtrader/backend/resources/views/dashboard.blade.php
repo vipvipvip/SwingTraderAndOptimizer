@@ -87,8 +87,9 @@
             <canvas id="equityChart"></canvas>
         </div>
 
-        <div style="text-align: center; margin-top: 40px;">
+        <div style="text-align: center; margin-top: 40px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
             <button onclick="triggerOptimizer()">Trigger Nightly Optimizer</button>
+            <button onclick="syncTrades()" style="background: #555;">Sync Trades from Alpaca</button>
         </div>
     </div>
 
@@ -97,11 +98,17 @@
 
         let chartInstance = null;
 
-        async function fetchAPI(endpoint, timeoutMs = 5000) {
+        async function fetchAPI(endpoint, opts = {}) {
+            const { method = 'GET', timeoutMs = 5000, body } = opts;
             try {
                 const controller = new AbortController();
                 const timer = setTimeout(() => controller.abort(), timeoutMs);
-                const res = await fetch(`${API_BASE}${endpoint}`, { signal: controller.signal });
+                const res = await fetch(`${API_BASE}${endpoint}`, {
+                    method,
+                    body: body ? JSON.stringify(body) : undefined,
+                    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+                    signal: controller.signal,
+                });
                 clearTimeout(timer);
                 if (!res.ok) throw new Error(`${res.status}`);
                 return await res.json();
@@ -162,14 +169,18 @@
                                 <span class="label">Chandelier</span>
                                 <span class="val">(${t.params.chandelier_period},${t.params.atr_period},${t.params.chandelier_mult})</span>
                             </div>
-                            ${t.params.price ? `
+                            ${t.price ? `
                             <div class="metric">
-                                <span class="label">${t.params.in_position ? 'Buy Price' : (t.params.entry_level ? 'Entry Level' : 'Re-entry Price')}</span>
-                                <span class="val">$${parseFloat(t.params.price).toFixed(2)}${t.params.in_position && t.params.pnl_unrealized ? ' <span class="' + (t.params.pnl_unrealized > 0 ? 'success' : 'error') + '">(' + (t.params.pnl_unrealized > 0 ? '+' : '') + t.params.pnl_unrealized + '%)</span>' : ''}</span>
+                                <span class="label">${t.in_position ? 'Buy Price' : (t.entry_level ? 'Entry Level' : 'Re-entry Price')}</span>
+                                <span class="val">$${parseFloat(t.price).toFixed(2)}${t.in_position && t.pnl_unrealized ? ' <span class="' + (t.pnl_unrealized > 0 ? 'success' : 'error') + '">(' + (t.pnl_unrealized > 0 ? '+' : '') + t.pnl_unrealized + '%)</span>' : ''}</span>
                             </div>
                             <div class="metric">
-                                <span class="label">ATR / Stop</span>
-                                <span class="val">${t.params.atr ? parseFloat(t.params.atr).toFixed(2) : '?'} / ${t.params.stop ? '$' + parseFloat(t.params.stop).toFixed(2) : '?'}</span>
+                                <span class="label">Live Price</span>
+                                <span class="val">${t.current_price ? '$' + parseFloat(t.current_price).toFixed(2) : '?'}</span>
+                            </div>
+                            <div class="metric">
+                                <span class="label">${t.in_position ? 'Qty' : 'ATR'} / Stop</span>
+                                <span class="val">${t.in_position ? parseInt(t.quantity || '?') : (t.atr ? parseFloat(t.atr).toFixed(2) : '?')} / ${t.stop ? '$' + parseFloat(t.stop).toFixed(2) : '?'}</span>
                             </div>
                             ` : ''}
                         ` : '<div class="loading">No parameters optimized yet</div>'}
@@ -263,6 +274,16 @@
                     </tr>
                 `;
             }).join('');
+        }
+
+        async function syncTrades() {
+            const res = await fetchAPI('/admin/trades/sync', { method: 'POST', timeoutMs: 30000 });
+            if (res) {
+                alert('Trades synced from Alpaca. Reloading...');
+                loadDashboard();
+            } else {
+                alert('Sync failed. Check console.');
+            }
         }
 
         async function triggerOptimizer() {

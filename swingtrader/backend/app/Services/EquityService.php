@@ -152,11 +152,17 @@ class EquityService
                 }
             }
 
-            // Process buy orders - create as open trades
+            // Process buy orders - create or update live trades
             foreach ($buyOrders as $buyOrder) {
                 $existing = LiveTrade::where('alpaca_order_id', $buyOrder['id'])->first();
 
-                if (!$existing) {
+                if ($existing) {
+                    $existing->update([
+                        'entry_price' => $buyOrder['price'],
+                        'quantity' => $buyOrder['qty'],
+                        'status' => 'open',
+                    ]);
+                } else {
                     LiveTrade::create([
                         'ticker_id' => $buyOrder['ticker_id'],
                         'symbol' => $buyOrder['symbol'],
@@ -197,6 +203,34 @@ class EquityService
                         'pnl_pct' => $pnl_pct,
                     ]);
                 }
+            }
+
+            // Reconcile open positions from Alpaca position data (correct avg entry price from multiple fills)
+            try {
+                $positions = $alpacaService->getPositions();
+                if (is_array($positions)) {
+                    foreach ($positions as $pos) {
+                        $symbol = $pos['symbol'] ?? null;
+                        $avgEntry = floatval($pos['avg_entry_price'] ?? 0);
+                        $qty = intval($pos['qty'] ?? 0);
+                        if (!$symbol || $avgEntry <= 0) continue;
+
+                        $openTrade = LiveTrade::where('symbol', $symbol)
+                            ->where('status', 'open')
+                            ->latest('entry_at')
+                            ->first();
+
+                        if ($openTrade) {
+                            $openTrade->update([
+                                'entry_price' => $avgEntry,
+                                'quantity' => $qty,
+                            ]);
+                            Log::info("Reconciled $symbol position: qty=$qty avg_entry=$avgEntry");
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning('Position reconciliation failed: ' . $e->getMessage());
             }
 
             return true;

@@ -82,6 +82,7 @@ Route::prefix('v1')->group(function () {
 
     Route::post('/admin/optimize/trigger', [AdminController::class, 'triggerOptimizer']);
     Route::post('/admin/trades/trigger', [AdminController::class, 'triggerTrades']);
+    Route::post('/admin/trades/sync', [AdminController::class, 'syncTrades']);
     Route::get('/admin/market-status', [AdminController::class, 'getMarketStatus']);
     Route::get('/admin/last-runs', [AdminController::class, 'getLastRuns']);
     Route::post('/admin/import-backtest', [AdminController::class, 'importBacktestCsvs']);

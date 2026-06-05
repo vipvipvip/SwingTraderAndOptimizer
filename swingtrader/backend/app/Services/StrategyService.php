@@ -87,34 +87,42 @@ class StrategyService
 
         $last = $ohlc[count($ohlc) - 1];
         $atr = $this->calculateATR($ohlc, $period);
-        $high = $last['high'];
-        $entry['high'] = round($high, 2);
+        $entry['high'] = round($last['high'], 2);
         $entry['atr'] = $atr !== null ? round($atr, 2) : null;
-
-        // Always compute entry_level when entry_mult is set
-        if ($entryMult !== null && $atr !== null) {
-            $rollingHigh = max(array_column(array_slice($ohlc, -$period), 'high'));
-            $entry['entry_level'] = round($rollingHigh - $atr * $entryMult, 2);
-        } else {
-            $entry['entry_level'] = null;
-        }
-
         $entry['current_price'] = isset($this->livePrices[$symbol])
-            ? round($this->livePrices[$symbol], 2)
-            : round($last['close'], 2);
+            ? round($this->livePrices[$symbol], 2) : round($last['close'], 2);
 
         if ($openTrade) {
+            // In position — show entry price and trailing stop
             $entry['price'] = round($openTrade->entry_price, 2);
             $entry['pnl_unrealized'] = round(($last['close'] - $openTrade->entry_price) / $openTrade->entry_price * 100, 2);
-        } else {
-            $entry['price'] = $entry['entry_level'] ?? round($last['close'], 2);
-        }
 
-        if ($atr !== null) {
-            $stop = $high - $atr * $mult;
-            $entry['stop'] = round($stop, 2);
+            // Compute trailing stop: highest_high_since_entry - ATR * mult
+            $entryDate = $openTrade->entry_at;
+            $highestHigh = $last['high'];
+            foreach ($ohlc as $bar) {
+                if ($bar['timestamp'] >= $entryDate && $bar['high'] > $highestHigh) {
+                    $highestHigh = $bar['high'];
+                }
+            }
+            if ($atr !== null) {
+                $entry['stop'] = round($highestHigh - $atr * $mult, 2);
+            }
         } else {
-            $entry['stop'] = null;
+            // No position — show chandelier entry level or next-bar close
+            if ($entryMult !== null && $atr !== null) {
+                $rollingHigh = max(array_column(array_slice($ohlc, -$period), 'high'));
+                $entryLevel = $rollingHigh - $atr * $entryMult;
+                $entry['price'] = round($entryLevel, 2);
+                $entry['entry_level'] = round($entryLevel, 2);
+            } else {
+                $entry['price'] = round($last['close'], 2);
+            }
+
+            // No trailing stop when not in position
+            if ($atr !== null) {
+                $entry['stop'] = round($last['high'] - $atr * $mult, 2);
+            }
         }
     }
 

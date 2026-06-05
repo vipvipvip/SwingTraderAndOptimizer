@@ -3,18 +3,22 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Ticker;
 use App\Services\EquityService;
+use App\Services\StrategyService;
+use App\Services\TradeExecutorService;
+use App\Services\AlpacaService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class AdminController extends Controller
 {
     private $equityService;
+    private $alpacaService;
 
-    public function __construct(EquityService $equityService)
+    public function __construct(EquityService $equityService, AlpacaService $alpacaService)
     {
         $this->equityService = $equityService;
+        $this->alpacaService = $alpacaService;
     }
 
     public function addTicker(Request $request)
@@ -128,6 +132,37 @@ class AdminController extends Controller
 
             return response()->json(['message' => 'Trade executor triggered', 'output' => $outputStr]);
         } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * @OA\Post(
+     *      path="/admin/trades/sync",
+     *      operationId="syncTrades",
+     *      tags={"Admin"},
+     *      summary="Sync live trades from Alpaca",
+     *      description="Fetch all filled orders from Alpaca and update local live_trades table with correct entry/exit prices",
+     *      @OA\Response(
+     *          response=200,
+     *          description="Trades synced successfully",
+     *          @OA\JsonContent(
+     *              @OA\Property(property="message", type="string", example="Live trades synced from Alpaca")
+     *          )
+     *      ),
+     *      @OA\Response(response=500, description="Sync failed")
+     * )
+     */
+    public function syncTrades()
+    {
+        try {
+            $result = $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+            if ($result) {
+                return response()->json(['message' => 'Live trades synced from Alpaca']);
+            }
+            return response()->json(['error' => 'Sync returned false'], 500);
+        } catch (\Exception $e) {
+            \Log::error('syncTrades error: ' . $e->getMessage());
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
