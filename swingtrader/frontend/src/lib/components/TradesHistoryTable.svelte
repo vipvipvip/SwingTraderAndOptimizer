@@ -75,7 +75,9 @@
   }
 
   function formatPrice(price) {
-    return typeof price === 'number' ? price.toFixed(2) : '-'
+    if (price == null) return '-'
+    const num = typeof price === 'number' ? price : parseFloat(price)
+    return isNaN(num) ? '-' : num.toFixed(2)
   }
 
   function getPnlColor(pnl) {
@@ -337,8 +339,8 @@
                 <td class={trade.pnl_dollar > 0 ? 'pnl-positive' : 'pnl-negative'}>
                   {trade.pnl_dollar != null ? `$${formatPrice(trade.pnl_dollar)}` : '-'}
                 </td>
-                <td class={trade.return > 0 ? 'pnl-positive' : 'pnl-negative'}>
-                  {trade.return != null ? `${(trade.return * 100).toFixed(2)}%` : '-'}
+                <td class={(trade.pnl_pct ?? trade.return) > 0 ? 'pnl-positive' : 'pnl-negative'}>
+                  {(trade.pnl_pct ?? trade.return) != null ? `${((trade.pnl_pct ?? trade.return) * 100).toFixed(2)}%` : '-'}
                 </td>
                 <td class="portfolio-value">
                   ${formatPrice(trade.portfolio_value)}

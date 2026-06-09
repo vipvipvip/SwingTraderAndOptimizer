@@ -87,7 +87,25 @@ class EquityController extends Controller
     public function liveTrades()
     {
         $trades = LiveTrade::orderBy('entry_at', 'desc')->paginate(100);
-        return response()->json($trades->items());
+        $mapped = collect($trades->items())->map(function ($trade) {
+            return [
+                'id' => $trade->id,
+                'ticker_id' => $trade->ticker_id,
+                'symbol' => $trade->symbol,
+                'side' => $trade->side,
+                'quantity' => (int) $trade->quantity,
+                'entry_price' => (float) $trade->entry_price,
+                'exit_price' => $trade->exit_price ? (float) $trade->exit_price : null,
+                'entry_at' => $trade->entry_at?->toDateTimeString(),
+                'exit_at' => $trade->exit_at?->toDateTimeString(),
+                'status' => $trade->status,
+                'pnl_dollar' => $trade->pnl_dollar ? (float) $trade->pnl_dollar : null,
+                'pnl_pct' => $trade->pnl_pct ? (float) $trade->pnl_pct : null,
+                'alpaca_order_id' => $trade->alpaca_order_id,
+                'strategy_signal' => $trade->strategy_signal,
+            ];
+        });
+        return response()->json($mapped);
     }
 
     /**

@@ -418,20 +418,25 @@ class TradeExecutorService
         try {
             $order = $this->alpacaService->placeOrder($symbol, $qty, 'sell');
 
-            $pnlDollar = ($currentPrice - $openTrade->entry_price) * $qty;
+            $fillPrice = floatval($order['filled_avg_price'] ?? $currentPrice);
+            $orderId = $order['id'] ?? null;
+
+            $pnlDollar = ($fillPrice - $openTrade->entry_price) * $qty;
             $pnlPct = $openTrade->entry_price > 0
-                ? ($currentPrice - $openTrade->entry_price) / $openTrade->entry_price
+                ? ($fillPrice - $openTrade->entry_price) / $openTrade->entry_price
                 : 0;
 
             LiveTrade::where('symbol', $symbol)->where('status', 'open')->update([
-                'exit_price' => $currentPrice,
+                'exit_price' => $fillPrice,
                 'exit_at' => now(),
                 'status' => 'closed',
                 'pnl_dollar' => $pnlDollar,
                 'pnl_pct' => $pnlPct,
+                'alpaca_order_id' => $orderId,
+                'strategy_signal' => 'CHANDELIER_EXIT',
             ]);
 
-            \Log::info("SELL signal for $symbol: qty={$qty}, price=\${$currentPrice}, PnL=\${$pnlDollar}");
+            \Log::info("SELL signal for $symbol: qty={$qty}, fillPrice=\${$fillPrice}, PnL=\${$pnlDollar}, orderId={$orderId}");
             return 'sell';
         } catch (\Exception $e) {
             \Log::error("Failed to place sell order for $symbol: " . $e->getMessage());
@@ -477,8 +482,16 @@ class TradeExecutorService
             return null;
         }
 
-        $last = $ohlc[count($ohlc) - 1];
-        $currentClose = $last['close'];
+        // Use live price from Alpaca first, then DB bars, then daily close
+        $livePrices = $this->alpacaService->getLatestPrices([$symbol]);
+        $currentPrice = $livePrices[$symbol] ?? null;
+        if ($currentPrice === null) {
+            $currentPrice = $this->getCurrentPrice($symbol);
+        }
+        if ($currentPrice === null) {
+            $last = $ohlc[count($ohlc) - 1];
+            $currentPrice = $last['close'];
+        }
 
         $openTrade = LiveTrade::where('symbol', $symbol)
             ->where('status', 'open')
@@ -511,10 +524,10 @@ class TradeExecutorService
 
             $stopLevel = $highestHigh - $atr * $mult;
 
-            \Log::debug("$symbol Chandelier check: in position, high=$highestHigh, ATR=$atr, stop=$stopLevel, close=$currentClose");
+            \Log::debug("$symbol Chandelier check: in position, high=$highestHigh, ATR=$atr, stop=$stopLevel, price=$currentPrice");
 
-            if ($currentClose < $stopLevel) {
-                \Log::info("$symbol SELL SIGNAL (Chandelier stop): close=$currentClose < stop=$stopLevel");
+            if ($currentPrice < $stopLevel) {
+                \Log::info("$symbol SELL SIGNAL (Chandelier stop): price=$currentPrice < stop=$stopLevel");
                 return 'sell';
             }
 
@@ -540,8 +553,8 @@ class TradeExecutorService
             }
             $rollingHigh = max(array_column(array_slice($ohlc, -$period), 'high'));
             $entryLevel = $rollingHigh - $atr * $entryMult;
-            \Log::debug("$symbol: Chandelier entry check: entryLevel=$entryLevel, close=$currentClose");
-            if ($currentClose <= $entryLevel) {
+            \Log::debug("$symbol: Chandelier entry check: entryLevel=$entryLevel, price=$currentPrice");
+            if ($currentPrice <= $entryLevel) {
                 return null; // Price not above entry level
             }
         }
