@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\LiveTrade;
 use App\Services\EquityService;
 use App\Services\AlpacaService;
+use Illuminate\Support\Facades\DB;
 
 class EquityController extends Controller
 {
@@ -88,6 +89,28 @@ class EquityController extends Controller
     {
         $trades = LiveTrade::orderBy('entry_at', 'desc')->paginate(100);
         $mapped = collect($trades->items())->map(function ($trade) {
+            $high = $low = null;
+            if ($trade->status === 'closed' && $trade->entry_at && $trade->exit_at) {
+                $range = DB::table('bars')
+                    ->where('ticker_id', $trade->ticker_id)
+                    ->whereBetween('timestamp', [$trade->entry_at, $trade->exit_at])
+                    ->selectRaw('MAX(high) as high, MIN(low) as low')
+                    ->first();
+                if ($range) {
+                    $high = $range->high !== null ? (float) $range->high : null;
+                    $low = $range->low !== null ? (float) $range->low : null;
+                }
+            } elseif ($trade->status === 'open' && $trade->entry_at) {
+                $range = DB::table('bars')
+                    ->where('ticker_id', $trade->ticker_id)
+                    ->where('timestamp', '>=', $trade->entry_at)
+                    ->selectRaw('MAX(high) as high, MIN(low) as low')
+                    ->first();
+                if ($range) {
+                    $high = $range->high !== null ? (float) $range->high : null;
+                    $low = $range->low !== null ? (float) $range->low : null;
+                }
+            }
             return [
                 'id' => $trade->id,
                 'ticker_id' => $trade->ticker_id,
@@ -96,6 +119,8 @@ class EquityController extends Controller
                 'quantity' => (int) $trade->quantity,
                 'entry_price' => (float) $trade->entry_price,
                 'exit_price' => $trade->exit_price ? (float) $trade->exit_price : null,
+                'high' => $high,
+                'low' => $low,
                 'entry_at' => $trade->entry_at?->toDateTimeString(),
                 'exit_at' => $trade->exit_at?->toDateTimeString(),
                 'status' => $trade->status,

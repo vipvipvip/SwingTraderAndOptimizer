@@ -314,6 +314,8 @@
               <th>Symbol</th>
               <th>Allocation</th>
               <th>Entry Price</th>
+              <th>High</th>
+              <th>Low</th>
               <th>Exit Price</th>
               <th>Entry Date</th>
               <th>Exit Date</th>
@@ -333,6 +335,8 @@
                 <td><span class="symbol">{trade.symbol}</span></td>
                 <td>{trade.allocation_weight ? trade.source_symbol + ' ' + trade.allocation_weight + '%' : (trade.quantity || '-')}</td>
                 <td>${formatPrice(trade.entry_price)}</td>
+                <td>{trade.high != null ? `$${formatPrice(trade.high)}` : '-'}</td>
+                <td>{trade.low != null ? `$${formatPrice(trade.low)}` : '-'}</td>
                 <td>${trade.exit_price ? formatPrice(trade.exit_price) : '-'}</td>
                 <td>{formatDate(trade.entry_at)}</td>
                 <td>{formatDate(trade.exit_at)}{!trade.exit_at ? ' *' : ''}{trade.simulated_close ? ' *' : ''}</td>
