@@ -1,5 +1,6 @@
 """Nightly optimizer - runs parameter optimization for all tickers"""
 import argparse
+import itertools
 import os
 import sys
 import time
@@ -15,18 +16,19 @@ from db import StrategyDB
 load_dotenv()
 
 # Parameter grids tuned per timeframe
-# Chandelier Exit: period (chandelier_period), multiplier (chandelier_mult), entry mult (chandelier_entry_mult)
 PARAM_GRIDS = {
     '1Day': {
         'chandelier_period':       [14, 18, 22],
         'chandelier_mult':         [2.5, 3.0, 3.5],
         'chandelier_entry_mult':   [1.0, 1.5, 2.0],
     },
-    '1Hour': {
-        'chandelier_period':       [14, 18, 22],
-        'chandelier_mult':         [2.5, 3.0, 3.5],
-        'chandelier_entry_mult':   [1.0, 1.5, 2.0],
-    },
+}
+
+# Regression exit grid (tested after chandelier-only grid, using best chandelier params)
+REG_PARAM_GRID = {
+    'reg_slope_window':   [3, 5, 8, 10],
+    'reg_slope_threshold': [-2.0, -1.0, -0.5, -0.3],
+    'reg_slope_type':     ['slope_atr', 'slope_pct'],
 }
 
 
@@ -42,6 +44,11 @@ def get_param_grid(timeframe):
 def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocation_weight=10):
     """
     Optimize strategy parameters for a single ticker.
+
+    Two-pass search:
+    1. Chandelier-only: grid search period/mult/entry_mult
+    2. Chandelier + regression: fix best chandelier params, grid search regression window/threshold/type
+    Keeps whichever gives better Sharpe.
 
     Args:
         symbol:     Stock symbol (e.g., 'SPY')
@@ -63,18 +70,56 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
     if param_grid is None:
         param_grid = get_param_grid(timeframe)
 
-    # Load data from database (already fetched in run_nightly_optimization)
     df = load_data_from_db(symbol)
     if df is None or len(df) == 0:
         print(f"Failed to load data for {symbol}")
         return None
 
+    # ── Pass 1: Chandelier-only ──
     combos = 3 ** len(param_grid)
-    print(f"Testing {combos} parameter combinations...")
+    print(f"PASS 1: Testing {combos} chandelier-only combinations...")
     optimizer = ParameterOptimizer(df, symbol=symbol, allocation_weight=allocation_weight)
     results = optimizer.optimize(param_grid)
+    chand_best = results[0]
+    chand_metrics = chand_best['metrics']
 
-    best_result = results[0]
+    # ── Pass 2: Chandelier + regression ──
+    print(f"\nPASS 2: Testing {len(REG_PARAM_GRID['reg_slope_window']) * len(REG_PARAM_GRID['reg_slope_threshold']) * len(REG_PARAM_GRID['reg_slope_type'])} regression combinations"
+          f" (fixed chandelier: period={chand_best['params']['chandelier_period']}, mult={chand_best['params']['chandelier_mult']}, entry={chand_best['params']['chandelier_entry_mult']})...")
+    reg_params_list = list(itertools.product(
+        REG_PARAM_GRID['reg_slope_window'],
+        REG_PARAM_GRID['reg_slope_threshold'],
+        REG_PARAM_GRID['reg_slope_type'],
+    ))
+    reg_results = []
+    for w, th, rt in reg_params_list:
+        p = dict(chand_best['params'])
+        p.update({'reg_slope_window': w, 'reg_slope_threshold': th, 'reg_slope_type': rt})
+        trades, metrics, eq, dates = optimizer._backtest_with_params(p, entry_mode='chandelier_entry')
+        reg_results.append({'params': p, 'metrics': metrics, 'trades': trades,
+                            'equity_curve': eq, 'equity_dates': dates})
+    reg_results.sort(key=lambda r: r['metrics']['sharpe_ratio'], reverse=True)
+    reg_best = reg_results[0] if reg_results else None
+
+    # ── Compare and pick best ──
+    reg_note = ''
+    if reg_best and reg_best['metrics']['total_trades'] >= 3:
+        chand_sharpe = chand_metrics['sharpe_ratio']
+        reg_sharpe = reg_best['metrics']['sharpe_ratio']
+        if reg_sharpe > chand_sharpe and reg_best['metrics']['total_return'] >= chand_metrics['total_return'] * 0.8:
+            best_result = reg_best
+            reg_note = f" (+ REG {reg_best['params']['reg_slope_type']} {reg_best['params']['reg_slope_window']}d th={reg_best['params']['reg_slope_threshold']})"
+            print(f"  ✓ Regression exit wins: Sharpe {reg_sharpe:.2f} vs {chand_sharpe:.2f}")
+            # Merge results for reporting
+            results = reg_results + [chand_best] + results[1:]
+            results.sort(key=lambda r: r['metrics']['sharpe_ratio'], reverse=True)
+            optimizer.results = results
+        else:
+            best_result = chand_best
+            print(f"  ✓ Chandelier-only wins: Sharpe {chand_sharpe:.2f} vs regression {reg_sharpe:.2f}")
+    else:
+        best_result = chand_best
+
     runtime = time.time() - start_time
 
     print(f"\nResults for {symbol}:")
@@ -92,7 +137,7 @@ def optimize_ticker(symbol, timeframe, param_grid=None, use_cache=True, allocati
         'equity_curve': best_result.get('equity_curve', []),
         'equity_dates': best_result.get('equity_dates', []),
         'runtime': runtime,
-        'combos': combos,
+        'combos': combos + len(reg_params_list),
         'optimizer': optimizer,
     }
 
@@ -185,15 +230,22 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
             db.save_best_params(symbol, best_result['params'], best_result['metrics'])
             print(f"✓ Saved best candidate for {symbol} (cleaned up old candidates)")
 
-            # Also update base_case=true with individual ticker metrics
-            # (coordinate ascent later updates only the params, not metrics)
+            # Promote best params to base_case=true so the live system picks them up
+            # (coordinate ascent may override later)
+            p = best_result['params']
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE strategy_parameters
-                SET win_rate = %s, sharpe_ratio = %s, total_return = %s,
+                SET chandelier_period = %s, chandelier_mult = %s,
+                    chandelier_entry_mult = %s, atr_period = %s,
+                    reg_slope_window = %s, reg_slope_threshold = %s, reg_slope_type = %s,
+                    win_rate = %s, sharpe_ratio = %s, total_return = %s,
                     total_trades = %s, max_drawdown = %s, updated_at = NOW()
                 WHERE ticker_id = %s AND base_case = true
             ''', (
+                int(p['chandelier_period']), float(p['chandelier_mult']),
+                float(p.get('chandelier_entry_mult', 1.5)), int(p['chandelier_period']),
+                p.get('reg_slope_window'), p.get('reg_slope_threshold'), p.get('reg_slope_type'),
                 float(best_result['metrics']['win_rate']),
                 float(best_result['metrics']['sharpe_ratio']),
                 float(best_result['metrics']['total_return']),
@@ -202,7 +254,7 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
                 ticker_id
             ))
             conn.commit()
-            print(f"✓ Updated base_case=true metrics for {symbol}")
+            print(f"✓ Updated base_case=true params + metrics for {symbol}")
 
         # Save trades and equity curve for the BEST candidate ONLY
         # Other candidates will be evaluated via backtest.py --mode all
@@ -223,25 +275,33 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     from data_fetcher import load_data_from_db
     from parameter_optimizer import ParameterOptimizer
 
-    # Build candidate pool per ticker: current active + top 5 from optimizer
+    import json as _json
+
+    # Build candidate pool per ticker: current active + top 5 from optimizer (chandelier + regression)
     conn = db.get_connection()
     cursor = conn.cursor()
     ticker_candidates = {}
     for sym in tickers:
         candidates = []
         cursor.execute('''
-            SELECT chandelier_period, chandelier_mult, chandelier_entry_mult
+            SELECT chandelier_period, chandelier_mult, chandelier_entry_mult,
+                   reg_slope_window, reg_slope_threshold, reg_slope_type
             FROM strategy_parameters
             WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
             AND base_case = true LIMIT 1
         ''', (sym,))
         row = cursor.fetchone()
         if row:
-            candidates.append({
+            c = {
                 'chandelier_period': int(row[0]),
                 'chandelier_mult': float(row[1]),
                 'chandelier_entry_mult': float(row[2]) if row[2] is not None else 1.5,
-            })
+            }
+            if row[3] is not None:
+                c['reg_slope_window'] = int(row[3])
+                c['reg_slope_threshold'] = float(row[4])
+                c['reg_slope_type'] = row[5]
+            candidates.append(c)
         for result in results:
             if result['symbol'] == sym:
                 opt = result.get('optimizer')
@@ -252,7 +312,8 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
         seen = set()
         ticker_candidates[sym] = []
         for c in candidates:
-            k = (c['chandelier_period'], c['chandelier_mult'], c.get('chandelier_entry_mult', 1.5))
+            k = (c['chandelier_period'], c['chandelier_mult'], c.get('chandelier_entry_mult', 1.5),
+                 c.get('reg_slope_window'), c.get('reg_slope_threshold'), c.get('reg_slope_type'))
             if k not in seen:
                 seen.add(k)
                 ticker_candidates[sym].append(c)
@@ -267,18 +328,24 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     current = {}
     for sym in tickers:
         cursor.execute('''
-            SELECT chandelier_period, chandelier_mult, chandelier_entry_mult
+            SELECT chandelier_period, chandelier_mult, chandelier_entry_mult,
+                   reg_slope_window, reg_slope_threshold, reg_slope_type
             FROM strategy_parameters
             WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
             AND base_case = true LIMIT 1
         ''', (sym,))
         row = cursor.fetchone()
         if row:
-            current[sym] = {
+            c = {
                 'chandelier_period': int(row[0]),
                 'chandelier_mult': float(row[1]),
                 'chandelier_entry_mult': float(row[2]) if row[2] is not None else 1.5,
             }
+            if row[3] is not None:
+                c['reg_slope_window'] = int(row[3])
+                c['reg_slope_threshold'] = float(row[4])
+                c['reg_slope_type'] = row[5]
+            current[sym] = c
         else:
             current[sym] = ticker_candidates[sym][0]
 
@@ -329,7 +396,11 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     ''')
     best_ever_sharpe = 0.0
     for r in cursor.fetchall():
-        if r[1] and set(r[1].keys()) == set(ticker_symbols):
+        try:
+            params_dict = _json.loads(r[1]) if r[1] else None
+        except (TypeError, _json.JSONDecodeError):
+            params_dict = None
+        if params_dict and set(params_dict.keys()) == set(ticker_symbols):
             best_ever_sharpe = max(best_ever_sharpe, float(r[0]))
             break
 
@@ -351,14 +422,16 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     print(f"  Trades: {pmetrics['total_trades']}")
     for sym in ticker_symbols:
         p = current[sym]
-        print(f"  {sym}: CHAND({p['chandelier_period']}, {p['chandelier_mult']}, entry_mult={p.get('chandelier_entry_mult',1.5)})")
+        reg_str = ''
+        if p.get('reg_slope_window') is not None:
+            reg_str = f", REG({p['reg_slope_type']} {p['reg_slope_window']}d th={p['reg_slope_threshold']})"
+        print(f"  {sym}: CHAND({p['chandelier_period']}, {p['chandelier_mult']}, entry_mult={p.get('chandelier_entry_mult',1.5)}){reg_str}")
 
     # Always save portfolio coord ascent result to optimization_history for auditing
-    import json as _json
     cursor.execute("SELECT id FROM tbl_etf_tickers WHERE symbol = 'BLENDED'")
     blended_id_row = cursor.fetchone()
     blended_ticker_id = blended_id_row[0] if blended_id_row else None
-    promoted_flag = pmetrics['sharpe_ratio'] > baseline_sharpe
+    promoted_flag = bool(pmetrics['sharpe_ratio'] > baseline_sharpe)
     if blended_ticker_id:
         cursor.execute('''
             INSERT INTO optimization_history
@@ -390,12 +463,16 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
             cursor.execute('''
                 UPDATE strategy_parameters
                 SET chandelier_period = %s, chandelier_mult = %s,
-                    chandelier_entry_mult = %s, atr_period = %s, updated_at = NOW()
+                    chandelier_entry_mult = %s, atr_period = %s,
+                    reg_slope_window = %s, reg_slope_threshold = %s, reg_slope_type = %s,
+                    updated_at = NOW()
                 WHERE ticker_id = (SELECT id FROM tbl_etf_tickers WHERE symbol = %s)
                 AND base_case = true
             ''', (
                 p['chandelier_period'], p['chandelier_mult'],
-                p.get('chandelier_entry_mult', 1.5), p['chandelier_period'], sym
+                p.get('chandelier_entry_mult', 1.5), p['chandelier_period'],
+                p.get('reg_slope_window'), p.get('reg_slope_threshold'), p.get('reg_slope_type'),
+                sym
             ))
         conn.commit()
 
@@ -456,8 +533,12 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
     print(f"Total runtime: {total_time:.1f}s\n")
 
     for result in results:
+        p = result['params']
+        reg = ''
+        if p.get('reg_slope_window') is not None:
+            reg = f", REG({p['reg_slope_type']} {p['reg_slope_window']}d th={p['reg_slope_threshold']})"
         print(f"{result['symbol']}:")
-        print(f"  Params: CHAND(period={result['params']['chandelier_period']}, mult={result['params']['chandelier_mult']})")
+        print(f"  Params: CHAND(period={p['chandelier_period']}, mult={p['chandelier_mult']}){reg}")
         print(f"  Sharpe: {result['metrics']['sharpe_ratio']:.2f} | "
               f"Return: {result['metrics']['total_return']*100:.2f}%")
 

@@ -39,6 +39,7 @@ class BacktestTradesController extends Controller
             'allocation_weight' => (float) $trade->allocation_weight,
             'simulated_close' => (bool) $trade->simulated_close,
             'portfolio_value' => $equity[$trade->ticker_id . '|' . $trade->exit_at->toDateString()] ?? null,
+            'exit_type' => $trade->exit_type,
         ]);
 
         return response()->json([
@@ -84,6 +85,7 @@ class BacktestTradesController extends Controller
             'allocation_weight' => (float) $trade->allocation_weight,
             'simulated_close' => (bool) $trade->simulated_close,
             'portfolio_value' => $equity[$trade->exit_at->toDateString()] ?? null,
+            'exit_type' => $trade->exit_type,
         ]);
 
         return response()->json([

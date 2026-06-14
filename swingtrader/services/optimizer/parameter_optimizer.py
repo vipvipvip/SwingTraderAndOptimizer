@@ -93,6 +93,19 @@ class ParameterOptimizer:
         return ppo.values
 
     @staticmethod
+    def _linear_reg_slope(close_prices, window):
+        """Compute linear regression slope over last `window` bars.
+        Returns numpy array (same length, NaN until warmup)."""
+        slope = np.full(len(close_prices), np.nan)
+        for i in range(window - 1, len(close_prices)):
+            y = close_prices[i - window + 1 : i + 1]
+            x = np.arange(window)
+            A = np.vstack([x, np.ones(window)]).T
+            m, _ = np.linalg.lstsq(A, y, rcond=None)[0]
+            slope[i] = m
+        return slope
+
+    @staticmethod
     def _compute_ema_sma_cross(close_prices, fast_period, slow_period):
         """Compute EMA(fast) / SMA(slow) crossover signals.
 
@@ -131,6 +144,11 @@ class ParameterOptimizer:
 
         chandelier_period = int(params.get('chandelier_period', 18))
         chandelier_mult = float(params.get('chandelier_mult', 3.0))
+
+        # Regression exit params
+        reg_window = params.get('reg_slope_window')
+        reg_threshold = params.get('reg_slope_threshold')
+        reg_type = params.get('reg_slope_type')
 
         # Pre-extract numpy arrays for speed
         open_p = data['open'].values.astype(float)
@@ -175,7 +193,26 @@ class ParameterOptimizer:
         atr_series = pd.Series(tr).rolling(window=chandelier_period).mean()
         atr = atr_series.values
 
-        warmup = max(chandelier_period, ppo_warmup, ema_sma_warmup)
+        # Pre-compute regression slope if enabled
+        reg_slope = None
+        reg_warmup = 0
+        if reg_window is not None and reg_threshold is not None and reg_type is not None:
+            reg_slope_raw = self._linear_reg_slope(close_p, reg_window)
+            reg_slope = np.full(len(close_p), np.nan)
+            for i in range(len(close_p)):
+                if np.isnan(reg_slope_raw[i]):
+                    continue
+                if reg_type == 'slope_atr':
+                    if atr[i] and not np.isnan(atr[i]) and atr[i] > 0:
+                        reg_slope[i] = reg_slope_raw[i] / atr[i]
+                elif reg_type == 'slope_pct':
+                    if close_p[i] > 0:
+                        reg_slope[i] = reg_slope_raw[i] / close_p[i] * 100
+                elif reg_type == 'slope':
+                    reg_slope[i] = reg_slope_raw[i]
+            reg_warmup = reg_window
+
+        warmup = max(chandelier_period, ppo_warmup, ema_sma_warmup, reg_warmup)
         alloc = 1.0  # Single-ticker backtest: always fully invested (allocation only splits capital in portfolio backtest)
 
         trades = []
@@ -185,6 +222,7 @@ class ParameterOptimizer:
         position_active = False
         pending_entry = False
         pending_exit = False
+        exit_type = None
         entry_price = 0.0
         entry_idx = 0
         equity_before = self.initial_capital
@@ -213,12 +251,14 @@ class ParameterOptimizer:
                     'pnl_pct': net_pnl,
                     'days_held': round(i - entry_idx, 1),
                     'allocation_pct': 100,
+                    'exit_type': exit_type or 'chandelier',
                 })
 
                 trade_equity.append(trade_equity[-1] + net_dollar)
                 trade_dates.append(str(data.index[i]))
                 position_active = False
                 pending_exit = False
+                exit_type = None
 
             if pending_entry and not position_active:
                 entry_price = po
@@ -249,6 +289,12 @@ class ParameterOptimizer:
                 stop_level = high_since - atr[i] * chandelier_mult
                 if pc < stop_level:
                     pending_exit = True
+                    exit_type = 'chandelier'
+                # Regression exit: exit when normalized slope drops below threshold
+                if not pending_exit and reg_slope is not None and not np.isnan(reg_slope[i]):
+                    if reg_slope[i] < reg_threshold:
+                        pending_exit = True
+                        exit_type = 'regression'
 
             if i == n - 1 and position_active:
                 simulated_close = not pending_exit
@@ -270,6 +316,7 @@ class ParameterOptimizer:
                     'days_held': round(i - entry_idx, 1),
                     'simulated_close': simulated_close,
                     'allocation_pct': 100,
+                    'exit_type': 'force_close' if simulated_close else (exit_type or 'chandelier'),
                 })
 
                 trade_equity.append(trade_equity[-1] + net_dollar)
@@ -352,9 +399,10 @@ class ParameterOptimizer:
             aligned[sym] = d
             common_index = d.index if common_index is None else common_index.intersection(d.index)
 
-        # Precompute ATR and rolling high for each ticker
+        # Precompute ATR, rolling high, and regression slope for each ticker
         atr_data = {}
         rolling_high_data = {}
+        reg_slope_data = {}
         for sym in tickers:
             d = aligned[sym].loc[common_index]
             p = ticker_params.get(sym, {})
@@ -370,19 +418,45 @@ class ParameterOptimizer:
                 rolling_high_data[sym] = d['high'].rolling(window=period, min_periods=1).max()
             aligned[sym] = d
 
+            # Pre-compute regression slope for this ticker
+            rw = p.get('reg_slope_window')
+            rt = p.get('reg_slope_threshold')
+            rtyp = p.get('reg_slope_type')
+            if rw is not None and rt is not None and rtyp is not None:
+                close_vals = d['close'].values.astype(float)
+                raw = ParameterOptimizer._linear_reg_slope(close_vals, rw)
+                slp = np.full(len(close_vals), np.nan)
+                atr_arr = atr_data[sym].values
+                for i in range(len(close_vals)):
+                    if np.isnan(raw[i]) or np.isnan(atr_arr[i]):
+                        continue
+                    if rtyp == 'slope_atr':
+                        if atr_arr[i] > 0:
+                            slp[i] = raw[i] / atr_arr[i]
+                    elif rtyp == 'slope_pct':
+                        if close_vals[i] > 0:
+                            slp[i] = raw[i] / close_vals[i] * 100
+                    elif rtyp == 'slope':
+                        slp[i] = raw[i]
+                reg_slope_data[sym] = slp
+
         warmup = max(int(p.get('chandelier_period', 18)) for p in ticker_params.values())
+        for p in ticker_params.values():
+            if p.get('reg_slope_window') is not None:
+                warmup = max(warmup, int(p['reg_slope_window']))
 
         cash = initial_capital
         positions = {}           # sym -> {shares, entry_price, entry_idx, entry_at, allocation_pct}
         pend_entry = {sym: False for sym in tickers}
         pend_exit  = {sym: False for sym in tickers}
+        exit_type  = {sym: None  for sym in tickers}
         high_since = {sym: 0.0  for sym in tickers}
 
         trades = []
         equity_curve = [initial_capital]
         equity_dates  = [str(common_index[0])]
 
-        def _make_trade(sym, pos, exit_price, exit_date, simulated=False):
+        def _make_trade(sym, pos, exit_price, exit_date, simulated=False, etype=None):
             cost = pos['shares'] * pos['entry_price']
             net  = pos['shares'] * exit_price * (1 - cost_per_trade)
             pnl  = net - cost
@@ -398,6 +472,7 @@ class ParameterOptimizer:
                 'days_held': round(pos.get('days', 0), 1),
                 'allocation_pct': pos.get('allocation_pct', 0),
                 'simulated_close': simulated,
+                'exit_type': etype or ('force_close' if simulated else 'chandelier'),
             }
 
         def _buy_shares(amount, price):
@@ -415,10 +490,11 @@ class ParameterOptimizer:
                     continue
                 ep = aligned[sym]['open'].iloc[i]
                 positions[sym]['days'] = i - positions[sym]['entry_idx']
-                trades.append(_make_trade(sym, positions[sym], ep, date))
+                trades.append(_make_trade(sym, positions[sym], ep, date, etype=exit_type[sym]))
                 cash += positions[sym]['shares'] * ep * (1 - cost_per_trade)
                 del positions[sym]
                 pend_exit[sym] = False
+                exit_type[sym] = None
                 exited.append(sym)
 
             # ── 3. New entries — split cash equally among triggering tickers ─
@@ -453,6 +529,14 @@ class ParameterOptimizer:
                     stop = high_since[sym] - atr_data[sym].iloc[i] * float(ticker_params[sym].get('chandelier_mult', 3.0))
                     if close < stop:
                         pend_exit[sym] = True
+                        exit_type[sym] = 'chandelier'
+                    # Regression exit
+                    if not pend_exit[sym] and sym in reg_slope_data and len(reg_slope_data[sym]) > i:
+                        reg_val = reg_slope_data[sym][i]
+                        rt = ticker_params[sym].get('reg_slope_threshold')
+                        if not np.isnan(reg_val) and rt is not None and reg_val < rt:
+                            pend_exit[sym] = True
+                            exit_type[sym] = 'regression'
 
                 if sym not in positions and not pend_entry[sym]:
                     em = ticker_params[sym].get('chandelier_entry_mult')
@@ -468,7 +552,8 @@ class ParameterOptimizer:
                     ep = aligned[sym]['close'].iloc[i]
                     pos['days'] = i - pos['entry_idx']
                     trades.append(_make_trade(sym, pos, ep, date,
-                                              simulated=not pend_exit.get(sym, False)))
+                                               simulated=not pend_exit.get(sym, False),
+                                               etype=exit_type.get(sym) if pend_exit.get(sym) else 'force_close'))
                     cash += pos['shares'] * ep * (1 - cost_per_trade)
                     del positions[sym]
 
@@ -524,14 +609,17 @@ class ParameterOptimizer:
 
     def _print_top_results(self, n=5):
         """Print top N results"""
-        print(f"{'Rank':<6} {'Sharpe':<10} {'Win%':<8} {'Return':<10} {'Trades':<8} {'Parameters':<50}")
-        print("-" * 100)
+        print(f"{'Rank':<6} {'Sharpe':<10} {'Win%':<8} {'Return':<10} {'Trades':<8} {'Parameters':<70}")
+        print("-" * 120)
 
         for idx, result in enumerate(self.results[:n]):
             params = result['params']
             metrics = result['metrics']
 
-            param_str = f"CHAND(period={params['chandelier_period']}, mult={params['chandelier_mult']})"
+            reg = ''
+            if params.get('reg_slope_window') is not None:
+                reg = f" + REG({params['reg_slope_type']} {params['reg_slope_window']}d th={params['reg_slope_threshold']})"
+            param_str = f"CHAND(period={params['chandelier_period']}, mult={params['chandelier_mult']}, entry={params.get('chandelier_entry_mult', 'N/A')}){reg}"
 
             print(
                 f"{idx+1:<6} "
@@ -539,7 +627,7 @@ class ParameterOptimizer:
                 f"{metrics['win_rate']*100:<8.1f} "
                 f"{metrics['total_return']*100:<10.2f}% "
                 f"{metrics['total_trades']:<8} "
-                f"{param_str:<50}"
+                f"{param_str:<70}"
             )
 
     def save_best_params(self, filepath):
@@ -565,10 +653,18 @@ class ParameterOptimizer:
             else:
                 return obj
 
+        reg_note = ''
+        if best['params'].get('reg_slope_window') is not None:
+            reg_note = f" + REG({best['params']['reg_slope_type']} {best['params']['reg_slope_window']}d th={best['params']['reg_slope_threshold']})"
+            print(f"  Exit: Chandelier{reg_note}")
+        else:
+            print(f"  Exit: Chandelier only")
+
         output = {
             'timestamp': datetime.now(ZoneInfo('America/New_York')).isoformat(),
             'best_params': convert_to_native(best['params']),
             'best_metrics': convert_to_native(best['metrics']),
+            'regression_exit': reg_note != '',
             'top_10_results': [
                 {
                     'params': convert_to_native(r['params']),

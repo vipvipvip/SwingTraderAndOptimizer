@@ -12,7 +12,8 @@
       const p = s.params
       const exit = `${p?.chandelier_period ?? '?'}, ${p?.chandelier_mult ?? '?'}`
       const entry = p?.chandelier_entry_mult != null ? `, e=${p.chandelier_entry_mult}` : ''
-      return `${s.symbol} (${exit}${entry})`
+      const reg = p?.reg_slope_window != null ? ` +REG ${p.reg_slope_type} ${p.reg_slope_window}d th=${p.reg_slope_threshold}` : ''
+      return `${s.symbol} (${exit}${entry}${reg})`
     })
     .join(' / ')
 
@@ -163,7 +164,7 @@
     <div class="params">
       <div class="param-row">
         <span>Exit:</span>
-        <span>CHAND({strategy.params?.chandelier_period}, {(+strategy.params?.chandelier_mult).toFixed(1)}× ATR)</span>
+        <span>CHAND({strategy.params?.chandelier_period}, {(+strategy.params?.chandelier_mult).toFixed(1)}× ATR){#if strategy.params?.reg_slope_window != null} + REG({strategy.params.reg_slope_type} {strategy.params.reg_slope_window}d th={strategy.params.reg_slope_threshold}){/if}</span>
       </div>
       <div class="param-row">
         <span>Entry:</span>
@@ -177,15 +178,19 @@
         <span>ATR:</span>
         <span>{fmt.dec2(strategy.atr)}</span>
       </div>
-      {#if inPosition}
+      {#if strategy.high != null}
         <div class="param-row">
-          <span>High since entry:</span>
+          <span>Recent high:</span>
           <span>{fmt.dec2(strategy.high)}</span>
         </div>
+      {/if}
+      {#if strategy.stop != null}
         <div class="param-row">
           <span>Stop level:</span>
           <span style="color: #d32f2f">${fmt.dec2(strategy.stop)}</span>
         </div>
+      {/if}
+      {#if inPosition}
         <div class="param-row">
           <span>Entry price:</span>
           <span>${fmt.dec2(strategy.price)}

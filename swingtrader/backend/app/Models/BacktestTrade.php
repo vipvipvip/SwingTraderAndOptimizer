@@ -18,6 +18,7 @@ class BacktestTrade extends Model
         'simulated_close',
         'source_symbol',
         'allocation_weight',
+        'exit_type',
     ];
 
     protected $casts = [

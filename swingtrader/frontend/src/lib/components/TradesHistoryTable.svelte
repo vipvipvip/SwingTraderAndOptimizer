@@ -3,6 +3,7 @@
 
   let liveTrades = []
   let backtestTrades = []
+  let totalBacktestCount = 0
   let allTickerList = []
   let loading = true
   let error = ''
@@ -16,7 +17,7 @@
 
       const [liveRes, backtestRes] = await Promise.all([
         fetch('/api/v1/trades/live', { signal: controller.signal }),
-        fetch('/api/v1/trades/backtest', { signal: controller.signal }),
+        fetch('/api/v1/trades/backtest?per_page=1000', { signal: controller.signal }),
       ])
 
       if (!liveRes.ok) throw new Error('Failed to load live trades')
@@ -30,6 +31,7 @@
 
       if (backtestRes.ok) {
         const btData = await backtestRes.json()
+        totalBacktestCount = btData.total ?? 0
         const btArray = Array.isArray(btData) ? btData : (btData.data ?? [])
         backtestTrades = btArray.sort((a, b) => new Date(b.exit_at) - new Date(a.exit_at))
       }
@@ -87,6 +89,18 @@
 
   function getTradeType(trade) {
     return trade.status ? 'live' : 'backtest'
+  }
+
+  function typeLabel(trade) {
+    if (trade.status === 'open') return 'Open'
+    if (trade.exit_type) return trade.exit_type.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())
+    if (trade.status === 'closed') return 'Live'
+    return 'Backtest'
+  }
+
+  function typeClass(trade) {
+    const t = (trade.exit_type || (trade.status === 'open' ? 'open' : trade.status === 'closed' ? 'live' : 'backtest'))
+    return 'trade-type-' + t
   }
 </script>
 
@@ -152,11 +166,6 @@
   }
 
   .status-open {
-    background: #fef3c7;
-    color: #92400e;
-  }
-
-  .trade-type-open {
     background: #fef3c7;
     color: #92400e;
   }
@@ -228,6 +237,26 @@
     color: #166534;
   }
 
+  .trade-type-open {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  .trade-type-chandelier {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .trade-type-regression {
+    background: #fce7f3;
+    color: #9d174d;
+  }
+
+  .trade-type-force_close {
+    background: #f3e8ff;
+    color: #6d28d9;
+  }
+
   .ticker-selector {
     display: flex;
     align-items: center;
@@ -284,7 +313,7 @@
   {:else}
     <div class="filter-controls">
       <button class="filter-btn" class:active={filterType === 'all'} on:click={() => filterType = 'all'}>
-        All ({backtestTrades.length + liveTrades.length})
+        All ({totalBacktestCount + liveTrades.length})
       </button>
       <button class="filter-btn" class:active={filterType === 'backtest'} on:click={() => filterType = 'backtest'}>
         Backtest ({filteredBacktest.length})
@@ -328,8 +357,8 @@
             {#each displayTrades as trade (trade.id || trade.symbol + trade.entry_at + (trade.exit_at || ''))}
               <tr>
                 <td>
-                  <span class="trade-type-badge" class:trade-type-live={trade.status === 'closed'} class:trade-type-open={trade.status === 'open'}>
-                    {trade.status === 'open' ? 'Open' : trade.status === 'closed' ? 'Live' : 'Backtest'}
+                  <span class="trade-type-badge {typeClass(trade)}">
+                    {typeLabel(trade)}
                   </span>
                 </td>
                 <td><span class="symbol">{trade.symbol}</span></td>

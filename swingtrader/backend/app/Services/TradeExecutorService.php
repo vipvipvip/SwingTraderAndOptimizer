@@ -470,11 +470,45 @@ class TradeExecutorService
      *
      * Returns 'buy', 'sell', or null (hold).
      */
+    /**
+     * Compute linear regression slope over last $window bars of close prices
+     * using ordinary least squares. Returns slope in $/bar.
+     */
+    private function linearRegSlope($ohlc, $window)
+    {
+        $n = count($ohlc);
+        if ($n < $window) {
+            return null;
+        }
+        $closes = array_column(array_slice($ohlc, -$window), 'close');
+        $x_sum = 0;
+        $y_sum = 0;
+        $xy_sum = 0;
+        $x2_sum = 0;
+        $w = $window;
+        for ($i = 0; $i < $w; $i++) {
+            $x = $i;
+            $y = $closes[$i];
+            $x_sum += $x;
+            $y_sum += $y;
+            $xy_sum += $x * $y;
+            $x2_sum += $x * $x;
+        }
+        $denom = $w * $x2_sum - $x_sum * $x_sum;
+        if ($denom == 0) {
+            return null;
+        }
+        return ($w * $xy_sum - $x_sum * $y_sum) / $denom;
+    }
+
     public function computeChandelierSignal($symbol, $params)
     {
         $period = intval($params['chandelier_period'] ?? 18);
         $mult = floatval($params['chandelier_mult'] ?? 3.0);
         $entryMult = isset($params['chandelier_entry_mult']) ? floatval($params['chandelier_entry_mult']) : null;
+        $regWindow = isset($params['reg_slope_window']) ? intval($params['reg_slope_window']) : null;
+        $regThreshold = isset($params['reg_slope_threshold']) ? floatval($params['reg_slope_threshold']) : null;
+        $regType = $params['reg_slope_type'] ?? null;
 
         $ohlc = $this->getOhlcBars($symbol);
         if (empty($ohlc) || count($ohlc) < $period + 1) {
@@ -529,6 +563,25 @@ class TradeExecutorService
             if ($currentPrice < $stopLevel) {
                 \Log::info("$symbol SELL SIGNAL (Chandelier stop): price=$currentPrice < stop=$stopLevel");
                 return 'sell';
+            }
+
+            // Regression exit check: exit when linear regression slope drops below threshold
+            if ($regWindow !== null && $regThreshold !== null && $regType !== null) {
+                $rawSlope = $this->linearRegSlope($ohlc, $regWindow);
+                if ($rawSlope !== null) {
+                    $normalized = null;
+                    if ($regType === 'slope_atr' && $atr !== null && $atr > 0) {
+                        $normalized = $rawSlope / $atr;
+                    } elseif ($regType === 'slope_pct' && $currentPrice > 0) {
+                        $normalized = ($rawSlope / $currentPrice) * 100;
+                    } elseif ($regType === 'slope') {
+                        $normalized = $rawSlope;
+                    }
+                    if ($normalized !== null && $normalized < $regThreshold) {
+                        \Log::info("$symbol SELL SIGNAL (regression exit): slope=$rawSlope, normalized=$normalized < threshold=$regThreshold");
+                        return 'sell';
+                    }
+                }
             }
 
             return null; // Hold

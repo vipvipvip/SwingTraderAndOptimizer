@@ -70,17 +70,24 @@ class StrategyDB:
             period = int(params.get('chandelier_period', 18))
             mult = float(params.get('chandelier_mult', 3.0))
             entry_mult = float(params.get('chandelier_entry_mult', 1.5))
+            reg_window = params.get('reg_slope_window')
+            reg_threshold = params.get('reg_slope_threshold')
+            reg_type = params.get('reg_slope_type')
             cursor.execute('''
                 INSERT INTO strategy_parameters
                 (ticker_id, chandelier_period, atr_period, chandelier_mult, chandelier_entry_mult,
+                 reg_slope_window, reg_slope_threshold, reg_slope_type,
                  win_rate, sharpe_ratio, total_return, total_trades, max_drawdown, base_case, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false, NOW(), NOW())
             ''', (
                 ticker_id,
                 period,  # chandelier_period
                 period,  # atr_period (same as chandelier_period)
                 mult,    # chandelier_mult
                 entry_mult,  # chandelier_entry_mult
+                reg_window,
+                reg_threshold,
+                reg_type,
                 float(metrics['win_rate']),
                 float(metrics['sharpe_ratio']),
                 float(metrics['total_return']),
@@ -105,6 +112,7 @@ class StrategyDB:
 
         cursor.execute('''
             SELECT atr_period, chandelier_mult, chandelier_entry_mult,
+                   reg_slope_window, reg_slope_threshold, reg_slope_type,
                    win_rate, sharpe_ratio, total_return, total_trades
             FROM strategy_parameters
             WHERE ticker_id = %s AND base_case = true
@@ -114,17 +122,22 @@ class StrategyDB:
         if not row:
             return None
 
-        return {
+        result = {
             'atr_period': row[0],
             'chandelier_mult': row[1],
             'chandelier_entry_mult': float(row[2]) if row[2] is not None else None,
-            'metrics': {
-                'win_rate': row[3],
-                'sharpe_ratio': row[4],
-                'total_return': row[5],
-                'total_trades': row[6]
-            }
         }
+        if row[3] is not None:
+            result['reg_slope_window'] = int(row[3])
+            result['reg_slope_threshold'] = float(row[4])
+            result['reg_slope_type'] = row[5]
+        result['metrics'] = {
+            'win_rate': row[6],
+            'sharpe_ratio': row[7],
+            'total_return': row[8],
+            'total_trades': row[9]
+        }
+        return result
 
     def log_optimization_run(self, symbol, best_metrics, total_combinations, runtime_seconds):
         """Log an optimization run"""
@@ -210,8 +223,8 @@ class StrategyDB:
 
                 cursor.execute('''
                     INSERT INTO backtest_trades
-                    (ticker_id, entry_at, entry_price, exit_at, exit_price, return, pnl_dollar, days_held, simulated_close, source_symbol, allocation_weight)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (ticker_id, entry_at, entry_price, exit_at, exit_price, return, pnl_dollar, days_held, simulated_close, source_symbol, allocation_weight, exit_type)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ''', (
                     ticker_id,
                     entry_ts,
@@ -224,6 +237,7 @@ class StrategyDB:
                     bool(trade.get('simulated_close', False)),
                     str(trade.get('symbol', ''))[:10],
                     float(trade.get('allocation_pct', 0)),
+                    str(trade.get('exit_type', 'chandelier'))[:20],
                 ))
                 saved_count += 1
 
