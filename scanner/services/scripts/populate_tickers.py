@@ -1,13 +1,14 @@
 """Phase 1: Populate scanner tables with OHLCV data from Alpaca.
 
 Supports weekly, daily, and 1-hour timeframes.
+Incremental: queries the latest date in the DB and only fetches new bars.
 For hourly, tickers are sourced from tbl_scanner_tickers with 3-month lookback.
 """
 
 import argparse
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -65,10 +66,19 @@ def ensure_ticker_in_stock(symbol):
         conn.close()
 
 
-def fetch_bars(symbol, client, tf_name, start=None):
+def get_latest_date_for_ticker(ticker_id, table):
+    conn = get_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT MAX(date) FROM {table} WHERE ticker_id = %s", (ticker_id,))
+            row = cur.fetchone()
+            return row[0] if row and row[0] else None
+    finally:
+        conn.close()
+
+
+def fetch_bars(symbol, client, tf_name, start):
     end = datetime.now(NY)
-    if start is None:
-        start = end.replace(year=2015, month=1, day=1)
     tf = TIMEFRAMES[tf_name]['tf']
 
     request = StockBarsRequest(
@@ -88,16 +98,7 @@ def fetch_bars(symbol, client, tf_name, start=None):
     page_token = getattr(response, 'next_page_token', None)
 
     while page_token:
-        request = StockBarsRequest(
-            symbol_or_symbols=symbol,
-            timeframe=tf,
-            start=start,
-            end=end,
-            feed='iex',
-            limit=10000,
-            page_token=page_token,
-            adjustment='all',
-        )
+        request.page_token = page_token
         response = client.get_stock_bars(request)
         if symbol in response.data:
             all_bars.extend(response.data[symbol])
@@ -106,46 +107,65 @@ def fetch_bars(symbol, client, tf_name, start=None):
     return all_bars
 
 
-def process_ticker(symbol, client, tf_name, start=None):
+def process_ticker(symbol, client, tf_name, global_start):
     try:
         table = TIMEFRAMES[tf_name]['table']
         is_hourly = tf_name == 'hour'
 
-        # Ensure ticker exists in tbl_stock_tickers and get its id
         ticker_id = ensure_ticker_in_stock(symbol)
         if ticker_id is None:
             return symbol, 0, 'failed to create ticker'
 
+        # Determine start date: latest in DB or the global_start (if first run)
+        latest = get_latest_date_for_ticker(ticker_id, table)
+        if latest is not None:
+            if isinstance(latest, datetime):
+                latest_date = latest.date()
+            elif isinstance(latest, date):
+                latest_date = latest
+            else:
+                latest_date = datetime.strptime(str(latest)[:10], '%Y-%m-%d').date()
+            start = datetime.combine(latest_date + timedelta(days=1), datetime.min.time(), tzinfo=NY)
+        else:
+            # No data yet — use the global start (2015-01-01 or computed lookback)
+            start = global_start
+
+        now = datetime.now(NY)
+        if is_hourly:
+            if start >= now:
+                return symbol, 0, 'up to date'
+        else:
+            if start.date() >= now.date():
+                return symbol, 0, 'up to date'
+
         bars = fetch_bars(symbol, client, tf_name, start)
         if not bars or len(bars) == 0:
-            return symbol, 0, 'no data'
+            return symbol, 0, 'no new data'
 
         rows = []
         for bar in bars:
             ts = bar.timestamp
             if ts.tzinfo is not None:
                 ts = ts.astimezone(NY)
+            if is_hourly:
+                date_val = ts
+            else:
+                date_val = ts.date()
             rows.append((
-                ticker_id,
-                ts if is_hourly else ts.date(),
-                float(bar.open),
-                float(bar.high),
-                float(bar.low),
-                float(bar.close),
-                int(bar.volume),
+                ticker_id, date_val,
+                float(bar.open), float(bar.high), float(bar.low),
+                float(bar.close), int(bar.volume),
             ))
 
         conn = get_db_conn()
         try:
             with conn.cursor() as cur:
-                cur.execute(f"DELETE FROM {table} WHERE ticker_id = %s", (ticker_id,))
                 if is_hourly:
                     rows = [(r[0], r[1].replace(tzinfo=None) if hasattr(r[1], 'tzinfo') and r[1].tzinfo is not None else r[1], *r[2:]) for r in rows]
                 execute_values(
                     cur,
                     f"""
-                        INSERT INTO {table}
-                        (ticker_id, date, open, high, low, close, volume)
+                        INSERT INTO {table} (ticker_id, date, open, high, low, close, volume)
                         VALUES %s
                         ON CONFLICT (ticker_id, date) DO NOTHING
                     """,
@@ -165,6 +185,8 @@ def main():
     parser.add_argument('--timeframe', choices=list(TIMEFRAMES.keys()), default='week',
                         help='Bar timeframe to fetch (default: week)')
     parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers')
+    parser.add_argument('--full-refetch', action='store_true',
+                        help='Delete and re-fetch all data instead of incremental update')
     args = parser.parse_args()
 
     table = TIMEFRAMES[args.timeframe]['table']
@@ -189,14 +211,25 @@ def main():
         tickers = fetch_sp500_tickers()
         print(f"Fetched {len(tickers)} SP500 tickers from Wikipedia")
 
+    now = datetime.now(NY)
     if args.timeframe == 'hour':
-        start = datetime.now(NY) - timedelta(days=90)
+        start = now - timedelta(days=90)
         print(f"Processing {len(tickers)} tickers (1-hour timeframe, 3-month lookback) "
               f"with {args.workers} workers into {table}...")
     else:
-        start = None
+        start = now.replace(year=2015, month=1, day=1)
         print(f"Processing {len(tickers)} tickers ({args.timeframe} timeframe) "
               f"with {args.workers} workers into {table}...")
+
+    if args.full_refetch:
+        print("Full refetch mode: deleting all existing data first...")
+        conn = get_db_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"DELETE FROM {table}")
+            conn.commit()
+        finally:
+            conn.close()
 
     total = len(tickers)
     done = 0
@@ -224,7 +257,7 @@ def main():
                 reason = 'no data' if status == 'no data' else status
                 print(f"  [{done}/{total}] {symbol}: skipped ({reason})")
 
-    print(f"\nDone. {ok} tickers inserted ({total_bars} total {label}), {failed} skipped.")
+    print(f"\nDone. {ok} tickers updated ({total_bars} total {label}), {failed} skipped.")
 
 
 if __name__ == '__main__':

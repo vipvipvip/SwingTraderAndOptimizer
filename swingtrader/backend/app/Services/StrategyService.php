@@ -97,6 +97,13 @@ class StrategyService
             $entry['price'] = round($openTrade->entry_price, 2);
             $entry['pnl_unrealized'] = round(($last['close'] - $openTrade->entry_price) / $openTrade->entry_price * 100, 2);
 
+            // Compute entry trigger level
+            if ($entryMult !== null && $atr !== null) {
+                $rollingHigh = max(array_column(array_slice($ohlc, -$period), 'high'));
+                $entryLevel = $rollingHigh - $atr * $entryMult;
+                $entry['entry_level'] = round($entryLevel, 2);
+            }
+
             // Compute trailing stop: highest_high_since_entry - ATR * mult
             $entryDate = $openTrade->entry_at;
             $highestHigh = $last['high'];

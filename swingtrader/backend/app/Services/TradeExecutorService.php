@@ -52,9 +52,8 @@ class TradeExecutorService
         return true;
     }
 
-    public function executeForAllTickers()
+    public function executeForAllTickers($override = false)
     {
-        // Fetch account and positions ONCE for all tickers (reduce Alpaca calls)
         $account = null;
         $positions = [];
         try {
@@ -72,25 +71,56 @@ class TradeExecutorService
             'errors' => []
         ];
 
+        // Determine available cash (buying power or uninvested cash)
+        $buyingPower = floatval($account['buying_power'] ?? 0);
+        $accountEquity = floatval($account['equity'] ?? 100000);
+        $invested = 0;
+        if ($positions !== null && is_array($positions)) {
+            foreach ($positions as $pos) {
+                $invested += floatval($pos['market_value'] ?? 0);
+            }
+        }
+        $availableCash = max(0, $accountEquity - $invested);
+        $availableCash = min($availableCash, $buyingPower);
+
+        // Pass 1: process exits and collect buy signals
+        $buySignals = [];
         foreach ($tickers as $ticker) {
             if (($ticker['symbol'] ?? '') === 'BLENDED') {
                 continue;
             }
+            $sym = $ticker['symbol'];
             try {
-                $result = $this->executeForTicker($ticker['symbol'], $account, $positions);
+                $result = $this->executeForTicker($sym, $account, $positions);
                 $results['total']++;
                 if ($result === 'buy') {
-                    $results['buys'][] = $ticker['symbol'];
+                    $buySignals[] = $sym;
                 } elseif ($result === 'sell') {
-                    $results['sells'][] = $ticker['symbol'];
+                    $results['sells'][] = $sym;
                 }
             } catch (\Exception $e) {
-                \Log::error("Trade execution failed for {$ticker['symbol']}: " . $e->getMessage());
-                $results['errors'][] = [
-                    'symbol' => $ticker['symbol'],
-                    'error' => $e->getMessage()
-                ];
+                \Log::error("Trade execution failed for $sym: " . $e->getMessage());
+                $results['errors'][] = ['symbol' => $sym, 'error' => $e->getMessage()];
             }
+        }
+
+        if ($availableCash <= 0) {
+            \Log::debug("No available cash (\${$availableCash}), skipping buys");
+            return $results;
+        }
+
+        // Pass 2: pool cash among tickers with buy signals
+        if ($buySignals && $availableCash > 0) {
+            $result = $this->handlePooledEntries($buySignals, $availableCash, $account, $positions);
+            if ($result) {
+                $results['buys'] = $result;
+            }
+        }
+
+        // Pass 3 (override only): if cash remains stranded, force-check entry
+        // conditions for tickers already in position and deploy idle cash.
+        if ($override && $availableCash > 0) {
+            $this->executeManualOverride($availableCash, $results);
         }
 
         return $results;
@@ -262,7 +292,6 @@ class TradeExecutorService
 
     public function executeForTicker($symbol, $account = null, $positions = null)
     {
-        // CRITICAL: Validate strategy is in sync before trading
         if (!$this->validateStrategySync($symbol)) {
             \Log::error("$symbol: TRADE BLOCKED - Strategy validation failed");
             return null;
@@ -276,7 +305,6 @@ class TradeExecutorService
 
         $params = $strategy['params'];
 
-        // Get current price: primary from bars, fallback to intra_day_prices
         $currentPrice = $this->getCurrentPrice($symbol);
         if (!$currentPrice) {
             \Log::warning("No current price available for $symbol, skipping signal");
@@ -285,13 +313,142 @@ class TradeExecutorService
 
         $signal = $this->computeChandelierSignal($symbol, $params);
 
-        if ($signal === 'buy') {
-            return $this->handleBuySignal($symbol, $currentPrice, $account, $positions);
-        } elseif ($signal === 'sell') {
+        if ($signal === 'sell') {
             return $this->handleSellSignal($symbol, $currentPrice);
+        } elseif ($signal === 'buy') {
+            // Return buy signal — order placement is handled by handlePooledEntries
+            return 'buy';
         }
 
         return null;
+    }
+
+    /**
+     * Pool cash among tickers with buy signals.
+     * Distributes available cash equally among all entering tickers.
+     */
+    private function handlePooledEntries(array $symbols, float $availableCash, $account = null, $positions = null): array
+    {
+        $placed = [];
+        $perTicker = $availableCash / count($symbols);
+
+        foreach ($symbols as $sym) {
+            try {
+                $ticker = Ticker::where('symbol', $sym)->first();
+                if (!$ticker) {
+                    \Log::warning("Pooled entry: ticker $sym not found");
+                    continue;
+                }
+
+                $currentPrice = $this->getCurrentPrice($sym);
+                if (!$currentPrice) {
+                    \Log::warning("Pooled entry: no price for $sym");
+                    continue;
+                }
+
+                $qty = intval($perTicker / $currentPrice);
+                if ($qty < 1) {
+                    \Log::info("Pooled entry: $perTicker insufficient for 1 share of $sym at $currentPrice");
+                    continue;
+                }
+
+                $order = $this->alpacaService->placeOrder($sym, $qty, 'buy');
+
+                // If ticker already has an open position, add to existing qty
+                $openTrade = LiveTrade::where('symbol', $sym)->where('status', 'open')->first();
+                if ($openTrade) {
+                    $openTrade->increment('quantity', $qty);
+                    $openTrade->save();
+                } else {
+                    LiveTrade::create([
+                        'ticker_id' => $ticker->id,
+                        'symbol' => $sym,
+                        'side' => 'BUY',
+                        'quantity' => $qty,
+                        'entry_price' => $currentPrice,
+                        'entry_at' => now(),
+                        'status' => 'open',
+                        'alpaca_order_id' => $order['id'] ?? null,
+                        'strategy_signal' => 'CHANDELIER_ENTRY',
+                    ]);
+                }
+
+                \Log::info("Pooled BUY $sym: qty=$qty, price=$currentPrice, allocated=$perTicker");
+                $placed[] = $sym;
+            } catch (\Exception $e) {
+                \Log::error("Pooled entry failed for $sym: " . $e->getMessage());
+            }
+        }
+
+        return $placed;
+    }
+
+    /**
+     * Manual override: force-check entry conditions for all tickers (including
+     * those already in position) and deploy idle cash into qualifying ones.
+     */
+    private function executeManualOverride(float $availableCash, array &$results): void
+    {
+        if ($availableCash <= 0) {
+            \Log::info("Override: no cash available ($availableCash), nothing to deploy");
+            return;
+        }
+
+        $eligible = [];
+        $tickers = $this->strategyService->getAllTickers();
+
+        foreach ($tickers as $ticker) {
+            $sym = $ticker['symbol'] ?? '';
+            if ($sym === 'BLENDED') {
+                continue;
+            }
+
+            $strategy = $this->strategyService->getStrategyForSymbol($sym);
+            if (!$strategy || !$strategy['params']) {
+                continue;
+            }
+
+            $params = $strategy['params'];
+            $ohlc = $this->getOhlcBars($sym);
+            $period = intval($params['chandelier_period'] ?? 18);
+            if (empty($ohlc) || count($ohlc) < $period + 1) {
+                continue;
+            }
+
+            $entryMult = $params['chandelier_entry_mult'] ?? null;
+            if ($entryMult === null) {
+                $eligible[] = $sym;
+                continue;
+            }
+
+            $atr = $this->calculateATR($ohlc, $period);
+            if ($atr === null) {
+                continue;
+            }
+
+            $rollingHigh = max(array_column(array_slice($ohlc, -$period), 'high'));
+            $entryLevel = $rollingHigh - $atr * floatval($entryMult);
+
+            $livePrices = $this->alpacaService->getLatestPrices([$sym]);
+            $currentPrice = $livePrices[$sym] ?? $this->getCurrentPrice($sym);
+            if ($currentPrice === null) {
+                $last = $ohlc[count($ohlc) - 1];
+                $currentPrice = $last['close'];
+            }
+
+            if ($currentPrice > $entryLevel) {
+                $eligible[] = $sym;
+                \Log::info("Override: $sym eligible (price=$currentPrice > entry=$entryLevel)");
+            } else {
+                \Log::debug("Override: $sym not eligible (price=$currentPrice <= entry=$entryLevel)");
+            }
+        }
+
+        if ($eligible && $availableCash > 0) {
+            $bought = $this->handlePooledEntries($eligible, $availableCash);
+            $results['buys'] = array_merge($results['buys'], $bought);
+            $results['total'] += count($bought);
+        }
     }
 
     /**
@@ -315,88 +472,6 @@ class TradeExecutorService
         }
 
         return null;
-    }
-
-    /**
-     * Handle buy signal with position reconciliation
-     */
-    private function handleBuySignal($symbol, $currentPrice, $account = null, $positions = null)
-    {
-        $ticker = Ticker::where('symbol', $symbol)->first();
-        if (!$ticker) {
-            \Log::warning("Ticker {$symbol} not found");
-            return null;
-        }
-
-        // Use passed account data (fetched once in executeForAllTickers with retry logic)
-        $accountEquity = $account['equity'] ?? 100000;
-        $buyingPower = floatval($account['buying_power'] ?? 0);
-        $allocationWeight = ($ticker->allocation_weight ?? 33.33) / 100;
-        $allocatedCapital = $accountEquity * $allocationWeight;
-
-        // Find position from passed positions array (should always be provided by executeForAllTickers)
-        $alpacaPosition = null;
-        if ($positions !== null && is_array($positions)) {
-            foreach ($positions as $pos) {
-                if ($pos['symbol'] === $symbol) {
-                    $alpacaPosition = $pos;
-                    break;
-                }
-            }
-        }
-        // Note: if positions not provided, alpacaPosition stays null (no fallback fetch)
-
-        $amountInvested = 0;
-
-        if ($alpacaPosition) {
-            $amountInvested = floatval($alpacaPosition['market_value']);
-            \Log::info("$symbol: Current position value: \${$amountInvested}");
-        }
-
-        // Calculate remaining allocation
-        $remainingAllocation = $allocatedCapital - $amountInvested;
-
-        if ($remainingAllocation <= 0) {
-            \Log::info("$symbol: No remaining allocation (allocated: \${$allocatedCapital}, invested: \${$amountInvested})");
-            return null;
-        }
-
-        // Calculate quantity to buy with remaining allocation
-        $qtyFromAllocation = intval($remainingAllocation / $currentPrice);
-
-        if ($qtyFromAllocation < 1) {
-            \Log::info("$symbol: Remaining allocation \${$remainingAllocation} too small for 1 share at \${$currentPrice}");
-            return null;
-        }
-
-        // Check available cash before placing order
-        $costToExecute = $qtyFromAllocation * $currentPrice;
-        if ($costToExecute > $buyingPower) {
-            \Log::info("$symbol: Insufficient cash (need \${$costToExecute}, have \${$buyingPower})");
-            return null;
-        }
-
-        try {
-            $order = $this->alpacaService->placeOrder($symbol, $qtyFromAllocation, 'buy');
-
-            LiveTrade::create([
-                'ticker_id' => $ticker->id,
-                'symbol' => $symbol,
-                'side' => 'BUY',
-                'quantity' => $qtyFromAllocation,
-                'entry_price' => $currentPrice,
-                'entry_at' => now(),
-                'status' => 'open',
-                'alpaca_order_id' => $order['id'] ?? null,
-                'strategy_signal' => 'CHANDELIER_ENTRY',
-            ]);
-
-            \Log::info("BUY signal for $symbol: qty={$qtyFromAllocation}, price=\${$currentPrice}, allocation used=\${$remainingAllocation}");
-            return 'buy';
-        } catch (\Exception $e) {
-            \Log::error("Failed to place buy order for $symbol: " . $e->getMessage());
-            return null;
-        }
     }
 
     /**

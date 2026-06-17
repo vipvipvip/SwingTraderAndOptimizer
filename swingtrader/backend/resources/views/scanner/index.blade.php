@@ -170,10 +170,13 @@
         document.addEventListener('keydown', e => {
             const rows = getRows();
             if (rows.length === 0) return;
+            const isSearchFocused = document.activeElement === tickerSearch;
             if (e.key === 'ArrowDown') {
+                if (isSearchFocused) return;
                 e.preventDefault();
                 selectRow(selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, rows.length - 1));
             } else if (e.key === 'ArrowUp') {
+                if (isSearchFocused) return;
                 e.preventDefault();
                 selectRow(selectedIndex < 0 ? rows.length - 1 : Math.max(selectedIndex - 1, 0));
             } else if (e.key === 'Escape') {
@@ -196,6 +199,8 @@
             opt.value = t;
             tickerList.appendChild(opt);
         });
+        let searchIndex = -1;
+
         function selectTicker(val) {
             const rows = getRows();
             let found = false;
@@ -212,6 +217,30 @@
                 loadChart(val);
             }
         }
+
+        tickerSearch.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                searchIndex = searchIndex < 0 ? 0 : Math.min(searchIndex + 1, allTickers.length - 1);
+                this.value = allTickers[searchIndex];
+                selectTicker(this.value);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                searchIndex = searchIndex < 0 ? allTickers.length - 1 : Math.max(searchIndex - 1, 0);
+                this.value = allTickers[searchIndex];
+                selectTicker(this.value);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const val = this.value.toUpperCase();
+                if (allTickers.includes(val)) {
+                    this.value = val;
+                    selectTicker(val);
+                }
+                this.blur();
+                this.value = '';
+                searchIndex = -1;
+            }
+        });
 
         tickerSearch.addEventListener('change', function() {
             const val = this.value.toUpperCase();

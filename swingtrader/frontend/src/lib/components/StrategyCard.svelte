@@ -186,13 +186,13 @@
       {/if}
       {#if strategy.stop != null}
         <div class="param-row">
-          <span>Stop level:</span>
+          <span>Sell trigger:</span>
           <span style="color: #d32f2f">${fmt.dec2(strategy.stop)}</span>
         </div>
       {/if}
       {#if inPosition}
         <div class="param-row">
-          <span>Entry price:</span>
+          <span>Last Buy Trigger:</span>
           <span>${fmt.dec2(strategy.price)}
             {#if strategy.pnl_unrealized != null}
               <span style="color: {strategy.pnl_unrealized >= 0 ? '#2e7d32' : '#d32f2f'}">
@@ -201,9 +201,15 @@
             {/if}
           </span>
         </div>
+        {#if strategy.entry_level != null}
+          <div class="param-row">
+            <span>Current Buy Trigger:</span>
+            <span style="color: #1565c0">${fmt.dec2(strategy.entry_level)}</span>
+          </div>
+        {/if}
       {:else if strategy.entry_level != null}
         <div class="param-row">
-          <span>Entry level:</span>
+          <span>Trigger:</span>
           <span style="color: #1565c0">${fmt.dec2(strategy.entry_level)}</span>
         </div>
       {/if}

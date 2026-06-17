@@ -364,19 +364,23 @@ class ParameterOptimizer:
 
     @staticmethod
     def backtest_portfolio(ticker_data, ticker_params, initial_capital=100000,
-                           cost_per_trade=0.0005):
+                           cost_per_trade=0.0005, sharpe_ratios=None):
         """
         Single-pool portfolio backtest:
-        - All capital in one pool, split equally among tickers that trigger on the same bar
-        - If only one ticker triggers, it gets all available cash
-        - When a position exits, freed cash is redistributed equally to remaining
-          in-position tickers immediately (buy more shares at same bar's open)
+        - Capital is deployed into one ticker at a time.
+        - When multiple tickers trigger entry on the same bar, the ticker with
+          the highest Sharpe ratio gets all available cash; others are skipped.
+        - When a position exits, freed cash is available for new entries.
+        - If no ticker triggers, cash sits idle.
 
         Args:
             ticker_data:     dict of {symbol: DataFrame} with OHLCV data
             ticker_params:   dict of {symbol: dict} with CHAND params
             initial_capital: starting cash
             cost_per_trade:  round-trip transaction cost fraction
+            sharpe_ratios:   dict of {symbol: float} for ranking entry priority.
+                             If None, falls back to splitting cash equally among
+                             triggering tickers (original behavior).
         """
         tickers = list(ticker_data.keys())
         empty = {'total_trades': 0, 'winning_trades': 0, 'win_rate': 0,
@@ -497,27 +501,33 @@ class ParameterOptimizer:
                 exit_type[sym] = None
                 exited.append(sym)
 
-            # ── 3. New entries — split cash equally among triggering tickers ─
+            # ── 3. New entries — deploy all cash into highest-Sharpe ticker ──
             entering = [sym for sym in tickers
                         if pend_entry[sym] and sym not in positions]
             if entering and cash > 0:
-                amount_each = cash / len(entering)
+                # Rank by Sharpe (desc), unknown Sharpe = -inf
+                if sharpe_ratios:
+                    entering.sort(key=lambda s: sharpe_ratios.get(s, float('-inf')), reverse=True)
+                best = entering[0]
+                ep = aligned[best]['open'].iloc[i]
+                amount_each = cash
                 total_eq = cash + sum(
                     pos['shares'] * aligned[s]['close'].iloc[i]
                     for s, pos in positions.items()
                 )
-                for sym in entering:
-                    ep = aligned[sym]['open'].iloc[i]
-                    positions[sym] = {
-                        'shares': _buy_shares(amount_each, ep),
-                        'entry_price': ep,
-                        'entry_idx': i,
-                        'entry_at': str(date),
-                        'allocation_pct': round(amount_each / total_eq * 100, 2),
-                    }
-                    high_since[sym] = aligned[sym]['high'].iloc[i]
+                positions[best] = {
+                    'shares': _buy_shares(amount_each, ep),
+                    'entry_price': ep,
+                    'entry_idx': i,
+                    'entry_at': str(date),
+                    'allocation_pct': round(amount_each / total_eq * 100, 2),
+                }
+                high_since[best] = aligned[best]['high'].iloc[i]
+                pend_entry[best] = False
+                cash -= amount_each
+                # Reset pend_entry for skipped tickers so they retrigger on next bar
+                for sym in entering[1:]:
                     pend_entry[sym] = False
-                    cash -= amount_each
 
             # ── 4. Generate signals ─────────────────────────────────────────
             for sym in tickers:

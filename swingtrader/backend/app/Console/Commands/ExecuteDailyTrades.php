@@ -10,7 +10,7 @@ use GuzzleHttp\Client;
 
 class ExecuteDailyTrades extends Command
 {
-    protected $signature = 'trades:execute-daily {--force-test : Force a buy+sell round-trip per ticker (paper account test mode)}';
+    protected $signature = 'trades:execute-daily {--force-test : Force a buy+sell round-trip per ticker (paper account test mode)} {--override : Manual override. force-check entry for all tickers including in-position, deploy idle cash}';
 
     protected $description = 'Execute daily trades for all enabled tickers';
 
@@ -37,8 +37,9 @@ class ExecuteDailyTrades extends Command
                 $this->info('FORCE-TEST mode: placing buy+sell round-trip for each ticker...');
                 $results = $tradeExecutor->forceTestAllTickers(1);
             } else {
-                $this->info('Market is open. Executing trades...');
-                $results = $tradeExecutor->executeForAllTickers();
+                $override = $this->option('override');
+                $this->info('Market is open. Executing trades' . ($override ? ' with manual override...' : '...'));
+                $results = $tradeExecutor->executeForAllTickers($override);
             }
             $equity = $equityService->snapshotAccountEquity($alpacaService);
 

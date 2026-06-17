@@ -277,6 +277,9 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     import json as _json
 
+    # Build sharpe ratio ranking from individual optimization results
+    sharpe_ratios = {r['symbol']: r['metrics']['sharpe_ratio'] for r in results}
+
     # Build candidate pool per ticker: current active + top 5 from optimizer (chandelier + regression)
     conn = db.get_connection()
     cursor = conn.cursor()
@@ -362,7 +365,8 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
                 test_params = dict(current)
                 test_params[sym] = cand
                 trades, metrics, eq_curve, eq_dates = ParameterOptimizer.backtest_portfolio(
-                    ticker_data, test_params, initial_capital=100000
+                    ticker_data, test_params, initial_capital=100000,
+                    sharpe_ratios=sharpe_ratios
                 )
                 if metrics['sharpe_ratio'] > best_sharpe:
                     best_sharpe = metrics['sharpe_ratio']
@@ -406,14 +410,16 @@ def run_nightly_optimization(tickers=None, timeframe=None, param_grid=None, n_jo
 
     # Also measure current baseline for reference
     _, baseline_pmetrics, _, _ = ParameterOptimizer.backtest_portfolio(
-        ticker_data, {sym: ticker_candidates[sym][0] for sym in ticker_symbols}, initial_capital=100000
+        ticker_data, {sym: ticker_candidates[sym][0] for sym in ticker_symbols}, initial_capital=100000,
+        sharpe_ratios=sharpe_ratios
     )
     baseline_sharpe = max(baseline_pmetrics['sharpe_ratio'], best_ever_sharpe)
     print(f"  Promotion gate: {baseline_sharpe:.4f} (best ever: {best_ever_sharpe:.4f}, current: {baseline_pmetrics['sharpe_ratio']:.4f})")
 
     # Run final portfolio backtest with converged params
     ptrades, pmetrics, pequity, pequity_dates = ParameterOptimizer.backtest_portfolio(
-        ticker_data, current, initial_capital=100000
+        ticker_data, current, initial_capital=100000,
+        sharpe_ratios=sharpe_ratios
     )
     print(f"  Converged after {iteration+1} iterations")
     print(f"  Portfolio return: {pmetrics['total_return']*100:.2f}%")

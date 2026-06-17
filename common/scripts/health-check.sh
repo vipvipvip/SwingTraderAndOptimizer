@@ -3,8 +3,8 @@ set -euo pipefail
 
 # ============================================================
 # SwingTrader System Health Check
-# Verifies: DB, bars data, optimizer runs, strategy params,
-#           backend/frontend services, market status
+# Verifies: DB, bars data (ETF + scanner), optimizer runs,
+#           strategy params, backend/frontend services, market status
 # ============================================================
 
 RED='\033[0;31m'
@@ -43,79 +43,150 @@ else
     fi
 fi
 
-# Check PostgreSQL accepts connections
 if docker exec swingtrader-db pg_isready -U swingtrader >/dev/null 2>&1; then
     pass "PostgreSQL is accepting connections"
 else
     fail "PostgreSQL is not accepting connections"
 fi
 
-# ---- Bars Data ----
+PSQL() { docker exec swingtrader-db psql -U swingtrader -t -A -c "$1" 2>/dev/null; }
+
+# ---- ETF Bars Data (per ticker) ----
 echo ""
-echo "--- Market Data ---"
+echo "--- ETF Bar Data ---"
 
-TICKER_COUNT=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM tbl_etf_tickers WHERE enabled=true AND symbol != 'BLENDED';" 2>/dev/null || echo "0")
-BAR_COUNT=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM bars b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "0")
-
-if [ "$BAR_COUNT" -gt 0 ] 2>/dev/null; then
-    pass "Bars table has $BAR_COUNT rows across $TICKER_COUNT enabled tickers"
+ENABLED_ETF=$(PSQL "SELECT symbol FROM tbl_etf_tickers WHERE enabled=true AND symbol != 'BLENDED' ORDER BY symbol;")
+if [ -z "$ENABLED_ETF" ]; then
+    fail "No enabled ETF tickers found"
 else
-    fail "Bars table is empty - data has not been downloaded"
+    pass "Enabled ETFs: $(echo "$ENABLED_ETF" | tr '\n' ' ')"
+    for sym in $ENABLED_ETF; do
+        LATEST=$(PSQL "SELECT MAX(DATE(b.timestamp)) FROM bars b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.symbol='$sym';")
+        COUNT=$(PSQL "SELECT COUNT(*) FROM bars b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.symbol='$sym';")
+        if [ -n "$LATEST" ] && [ "$LATEST" != " " ]; then
+            DAYS_SINCE=$(( ($(date +%s) - $(date -d "$LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
+            if [ "$DAYS_SINCE" -le 7 ] 2>/dev/null; then
+                pass "  $sym: $COUNT bars, latest $LATEST ($DAYS_SINCE days ago)"
+            else
+                warn "  $sym: $COUNT bars, latest $LATEST ($DAYS_SINCE days ago - stale)"
+            fi
+        else
+            fail "  $sym: no bar data found"
+        fi
+    done
 fi
 
-# Check for bars with unexpected hours.
-# Daily bars (midnight ET) store as hour 4-5 UTC (depending on DST).
-# Hourly market hours (9:30 AM - 4:00 PM ET) store as hour 14-20 UTC.
-BAD_BARS=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "
-  SELECT COUNT(*) FROM bars 
-  WHERE EXTRACT(HOUR FROM timestamp)::INT NOT IN (4, 5, 14, 15, 16, 17, 18, 19, 20);" 2>/dev/null || echo "error")
-DAILY_BARS=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "
-  SELECT COUNT(*) FROM bars WHERE EXTRACT(HOUR FROM timestamp)::INT IN (4, 5);" 2>/dev/null || echo "0")
-HOURLY_BARS=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "
-  SELECT COUNT(*) FROM bars WHERE EXTRACT(HOUR FROM timestamp)::INT IN (14, 15, 16, 17, 18, 19, 20);" 2>/dev/null || echo "0")
-if [ "$BAD_BARS" = "0" ] 2>/dev/null; then
-    pass "All $((DAILY_BARS + HOURLY_BARS)) bars have valid timestamps ($DAILY_BARS daily, $HOURLY_BARS hourly market hours)"
+ETF_BAR_TOTAL=$(PSQL "SELECT COUNT(*) FROM bars b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';")
+echo "  Total ETF bars: $ETF_BAR_TOTAL"
+
+# ---- Stock / Scanner Data ----
+echo ""
+echo "--- Stock Scanner Data ---"
+
+STOCK_COUNT=$(PSQL "SELECT COUNT(*) FROM tbl_stock_tickers;")
+ENABLED_STOCKS=$(PSQL "SELECT COUNT(*) FROM tbl_stock_tickers WHERE enabled=true;")
+echo "  Stock tickers: $STOCK_COUNT total, $ENABLED_STOCKS enabled"
+
+SCAN_DAILY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers_daily;")
+SCAN_DAILY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_DAILY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
+SCAN_DAILY_ROWS=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_daily;")
+SCAN_DAILY_ROWS_LATEST=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_daily WHERE date = '$SCAN_DAILY_LATEST';")
+if [ -n "$SCAN_DAILY_LATEST" ]; then
+    if [ "$SCAN_DAILY_DAYS" -le 7 ] 2>/dev/null; then
+        pass "Scanner daily: $SCAN_DAILY_ROWS total rows, latest $SCAN_DAILY_LATEST ($SCAN_DAILY_DAYS days ago, $SCAN_DAILY_ROWS_LATEST tickers)"
+    else
+        warn "Scanner daily: $SCAN_DAILY_ROWS total rows, latest $SCAN_DAILY_LATEST ($SCAN_DAILY_DAYS days ago - stale, $SCAN_DAILY_ROWS_LATEST tickers)"
+    fi
 else
-    warn "Found $BAD_BARS bars with unexpected hours"
+    fail "Scanner daily table is empty"
 fi
 
-# Check data recency
-RECENT_BAR=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT MAX(timestamp)::date FROM bars;" 2>/dev/null || echo "never")
-DAYS_SINCE=$(( ($(date +%s) - $(date -d "$RECENT_BAR" +%s 2>/dev/null || echo 0)) / 86400 ))
-if [ "$DAYS_SINCE" -le 7 ] 2>/dev/null; then
-    pass "Most recent bar: $RECENT_BAR ($DAYS_SINCE days ago)"
+SCAN_HOURLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers_1hour;")
+SCAN_WEEKLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers;")
+echo "  Scanner hourly latest: ${SCAN_HOURLY_LATEST:-empty}"
+echo "  Scanner weekly latest: ${SCAN_WEEKLY_LATEST:-empty}"
+
+# Check scanner .env exists
+if [ -f "$PROJECT_DIR/scanner/backend/.env" ]; then
+    pass "Scanner .env file exists"
 else
-    warn "Most recent bar: $RECENT_BAR ($DAYS_SINCE days ago - may be stale)"
+    fail "Scanner .env file missing at scanner/backend/.env"
+fi
+
+# Check scanner timer
+SCANNER_TIMER_OK=false
+if systemctl --user is-enabled scanner-update.timer >/dev/null 2>&1; then
+    SCAN_NEXT=$(systemctl --user show scanner-update.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
+    pass "scanner-update.timer is enabled (next: $SCAN_NEXT)"
+    SCANNER_TIMER_OK=true
+else
+    warn "scanner-update.timer is not enabled"
 fi
 
 # ---- Strategy Parameters ----
 echo ""
 echo "--- Strategy Parameters ---"
 
-PARAM_ROWS=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "0")
+PARAM_ROWS=$(PSQL "SELECT COUNT(*) FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';")
+TICKER_COUNT=$(echo "$ENABLED_ETF" | wc -l)
 if [ "$PARAM_ROWS" -ge "$TICKER_COUNT" ] 2>/dev/null; then
     pass "All $TICKER_COUNT enabled tickers have base_case=true parameters"
 else
     fail "Expected $TICKER_COUNT tickers with base_case=true, found $PARAM_ROWS"
 fi
 
-# Check parameters are recent
-LAST_PARAM_UPDATE=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT MAX(updated_at)::date FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "never")
-echo "  Parameters last updated: $LAST_PARAM_UPDATE"
+LAST_PARAM_UPDATE=$(PSQL "SELECT MAX(sp.updated_at)::date FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';")
+PARAM_DAYS=$(( ($(date +%s) - $(date -d "$LAST_PARAM_UPDATE" +%s 2>/dev/null || echo 0)) / 86400 ))
+echo "  Parameters last updated: $LAST_PARAM_UPDATE ($PARAM_DAYS days ago)"
 
-# ---- Optimization History ----
+# Per-ticker active params
+for sym in $ENABLED_ETF; do
+    PARAM_LINE=$(PSQL "
+        SELECT CONCAT('period=', sp.chandelier_period, ' mult=', sp.chandelier_mult,
+            CASE WHEN sp.chandelier_entry_mult IS NOT NULL THEN CONCAT(' entry=', sp.chandelier_entry_mult) ELSE '' END,
+            CASE WHEN sp.reg_slope_window IS NOT NULL THEN CONCAT(' reg=', sp.reg_slope_type, ' ', sp.reg_slope_window, 'd th=', sp.reg_slope_threshold) ELSE '' END,
+            ' sharpe=', ROUND(sp.sharpe_ratio::numeric, 2))
+        FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id
+        WHERE t.symbol='$sym' AND sp.base_case=true;
+    ")
+    if [ -n "$PARAM_LINE" ]; then
+        echo "    $sym: $PARAM_LINE"
+    fi
+done
+
+# ---- Optimization History (per ticker) ----
 echo ""
 echo "--- Nightly Optimizer ---"
 
-OPT_RUNS=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT COUNT(*) FROM optimization_history oh JOIN tbl_etf_tickers t ON oh.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';" 2>/dev/null || echo "0")
+OPT_RUNS=$(PSQL "SELECT COUNT(*) FROM optimization_history oh JOIN tbl_etf_tickers t ON oh.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';")
 if [ "$OPT_RUNS" -gt 0 ] 2>/dev/null; then
-    pass "Optimization history has $OPT_RUNS recorded runs"
+    pass "Optimization history has $OPT_RUNS recorded runs for enabled tickers"
 else
-    warn "No optimization history found - optimizer may not have run"
+    warn "No optimization history found"
 fi
 
-LAST_OPT=$(docker exec swingtrader-db psql -U swingtrader -t -A -c "SELECT MAX(run_date)::date FROM optimization_history;" 2>/dev/null || echo "never")
-echo "  Last optimizer run: $LAST_OPT"
+LAST_OPT_GLOBAL=$(PSQL "SELECT MAX(run_date)::date FROM optimization_history;")
+OPT_GLOBAL_DAYS=$(( ($(date +%s) - $(date -d "$LAST_OPT_GLOBAL" +%s 2>/dev/null || echo 0)) / 86400 ))
+echo "  Last optimizer run (any ticker): $LAST_OPT_GLOBAL ($OPT_GLOBAL_DAYS days ago)"
+
+# Per-ticker latest optimizer run details
+for sym in BLENDED $ENABLED_ETF; do
+    OPT_LINE=$(PSQL "
+        SELECT CONCAT(oh.run_date::date, ' sharpe=', ROUND(oh.best_sharpe::numeric, 2),
+            ' return=', ROUND(oh.best_return::numeric, 2),
+            ' win=', ROUND(oh.best_win_rate::numeric, 3),
+            ' combos=', oh.total_combinations,
+            ' promoted=', oh.promoted)
+        FROM optimization_history oh JOIN tbl_etf_tickers t ON oh.ticker_id = t.id
+        WHERE t.symbol='$sym'
+        ORDER BY oh.run_date DESC LIMIT 1;
+    ")
+    if [ -n "$OPT_LINE" ]; then
+        echo "    $sym: $OPT_LINE"
+    else
+        echo "    $sym: no optimization runs found"
+    fi
+done
 
 # Also check the nightly log
 if [ -f "$PROJECT_DIR/swingtrader/services/optimizer/logs/nightly.log" ]; then
@@ -127,14 +198,24 @@ fi
 
 # ---- Timers ----
 echo ""
-echo "--- Timers ---"
+echo "--- System Timers ---"
 
-for timer in swingtrader-optimizer swingtrader-backup scanner-update scanner-intraday; do
+for timer in swingtrader-optimizer swingtrader-backup; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
         pass "$timer.timer is enabled (next: $NEXT)"
     else
         warn "$timer.timer is not enabled"
+    fi
+done
+
+# User timers (scanner)
+for timer in scanner-update scanner-hourly; do
+    if systemctl --user is-enabled "$timer.timer" >/dev/null 2>&1; then
+        NEXT=$(systemctl --user show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
+        pass "$timer.timer (user) is enabled (next: $NEXT)"
+    else
+        warn "$timer.timer (user) is not enabled"
     fi
 done
 
@@ -153,36 +234,27 @@ for svc in swingtrader-db swingtrader-backend swingtrader-fe-dev; do
     fi
 done
 
-# Scanner services are oneshot (run on timer, not persistent)
-for svc in scanner-update scanner-intraday; do
-    if systemctl is-enabled "$svc.timer" >/dev/null 2>&1; then
-        pass "$svc (oneshot, triggered by timer)"
-    else
-        warn "$svc timer not enabled"
-    fi
-done
-
 # ---- API Health ----
 echo ""
 echo "--- API Endpoints ---"
 
-BACKEND_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9000/api/health 2>/dev/null || echo "000")
+BACKEND_CODE=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://localhost:9000/api/health 2>/dev/null || echo "000")
 if [ "$BACKEND_CODE" = "200" ]; then
     pass "Backend health endpoint returns 200"
 else
     fail "Backend health endpoint: HTTP $BACKEND_CODE"
 fi
 
-STRATEGIES_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5173 2>/dev/null || echo "000")
-if [ "$STRATEGIES_CODE" = "200" ]; then
+FRONTEND_CODE=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://localhost:5173 2>/dev/null || echo "000")
+if [ "$FRONTEND_CODE" = "200" ]; then
     pass "Frontend dashboard returns 200"
 else
-    warn "Frontend dashboard: HTTP $STRATEGIES_CODE"
+    warn "Frontend dashboard: HTTP $FRONTEND_CODE"
 fi
 
 # Quick API data sanity check
-API_RESPONSE=$(curl -s http://localhost:9000/api/v1/strategies 2>/dev/null)
-TICKER_NAMES=$(echo "$API_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(' '.join(t['symbol'] for t in data.get('tickers',[]) if t['symbol']!='BLENDED'))" 2>/dev/null || echo "unparseable")
+API_RESPONSE=$(curl -s --max-time 5 -H "Accept: application/json" http://localhost:9000/api/v1/strategies 2>/dev/null)
+TICKER_NAMES=$(echo "$API_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(' '.join(t['symbol'] for t in data.get('tickers',data) if t['symbol']!='BLENDED'))" 2>/dev/null || echo "unparseable")
 if [ -n "$TICKER_NAMES" ] && [ "$TICKER_NAMES" != "unparseable" ]; then
     pass "Strategy API returns tickers: $TICKER_NAMES"
 else

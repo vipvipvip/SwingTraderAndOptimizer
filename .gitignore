@@ -52,3 +52,4 @@ swingtrader/backend/bootstrap/cache/
 swingtrader/backend/storage/trades_last_run.txt
 swingtrader/frontend/node_modules/.svelte2tsx-language-server-files/
 db-list.csv
+scanner/backend/.env

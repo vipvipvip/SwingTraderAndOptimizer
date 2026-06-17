@@ -1,386 +1,350 @@
-# SwingTrader System Architecture (v7.5)
+# SwingTrader System Architecture
 
-A full-stack algorithmic swing trading system using a **Chandelier Exit** strategy with nightly parameter optimization and live trading dashboard.
-
----
-
-## System Overview
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│                    LIVE TRADING (Every Minute)                  │
-├────────────────────────────────────────────────────────────────┤
-│ Market Hours: 9:30 AM - 4:00 PM ET, Weekdays Only              │
-│                                                                │
-│ For each ticker (SPY, QQQ, IWM) independently:                │
-│  1. Fetch latest bars + current price from Alpaca              │
-│  2. Load strategy parameters (chandelier period + multiplier)  │
-│     from strategy_parameters table                             │
-│  3. If in position:                                            │
-│     - Compute ATR(period)                                      │
-│     - Track highest high since entry                           │
-│     - stop_level = highest_high - ATR × multiplier            │
-│     - If close < stop_level → SELL at next bar open           │
-│  4. If flat → BUY at next bar open (always re-enter,          │
-│     unless exited same day to match backtest)                  │
-│  5. Calculate position size:                                   │
-│     qty = (account_equity × allocation_weight%) / entry_price  │
-│  6. Place order, record trade                                  │
-│                                                                │
-│ Allocation: SPY 40%, QQQ 45%, IWM 15%                         │
-└────────────────────────────────────────────────────────────────┘
-
-┌────────────────────────────────────────────────────────────────┐
-│                   NIGHTLY (2:00 AM ET Daily)                    │
-├────────────────────────────────────────────────────────────────┤
-│ Via systemd timer: swingtrader-optimizer.timer                 │
-│                                                                │
-│ 1. Load 2 years of hourly bars per ticker                      │
-│ 2. Grid search Chandelier parameters:                          │
-│    period=[14, 20, 26], multiplier=[1.8, 2.0, 2.2]            │
-│    (9 combinations total)                                      │
-│ 3. For each combo, run full backtest on 2-year history         │
-│ 4. Rank by Sharpe ratio                                        │
-│ 5. Save best candidate, promote if return + Sharpe improve     │
-│ 6. Portfolio coordinate ascent over tickers for blended Sharpe │
-│ 7. Generate equity curves + record backtest trades             │
-│ Runtime: ~20-30 minutes                                        │
-│                                                                │
-│ Results: SPY 8.91%, QQQ 15.63%, IWM 3.18% (2y backtest)       │
-│          Sharpe: 3.05, 3.00, 3.13 respectively                 │
-└────────────────────────────────────────────────────────────────┘
-```
+A full-stack algorithmic swing trading system using **Chandelier Exit + Linear Regression Exit** strategy with nightly parameter optimization via grid search + coordinate ascent, live trading via Alpaca, and a Svelte dashboard.
 
 ---
 
-## Strategy Details (v7.5 Chandelier Exit)
-
-### Entry Logic
+## System Components & Dependencies
 
 ```
-When flat for [ticker]:
-  → BUY at next bar open (always re-enter)
-  Exception: skip re-entry if exited same day (matches daily backtest)
+┌─────────────────────────────────────────────────────────────────────┐
+│                      LARAVEL BACKEND (port 9000)                     │
+│  php artisan serve  │  systemd: swingtrader-backend.service          │
+├─────────────────────────────────────────────────────────────────────┤
+│  TradeExecutorService.php   — signal generation, order placement     │
+│  AlpacaService.php          — Alpaca API wrapper                     │
+│  StrategyService.php        — per-ticker active params + live metrics│
+│  EquityService.php          — account equity snapshots               │
+│                                                                     │
+│  Scheduler (Laravel Kernel.php, runs inside backend process):       │
+│    trades:execute-daily  → every 5 min, Mon–Fri 09:30–16:05 ET     │
+│    positions:sync        → every 5 min, Mon–Fri 09:30–16:05 ET     │
+│    equity:snapshot       → daily 16:05 ET                           │
+│    logs:check-and-alert  → daily 09:15 ET + 16:10 ET weekdays      │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                      SVELTE FRONTEND (port 5173)                     │
+│  npm run dev  │  systemd: swingtrader-fe-dev.service                 │
+├─────────────────────────────────────────────────────────────────────┤
+│  App.svelte              — dashboard: cards, trade history, charts   │
+│  StrategyCard.svelte     — per-ticker card (params, entry/stop, PnL)│
+│  TradesHistoryTable.svelte — live + backtest trade log              │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                      POSTGRESQL (Docker, port 5432)                  │
+│  systemd: swingtrader-db.service                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  bars                    — daily OHLCV for ETF tickers              │
+│  strategy_parameters     — active (base_case=true) per-ticker params│
+│  live_trades             — executed Alpaca trades                   │
+│  backtest_trades         — optimizer simulated trades               │
+│  optimization_history    — per-run results (sharpe, return, params) │
+│  equity_snapshots        — daily equity tracking                    │
+│  positions_cache         — Alpaca position sync                     │
+│  tbl_stock_tickers       — 503 SP500 stock symbols (scanner)        │
+│  tbl_scanner_tickers(_daily,_1hour) — OHLCV + MACD/PPO/SMA/ATR    │
+│  tbl_stock_analyzer      — fundamental data (EPS, PE, revenue...)   │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                      TIMERS & CRON (systemd + cron)                  │
+├─────────────────────────────────────────────────────────────────────┤
+│  TIMER                    SCHEDULE          WHAT IT DOES             │
+│  ─────────────────────────────────────────────────────────────────── │
+│  swingtrader-optimizer   02:00 ET daily     Run optimizer (Python)   │
+│  swingtrader-backup      16:15 ET daily     pg_dump backup           │
+│  scanner-update          09:00 ET Mon–Fri   Populate weekly + daily  │
+│  scanner-hourly          10–16 ET Mon–Fri   Capture hourly bars      │
+│                                                                     │
+│  Also: cron: trades:execute-daily every 5 min (during market hours) │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                      SCANNER (Python, SP500 stocks)                  │
+│  scanner/services/scripts/                                           │
+├─────────────────────────────────────────────────────────────────────┤
+│  populate_tickers.py     — fetch OHLCV from Alpaca (incremental)    │
+│  compute_indicators.py   — MACD, PPO, SMA crossovers, ATR stop      │
+│  capture_hourly.py       — hourly bar capture during market hours   │
+│                                                                     │
+│  Timer: scanner-update   → 09:00 ET weekdays (week + day timeframes)│
+│  Timer: scanner-hourly   → 10–16 ET hourly (hour timeframe)         │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                      OPTIMIZER (Python, ETF tickers)                 │
+│  swingtrader/services/optimizer/                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  nightly_optimizer.py    — 2-pass grid search + coordinate ascent   │
+│  parameter_optimizer.py  — backtest engine with Chand+Reg exit      │
+│  db.py                   — PostgreSQL persistence layer              │
+│  run_nightly.sh          — bash wrapper called by systemd timer      │
+│                                                                     │
+│  Timer: swingtrader-optimizer → 02:00 ET daily                      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
-
-### Exit Logic
-
-```
-In position for [ticker]:
-  highest_high = max(high since entry)
-  stop = highest_high - ATR(period) × multiplier
-  if close < stop → SELL at next bar open
-```
-
-### Parameters (Optimized Nightly)
-
-| Parameter | Values | Description |
-|-----------|--------|-------------|
-| ATR Period | [14, 20, 26] | Lookback window for Average True Range |
-| Multiplier | [1.8, 2.0, 2.2] | Stop distance in ATR units |
-
-9 combinations tested per nightly run.
-
-### Performance (2-Year Backtest)
-
-| Ticker | Return | Sharpe | Win Rate | Trades | Allocation |
-|--------|--------|--------|----------|--------|------------|
-| SPY | 8.91% | 3.05 | 58.3% | ~12 | 40% |
-| QQQ | 15.63% | 3.00 | 62.5% | ~8 | 45% |
-| IWM | 3.18% | 3.13 | 66.7% | ~6 | 15% |
 
 ---
 
 ## Data Flow
 
-### Real-Time Execution Path
+### ETF Bars (Daily, for Trading)
 ```
-1. Every minute during market hours:
-   a) Alpaca provides current price + latest bar
-   b) Backend fetches from Alpaca API
-   c) Stores latest bar in `bars` table (if new hour)
-
-2. Signal Computation (for each ticker):
-   a) Query last 30 bars from `bars` table
-   b) Calculate ATR(period) from highs, lows, closes
-   c) Track highest high since entry
-   d) Compute stop_level = highest_high - ATR × multiplier
-   e) If in position + close < stop_level → SELL
-   f) If flat → BUY (with same-day exit guard)
-
-3. Order Execution:
-   a) All orders are MARKET orders via Alpaca
-   b) Position size = (equity × allocation_weight%) / entry_price
-
-4. Trade Recording:
-   a) Record entry: ticker, price, qty, timestamp
-   b) On exit: record exit price, P&L, allocation weight used
-   c) Calculate return% and pnl_dollar
-
-5. Equity Tracking:
-   a) After each trade, calculate new account equity
-   b) Store equity snapshot to `equity_snapshots` table
+Alpaca (historical) ──► bars table ──► optimizer (02:00) ──► strategy_parameters
+                                    ──► live trading (5 min) ──► exit/entry signals
 ```
 
-### Nightly Optimization Path
+### Stock Scanner Data (SP500, for Screening)
 ```
-1. Load Data:
-   a) Query 2 years of hourly bars per ticker
-   b) Filter to market hours only (14:00-20:00 UTC)
+Alpaca ───┬── scanner-update (09:00 daily) ──► tbl_scanner_tickers (weekly)
+           │                                     tbl_scanner_tickers_daily
+           │                                     compute_indicators → MACD/PPO/SMA/ATR
+           │
+           └── scanner-hourly (hourly)       ──► tbl_scanner_tickers_1hour
+                                                compute_indicators → same indicators
+```
 
-2. Grid Search:
-   For each of 9 Chandelier (period × multiplier) combos:
-   a) Calculate ATR with trial period
-   b) Run full backtest on all 2 years of data
-   c) Simulate entry/exit with trailing stop logic
-
-3. Ranking:
-   a) Calculate metrics: win_rate, sharpe_ratio, total_return
-   b) Rank all 9 combos by sharpe_ratio (highest first)
-   c) Best combo saved as candidate
-
-4. Portfolio Coordinate Ascent:
-   a) Optimize each ticker independently
-   b) Run portfolio-level backtest with allocation weights
-   c) Promote candidate if both return AND Sharpe improve over baseline
-
-5. Storage:
-   a) Delete old candidates (base_case=false rows)
-   b) Insert new best candidate
-   c) Production uses base_case=true (manually promoted)
-   d) Record all backtest trades to `backtest_trades` table
+### Live Trading
+```
+cron (5 min) ──► trades:execute-daily ──► TradeExecutorService
+                    │                           │
+                    ├── getAccount() (Alpaca)   ├── Pass 1: exits for each ticker
+                    ├── getPositions() (Alpaca) │   (Chandelier + Regression check)
+                    │                           ├── Pass 2: pooled cash entry
+                    │                           │   (split equally among buy signals)
+                    │                           └── placeOrder() (Alpaca MARKET)
+                    │
+                    └── Slack webhook ──► report if trades occurred
 ```
 
 ---
 
-## Database Schema (PostgreSQL)
+## Strategy
+
+### Tickers
+QQQ, VTI, VTV (enabled in `tbl_etf_tickers`). BLENDED is the portfolio composite.
+
+### Exit — Chandelier Exit (always active)
+```
+highest_high = max(high since entry, ... , current high)
+stop_level   = highest_high - ATR(period) × multiplier
+if close < stop_level → SELL at next bar open
+```
+
+### Exit — Linear Regression Exit (optional, per ticker)
+```
+slope = linearRegSlope(close[-window:], window)  // $/day
+normalized = slope / ATR  (or % of close, or raw $/day)
+if normalized < threshold (negative slope = declining) → SELL
+```
+
+Runs AFTER Chandelier check. If either fires, the position exits.
+
+### Entry — Chandelier Trigger (optional, per ticker)
+```
+entry_level = highest_high(period) - ATR × entry_mult
+if close > entry_level → BUY signal
+```
+If `entry_mult` is null: always enter on next bar open.
+
+### Cash Management — Pooled
+Available cash is split equally among all tickers with buy signals. No per-ticker allocation weights.
+
+### Signal Execution
+All orders are Alpaca MARKET orders. Exit type (`chandelier`, `regression`, `force_close`) is tracked in `backtest_trades.exit_type`.
+
+### Scheduler
+```
+cron: */5 * * * * /usr/bin/php ... artisan trades:execute-daily >> /dev/null 2>&1
+```
+Runs every 5 min regardless of market hours. The command checks `alpacaService->getClock()['is_open']` and exits early if market is closed.
+
+---
+
+## Live Trading Flow (TradeExecutorService)
+
+```
+executeForAllTickers($override = false)
+  │
+  ├── getAccount() → $availableCash
+  │
+  ├── Pass 1: EXITS ──► for each ticker in position:
+  │     ├── computeChandelierSignal(...)
+  │     │     ├── calculateATR(period)
+  │     │     ├── linearRegSlope() (if reg params set)
+  │     │     └── return 1 (buy), -1 (sell), 0 (hold)
+  │     │
+  │     └── if sell signal → handleSellSignal()
+  │           └── placeOrder('sell') + record trade
+  │
+  ├── if $availableCash ≤ 0 → bail early (skip entry pass)
+  │
+  ├── Pass 2: ENTRIES ──► handlePooledEntries()
+  │     ├── for each ticker NOT in position:
+  │     │     └── check entry condition
+  │     └── if multiple signals:
+  │           └── split cash equally among all qualifying tickers
+  │
+  └── Pass 3: OVERRIDE (only if --override flag)
+        └── executeManualOverride()
+              └── force-check entry for ALL tickers (even in-position)
+                    deploy idle cash equally into qualifying ones
+```
+
+---
+
+## Optimizer (nightly, 02:00 ET)
+
+### Two-Pass Grid Search
+```
+Pass 1 — Chandelier-only:
+  period  ∈ [14, 18, 22]
+  mult    ∈ [2.0, 2.5, 3.0, 3.5, 4.0]
+  entry   ∈ [1.0, 1.5, …]  (dependent on params)
+  27+ combos per ticker
+
+Pass 2 — Fix best Chandelier, grid Regression:
+  reg_window     ∈ [3, 5, 8, 13]
+  reg_threshold  ∈ [-0.5, -1.0, -2.0, -3.0]
+  reg_type       ∈ [slope_atr, slope_pct, slope]
+  32+ combos per ticker
+
+Total: ~59 combos per ticker, ~2 seconds each
+```
+
+### Coordinate Ascent (Portfolio Level)
+1. Run individual optimization for each ticker independently
+2. Take top 5 candidates per ticker as coordinate ascent pool
+3. Run portfolio backtest with **pooled cash** (all cash into highest-Sharpe trigger)
+4. Promote params that improve blended Sharpe over baseline
+
+### Output
+- Per-ticker best params → `strategy_parameters` table (`base_case=true`)
+- BLENDED portfolio record in `optimization_history` with nested JSON params
+- All backtest trades in `backtest_trades` with `exit_type` tracking
+
+---
+
+## Scanner (09:00 daily + hourly market hours)
+
+### populate_tickers.py (incremental)
+```
+For each ticker:
+  1. Query MAX(date) FROM target table
+  2. Fetch bars AFTER that date from Alpaca
+  3. INSERT ON CONFLICT DO NOTHING
+```
+No delete-all-reinsert. Only fetches missing data.
+
+### compute_indicators.py
+Computes per-bar: MACD line/signal/histogram, MACD crossover (bull/bear), PPO line/signal/histogram, PPO crossover (bull/bear), SMA crossover (bull/bear), ATR stop level.
+
+### Timeframes
+| Table | Timeframe | Timer | Data Range |
+|-------|-----------|-------|------------|
+| tbl_scanner_tickers | Weekly | scanner-update (09:00 daily) | 2017–present |
+| tbl_scanner_tickers_daily | Daily | scanner-update (09:00 daily) | 2017–present |
+| tbl_scanner_tickers_1hour | Hourly | scanner-hourly (hourly 10–16) | 90-day lookback |
+
+---
+
+## Database Schema
 
 ### Core Tables
 
-**tickers**
+**tbl_etf_tickers** — ETF symbols for trading
 ```
-id (PK)
-symbol (SPY, QQQ, IWM)
-allocation_weight (40, 45, 15)
-enabled (boolean)
-created_at
+id (PK), symbol (QQQ|VTI|VTV|BLENDED), enabled, allocation_weight
 ```
 
-**bars** (Hourly OHLCV)
+**bars** — Daily OHLCV for ETF tickers
 ```
-id (PK)
-ticker_id (FK)
-timestamp (2024-01-01 09:30:00 ET)
-open, high, low, close, volume
-6000-10000 rows per ticker (2 years)
+id (PK), ticker_id (FK), timestamp, open, high, low, close, volume
+~1478 rows per ticker (2017–present)
 ```
 
-**strategy_parameters** (Optimization Results)
+**strategy_parameters** — Active optimized parameters per ticker
 ```
-id (PK)
-ticker_id (FK)
-macd_fast (chandelier period: 14-26)
-bb_std (chandelier multiplier: 1.8-2.2)
-bb_period (ATR period, same as chandelier period)
-win_rate (0.0-1.0)
-sharpe_ratio
-total_return (%)
-total_trades
-base_case (boolean)
-  → true: production parameters (manually promoted)
-  → false: candidate from latest optimization
-created_at, updated_at
+id (PK), ticker_id (FK), base_case (boolean)
+chandelier_period, chandelier_mult, chandelier_entry_mult
+reg_slope_window, reg_slope_threshold, reg_slope_type
+sharpe_ratio, total_return, win_rate, max_drawdown, total_trades
 ```
 
-**backtest_trades** (Nightly Optimizer Results)
+**live_trades** — Executed Alpaca orders
 ```
-id (PK)
-ticker_id (FK)
-entry_at (timestamp)
-entry_price
-exit_at
-exit_price
-return (pct)
-pnl_dollar
-days_held
-symbol, source_symbol, allocation_weight, simulated_close
+id (PK), ticker_id (FK), symbol, side, quantity
+entry_price, exit_price, entry_at, exit_at
+pnl_dollar, pnl_pct, status (open|closed)
+strategy_signal (CHANDELIER_ENTRY)
+alpaca_order_id
+```
+
+**backtest_trades** — Simulated trades from optimizer
+```
+id (PK), ticker_id (FK), entry_at, entry_price, exit_at, exit_price
+return, pnl_dollar, days_held, exit_type (chandelier|regression|force_close)
 portfolio_value
-created_at
 ```
 
-**live_trades** (Executed Orders)
+**optimization_history** — Per-run audit trail
 ```
-id (PK)
-ticker_id (FK)
-entry_at
-entry_price
-qty
-exit_at (null if open)
-exit_price
-return (pct)
-pnl_dollar
-created_at
+id (PK), ticker_id (FK), run_date, best_sharpe, best_return, best_win_rate
+total_combinations, runtime_seconds, params (JSONB), promoted
 ```
 
-**equity_snapshots** (Performance Tracking)
-```
-id (PK)
-ticker_id (FK)
-snapshot_date
-equity_value
-snapshot_type ('backtest' or 'live')
-source ('optimizer' or 'executor')
-created_at
-```
+### Scanner Tables
 
-**optimization_history** (Audit Trail)
-```
-id (PK)
-ticker_id (FK)
-run_date
-best_sharpe
-best_return
-best_win_rate
-total_combinations (always 9)
-runtime_seconds
-created_at
-```
-
----
-
-## Component Details
-
-### TradeExecutorService.php (Signal Generation)
-
-**computeChandelierSignal(closes, highs, lows, params, inPosition, entryHigh) → 1|-1|0**
-
-1. Calculate ATR:
-   ```php
-   true_range = max(high - low, |high - prev_close|, |low - prev_close|)
-   atr = EMA(true_range, params['bb_period'])
-   ```
-
-2. Track highest high since entry:
-   ```php
-   highest_high = max(entry_high, ... , current_high)
-   ```
-
-3. Compute stop level:
-   ```php
-   stop_level = highest_high - atr * params['bb_std']
-   ```
-
-4. Generate signal:
-   ```php
-   if (!inPosition) return 1  // Always BUY when flat
-   if (close < stop_level) return -1  // SELL (stop hit)
-   return 0  // HOLD
-   ```
-
-### parameter_optimizer.py (Backtesting)
-
-**_backtest_with_params(params) → trades, metrics, equity_curve**
-
-1. Initialize:
-   - Starting equity: $100,000
-   - Allocation: (equity × allocation_weight%) / entry_price
-
-2. For each bar in history:
-   - Calculate ATR with trial period
-   - Track highest high since entry
-   - Compute stop = highest_high - ATR × multiplier
-   - If in position & close < stop: SELL
-   - If flat: BUY (with same-day exit guard)
-   - Track equity after each trade
-
-3. Calculate metrics:
-   - win_rate = wins / total_trades
-   - sharpe_ratio = (mean_return × 252) / (std_return × sqrt(252))
-   - total_return = (final_equity - initial) / initial
-
-### nightly_optimizer.py (Grid Search)
-
-**optimize(param_grid) → sorted_results**
-
-1. Generate combinations:
-   - period × multiplier = 3 × 3 = 9 combos
-
-2. For each combo:
-   - Run `_backtest_with_params(combo)`
-   - Store result with metrics
-
-3. Sort by Sharpe ratio (highest first)
-
-4. Portfolio coordinate ascent:
-   - Run tickers independently
-   - Blend results with allocation weights
-   - Promote if improvement over baseline
-
-5. Save results:
-   - Update `strategy_parameters` table
-   - Delete old candidates
-   - Record trades to `backtest_trades`
-   - Log to `optimization_history`
+**tbl_stock_tickers** — 503 SP500 stock symbols
+**tbl_scanner_tickers** — Weekly OHLCV + MACD/PPO/SMA/ATR indicators
+**tbl_scanner_tickers_daily** — Daily OHLCV + indicators
+**tbl_scanner_tickers_1hour** — Hourly OHLCV + indicators (90-day)
+**tbl_stock_analyzer** — Fundamental data (EPS, PE, revenue, dividends)
 
 ---
 
 ## Safety Mechanisms
 
-1. **Market Hours Filtering**:
-   - Only execute trades 9:30 AM - 4:00 PM ET
-   - Only on weekdays (Mon-Fri)
-   - Alpaca `$clock['is_open']` double-check
-
-2. **Same-Day Exit Guard**:
-   - Prevents re-entry on same day as exit
-   - Matches daily backtest behavior
-
-3. **Database Consistency**:
-   - All trades recorded immediately
-   - PnL sync checking before database saves
-
-4. **Candidate Management**:
-   - Old base_case=0 candidates auto-deleted
-   - Only latest best candidate stored
-
-5. **Graceful Degradation**:
-   - API timeouts with retry logic
-   - Fallback defaults for missing parameters
+1. **Market Hours**: Alpaca clock check via `getClock()['is_open']`. Only executes 09:30–16:05 ET weekdays.
+2. **Cash Gating**: If `$availableCash ≤ 0` after exit pass, entry pass is skipped entirely.
+3. **Same-Day Exit Guard**: Prevents re-entry on same day as exit (matches backtest behavior).
+4. **No Overlapping**: Scheduler uses `withoutOverlapping(10)` to prevent concurrent runs.
+5. **Graceful Degradation**: API timeouts with retry logic. Fallback defaults for missing params.
+6. **Manual Override**: `--override` flag force-checks entry even for in-position tickers to deploy idle cash.
+7. **Incremental Scanner**: `populate_tickers.py` only fetches bars after `MAX(date)` — no delete-all-reinsert.
 
 ---
 
-## Monitoring & Logs
+## Monitoring
+
+**Health Check:**
+```bash
+bash /home/dikesh/data/dev/SwingTraderAndOptimizer/common/scripts/health-check.sh
+# Checks: DB, ETF bars per ticker, scanner recency, optimizer runs,
+#         strategy params, systemd services, API endpoints
+```
 
 **Backend Logs:**
 ```bash
 sudo journalctl -u swingtrader-backend -f
-# Shows every signal evaluation + order placement
 ```
 
 **Optimizer Logs:**
 ```bash
-tail -f /home/dikesh/data/dev/SwingTraderAndOptimizer/optimizer/logs/nightly.log
-# Shows parameter testing progress + best result
+tail -f /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/logs/nightly.log
 ```
 
-**Database Audit:**
-```bash
-psql -d swingtrader -c "
-  SELECT symbol, COUNT(*) as trades, 
-         ROUND(AVG(return)::numeric, 4) as avg_return,
-         MAX(pnl_dollar) as best_trade
-  FROM live_trades lt
-  JOIN tickers t ON lt.ticker_id = t.id
-  GROUP BY symbol
-  ORDER BY trades DESC;
-"
-```
+**Trade Activity:**
+Slack webhook reports sent when any trade (buy/sell) occurs via `SLACK_WEBHOOK_URL`.
 
 ---
 
-**Last Updated:** 2026-05-14  
-**Version:** v7.5  
-**Status:** Production (paper trading)  
-**Scheduler:** systemd (backend service + optimizer timer)  
-**Database:** PostgreSQL  
+**Last Updated:** 2026-06-16
+**Tickers:** QQQ, VTI, VTV (+ BLENDED portfolio composite)
 **Broker:** Alpaca (paper)
+**Database:** PostgreSQL (Docker)
+**Scheduler:** systemd timers + cron + Laravel Kernel schedule
+**Frontend:** Svelte + Vite (port 5173)
+**Backend:** Laravel 11 (port 9000)

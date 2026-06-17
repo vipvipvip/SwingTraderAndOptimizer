@@ -7,6 +7,7 @@ use App\Services\EquityService;
 use App\Services\StrategyService;
 use App\Services\TradeExecutorService;
 use App\Services\AlpacaService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -112,25 +113,13 @@ class AdminController extends Controller
     public function triggerTrades()
     {
         try {
-            $output = [];
-            $returnCode = 0;
             $phpPath = PHP_BINDIR . DIRECTORY_SEPARATOR . 'php';
             $artisanPath = base_path('artisan');
 
-            // Use escapeshellarg for proper path escaping on Windows/Unix
-            $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' trades:execute-daily --force-test 2>&1';
-            exec($command, $output, $returnCode);
+            $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' trades:execute-daily --override > /dev/null 2>&1 &';
+            exec($command);
 
-            // Check if command succeeded by looking for success indicators, not just return code
-            // (Xdebug timeouts can cause false failures)
-            $outputStr = implode("\n", $output);
-            $hasSuccess = strpos($outputStr, 'completed') !== false || strpos($outputStr, 'Trade execution') !== false;
-
-            if (!$hasSuccess && $returnCode !== 0) {
-                return response()->json(['error' => 'Trade execution failed', 'output' => $outputStr], 500);
-            }
-
-            return response()->json(['message' => 'Trade executor triggered', 'output' => $outputStr]);
+            return response()->json(['message' => 'Trade executor triggered in background']);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
