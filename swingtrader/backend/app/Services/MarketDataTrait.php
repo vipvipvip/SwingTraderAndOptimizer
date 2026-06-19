@@ -7,11 +7,11 @@ trait MarketDataTrait
     private function getOhlcBars($symbol)
     {
         try {
-            $rows = \DB::table('bars')
-                ->join('tbl_etf_tickers', 'bars.ticker_id', '=', 'tbl_etf_tickers.id')
+            $rows = \DB::table('tbl_etf_tickers_1hour')
+                ->join('tbl_etf_tickers', 'tbl_etf_tickers_1hour.ticker_id', '=', 'tbl_etf_tickers.id')
                 ->where('tbl_etf_tickers.symbol', $symbol)
-                ->orderBy('bars.timestamp', 'asc')
-                ->get(['bars.timestamp', 'bars.high', 'bars.low', 'bars.close']);
+                ->orderBy('tbl_etf_tickers_1hour.timestamp', 'asc')
+                ->get(['tbl_etf_tickers_1hour.timestamp', 'tbl_etf_tickers_1hour.high', 'tbl_etf_tickers_1hour.low', 'tbl_etf_tickers_1hour.close']);
 
             if ($rows->isEmpty()) {
                 return [];

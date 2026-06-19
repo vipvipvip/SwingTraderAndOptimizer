@@ -119,7 +119,7 @@ sudo systemctl status postgresql
 psql -U swingtrader -d swingtrader
 
 # Inside psql:
-SELECT COUNT(*) as bars FROM bars;
+SELECT COUNT(*) as bars FROM tbl_etf_tickers_1hour;
 SELECT COUNT(*) as trades FROM live_trades WHERE DATE(entry_at) = CURRENT_DATE;
 ```
 

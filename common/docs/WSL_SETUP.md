@@ -420,7 +420,7 @@ sudo systemctl list-timers swingtrader-optimizer.timer  # Next 2 AM run
 
 # Bars data
 docker exec swingtrader-db psql -U swingtrader -d swingtrader \
-  -c "SELECT symbol, COUNT(*) FROM bars b JOIN tickers t ON b.ticker_id=t.id GROUP BY symbol;"
+  -c "SELECT symbol, COUNT(*) FROM tbl_etf_tickers_1hour b JOIN tickers t ON b.ticker_id=t.id GROUP BY symbol;"
 ```
 
 ---

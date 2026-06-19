@@ -1,0 +1,18 @@
+[Unit]
+Description=EMAC EMA(10)/SMA(40) Crossover Runner
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover
+ExecStart=/usr/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover/runner.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

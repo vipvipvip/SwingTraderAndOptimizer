@@ -31,7 +31,7 @@ new_bars = filter_market_hours(new_bars)  # Line 292
 ### Historical Data (Database Initialization)
 **File:** `backend/postgres_init/02_ensure_market_hours_data.sql`  
 **Runs:** During Docker initialization (`docker-compose up`)  
-**Action:** Removes any out-of-hours bars from bars table
+**Action:** Removes any out-of-hours bars from tbl_etf_tickers_1hour
 
 **Status:** ✅ **Implemented** — prevents migrations from introducing dirty data
 
@@ -92,7 +92,7 @@ WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 13 AND 20
 ### Check if database is clean (should see ONLY hours 13-20)
 ```bash
 docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "SELECT EXTRACT(HOUR FROM timestamp)::INT as hour, COUNT(*) FROM bars GROUP BY hour ORDER BY hour;"
+  "SELECT EXTRACT(HOUR FROM timestamp)::INT as hour, COUNT(*) FROM tbl_etf_tickers_1hour GROUP BY hour ORDER BY hour;"
 ```
 
 Expected output (8 consecutive hours, no gaps):
@@ -112,7 +112,7 @@ Expected output (8 consecutive hours, no gaps):
 **Verify 8 bars per ticker per day:**
 ```bash
 docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "SELECT t.symbol, DATE(b.timestamp), COUNT(*) as bar_count FROM bars b JOIN tickers t ON b.ticker_id = t.id GROUP BY t.symbol, DATE(b.timestamp) ORDER BY t.symbol, DATE(b.timestamp) DESC LIMIT 15;"
+  "SELECT t.symbol, DATE(b.timestamp), COUNT(*) as bar_count FROM tbl_etf_tickers_1hour b JOIN tickers t ON b.ticker_id = t.id GROUP BY t.symbol, DATE(b.timestamp) ORDER BY t.symbol, DATE(b.timestamp) DESC LIMIT 15;"
 ```
 
 Expected: Each row should show exactly 8 bars per ticker per trading day.

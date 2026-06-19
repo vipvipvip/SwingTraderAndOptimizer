@@ -457,18 +457,18 @@ class TradeExecutorService
     private function getCurrentPrice($symbol)
     {
         try {
-            $bar = \DB::table('bars')
-                ->join('tbl_etf_tickers', 'bars.ticker_id', '=', 'tbl_etf_tickers.id')
+            $bar = \DB::table('tbl_etf_tickers_1hour')
+                ->join('tbl_etf_tickers', 'tbl_etf_tickers_1hour.ticker_id', '=', 'tbl_etf_tickers.id')
                 ->where('tbl_etf_tickers.symbol', $symbol)
-                ->orderBy('bars.timestamp', 'desc')
-                ->select('bars.close')
+                ->orderBy('tbl_etf_tickers_1hour.timestamp', 'desc')
+                ->select('tbl_etf_tickers_1hour.close')
                 ->first();
 
             if ($bar) {
                 return floatval($bar->close);
             }
         } catch (\Exception $e) {
-            \Log::debug("Could not fetch from bars: " . $e->getMessage());
+            \Log::debug("Could not fetch from tbl_etf_tickers_1hour: " . $e->getMessage());
         }
 
         return null;

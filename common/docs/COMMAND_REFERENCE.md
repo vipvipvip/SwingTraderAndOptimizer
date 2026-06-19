@@ -15,7 +15,7 @@ php artisan migrate --force
 php artisan migrate:refresh --force
 ```
 
-**Purpose:** Initialize database schema with Laravel migrations for tickers, bars, strategy_parameters, backtest_trades, optimization_history, and equity_snapshots tables.
+**Purpose:** Initialize database schema with Laravel migrations for tickers, tbl_etf_tickers_1hour, strategy_parameters, backtest_trades, optimization_history, and equity_snapshots tables.
 
 ---
 
@@ -187,7 +187,7 @@ SELECT * FROM pg_sequences WHERE schemaname = 'public';
 ```bash
 # Count records in all tables
 docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "
-SELECT 'table_name' as table_name, COUNT(*) as count FROM bars
+SELECT 'table_name' as table_name, COUNT(*) as count FROM tbl_etf_tickers_1hour
 UNION ALL
 SELECT 'strategy_parameters', COUNT(*) FROM strategy_parameters
 UNION ALL
@@ -611,7 +611,7 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader << 'EOF'
 SELECT 
   EXTRACT(HOUR FROM timestamp)::INT as hour_ny,
   COUNT(*) as count
-FROM bars
+FROM tbl_etf_tickers_1hour
 GROUP BY hour_ny
 ORDER BY hour_ny;
 
@@ -634,20 +634,20 @@ SELECT
   COUNT(*) as bar_count,
   MIN(timestamp) as earliest,
   MAX(timestamp) as latest
-FROM bars b
+FROM tbl_etf_tickers_1hour b
 JOIN tickers t ON b.ticker_id = t.id
 GROUP BY t.symbol
 ORDER BY t.symbol;
 
 -- Verify no bars outside market hours exist
 SELECT COUNT(*) as out_of_bounds
-FROM bars
+FROM tbl_etf_tickers_1hour
 WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 10 AND 16;
 -- Expected: 0
 EOF
 ```
 
-**Purpose:** Verify bars table contains ONLY hourly market hours data (10:00 AM - 4:00 PM ET).
+**Purpose:** Verify tbl_etf_tickers_1hour contains ONLY hourly market hours data (10:00 AM - 4:00 PM ET).
 
 ### Delete Out-of-Band Data
 
@@ -658,22 +658,22 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader << 'EOF'
 SELECT 
   COUNT(*) as out_of_bounds,
   EXTRACT(HOUR FROM timestamp)::INT as bad_hour
-FROM bars
+FROM tbl_etf_tickers_1hour
 WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 10 AND 16
 GROUP BY bad_hour
 ORDER BY bad_hour;
 
 -- Delete out-of-hours bars
-DELETE FROM bars 
+DELETE FROM tbl_etf_tickers_1hour 
 WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 10 AND 16;
 
 -- Verify deletion
-SELECT COUNT(*) as remaining_bars FROM bars;
+SELECT COUNT(*) as remaining_bars FROM tbl_etf_tickers_1hour;
 -- Should match expected count (~3300-3400 per ticker × number of tickers)
 
 -- Verify only valid hours remain
 SELECT DISTINCT EXTRACT(HOUR FROM timestamp)::INT as hour 
-FROM bars 
+FROM tbl_etf_tickers_1hour 
 ORDER BY hour;
 -- Expected: 10, 11, 12, 13, 14, 15, 16 only
 EOF
@@ -689,7 +689,7 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader << 'EOF'
 TRUNCATE bars CASCADE;
 
 -- Verify empty
-SELECT COUNT(*) as bars_remaining FROM bars;
+SELECT COUNT(*) as bars_remaining FROM tbl_etf_tickers_1hour;
 EOF
 ```
 
@@ -709,11 +709,11 @@ sleep 5
 
 # Verify initialization ran
 docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "SELECT COUNT(*) as bars_in_db FROM bars;"
+  "SELECT COUNT(*) as bars_in_db FROM tbl_etf_tickers_1hour;"
 
 # Check for out-of-hours data (should be 0)
 docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "SELECT COUNT(*) as out_of_hours FROM bars WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 14 AND 20;"
+  "SELECT COUNT(*) as out_of_hours FROM tbl_etf_tickers_1hour WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 14 AND 20;"
 ```
 
 **Purpose:** Ensure fresh databases never contain out-of-hours data through automated initialization scripts.

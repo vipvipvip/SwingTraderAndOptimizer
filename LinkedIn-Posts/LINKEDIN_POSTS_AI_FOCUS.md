@@ -159,7 +159,7 @@ I treated Claude like a rubber duck who'd actually talk back.
 Not "the app is broken" but:
 - "User clicks Buy Signal button → Frontend shows loading → 30 seconds later: API returns 500 error"
 - "Backend logs show: Database file at [path] does not exist"
-- "The bars table is not getting refreshed"
+- "The tbl_etf_tickers_1hour table is not getting refreshed"
 - "Intra-day prices are not populating"
 - "But the database IS at that path"
 - "The optimizer runs fine (we checked the cron logs)"
@@ -265,7 +265,7 @@ Each equity point to have the *actual bar date* when that exit occurred during t
 Claude generates *reasonable* solutions quickly. But "reasonable" isn't always "right for your system."
 
 **When I Listened to Claude:**
-- Use a bars table to store historical OHLCV data instead of CSV files (more query-able, recoverable)
+- Use a dedicated table (tbl_etf_tickers_1hour) to store historical OHLCV data instead of CSV files (more query-able, recoverable)
 - Separate concerns: optimizer doesn't know about execution, executor doesn't know about optimization, they meet at the database
 - Use parameterized SQL queries (protects against injection, Claude always does this)
 - Track not just final parameters but the whole history (so you can see what the system did when)

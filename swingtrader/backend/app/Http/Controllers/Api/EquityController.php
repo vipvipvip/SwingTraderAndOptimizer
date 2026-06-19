@@ -91,7 +91,7 @@ class EquityController extends Controller
         $mapped = collect($trades->items())->map(function ($trade) {
             $high = $low = null;
             if ($trade->status === 'closed' && $trade->entry_at && $trade->exit_at) {
-                $range = DB::table('bars')
+                $range = DB::table('tbl_etf_tickers_1hour')
                     ->where('ticker_id', $trade->ticker_id)
                     ->whereBetween('timestamp', [$trade->entry_at, $trade->exit_at])
                     ->selectRaw('MAX(high) as high, MIN(low) as low')
@@ -101,7 +101,7 @@ class EquityController extends Controller
                     $low = $range->low !== null ? (float) $range->low : null;
                 }
             } elseif ($trade->status === 'open' && $trade->entry_at) {
-                $range = DB::table('bars')
+                $range = DB::table('tbl_etf_tickers_1hour')
                     ->where('ticker_id', $trade->ticker_id)
                     ->where('timestamp', '>=', $trade->entry_at)
                     ->selectRaw('MAX(high) as high, MIN(low) as low')

@@ -36,7 +36,7 @@ A full-stack algorithmic swing trading system using **Chandelier Exit + Linear R
 │                      POSTGRESQL (Docker, port 5432)                  │
 │  systemd: swingtrader-db.service                                     │
 ├─────────────────────────────────────────────────────────────────────┤
-│  bars                    — daily OHLCV for ETF tickers              │
+│  tbl_etf_tickers_1hour   — hourly OHLCV for ETF tickers              │
 │  strategy_parameters     — active (base_case=true) per-ticker params│
 │  live_trades             — executed Alpaca trades                   │
 │  backtest_trades         — optimizer simulated trades               │
@@ -92,7 +92,7 @@ A full-stack algorithmic swing trading system using **Chandelier Exit + Linear R
 
 ### ETF Bars (Daily, for Trading)
 ```
-Alpaca (historical) ──► bars table ──► optimizer (02:00) ──► strategy_parameters
+Alpaca (historical) ──► tbl_etf_tickers_1hour ──► optimizer (02:00) ──► strategy_parameters
                                     ──► live trading (5 min) ──► exit/entry signals
 ```
 
@@ -259,7 +259,7 @@ Computes per-bar: MACD line/signal/histogram, MACD crossover (bull/bear), PPO li
 id (PK), symbol (QQQ|VTI|VTV|BLENDED), enabled, allocation_weight
 ```
 
-**bars** — Daily OHLCV for ETF tickers
+**tbl_etf_tickers_1hour** — Hourly OHLCV for ETF tickers
 ```
 id (PK), ticker_id (FK), timestamp, open, high, low, close, volume
 ~1478 rows per ticker (2017–present)

@@ -244,7 +244,7 @@ tickers
 ├─ id, symbol, allocation_weight (40/45/15 for SPY/QQQ/IWM)
 │  enabled, created_at
 
-bars (hourly OHLCV from Alpaca)
+tbl_etf_tickers_1hour (hourly OHLCV from Alpaca)
 ├─ id, ticker_id, timestamp, open, high, low, close, volume
 │  6000-10000 rows per ticker
 

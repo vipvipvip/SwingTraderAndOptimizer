@@ -3,8 +3,8 @@
 -- Hourly bars include: 13:30, 14:30, 15:30, 16:30, 17:30, 18:30, 19:30, 20:30 UTC
 -- This runs during database initialization and after migrations
 
--- Remove any out-of-hours bars that may have been migrated or loaded
-DELETE FROM bars
+-- Remove any out-of-hours bars that may have been migrated or loaded (historic table name: bars)
+DELETE FROM tbl_etf_tickers_1hour
 WHERE EXTRACT(HOUR FROM timestamp)::INT NOT BETWEEN 13 AND 20;
 
 -- Note: New bars fetched by optimizer/data_fetcher.py are filtered via filter_market_hours()

@@ -61,8 +61,8 @@ if [ -z "$ENABLED_ETF" ]; then
 else
     pass "Enabled ETFs: $(echo "$ENABLED_ETF" | tr '\n' ' ')"
     for sym in $ENABLED_ETF; do
-        LATEST=$(PSQL "SELECT MAX(DATE(b.timestamp)) FROM bars b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.symbol='$sym';")
-        COUNT=$(PSQL "SELECT COUNT(*) FROM bars b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.symbol='$sym';")
+        LATEST=$(PSQL "SELECT MAX(DATE(b.timestamp)) FROM tbl_etf_tickers_1hour b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.symbol='$sym';")
+        COUNT=$(PSQL "SELECT COUNT(*) FROM tbl_etf_tickers_1hour b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.symbol='$sym';")
         if [ -n "$LATEST" ] && [ "$LATEST" != " " ]; then
             DAYS_SINCE=$(( ($(date +%s) - $(date -d "$LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
             if [ "$DAYS_SINCE" -le 7 ] 2>/dev/null; then
@@ -76,7 +76,7 @@ else
     done
 fi
 
-ETF_BAR_TOTAL=$(PSQL "SELECT COUNT(*) FROM bars b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';")
+ETF_BAR_TOTAL=$(PSQL "SELECT COUNT(*) FROM tbl_etf_tickers_1hour b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';")
 echo "  Total ETF bars: $ETF_BAR_TOTAL"
 
 # ---- Stock / Scanner Data ----

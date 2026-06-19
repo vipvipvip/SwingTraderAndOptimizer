@@ -233,12 +233,12 @@ class StrategyService
         $spy = Ticker::where('symbol', 'SPY')->first();
         $sp500Return = null;
         if ($spy) {
-            $firstBar = DB::table('bars')
+            $firstBar = DB::table('tbl_etf_tickers_1hour')
                 ->where('ticker_id', $spy->id)
                 ->where('source', 'alpaca')
                 ->orderBy('timestamp')
                 ->first(['timestamp', 'close']);
-            $lastBar = DB::table('bars')
+            $lastBar = DB::table('tbl_etf_tickers_1hour')
                 ->where('ticker_id', $spy->id)
                 ->where('source', 'alpaca')
                 ->orderByDesc('timestamp')

@@ -81,7 +81,7 @@ def fetch_incremental_data(symbol, timeframe='1Hour'):
         row = cursor.fetchone()
         if row:
             ticker_id = row[0]
-            cursor.execute('SELECT MAX(timestamp) FROM bars WHERE ticker_id = %s', (ticker_id,))
+            cursor.execute('SELECT MAX(timestamp) FROM tbl_etf_tickers_1hour WHERE ticker_id = %s', (ticker_id,))
             row = cursor.fetchone()
             last_timestamp = row[0] if row and row[0] else None
         conn.close()
@@ -268,7 +268,7 @@ def load_data_from_db(symbol):
         # Load all bars
         cursor.execute('''
             SELECT timestamp, open, high, low, close, volume
-            FROM bars
+            FROM tbl_etf_tickers_1hour
             WHERE ticker_id = %s
             ORDER BY timestamp
         ''', (ticker_id,))
@@ -335,7 +335,7 @@ def append_bars_to_db(symbol, new_bars):
 
         # Get last timestamp in database
         cursor.execute(
-            'SELECT MAX(timestamp) FROM bars WHERE ticker_id = %s',
+            'SELECT MAX(timestamp) FROM tbl_etf_tickers_1hour WHERE ticker_id = %s',
             (ticker_id,)
         )
         row = cursor.fetchone()
@@ -371,7 +371,7 @@ def append_bars_to_db(symbol, new_bars):
             execute_values(
                 cursor,
                 '''
-                INSERT INTO bars
+                INSERT INTO tbl_etf_tickers_1hour
                 (ticker_id, timestamp, open, high, low, close, volume, source, fetched_at)
                 VALUES %s
                 ON CONFLICT DO NOTHING

@@ -74,7 +74,7 @@ Each ticker has its own optimized parameters stored in `strategy_parameters` (ma
 2. For each enabled ticker:
    - `AlpacaService.getAccount()` → check trading permissions.
    - `AlpacaService.getPositions()` → check current open positions.
-   - `TradeExecutorService.computeChandelierSignal()` → fetch OHLC bars from `bars` table, compute ATR, check Chandelier stop.
+   - `TradeExecutorService.computeChandelierSignal()` → fetch OHLC bars from `tbl_etf_tickers_1hour` table, compute ATR, check Chandelier stop.
    - On buy signal: calculate allocation, `AlpacaService.placeOrder(market, buy)`.
    - On sell signal: `AlpacaService.placeOrder(market, sell)`, calculate P&L, save to `live_trades`.
 

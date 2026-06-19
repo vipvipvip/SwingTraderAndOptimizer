@@ -13,7 +13,7 @@ When `docker-compose up` starts the PostgreSQL container:
 ## Scripts in This Directory
 
 ### `02_ensure_market_hours_data.sql`
-**Purpose:** Guarantees bars table contains ONLY market hours data
+**Purpose:** Guarantees tbl_etf_tickers_1hour table contains ONLY market hours data
 
 **What it does:**
 - Removes any bars outside 14:00-20:00 UTC (9:30 AM - 4:00 PM ET)
@@ -43,7 +43,7 @@ docker-compose up
 
 # Check that cleanup ran
 docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \
-  "SELECT EXTRACT(HOUR FROM timestamp)::INT as hour, COUNT(*) FROM bars GROUP BY hour ORDER BY hour;"
+  "SELECT EXTRACT(HOUR FROM timestamp)::INT as hour, COUNT(*) FROM tbl_etf_tickers_1hour GROUP BY hour ORDER BY hour;"
 
 # Should show ONLY hours 14-20 (no data in 0-13 or 21-23)
 ```

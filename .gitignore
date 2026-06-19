@@ -53,3 +53,9 @@ swingtrader/backend/storage/trades_last_run.txt
 swingtrader/frontend/node_modules/.svelte2tsx-language-server-files/
 db-list.csv
 scanner/backend/.env
+
+# EMAC Crossover
+swingtrader/services/ema_sma_crossover/__pycache__/
+swingtrader/services/ema_sma_crossover/*.pyc
+swingtrader/services/ema_sma_crossover/.env
+swingtrader/services/ema_sma_crossover/.emac_buffer.json
