@@ -1,4 +1,17 @@
 """Check how far back Alpaca API provides data for QQQ and VTI"""
+"""
+How to run:
+It uses the optimizer's venv (needs alpaca-py and dotenv). The .env path points to ../../backend/.env which won't resolve correctly from its location. Run it with the optimizer's venv:
+Note: the script's .env path (../../backend/.env) is relative to common/scripts/test_scripts/ which resolves to common/backend/.env — that doesn't exist. You may need to set the env vars manually or run from the optimizer directory where .env is already loaded:
+
+cd /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer
+source venv/bin/activate
+ALPACA_API_KEY=$(grep ALPACA_API_KEY .env | cut -d= -f2) \
+ALPACA_SECRET_KEY=$(grep ALPACA_SECRET_KEY .env | cut -d= -f2) \
+python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/common/scripts/test_scripts/check_alpaca_data_range.py
+
+"""
+
 import sys, os
 from dotenv import load_dotenv
 env_path = os.path.join(os.path.dirname(__file__), '..', '..', 'backend', '.env')

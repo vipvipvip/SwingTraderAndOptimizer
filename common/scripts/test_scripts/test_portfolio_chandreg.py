@@ -1,4 +1,11 @@
 """Portfolio test: all 3 tickers together with Chand+Reg exit"""
+"""
+How to run
+The script imports from the optimizer package but Python can't find it. Add the optimizer directory to the path:
+cd /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer && source venv/bin/activate && PYTHONPATH=. python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/common/scripts/test_scripts/test_portfolio_chandreg.py
+
+"""
+
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 import numpy as np
