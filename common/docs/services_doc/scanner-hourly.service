@@ -1,0 +1,14 @@
+[Unit]
+Description=Scanner hourly price capture + indicator computation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
+ExecStartPre=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/populate_tickers.py --timeframe hour --workers 5
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python scripts/compute_indicators.py --timeframe hour --workers 10
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/common/stock-analyzer/.venv/bin/python /home/dikesh/data/dev/SwingTraderAndOptimizer/common/stock-analyzer/populate_stock_analyzer.py --valuation
+
+[Install]
+WantedBy=timers.target
