@@ -20,6 +20,11 @@ class ScannerController
     {
         $timeframe = $request->query('timeframe', 'weekly');
         $table = $this->tableForTimeframe($timeframe);
+        $undervalued = $request->boolean('undervalued');
+
+        if ($undervalued) {
+            return $this->indexUndervalued($request, $timeframe, $table);
+        }
 
         $results = DB::select("
             WITH cross_dates AS (
@@ -71,6 +76,7 @@ class ScannerController
             )
             SELECT l.*,
                    e.symbol AS ticker,
+                   e.company_name,
                    cd.macd_cross_date,
                    cd.ppo_cross_date,
                    cd.sma_cross_date,
@@ -115,6 +121,44 @@ class ScannerController
             'total_signals' => count($results),
             'timeframe' => $timeframe,
             'latest_run' => $latest_run,
+            'undervalued' => false,
+        ]);
+    }
+
+    private function indexUndervalued(Request $request, string $timeframe, string $table)
+    {
+        $results = DB::select("
+            SELECT st.symbol AS ticker,
+                   st.company_name AS db_company_name,
+                   sa.db_revenue,
+                   sa.db_net_income,
+                   sa.db_eps,
+                   sa.db_shares_outstanding,
+                   sa.db_pe_ratio,
+                   sa.db_close,
+                   sa.db_valuation_price,
+                   ROUND((sa.db_valuation_price - sa.db_close) / sa.db_close * 100, 2) AS upside_pct
+            FROM tbl_stock_analyzer sa
+            JOIN tbl_stock_tickers st ON st.id = sa.ticker_id
+            WHERE sa.db_valuation_price > sa.db_close
+              AND sa.db_valuation_price > 0
+              AND sa.db_close > 0
+            ORDER BY (sa.db_valuation_price - sa.db_close) / sa.db_close DESC
+        ");
+
+        $latest_run = DB::table('tbl_stock_analyzer')->max('date');
+
+        $all_tickers = array_map(fn($r) => $r->ticker, $results);
+        sort($all_tickers);
+
+        return view('scanner.index', [
+            'results' => $results,
+            'total_scanned' => count($results),
+            'total_signals' => count($results),
+            'timeframe' => $timeframe,
+            'latest_run' => $latest_run,
+            'all_tickers' => $all_tickers,
+            'undervalued' => true,
         ]);
     }
 

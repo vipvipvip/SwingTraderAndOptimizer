@@ -50,6 +50,11 @@
             <option value="daily" {{ $timeframe == 'daily' ? 'selected' : '' }}>D</option>
             <option value="1hour" {{ $timeframe == '1hour' ? 'selected' : '' }}>1H</option>
         </select>
+        <div class="divider"></div>
+        <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="undervaluedToggle" {{ $undervalued ? 'checked' : '' }} style="accent-color:#3fb950;cursor:pointer;">
+            Undervalued
+        </label>
         <div class="ticker-search">
             <input type="text" id="tickerSearch" placeholder="Ticker..." list="tickerList" autocomplete="off">
             <datalist id="tickerList"></datalist>
@@ -60,51 +65,124 @@
 
     @if (count($results) > 0)
         <div class="table-wrap" id="tableWrap">
-            <table id="scannerTable">
-                <colgroup>
-                    <col style="width:42px;">
-                    <col style="width:108px;">
-                    <col style="width:52px;">
-                    <col style="width:72px;">
-                    <col style="width:48px;">
-                </colgroup>
-                <thead>
-                    <tr>
-                        <th>Ticker</th>
-                        <th>Crossovers</th>
-                        <th style="text-align:right;">Stop</th>
-                        <th style="text-align:right;">Dist</th>
-                        <th style="text-align:right;">Close</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($results as $row)
-                        @php
-                            $fmt = $timeframe === '1hour' ? 'M j, g:ia' : 'M j';
-                            $md = \Carbon\Carbon::parse($row->macd_cross_date)->format($fmt);
-                            $pd = \Carbon\Carbon::parse($row->ppo_cross_date)->format($fmt);
-                            $sd = \Carbon\Carbon::parse($row->sma_cross_date)->format($fmt);
-                            $atr = $row->atr_stop !== null ? number_format((float)$row->atr_stop, 2) : '-';
-                            $distD = $row->stop_dist_dollar !== null ? number_format($row->stop_dist_dollar, 2) : '-';
-                            $distP = $row->stop_dist_pct !== null ? number_format($row->stop_dist_pct, 1) . '%' : '-';
-                        @endphp
-                        <tr data-ticker="{{ $row->ticker }}">
-                            <td class="ticker {{ $row->cross_bullish ? 'ticker-bull' : 'ticker-bear' }}">{{ $row->ticker }}</td>
-                            <td style="font-size:10px; line-height:1.5; letter-spacing:-0.2px;">
-                                <span class="cross-dot" style="background:#58a6ff;"></span>{{ $md }}
-                                <span class="cross-dot" style="background:#3fb950;margin-left:3px;"></span>{{ $pd }}
-                                <span class="cross-dot" style="background:#f0883e;margin-left:3px;"></span>{{ $sd }}
-                            </td>
-                            <td class="num">{{ $atr }}</td>
-                            <td class="num">{{ $distD }} <span style="color:#8b949e;font-size:10px;">{{ $distP }}</span></td>
-                            <td class="num {{ $row->close >= 0 ? 'pos' : 'neg' }}">{{ number_format($row->close, 2) }}</td>
+            @if ($undervalued)
+                {{-- Stock Analyzer: undervalued table --}}
+                <table id="scannerTable" style="width:auto; table-layout:auto;">
+                    <colgroup>
+                        <col style="width:44px;">
+                        <col style="width:120px;">
+                        <col style="width:68px;">
+                        <col style="width:60px;">
+                        <col style="width:52px;">
+                        <col style="width:56px;">
+                        <col style="width:56px;">
+                        <col style="width:48px;">
+                        <col style="width:56px;">
+                        <col style="width:36px;">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Company</th>
+                            <th style="text-align:right;">Valuation</th>
+                            <th style="text-align:right;">Close</th>
+                            <th style="text-align:right;">Upside</th>
+                            <th style="text-align:right;">Revenue</th>
+                            <th style="text-align:right;">Net Income</th>
+                            <th style="text-align:right;">EPS</th>
+                            <th style="text-align:right;">Shares</th>
+                            <th style="text-align:right;">PE</th>
                         </tr>
-                    @endforeach
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @foreach ($results as $row)
+                            @php
+                                $rev = (float)$row->db_revenue;
+                                $revFmt = $rev >= 1e12 ? number_format($rev / 1e12, 1) . 'T'
+                                        : ($rev >= 1e9 ? number_format($rev / 1e9, 1) . 'B'
+                                        : number_format($rev / 1e6, 0) . 'M');
+                                $ni = (float)$row->db_net_income;
+                                $niFmt = $ni >= 1e12 ? number_format($ni / 1e12, 1) . 'T'
+                                       : (abs($ni) >= 1e9 ? number_format($ni / 1e9, 1) . 'B'
+                                       : number_format($ni / 1e6, 0) . 'M');
+                                $shares = (float)$row->db_shares_outstanding;
+                                $shrFmt = $shares >= 1e9 ? number_format($shares / 1e9, 2) . 'B'
+                                        : number_format($shares / 1e6, 0) . 'M';
+                                $eps = $row->db_eps !== null ? number_format((float)$row->db_eps, 2) : '-';
+                                $pe = $row->db_pe_ratio !== null ? number_format((float)$row->db_pe_ratio, 1) : '-';
+                            @endphp
+                            <tr data-ticker="{{ $row->ticker }}">
+                                <td class="ticker ticker-bull">{{ $row->ticker }}</td>
+                                <td style="color:#8b949e;">{{ $row->db_company_name ?? '-' }}</td>
+                                <td class="num pos">${{ number_format((float)$row->db_valuation_price, 2) }}</td>
+                                <td class="num">{{ number_format((float)$row->db_close, 2) }}</td>
+                                <td class="num pos">{{ number_format((float)$row->upside_pct, 1) }}%</td>
+                                <td class="num">{{ $revFmt }}</td>
+                                <td class="num">{{ $niFmt }}</td>
+                                <td class="num">{{ $eps }}</td>
+                                <td class="num">{{ $shrFmt }}</td>
+                                <td class="num">{{ $pe }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            @else
+                {{-- Scanner: signal table (original) --}}
+                <table id="scannerTable" style="width:auto; table-layout:auto;">
+                    <colgroup>
+                        <col style="width:44px;">
+                        <col style="width:120px;">
+                        <col style="width:108px;">
+                        <col style="width:52px;">
+                        <col style="width:72px;">
+                        <col style="width:48px;">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Company</th>
+                            <th>Crossovers</th>
+                            <th style="text-align:right;">Stop</th>
+                            <th style="text-align:right;">Dist</th>
+                            <th style="text-align:right;">Close</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($results as $row)
+                            @php
+                                $fmt = $timeframe === '1hour' ? 'M j, g:ia' : 'M j';
+                                $md = \Carbon\Carbon::parse($row->macd_cross_date)->format($fmt);
+                                $pd = \Carbon\Carbon::parse($row->ppo_cross_date)->format($fmt);
+                                $sd = \Carbon\Carbon::parse($row->sma_cross_date)->format($fmt);
+                                $atr = $row->atr_stop !== null ? number_format((float)$row->atr_stop, 2) : '-';
+                                $distD = $row->stop_dist_dollar !== null ? number_format($row->stop_dist_dollar, 2) : '-';
+                                $distP = $row->stop_dist_pct !== null ? number_format($row->stop_dist_pct, 1) . '%' : '-';
+                            @endphp
+                            <tr data-ticker="{{ $row->ticker }}">
+                                <td class="ticker {{ $row->cross_bullish ? 'ticker-bull' : 'ticker-bear' }}">{{ $row->ticker }}</td>
+                                <td style="color:#8b949e;">{{ $row->company_name ?? '-' }}</td>
+                                <td style="font-size:10px; line-height:1.5; letter-spacing:-0.2px;">
+                                    <span class="cross-dot" style="background:#58a6ff;"></span>{{ $md }}
+                                    <span class="cross-dot" style="background:#3fb950;margin-left:3px;"></span>{{ $pd }}
+                                    <span class="cross-dot" style="background:#f0883e;margin-left:3px;"></span>{{ $sd }}
+                                </td>
+                                <td class="num">{{ $atr }}</td>
+                                <td class="num">{{ $distD }} <span style="color:#8b949e;font-size:10px;">{{ $distP }}</span></td>
+                                <td class="num {{ $row->close >= 0 ? 'pos' : 'neg' }}">{{ number_format($row->close, 2) }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            @endif
         </div>
     @else
-        <div class="empty" style="padding:20px;text-align:center;color:#4a4d59;">No signals found for {{ $timeframe }} timeframe.</div>
+        <div class="empty" style="padding:20px;text-align:center;color:#4a4d59;">
+            @if ($undervalued)
+                No undervalued stocks found.
+            @else
+                No signals found for {{ $timeframe }} timeframe.
+            @endif
+        </div>
     @endif
 
     <div class="chart-wrap">
@@ -125,8 +203,18 @@
         }
 
         function changeTimeframe(tf) {
-            window.location = '/scanner?timeframe=' + tf;
+            let url = '/scanner?timeframe=' + tf;
+            if (document.getElementById('undervaluedToggle').checked) url += '&undervalued=1';
+            if (activeTicker) url += '&ticker=' + activeTicker;
+            window.location = url;
         }
+
+        document.getElementById('undervaluedToggle').addEventListener('change', function() {
+            let url = '/scanner?timeframe=' + currentTimeframe;
+            if (this.checked) url += '&undervalued=1';
+            if (activeTicker) url += '&ticker=' + activeTicker;
+            window.location = url;
+        });
 
         function selectRow(index) {
             const rows = getRows();
@@ -239,6 +327,10 @@
             this.value = '';
             searchIndex = -1;
         });
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlTicker = urlParams.get('ticker');
+        if (urlTicker) doSelectTicker(urlTicker.toUpperCase());
 
         function parseTime(v) {
             if (currentTimeframe === '1hour') {
