@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(SCRIPT_DIR, '..', '..', 'scanner', 'services'))
+sys.path.insert(0, os.path.join(SCRIPT_DIR, '..', 'scanner', 'services'))
 from config import get_db_conn
 
 HEADERS = {
