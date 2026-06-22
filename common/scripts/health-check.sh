@@ -92,19 +92,41 @@ SCAN_DAILY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_DAILY_LATEST" +%s 2>/dev/nul
 SCAN_DAILY_ROWS=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_daily;")
 SCAN_DAILY_ROWS_LATEST=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_daily WHERE date = '$SCAN_DAILY_LATEST';")
 if [ -n "$SCAN_DAILY_LATEST" ]; then
-    if [ "$SCAN_DAILY_DAYS" -le 7 ] 2>/dev/null; then
+    if [ "$SCAN_DAILY_DAYS" -le 2 ] 2>/dev/null; then
         pass "Scanner daily: $SCAN_DAILY_ROWS total rows, latest $SCAN_DAILY_LATEST ($SCAN_DAILY_DAYS days ago, $SCAN_DAILY_ROWS_LATEST tickers)"
-    else
+    elif [ "$SCAN_DAILY_DAYS" -le 5 ] 2>/dev/null; then
         warn "Scanner daily: $SCAN_DAILY_ROWS total rows, latest $SCAN_DAILY_LATEST ($SCAN_DAILY_DAYS days ago - stale, $SCAN_DAILY_ROWS_LATEST tickers)"
+    else
+        fail "Scanner daily: $SCAN_DAILY_ROWS total rows, latest $SCAN_DAILY_LATEST ($SCAN_DAILY_DAYS days ago - severely stale, $SCAN_DAILY_ROWS_LATEST tickers)"
     fi
 else
     fail "Scanner daily table is empty"
 fi
 
 SCAN_HOURLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers_1hour;")
+SCAN_HOURLY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_HOURLY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
 SCAN_WEEKLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers;")
-echo "  Scanner hourly latest: ${SCAN_HOURLY_LATEST:-empty}"
-echo "  Scanner weekly latest: ${SCAN_WEEKLY_LATEST:-empty}"
+SCAN_WEEKLY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_WEEKLY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
+if [ -n "$SCAN_HOURLY_LATEST" ]; then
+    if [ "$SCAN_HOURLY_DAYS" -le 1 ] 2>/dev/null; then
+        pass "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_DAYS days ago)"
+    elif [ "$SCAN_HOURLY_DAYS" -le 3 ] 2>/dev/null; then
+        warn "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_DAYS days ago - stale)"
+    else
+        fail "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_DAYS days ago - severely stale)"
+    fi
+else
+    fail "Scanner hourly table is empty"
+fi
+if [ -n "$SCAN_WEEKLY_LATEST" ]; then
+    if [ "$SCAN_WEEKLY_DAYS" -le 10 ] 2>/dev/null; then
+        pass "Scanner weekly: latest $SCAN_WEEKLY_LATEST ($SCAN_WEEKLY_DAYS days ago)"
+    else
+        warn "Scanner weekly: latest $SCAN_WEEKLY_LATEST ($SCAN_WEEKLY_DAYS days ago - stale)"
+    fi
+else
+    echo "  Scanner weekly: empty"
+fi
 
 # Check scanner .env exists
 if [ -f "$PROJECT_DIR/scanner/backend/.env" ]; then
@@ -122,6 +144,18 @@ if systemctl --user is-enabled scanner-update.timer >/dev/null 2>&1; then
 else
     warn "scanner-update.timer is not enabled"
 fi
+
+# Check for recent scanner service failures
+for sfx in update hourly; do
+    if systemctl --user is-failed "scanner-${sfx}.service" >/dev/null 2>&1; then
+        warn "scanner-${sfx}.service is in failed state"
+    fi
+    RECENT_FAIL=$(journalctl --user -u "scanner-${sfx}.service" --since "3 days ago" --no-pager 2>/dev/null | grep "Failed with result\|Main process exited, code=exited, status=1" || true)
+    if [ -n "$RECENT_FAIL" ]; then
+        warn "scanner-${sfx}.service had failures in last 3 days:"
+        echo "$RECENT_FAIL" | sed 's/^/    /'
+    fi
+done
 
 # ---- Strategy Parameters ----
 echo ""
@@ -233,6 +267,23 @@ for svc in swingtrader-db swingtrader-backend swingtrader-fe-dev; do
         fail "$svc is $STATUS"
     fi
 done
+
+# ---- EMAC EMA/SMA + MACD 30-min Crossover ----
+echo ""
+echo "--- EMAC Crossover ---"
+
+EMAC_HEALTH="$PROJECT_DIR/swingtrader/services/ema_sma_crossover/health_check.py"
+if [ -f "$EMAC_HEALTH" ]; then
+    cd "$PROJECT_DIR/swingtrader/services/ema_sma_crossover" && python3 "$EMAC_HEALTH"
+    EMAC_EXIT=$?
+    if [ "$EMAC_EXIT" -eq 0 ]; then
+        pass "EMAC health check passed"
+    else
+        fail "EMAC health check detected issues"
+    fi
+else
+    fail "EMAC health check script not found at $EMAC_HEALTH"
+fi
 
 # ---- API Health ----
 echo ""

@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 import psycopg2
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', 'backend', '.env'))
+load_dotenv(os.path.join(os.path.dirname(__file__), 'backend', '.env'))
 
 API_KEY = os.getenv('ALPACA_API_KEY')
 SECRET_KEY = os.getenv('ALPACA_SECRET_KEY')

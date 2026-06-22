@@ -99,17 +99,25 @@ def run_backtest(df):
         if not in_pos and not pending_entry:
             if (not np.isnan(ema_fast[i]) and not np.isnan(sma_slow[i]) and not np.isnan(macd_hist[i])
                     and not np.isnan(ema_fast[i - 1]) and not np.isnan(sma_slow[i - 1]) and not np.isnan(macd_hist[i - 1])):
-                entry_ok = ema_fast[i] > sma_slow[i] and macd_hist[i] > 0
-                prev_ok = ema_fast[i - 1] > sma_slow[i - 1] and macd_hist[i - 1] > 0
-                if entry_ok and not prev_ok:
+                ema_gt = ema_fast[i] > sma_slow[i]
+                prev_ema_gt = ema_fast[i - 1] > sma_slow[i - 1]
+                macd_gt = macd_hist[i] > 0
+                prev_macd_gt = macd_hist[i - 1] > 0
+                both_ok = ema_gt and macd_gt
+                either_just_flipped = (ema_gt != prev_ema_gt) or (macd_gt != prev_macd_gt)
+                if both_ok and either_just_flipped:
                     pending_entry = True
 
         if in_pos and not pending_exit:
             if (not np.isnan(ema_fast[i]) and not np.isnan(sma_slow[i]) and not np.isnan(macd_hist[i])
                     and not np.isnan(ema_fast[i - 1]) and not np.isnan(sma_slow[i - 1]) and not np.isnan(macd_hist[i - 1])):
-                exit_ok = ema_fast[i] < sma_slow[i] and macd_hist[i] < 0
-                prev_ok = ema_fast[i - 1] < sma_slow[i - 1] and macd_hist[i - 1] < 0
-                if exit_ok and not prev_ok:
+                ema_lt = ema_fast[i] < sma_slow[i]
+                prev_ema_lt = ema_fast[i - 1] < sma_slow[i - 1]
+                macd_lt = macd_hist[i] < 0
+                prev_macd_lt = macd_hist[i - 1] < 0
+                both_ok = ema_lt and macd_lt
+                either_just_flipped = (ema_lt != prev_ema_lt) or (macd_lt != prev_macd_lt)
+                if both_ok and either_just_flipped:
                     pending_exit = True
 
         if i == n - 1 and in_pos:

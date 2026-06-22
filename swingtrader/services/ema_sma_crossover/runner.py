@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 import config
 import db as db_module
 from candle_builder import CandleBuilder, BAR_MINUTES
-from executor import sell_position, buy_position, _get_account
+from executor import sell_position, buy_position, _get_account, _cancel_orders_for_symbol
 from price_collector import fetch_trades, is_trading_day, next_trading_dates
 from strategy import check_signal, WARMUP
 
@@ -54,15 +54,50 @@ def _sleep_until_market_open():
         second=0, microsecond=0,
     )
     if target < now:
-        ntd = next_trading_dates(now + timedelta(days=1), count=1)
-        if ntd:
-            target = ntd[0]
-            target = datetime(target.year, target.month, target.day,
-                              config.MARKET_OPEN[0], config.MARKET_OPEN[1] - 5,
-                              tzinfo=NY)
+        market_open_today = now.replace(
+            hour=config.MARKET_OPEN[0], minute=config.MARKET_OPEN[1],
+            second=0, microsecond=0,
+        )
+        if now < market_open_today:
+            target = market_open_today
+        else:
+            ntd = next_trading_dates(now + timedelta(days=1), count=1)
+            if ntd:
+                target = ntd[0]
+                target = datetime(target.year, target.month, target.day,
+                                  config.MARKET_OPEN[0], config.MARKET_OPEN[1] - 5,
+                                  tzinfo=NY)
     sec = _seconds_until(target)
     print(f'[RUNNER] Market closed. Sleeping {sec/3600:.1f}h until {target}')
     time.sleep(sec)
+
+
+def _sync_alpaca_positions(conn, ticker_ids):
+    """Reconcile EMAC DB positions with actual Alpaca positions (e.g. after crash)."""
+    import requests as http_req
+    url = f'{config.ALPACA_BASE_URL}/v2/positions'
+    headers = {
+        'APCA-API-KEY-ID': config.ALPACA_API_KEY,
+        'APCA-API-SECRET-KEY': config.ALPACA_SECRET_KEY,
+    }
+    try:
+        resp = http_req.get(url, headers=headers, timeout=10)
+        if resp.status_code >= 400:
+            return
+        alpaca_positions = {p['symbol']: p for p in resp.json()}
+    except Exception:
+        alpaca_positions = {}
+
+    for sym, tid in ticker_ids.items():
+        db_pos = db_module.get_position(conn, tid)
+        alp_pos = alpaca_positions.get(sym)
+
+        if alp_pos and (not db_pos or float(db_pos[1]) <= 0):
+            qty = float(alp_pos['qty'])
+            price = float(alp_pos['avg_entry_price'])
+            print(f'[RUNNER] Syncing {sym} position: {qty} @ ${price:.2f} (Alpaca → DB)')
+            db_module.upsert_position(conn, tid, sym, abs(qty), price,
+                                      datetime.now(NY))
 
 
 def run():
@@ -84,7 +119,9 @@ def run():
                 builder._last_ts[tid] = last.strftime('%Y-%m-%dT%H:%M:%SZ')
                 print(f'[RUNNER] {sym} → ticker_id={tid}, last_raw_trade={last}')
             else:
-                print(f'[RUNNER] {sym} → ticker_id={tid}, no raw trades yet')
+                    print(f'[RUNNER] {sym} → ticker_id={tid}, no raw trades yet')
+
+        _sync_alpaca_positions(conn, ticker_ids)
 
         while running:
             now_ny = datetime.now(NY)
@@ -117,6 +154,11 @@ def run():
             cycle_count = getattr(run, 'cycle_count', 0) + 1
             run.cycle_count = cycle_count
 
+            # Periodically cancel stale open orders from prior crashes
+            if cycle_count % 15 == 1:
+                for sym in config.TICKERS:
+                    _cancel_orders_for_symbol(sym)
+
             # ── Step 1: fetch trades, build 30-min bars ──
             for sym in config.TICKERS:
                 tid = ticker_ids[sym]
@@ -146,20 +188,31 @@ def run():
                     continue
                 sig = check_signal(conn, tid)
                 if sig:
-                    # Signal triggers based on the latest DB candle timestamp
                     cur = conn.cursor()
                     cur.execute(
                         'SELECT ts FROM emac_candles WHERE ticker_id = %s ORDER BY ts DESC LIMIT 1',
                         (tid,))
                     row = cur.fetchone()
                     sig_ts = row[0] if row else datetime.now(ZoneInfo('UTC'))
+
+                    # Dedup: skip if we already processed this candle for this ticker
+                    seen_key = (tid, sig_ts)
+                    processed = getattr(run, '_processed_signals', set())
+                    if seen_key in processed:
+                        continue
+                    processed.add(seen_key)
+                    run._processed_signals = processed
+
                     signals.append((sym, tid, sig, sig_ts))
 
             # ── Step 3: sell first ──
             for sym, tid, sig, sig_ts in signals:
                 if sig == 'SELL':
                     print(f'[RUNNER] {sym} SELL signal — selling first')
-                    sell_position(conn, tid, sym, sig_ts)
+                    try:
+                        sell_position(conn, tid, sym, sig_ts)
+                    except Exception as e:
+                        print(f'[RUNNER] {sym} SELL failed: {e}')
 
             # ── Step 4: split remaining cash among buys ──
             buy_signals = [(sym, tid, sig_ts) for sym, tid, sig, sig_ts in signals if sig == 'BUY']
@@ -170,7 +223,10 @@ def run():
                 print(f'[RUNNER] {len(buy_signals)} buy signals, '
                       f'${cash:.2f} cash → ${per_ticker:.2f} each')
                 for sym, tid, sig_ts in buy_signals:
-                    buy_position(conn, tid, sym, sig_ts, per_ticker)
+                    try:
+                        buy_position(conn, tid, sym, sig_ts, per_ticker)
+                    except Exception as e:
+                        print(f'[RUNNER] {sym} BUY failed: {e}')
 
             if not signals and cycle_count % 5 == 1:
                 print(f'[RUNNER] heartbeat — cycle #{cycle_count}, no signals')
