@@ -55,6 +55,9 @@
             <input type="checkbox" id="undervaluedToggle" {{ $undervalued ? 'checked' : '' }} style="accent-color:#3fb950;cursor:pointer;">
             Undervalued
         </label>
+        @if ($undervalued)
+            <button id="updateValuationsBtn" onclick="updateValuations()" style="background:#1c1e26;border:1px solid #2d2f3a;color:#e1e4e8;padding:3px 10px;border-radius:4px;font-size:12px;cursor:pointer;">Update Valuations</button>
+        @endif
         <div class="ticker-search">
             <input type="text" id="tickerSearch" placeholder="Ticker..." list="tickerList" autocomplete="off">
             <datalist id="tickerList"></datalist>
@@ -331,6 +334,31 @@
         const urlParams = new URLSearchParams(window.location.search);
         const urlTicker = urlParams.get('ticker');
         if (urlTicker) doSelectTicker(urlTicker.toUpperCase());
+
+        function updateValuations() {
+            const btn = document.getElementById('updateValuationsBtn');
+            btn.disabled = true;
+            btn.textContent = 'Updating...';
+            const body = document.getElementById('chartBody');
+            body.innerHTML = '<div class="empty-chart">Updating valuations...</div>';
+            fetch('/scanner/update-valuations', { method: 'POST', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.success) {
+                        body.innerHTML = '<div class="empty-chart" style="color:#3fb950;">Valuations updated. Reloading...</div>';
+                        setTimeout(() => window.location.reload(), 1500);
+                    } else {
+                        body.innerHTML = '<div class="empty-chart" style="color:#f85149;">Error: exit code ' + d.exit_code + '</div>';
+                        btn.disabled = false;
+                        btn.textContent = 'Update Valuations';
+                    }
+                })
+                .catch(e => {
+                    body.innerHTML = '<div class="empty-chart" style="color:#f85149;">Request failed: ' + e.message + '</div>';
+                    btn.disabled = false;
+                    btn.textContent = 'Update Valuations';
+                });
+        }
 
         function parseTime(v) {
             if (currentTimeframe === '1hour') {

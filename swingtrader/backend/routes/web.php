@@ -20,3 +20,4 @@ Route::get('/api/documentation', function () {
 
 Route::get('/scanner', [\Scanner\Backend\Controllers\ScannerController::class, 'index']);
 Route::get('/scanner/data/{ticker}', [\Scanner\Backend\Controllers\ScannerController::class, 'chart']);
+Route::post('/scanner/update-valuations', [\Scanner\Backend\Controllers\ScannerController::class, 'updateValuations']);

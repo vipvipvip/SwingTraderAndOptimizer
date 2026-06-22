@@ -162,6 +162,26 @@ class ScannerController
         ]);
     }
 
+    public function updateValuations()
+    {
+        $script = base_path('../../stock-analyzer/populate_stock_analyzer.py');
+        $python = base_path('../../stock-analyzer/.venv/bin/python3');
+
+        $cmd = escapeshellcmd($python) . ' ' . escapeshellarg($script) . ' --valuation 2>&1';
+
+        $output = [];
+        $exitCode = 0;
+        exec($cmd, $output, $exitCode);
+
+        $outputStr = implode("\n", $output);
+
+        return response()->json([
+            'success' => $exitCode === 0,
+            'exit_code' => $exitCode,
+            'output' => $outputStr,
+        ]);
+    }
+
     public function chart($symbol, Request $request)
     {
         $symbol = strtoupper($symbol);
