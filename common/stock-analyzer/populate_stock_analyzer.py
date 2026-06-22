@@ -255,32 +255,47 @@ def fetch_alpaca_prices(symbols: list[str]) -> dict[str, float]:
 
     client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
     prices = {}
+    lock = __import__('threading').Lock()
 
     batch_size = 100
-    for i in range(0, len(symbols), batch_size):
-        batch = symbols[i:i + batch_size]
+    batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
+
+    def fetch_quotes(batch):
         try:
             req = StockLatestQuoteRequest(symbol_or_symbols=batch)
             quotes = client.get_stock_latest_quote(req)
+            result = {}
             for sym, quote in quotes.items():
                 mid = (quote.ask_price + quote.bid_price) / 2 if quote.ask_price and quote.bid_price else None
                 if mid and mid > 0:
-                    prices[sym] = mid
+                    result[sym] = mid
+            with lock:
+                prices.update(result)
         except Exception as e:
-            print(f'  Alpaca quote batch error (symbols {i}-{i+len(batch)}): {e}')
+            print(f'  Alpaca quote batch error: {e}')
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        executor.map(fetch_quotes, batches)
 
     missing = [s for s in symbols if s not in prices]
     if missing:
-        for i in range(0, len(missing), batch_size):
-            batch = missing[i:i + batch_size]
+        missing_batches = [missing[i:i + batch_size] for i in range(0, len(missing), batch_size)]
+
+        def fetch_trades(batch):
             try:
                 req = StockLatestTradeRequest(symbol_or_symbols=batch)
                 trades = client.get_stock_latest_trade(req)
+                result = {}
                 for sym, trade in trades.items():
                     if trade.price and trade.price > 0:
-                        prices[sym] = trade.price
+                        result[sym] = trade.price
+                with lock:
+                    prices.update(result)
             except Exception as e:
-                print(f'  Alpaca trade batch error (symbols {i}-{i+len(batch)}): {e}')
+                print(f'  Alpaca trade batch error: {e}')
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            executor.map(fetch_trades, missing_batches)
 
     return prices
 
