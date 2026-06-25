@@ -34,6 +34,15 @@ def _handle_sigterm(sig, frame):
     running = False
 
 
+def _is_regular_hours_ts(dt):
+    """Check if a datetime falls within regular trading hours (9:30 AM - 4:00 PM ET)."""
+    et = dt.astimezone(NY)
+    minutes = et.hour * 60 + et.minute
+    open_min = config.MARKET_OPEN[0] * 60 + config.MARKET_OPEN[1]
+    close_min = config.MARKET_CLOSE[0] * 60 + config.MARKET_CLOSE[1]
+    return open_min <= minutes < close_min
+
+
 def _is_market_hours(now_ny):
     if now_ny.weekday() >= 5:
         return False
@@ -172,6 +181,10 @@ def run():
                 # Always flush completed bars, even with no new trades
                 completed = builder.pop_completed(tid, now_utc)
                 for tid_f, bts, o, h, l, c, v in completed:
+                    if not _is_regular_hours_ts(bts):
+                        et_str = bts.astimezone(NY).strftime('%H:%M %Z')
+                        print(f'[RUNNER] {sym} skipped bar {bts} ({et_str}) — outside regular hours')
+                        continue
                     naive_ts = bts.replace(tzinfo=None)
                     db_module.insert_candle(conn, tid_f, naive_ts, o, h, l, c, v)
                     print(f'[RUNNER] {sym} 30-min bar built: {naive_ts} O={o} H={h} L={l} C={c} V={v}')
