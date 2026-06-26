@@ -90,11 +90,55 @@ A full-stack algorithmic swing trading system using **Chandelier Exit + Linear R
 
 ## Data Flow
 
-### ETF Bars (Daily, for Trading)
+### ETF Bars (Hourly, for CHAND+REG Trading)
 ```
-Alpaca (historical) ──► tbl_etf_tickers_1hour ──► optimizer (02:00) ──► strategy_parameters
-                                    ──► live trading (5 min) ──► exit/entry signals
+Alpaca bars API (IEX) ──► nightly_optimizer.py (02:00 ET)
+                              │
+                              ├── fetch_prices.py → data_fetcher.py
+                              │     ├── Checks MAX(timestamp) in tbl_etf_tickers_1hour
+                              │     ├── Fetches new 1-hour bars from Alpaca incrementally
+                              │     ├── Filters to regular hours (9:30 AM - 4:00 PM ET)
+                              │     └── INSERT ON CONFLICT DO NOTHING
+                              │
+                              └── tbl_etf_tickers_1hour ──► optimizer backtest
+                                                           ──► live trading (5 min)
+                                                           ──► exit/entry signals
 ```
+
+The CHAND+REG live trading system reads **resampled daily bars** from `tbl_etf_tickers_1hour`:
+- PHP (`MarketDataTrait::getOhlcBars`): filters hourly bars to daily (UTC hour 4-5, minute 0)
+- Python (`ParameterOptimizer._backtest_with_params`): same daily filter
+- Live price (`TradeExecutorService::getCurrentPrice`): latest hourly close (no daily filter)
+- Alpaca latest trade API used as fallback for current price
+
+### EMAC Crossover System (Separate, 30-min Bars)
+A separate EMA(10)/SMA(40) + MACD(10,40,400) crossover system using **30-min bars built from raw trade ticks**:
+
+```
+Alpaca trades API (IEX) ──► emac-runner.service (2-min poll loop)
+                              │
+                              ├── emac_raw_trades (every tick persisted)
+                              │
+                              ├── CandleBuilder (filters to regular hours 9:30-16:00 ET)
+                              │     └── 30-min OHLCV bars → emac_candles
+                              │
+                              ├── Strategy (EMA/SMA crossover + MACD hist filter)
+                              │     ├── BUY: EMA>SMA AND MACD hist>0 AND either just flipped
+                              │     └── SELL: EMA<SMA AND MACD hist<0 AND either just flipped
+                              │
+                              └── Executor (Alpaca MARKET orders)
+                                    ├── Pass 1: sell positions first
+                                    └── Pass 2: split remaining cash equally among buy signals
+```
+
+Key differences from CHAND+REG:
+- **Data source**: Raw trade ticks (not pre-computed bars)
+- **Timeframe**: 30-min bars (not 1-hour/daily resampled)
+- **Data pipeline**: Real-time via 2-min poll loop (not nightly batch)
+- **Strategy**: EMA/SMA crossover + MACD filter (not Chandelier/Regression)
+- **Scope**: QQQ, VTI, VTV (same tickers, independent system)
+- **Account**: Separate Alpaca paper account, separate DB tables (`emac_*`)
+- **Service**: `emac-runner.service` (systemd, long-running daemon, not timer-based)
 
 ### Stock Scanner Data (SP500, for Screening)
 ```
@@ -341,7 +385,7 @@ Slack webhook reports sent when any trade (buy/sell) occurs via `SLACK_WEBHOOK_U
 
 ---
 
-**Last Updated:** 2026-06-16
+**Last Updated:** 2026-06-26
 **Tickers:** QQQ, VTI, VTV (+ BLENDED portfolio composite)
 **Broker:** Alpaca (paper)
 **Database:** PostgreSQL (Docker)
