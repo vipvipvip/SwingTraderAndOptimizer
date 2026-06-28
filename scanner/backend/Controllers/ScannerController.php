@@ -22,8 +22,14 @@ class ScannerController
         $table = $this->tableForTimeframe($timeframe);
         $undervalued = $request->boolean('undervalued');
 
+        $weeklyCrossover = $request->boolean('weekly_crossover');
+
         if ($undervalued) {
             return $this->indexUndervalued($request, $timeframe, $table);
+        }
+
+        if ($weeklyCrossover) {
+            return $this->indexWeeklyCrossover($request, $timeframe, $table);
         }
 
         $results = DB::select("
@@ -122,6 +128,7 @@ class ScannerController
             'timeframe' => $timeframe,
             'latest_run' => $latest_run,
             'undervalued' => false,
+            'weekly_crossover' => false,
         ]);
     }
 
@@ -159,6 +166,206 @@ class ScannerController
             'latest_run' => $latest_run,
             'all_tickers' => $all_tickers,
             'undervalued' => true,
+            'weekly_crossover' => false,
+        ]);
+    }
+
+    private function indexWeeklyCrossover(Request $request, string $timeframe, string $table)
+    {
+        $tickerIds = DB::table($table)
+            ->distinct('ticker_id')
+            ->pluck('ticker_id');
+
+        if ($tickerIds->isEmpty()) {
+            $total_scanned = 0;
+            $latest_run = DB::table($table)->max('updated_at');
+            return view('scanner.index', [
+                'results' => [], 'total_scanned' => 0, 'total_signals' => 0,
+                'timeframe' => $timeframe, 'latest_run' => $latest_run,
+                'all_tickers' => [], 'weekly_crossover' => true, 'undervalued' => false,
+            ]);
+        }
+
+        $tickerList = $tickerIds->toArray();
+
+        $barsRaw = DB::table($table)
+            ->whereIn('ticker_id', $tickerList)
+            ->orderBy('ticker_id')
+            ->orderBy('date')
+            ->select('ticker_id', 'date', DB::raw('close::float8 as close'))
+            ->get();
+
+        $emaByTicker = [];
+        $closeByTicker = [];
+        $K = 2 / (10 + 1);
+        $iterations = 80;
+
+        foreach ($barsRaw as $b) {
+            $tid = $b->ticker_id;
+            $close = (float)$b->close;
+            $closeByTicker[$tid] = $close;
+            if (!isset($emaByTicker[$tid])) {
+                $emaByTicker[$tid] = $close;
+                continue;
+            }
+            $count = 0;
+            $ema = $emaByTicker[$tid];
+            foreach ([$close] as $c) {
+                $ema = $c * $K + $ema * (1 - $K);
+            }
+            $emaByTicker[$tid] = $ema;
+        }
+
+        $smaRaw = DB::select("
+            SELECT DISTINCT ON (t.ticker_id)
+                   t.ticker_id,
+                   AVG(t.close::float8) OVER (
+                       PARTITION BY t.ticker_id
+                       ORDER BY t.date
+                       ROWS BETWEEN 39 PRECEDING AND CURRENT ROW
+                   ) AS sma40
+            FROM {$table} t
+            ORDER BY t.ticker_id, t.date DESC
+        ");
+
+        $smaByTicker = [];
+        foreach ($smaRaw as $r) {
+            if ($r->sma40 !== null) {
+                $smaByTicker[$r->ticker_id] = (float)$r->sma40;
+            }
+        }
+
+        $crossStatusRaw = DB::select("
+            SELECT DISTINCT ON (ticker_id) ticker_id,
+                   CASE WHEN ema10_sma40_crossover THEN 'Bullish'
+                        WHEN ema10_sma40_cross_bearish THEN 'Bearish'
+                        ELSE 'Neutral' END AS cross_status,
+                   (SELECT date FROM {$table} t2
+                    WHERE t2.ticker_id = t.ticker_id AND t2.ema10_sma40_crossover = true
+                    ORDER BY t2.date DESC LIMIT 1) AS last_cross_date,
+                   (SELECT date FROM {$table} t2
+                    WHERE t2.ticker_id = t.ticker_id AND t2.ema10_sma40_cross_bearish = true
+                    ORDER BY t2.date DESC LIMIT 1) AS last_bearish_date
+            FROM {$table} t
+            WHERE ema10_sma40_crossover OR ema10_sma40_cross_bearish
+            ORDER BY ticker_id, date DESC
+        ");
+
+        $crossByTicker = [];
+        foreach ($crossStatusRaw as $r) {
+            $crossByTicker[$r->ticker_id] = $r;
+        }
+
+        $tickerInfo = DB::table('tbl_stock_tickers')
+            ->whereIn('id', $tickerList)
+            ->select('id', 'symbol', 'company_name')
+            ->get()
+            ->keyBy('id');
+
+        $indicatorRaw = DB::select("
+            SELECT ticker_id, date,
+                   macd_histogram::float8,
+                   ppo_histogram::float8
+            FROM (
+                SELECT ticker_id, date,
+                       macd_histogram, ppo_histogram,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ticker_id ORDER BY date DESC
+                       ) AS rn
+                FROM {$table}
+            ) sub
+            WHERE rn <= 2
+            ORDER BY ticker_id, date DESC
+        ");
+
+        $indicatorByTicker = [];
+        foreach ($indicatorRaw as $r) {
+            $tid = $r->ticker_id;
+            if (!isset($indicatorByTicker[$tid])) {
+                $indicatorByTicker[$tid] = (object)[
+                    'current' => (float)$r->macd_histogram,
+                    'prev' => null,
+                    'ppo_current' => (float)$r->ppo_histogram,
+                    'ppo_prev' => null,
+                ];
+            } else {
+                $indicatorByTicker[$tid]->prev = (float)$r->macd_histogram;
+                $indicatorByTicker[$tid]->ppo_prev = (float)$r->ppo_histogram;
+            }
+        }
+
+        $results = [];
+        foreach ($tickerList as $tid) {
+            if (!isset($smaByTicker[$tid])) continue;
+            $info = $tickerInfo->get($tid);
+            if (!$info) continue;
+
+            $close = $closeByTicker[$tid] ?? null;
+            $sma40 = $smaByTicker[$tid];
+            $ema10 = $emaByTicker[$tid] ?? null;
+            $cross = $crossByTicker[$tid] ?? null;
+            $ind = $indicatorByTicker[$tid] ?? null;
+
+            if ($close === null || $ema10 === null) continue;
+
+            $gapPct = $sma40 > 0 ? (($close - $sma40) / $sma40) * 100 : 0;
+            $spreadClose = abs($close - $sma40);
+            $spreadEma = abs($ema10 - $sma40);
+            $spreadCloseEma = abs($close - $ema10);
+            $maxSpread = max($spreadClose, $spreadEma, $spreadCloseEma);
+            $convergencePct = $sma40 > 0 ? ($maxSpread / $sma40) * 100 : PHP_FLOAT_MAX;
+
+            $macdHist = $ind ? $ind->current : 0;
+            $ppoHist = $ind ? $ind->ppo_current : 0;
+            $macdRising = $ind && $ind->prev !== null && $ind->current > $ind->prev;
+            $ppoRising = $ind && $ind->ppo_prev !== null && $ind->ppo_current > $ind->ppo_prev;
+
+            $momentumScore = 0;
+            if ($macdRising) $momentumScore += 3;
+            if ($ppoRising) $momentumScore += 3;
+            if ($macdHist > 0) $momentumScore += 1;
+            if ($ppoHist > 0) $momentumScore += 1;
+
+            $obj = (object)[
+                'ticker' => $info->symbol,
+                'company_name' => $info->company_name,
+                'close' => round($close, 2),
+                'sma40' => round($sma40, 2),
+                'ema10' => round($ema10, 2),
+                'gap_pct' => round($gapPct, 2),
+                'convergence_pct' => round($convergencePct, 2),
+                'macd_hist' => round($macdHist, 4),
+                'ppo_hist' => round($ppoHist, 4),
+                'momentum_score' => $momentumScore,
+                'status' => $cross ? $cross->cross_status : 'Neutral',
+                'last_cross_date' => $cross->last_cross_date ?? null,
+                'last_bearish_date' => $cross->last_bearish_date ?? null,
+            ];
+            $results[] = $obj;
+        }
+
+        usort($results, function ($a, $b) {
+            $ms = $b->momentum_score <=> $a->momentum_score;
+            if ($ms !== 0) return $ms;
+            return $a->convergence_pct <=> $b->convergence_pct;
+        });
+
+        $total_scanned = count($tickerList);
+        $all_tickers = DB::table('tbl_stock_tickers')
+            ->where('enabled', true)
+            ->orderBy('symbol')
+            ->pluck('symbol');
+        $latest_run = DB::table($table)->max('updated_at');
+
+        return view('scanner.index', [
+            'results' => $results,
+            'total_scanned' => $total_scanned,
+            'total_signals' => count($results),
+            'timeframe' => $timeframe,
+            'latest_run' => $latest_run,
+            'all_tickers' => $all_tickers,
+            'weekly_crossover' => true,
+            'undervalued' => false,
         ]);
     }
 

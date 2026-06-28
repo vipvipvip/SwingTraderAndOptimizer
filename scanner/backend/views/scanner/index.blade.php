@@ -55,6 +55,10 @@
             <input type="checkbox" id="undervaluedToggle" {{ $undervalued ? 'checked' : '' }} style="accent-color:#3fb950;cursor:pointer;">
             Undervalued
         </label>
+        <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="weeklyCrossoverToggle" {{ $weekly_crossover ? 'checked' : '' }} style="accent-color:#58a6ff;cursor:pointer;">
+            Weekly Crossover
+        </label>
         @if ($undervalued)
             <button id="updateValuationsBtn" onclick="updateValuations()" style="background:#1c1e26;border:1px solid #2d2f3a;color:#e1e4e8;padding:3px 10px;border-radius:4px;font-size:12px;cursor:pointer;">Update Valuations</button>
         @endif
@@ -68,7 +72,56 @@
 
     @if (count($results) > 0)
         <div class="table-wrap" id="tableWrap">
-            @if ($undervalued)
+            @if ($weekly_crossover)
+                {{-- Weekly EMA(10)/SMA(40) crossover table --}}
+                <table id="scannerTable" style="width:auto; table-layout:auto;">
+                    <colgroup>
+                        <col style="width:44px;">
+                        <col style="width:100px;">
+                        <col style="width:48px;">
+                        <col style="width:48px;">
+                        <col style="width:48px;">
+                        <col style="width:42px;">
+                        <col style="width:40px;">
+                        <col style="width:40px;">
+                        <col style="width:54px;">
+                        <col style="width:62px;">
+                        <col style="width:30px;">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Company</th>
+                            <th style="text-align:right;">Close</th>
+                            <th style="text-align:right;">EMA(10)</th>
+                            <th style="text-align:right;">SMA(40)</th>
+                            <th style="text-align:right;">Gap %</th>
+                            <th style="text-align:right;">MACD</th>
+                            <th style="text-align:right;">PPO</th>
+                            <th>Status</th>
+                            <th>Cross</th>
+                            <th style="text-align:right;">Mom</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($results as $row)
+                            <tr data-ticker="{{ $row->ticker }}">
+                                <td class="ticker" style="color:{{ $row->status === 'Bullish' ? '#3fb950' : ($row->status === 'Neutral' ? '#d29922' : '#f85149') }};">{{ $row->ticker }}</td>
+                                <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
+                                <td class="num">{{ number_format((float)$row->close, 2) }}</td>
+                                <td class="num {{ (float)$row->close >= (float)$row->ema10 ? 'pos' : 'neg' }}">{{ number_format((float)$row->ema10, 2) }}</td>
+                                <td class="num {{ (float)$row->close >= (float)$row->sma40 ? 'pos' : 'neg' }}">{{ number_format((float)$row->sma40, 2) }}</td>
+                                <td class="num {{ (float)$row->gap_pct >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->gap_pct, 1) }}%</td>
+                                <td class="num {{ (float)$row->macd_hist >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->macd_hist, 2) }}</td>
+                                <td class="num {{ (float)$row->ppo_hist >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->ppo_hist, 2) }}</td>
+                                <td><span style="color:{{ $row->status === 'Bullish' ? '#3fb950' : ($row->status === 'Neutral' ? '#d29922' : '#f85149') }};font-size:10px;">{{ $row->status }}</span></td>
+                                <td style="font-size:10px;color:#8b949e;">{{ $row->last_cross_date ? \Carbon\Carbon::parse($row->last_cross_date)->format('M j, Y') : '-' }}</td>
+                                <td style="text-align:right;font-size:11px;color:{{ $row->momentum_score >= 7 ? '#3fb950' : ($row->momentum_score >= 4 ? '#d29922' : '#8b949e') }};">{{ $row->momentum_score }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            @elseif ($undervalued)
                 {{-- Stock Analyzer: undervalued table --}}
                 <table id="scannerTable" style="width:auto; table-layout:auto;">
                     <colgroup>
@@ -180,7 +233,9 @@
         </div>
     @else
         <div class="empty" style="padding:20px;text-align:center;color:#4a4d59;">
-            @if ($undervalued)
+            @if ($weekly_crossover)
+                No tickers with weekly crossover data found.
+            @elseif ($undervalued)
                 No undervalued stocks found.
             @else
                 No signals found for {{ $timeframe }} timeframe.
@@ -196,6 +251,8 @@
 
     <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
     <script>
+        if (history.scrollRestoration) history.scrollRestoration = 'manual';
+        window.scrollTo(0, 0);
         const currentTimeframe = '{{ $timeframe }}';
         let chartInstance = null;
         let activeTicker = null;
@@ -208,13 +265,23 @@
         function changeTimeframe(tf) {
             let url = '/scanner?timeframe=' + tf;
             if (document.getElementById('undervaluedToggle').checked) url += '&undervalued=1';
+            if (document.getElementById('weeklyCrossoverToggle').checked) url += '&weekly_crossover=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
             window.location = url;
         }
 
         document.getElementById('undervaluedToggle').addEventListener('change', function() {
+            if (this.checked) document.getElementById('weeklyCrossoverToggle').checked = false;
             let url = '/scanner?timeframe=' + currentTimeframe;
             if (this.checked) url += '&undervalued=1';
+            if (activeTicker) url += '&ticker=' + activeTicker;
+            window.location = url;
+        });
+
+        document.getElementById('weeklyCrossoverToggle').addEventListener('change', function() {
+            if (this.checked) document.getElementById('undervaluedToggle').checked = false;
+            let url = '/scanner?timeframe=' + currentTimeframe;
+            if (this.checked) url += '&weekly_crossover=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
             window.location = url;
         });
