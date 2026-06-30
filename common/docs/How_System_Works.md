@@ -154,12 +154,14 @@ Alpaca ───┬── scanner-update (09:00 daily) ──► tbl_scanner_tic
 ```
 cron (5 min) ──► trades:execute-daily ──► TradeExecutorService
                     │                           │
-                    ├── getAccount() (Alpaca)   ├── Pass 1: exits for each ticker
-                    ├── getPositions() (Alpaca) │   (Chandelier + Regression check)
-                    │                           ├── Pass 2: pooled cash entry
-                    │                           │   (split equally among buy signals)
-                    │                           └── placeOrder() (Alpaca MARKET)
-                    │
+                    ├── RECONCILE:              ├── Pass 1: exits for each ticker
+                    │   syncLiveTradesFromAlpaca│   (Chandelier + Regression check)
+                    │   (self-heal DB from      ├── Pass 2: pooled cash entry
+                    │    Alpaca order history)   │   (split equally among buy signals)
+                    ├── getAccount() (Alpaca)   └── placeOrder() (Alpaca MARKET)
+                    ├── getPositions() (Alpaca)
+                    │                           └── positions:sync (after trades)
+                    │                                 (populate positions_cache)
                     └── Slack webhook ──► report if trades occurred
 ```
 
@@ -196,8 +198,24 @@ If `entry_mult` is null: always enter on next bar open.
 ### Cash Management — Pooled
 Available cash is split equally among all tickers with buy signals. No per-ticker allocation weights.
 
+### Self-Healing Reconciliation
+
+Every trading cycle starts with `syncLiveTradesFromAlpaca()`, which:
+1. Fetches ALL filled orders from Alpaca order history
+2. Creates/updates `live_trades` rows with actual fill prices (`filled_avg_price`)
+3. Matches sell orders to existing open buys and closes them
+4. Fetches current Alpaca positions and reconciles entry_price + quantity
+5. Creates DB entries for positions that exist on Alpaca but not in DB (e.g., manual trades)
+6. Closes stale DB entries that don't match Alpaca positions
+
+This makes **Alpaca the source of truth** — the DB is a cache that self-heals every 5 minutes. Even if:
+- An order partially fills → reconciliation corrects qty/price
+- A manual trade is placed on Alpaca → reconciliation picks it up
+- The DB is wiped → reconciliation rebuilds from Alpaca order history
+- Entry price was estimated → reconciliation overwrites with actual fill
+
 ### Signal Execution
-All orders are Alpaca MARKET orders. Exit type (`chandelier`, `regression`, `force_close`) is tracked in `backtest_trades.exit_type`.
+All orders are Alpaca MARKET orders. Exit type (`chandelier`, `regression`, `force_close`) is tracked in `backtest_trades.exit_type`. Entry prices use `filled_avg_price` from the Alpaca order response (not pre-order price estimate).
 
 ### Scheduler
 ```
@@ -212,13 +230,21 @@ Runs every 5 min regardless of market hours. The command checks `alpacaService->
 ```
 executeForAllTickers($override = false)
   │
+  ├── RECONCILE: syncLiveTradesFromAlpaca()
+  │     ├── Fetch all filled orders from Alpaca
+  │     ├── Create/update live_trades with actual fill prices
+  │     ├── Match sells → close open buys
+  │     ├── Reconcile positions: update qty + entry_price
+  │     ├── Create DB entries for Alpaca-only positions
+  │     └── Close stale DB entries (no Alpaca match)
+  │
   ├── getAccount() → $availableCash
   │
   ├── Pass 1: EXITS ──► for each ticker in position:
   │     ├── computeChandelierSignal(...)
   │     │     ├── calculateATR(period)
   │     │     ├── linearRegSlope() (if reg params set)
-  │     │     └── return 1 (buy), -1 (sell), 0 (hold)
+  │     │     └── return (buy|sell|hold)
   │     │
   │     └── if sell signal → handleSellSignal()
   │           └── placeOrder('sell') + record trade
@@ -228,8 +254,11 @@ executeForAllTickers($override = false)
   ├── Pass 2: ENTRIES ──► handlePooledEntries()
   │     ├── for each ticker NOT in position:
   │     │     └── check entry condition
-  │     └── if multiple signals:
-  │           └── split cash equally among all qualifying tickers
+  │     ├── for each buy signal:
+  │     │     ├── placeOrder('buy')
+  │     │     ├── store filled_avg_price as entry_price
+  │     │     └── if adding to position: weighted avg price
+  │     └── split cash equally among all qualifying tickers
   │
   └── Pass 3: OVERRIDE (only if --override flag)
         └── executeManualOverride()
@@ -317,14 +346,18 @@ reg_slope_window, reg_slope_threshold, reg_slope_type
 sharpe_ratio, total_return, win_rate, max_drawdown, total_trades
 ```
 
-**live_trades** — Executed Alpaca orders
+**live_trades** — Executed Alpaca orders (reconciled every cycle)
 ```
 id (PK), ticker_id (FK), symbol, side, quantity
 entry_price, exit_price, entry_at, exit_at
 pnl_dollar, pnl_pct, status (open|closed)
-strategy_signal (CHANDELIER_ENTRY)
+strategy_signal (CHANDELIER_ENTRY|CHANDELIER_EXIT|RECONCILED|MANUAL_BUY|FORCE_TEST)
 alpaca_order_id
 ```
+
+Entry prices are sourced from Alpaca's `filled_avg_price` (actual fill, not pre-order estimate).
+When positions are incremented, `entry_price` is recalculated as weighted average.
+Stale entries are automatically closed during reconciliation.
 
 **backtest_trades** — Simulated trades from optimizer
 ```
@@ -351,13 +384,15 @@ total_combinations, runtime_seconds, params (JSONB), promoted
 
 ## Safety Mechanisms
 
-1. **Market Hours**: Alpaca clock check via `getClock()['is_open']`. Only executes 09:30–16:05 ET weekdays.
-2. **Cash Gating**: If `$availableCash ≤ 0` after exit pass, entry pass is skipped entirely.
-3. **Same-Day Exit Guard**: Prevents re-entry on same day as exit (matches backtest behavior).
-4. **No Overlapping**: Scheduler uses `withoutOverlapping(10)` to prevent concurrent runs.
-5. **Graceful Degradation**: API timeouts with retry logic. Fallback defaults for missing params.
-6. **Manual Override**: `--override` flag force-checks entry even for in-position tickers to deploy idle cash.
-7. **Incremental Scanner**: `populate_tickers.py` only fetches bars after `MAX(date)` — no delete-all-reinsert.
+1. **Auto-Reconciliation**: Every trading cycle starts with `syncLiveTradesFromAlpaca()`. The DB self-heals from Alpaca's actual positions — no manual DB resets needed if state diverges.
+2. **Market Hours**: Alpaca clock check via `getClock()['is_open']`. Only executes 09:30–16:05 ET weekdays.
+3. **Cash Gating**: If `$availableCash ≤ 0` after exit pass, entry pass is skipped entirely.
+4. **Same-Day Exit Guard**: Prevents re-entry on same day as exit (matches backtest behavior).
+5. **No Overlapping**: Scheduler uses `withoutOverlapping(10)` to prevent concurrent runs.
+6. **Strategy Validation Gate**: Blocks trading if no `base_case=1` params exist or required params are missing.
+7. **Graceful Degradation**: API timeouts with retry logic. Fallback defaults for missing params.
+8. **Manual Override**: `--override` flag force-checks entry even for in-position tickers to deploy idle cash.
+9. **Incremental Scanner**: `populate_tickers.py` only fetches bars after `MAX(date)` — no delete-all-reinsert.
 
 ---
 
@@ -385,7 +420,7 @@ Slack webhook reports sent when any trade (buy/sell) occurs via `SLACK_WEBHOOK_U
 
 ---
 
-**Last Updated:** 2026-06-26
+**Last Updated:** 2026-06-29
 **Tickers:** QQQ, VTI, VTV (+ BLENDED portfolio composite)
 **Broker:** Alpaca (paper)
 **Database:** PostgreSQL (Docker)

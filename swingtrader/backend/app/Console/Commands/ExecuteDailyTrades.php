@@ -48,6 +48,9 @@ class ExecuteDailyTrades extends Command
                 $this->info("Account equity: \$" . number_format($equity, 2));
             }
 
+            // Sync positions cache after trades
+            $this->call('positions:sync');
+
             // Only send Slack report if trades occurred
             $hasTrades = count($results['buys'] ?? []) > 0 || count($results['sells'] ?? []) > 0;
             if ($hasTrades) {

@@ -11,11 +11,13 @@ class TradeExecutorService
     use MarketDataTrait;
     private $alpacaService;
     private $strategyService;
+    private $equityService;
 
-    public function __construct(AlpacaService $alpaca, StrategyService $strategy)
+    public function __construct(AlpacaService $alpaca, StrategyService $strategy, EquityService $equity)
     {
         $this->alpacaService = $alpaca;
         $this->strategyService = $strategy;
+        $this->equityService = $equity;
     }
 
     /**
@@ -54,6 +56,14 @@ class TradeExecutorService
 
     public function executeForAllTickers($override = false)
     {
+        // Reconcile live_trades from Alpaca order history before every cycle
+        // This ensures the DB reflects Alpaca's actual positions (self-healing)
+        try {
+            $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+        } catch (\Exception $e) {
+            \Log::warning("Reconciliation failed: " . $e->getMessage());
+        }
+
         $account = null;
         $positions = [];
         try {
@@ -353,27 +363,37 @@ class TradeExecutorService
                 }
 
                 $order = $this->alpacaService->placeOrder($sym, $qty, 'buy');
+                $fillPrice = floatval($order['filled_avg_price'] ?? $currentPrice);
+                $orderId = $order['id'] ?? null;
 
                 // If ticker already has an open position, add to existing qty
                 $openTrade = LiveTrade::where('symbol', $sym)->where('status', 'open')->first();
                 if ($openTrade) {
-                    $openTrade->increment('quantity', $qty);
-                    $openTrade->save();
+                    $oldQty = $openTrade->quantity;
+                    $oldPrice = $openTrade->entry_price;
+                    $newQty = $oldQty + $qty;
+                    // Recalculate entry_price as weighted average of existing + new fill
+                    $weightedPrice = ($oldPrice * $oldQty + $fillPrice * $qty) / $newQty;
+                    $openTrade->update([
+                        'quantity' => $newQty,
+                        'entry_price' => round($weightedPrice, 4),
+                        'alpaca_order_id' => $orderId,
+                    ]);
                 } else {
                     LiveTrade::create([
                         'ticker_id' => $ticker->id,
                         'symbol' => $sym,
                         'side' => 'BUY',
                         'quantity' => $qty,
-                        'entry_price' => $currentPrice,
+                        'entry_price' => $fillPrice,
                         'entry_at' => now(),
                         'status' => 'open',
-                        'alpaca_order_id' => $order['id'] ?? null,
+                        'alpaca_order_id' => $orderId,
                         'strategy_signal' => 'CHANDELIER_ENTRY',
                     ]);
                 }
 
-                \Log::info("Pooled BUY $sym: qty=$qty, price=$currentPrice, allocated=$perTicker");
+                \Log::info("Pooled BUY $sym: qty=$qty, fillPrice=$fillPrice, allocated=$perTicker");
                 $placed[] = $sym;
             } catch (\Exception $e) {
                 \Log::error("Pooled entry failed for $sym: " . $e->getMessage());

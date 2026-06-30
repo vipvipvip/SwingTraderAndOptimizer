@@ -44,14 +44,14 @@ journalctl -u swingtrader-optimizer | grep -i "error"
 
 ### 📈 During Market Hours (9:30-16:00 ET, Weekdays Only)
 
-**Trade Executor Should Run Every Minute**
+**Trade Executor Should Run Every 5 Minutes**
 
 ```bash
 # 1. Check backend is running
 sudo systemctl status swingtrader-backend --no-pager
 
 # 2. Check for recent trade executions
-sudo journalctl -u swingtrader-backend -n 50 | grep -i "trade\|signal"
+sudo journalctl -u swingtrader-backend -n 50 | grep -i "trade\|signal\|reconcile"
 
 # 3. View current account equity (if you have a dashboard)
 curl http://localhost:9000/api/health | jq '.'
@@ -59,8 +59,14 @@ curl http://localhost:9000/api/health | jq '.'
 
 **If trades aren't executing:**
 - Check backend logs: `sudo journalctl -u swingtrader-backend -f`
-- Test manually: `php backend/artisan trades:execute-daily`
+- Test manually: `php swingtrader/backend/artisan trades:execute-daily`
 - Verify market is open: Check Alpaca calendar
+
+**Reconciliation check (verify DB matches Alpaca):**
+```bash
+# Check positions_cache (synced from Alpaca)
+php swingtrader/backend/artisan positions:sync && php swingtrader/backend/artisan tinker --execute="\DB::table('positions_cache')->get()->each(fn(\$p) => print_r(\$p));"
+```
 
 ---
 
@@ -121,7 +127,32 @@ psql -U swingtrader -d swingtrader
 # Inside psql:
 SELECT COUNT(*) as bars FROM tbl_etf_tickers_1hour;
 SELECT COUNT(*) as trades FROM live_trades WHERE DATE(entry_at) = CURRENT_DATE;
+SELECT COUNT(*) as positions FROM positions_cache;
+SELECT * FROM positions_cache ORDER BY qty DESC;
 ```
+
+### Positions Cache (Synced from Alpaca)
+
+```bash
+# Manually sync positions from Alpaca
+php swingtrader/backend/artisan positions:sync
+
+# Check current cached positions
+php swingtrader/backend/artisan tinker --execute="\DB::table('positions_cache')->get()->each(fn(\$p) => print_r(\$p));"
+
+# Verify cached positions match Alpaca
+# (Run after reconciliation — mismatches indicate a bug)
+php swingtrader/backend/artisan tinker --execute="
+\$alpaca = \App\Services\AlpacaService::getPositions();
+\$cached = \DB::table('positions_cache')->pluck('qty', 'symbol');
+foreach (\$alpaca as \$p) {
+    \$sym = \$p['symbol'];
+    \$aqty = (float)\$p['qty'];
+    \$cqty = (float)(\$cached[\$sym] ?? 0);
+    if (\$aqty != \$cqty) echo \"MISMATCH: \$sym Alpaca=\$aqty Cache=\$cqty\\n\";
+}
+echo 'Done.';
+"```
 
 ---
 
@@ -137,7 +168,7 @@ lsof -i :9000
 journalctl -u swingtrader-backend -n 100
 
 # Try starting manually
-cd backend && php artisan serve --host=0.0.0.0 --port=9000
+cd swingtrader/backend && php artisan serve --host=0.0.0.0 --port=9000
 ```
 
 ### Optimizer Not Running
@@ -161,7 +192,7 @@ journalctl -u swingtrader-optimizer -f
 sudo systemctl restart postgresql
 
 # Run migrations
-php artisan migrate --force
+php swingtrader/backend/artisan migrate --force
 
 # Verify connection
 psql -U swingtrader -d swingtrader -c "SELECT 1;"
@@ -177,7 +208,7 @@ sudo systemctl status swingtrader-backend
 sudo journalctl -u swingtrader-backend | tail -20
 
 # Run manually to test
-php backend/artisan trades:execute-daily
+php swingtrader/backend/artisan trades:execute-daily
 ```
 
 ---
@@ -187,7 +218,7 @@ php backend/artisan trades:execute-daily
 | Metric | How to Check | Expected |
 |--------|-------------|----------|
 | Optimizer runtime | `journalctl -u swingtrader-optimizer` | 20-30 minutes |
-| Trade executor frequency | `journalctl -u swingtrader-backend` | Every minute (390 times during market hours) |
+| Trade executor frequency | `journalctl -u swingtrader-backend` | Every 5 minutes (~78 times during market hours) |
 | Database health | `psql -U swingtrader -d swingtrader -c "SELECT 1;"` | Instant response |
 | Backend response time | `curl -w "%{time_total}" http://localhost:9000/api/health` | <100ms |
 

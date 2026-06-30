@@ -27,9 +27,9 @@ class SyncPositions extends Command
                     'qty' => intval($pos['qty']),
                     'avg_entry_price' => floatval($pos['avg_entry_price']),
                     'current_price' => floatval($pos['current_price']),
-                    'unrealized_pnl' => floatval($pos['unrealized_pl'] ?? 0),
+                    'unrealized_pnl' => floatval($pos['unrealized_pnl'] ?? $pos['unrealized_pl'] ?? 0),
                     'market_value' => floatval($pos['market_value']),
-                    'side' => strtolower($pos['side']),
+                    'side' => isset($pos['side']) ? strtolower($pos['side']) : 'long',
                     'last_synced_at' => now(),
                 ]);
             }

@@ -131,9 +131,8 @@ class EquityService
                 if (!$ticker) continue;
 
                 $qty = intval($order['filled_qty'] ?? $order['qty'] ?? 0);
-                // Skip test/force orders (qty=1) — only sync real allocation-based trades
-                if ($qty <= 1) continue;
                 $price = floatval($order['filled_avg_price'] ?? 0);
+                if ($qty <= 0 || $price <= 0) continue;
                 $created_at = $order['created_at'] ?? now()->toDateTimeString();
 
                 $tradeData = [
@@ -209,6 +208,7 @@ class EquityService
             try {
                 $positions = $alpacaService->getPositions();
                 if (is_array($positions)) {
+                    $reconciledSymbols = [];
                     foreach ($positions as $pos) {
                         $symbol = $pos['symbol'] ?? null;
                         $avgEntry = floatval($pos['avg_entry_price'] ?? 0);
@@ -226,6 +226,42 @@ class EquityService
                                 'quantity' => $qty,
                             ]);
                             Log::info("Reconciled $symbol position: qty=$qty avg_entry=$avgEntry");
+                        } else {
+                            // Position exists on Alpaca but not in DB — create it
+                            $ticker = Ticker::where('symbol', $symbol)->first();
+                            LiveTrade::create([
+                                'ticker_id' => $ticker?->id,
+                                'symbol' => $symbol,
+                                'side' => 'BUY',
+                                'quantity' => $qty,
+                                'entry_price' => $avgEntry,
+                                'entry_at' => now(),
+                                'status' => 'open',
+                                'strategy_signal' => 'RECONCILED',
+                            ]);
+                            Log::info("Created missing $symbol position in DB: qty=$qty avg_entry=$avgEntry");
+                        }
+                        $reconciledSymbols[] = $symbol;
+                    }
+
+                    // Close any stale open trades for symbols that were reconciled
+                    // (e.g. old entries with wrong prices that were superseded)
+                    foreach ($reconciledSymbols as $symbol) {
+                        $latestOpen = LiveTrade::where('symbol', $symbol)
+                            ->where('status', 'open')
+                            ->latest('entry_at')
+                            ->first();
+                        if ($latestOpen) {
+                            LiveTrade::where('symbol', $symbol)
+                                ->where('status', 'open')
+                                ->where('id', '!=', $latestOpen->id)
+                                ->update([
+                                    'status' => 'closed',
+                                    'exit_price' => $latestOpen->entry_price,
+                                    'exit_at' => now(),
+                                    'pnl_dollar' => 0,
+                                    'pnl_pct' => 0,
+                                ]);
                         }
                     }
                 }
