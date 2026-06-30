@@ -10,25 +10,24 @@ Memory files are stored locally and automatically loaded when you open a new con
 
 | File | Purpose |
 |------|---------|
-| `session_2026_04_21_trading_dashboard_fixes.md` | Complete summary of fixes, testing steps, and next enhancements |
-| `feedback_restart_before_test.md` | Practice: always restart servers before asking user to test |
-| `MEMORY.md` | Index pointing to all session summaries and documentation |
+| `session_2026_04_21_trading_dashboard_fixes.md` | Dashboard fixes session (earlier) |
+| `session_2026_06_29_chand_improvements.md` | CHAND+REG live system improvements — reconciliation, bug fixes, statistical analysis |
 
 ## Key Benefits
 
 - **Why fixes were made** — root cause analysis, not just what changed
 - **How to test** — step-by-step verification without guessing
 - **What's next** — enhancements waiting for future work
-- **Lessons learned** — documented practices (e.g., server restart workflow)
-- **Current status** — dashboard fully functional, known issues, architectural notes
+- **Current status** — reconciliation deployed, CHAND crushes BH on 96.6% of stocks
 
-## Continuing Work
+## Continuing Work (CHAND Improvements)
 
-Simply reference the session when you return:
+Open a new session and say:
 
-- "Let's continue with the next enhancement from the session summary"
-- "Test the dynamic next trade time widget"
-- "Add timezone support for other markets"
-- "Review the OS scheduler integration plan"
+> "Load the CHAND improvements session and continue from the remaining ideas"
 
-Full context is automatically loaded — no need to re-read git logs or reconstruct the problem.
+Or pick a specific next step:
+
+> "Continue from the CHAND session — implement velocity/acceleration as a confirmatory filter"
+
+Full context is in `session_2026_06_29_chand_improvements.md` — loaded automatically.
