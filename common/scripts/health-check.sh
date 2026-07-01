@@ -285,6 +285,23 @@ else
     fail "EMAC health check script not found at $EMAC_HEALTH"
 fi
 
+# ---- MTCS Hilbert Transform Cycle Strategy ----
+echo ""
+echo "--- MTCS Cycle Strategy ---"
+
+MTCS_HEALTH="$PROJECT_DIR/swingtrader/services/mtcs/health_check.py"
+if [ -f "$MTCS_HEALTH" ]; then
+    cd "$PROJECT_DIR/swingtrader/services/mtcs" && python3 "$MTCS_HEALTH"
+    MTCS_EXIT=$?
+    if [ "$MTCS_EXIT" -eq 0 ]; then
+        pass "MTCS health check passed"
+    else
+        fail "MTCS health check detected issues"
+    fi
+else
+    fail "MTCS health check script not found at $MTCS_HEALTH"
+fi
+
 # ---- API Health ----
 echo ""
 echo "--- API Endpoints ---"

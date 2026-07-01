@@ -78,11 +78,23 @@ def _get_account():
     return resp.json()
 
 
+_account_number = None
+
+
+def _get_account_number():
+    global _account_number
+    if _account_number is None:
+        acct = _get_account()
+        _account_number = acct.get('account_number', '?')
+    return _account_number
+
+
 def _send_slack(msg):
     if not config.SLACK_WEBHOOK_URL:
         return
+    tag = f'[EMAC] [Paper:{_get_account_number()}]'
     try:
-        requests.post(config.SLACK_WEBHOOK_URL, json={'text': msg}, timeout=5)
+        requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'{tag} {msg}'}, timeout=5)
     except Exception as e:
         print(f'[SLACK] Error: {e}')
 
@@ -114,10 +126,10 @@ def sell_position(conn, ticker_id, symbol, signal_ts):
                            signal_ts=signal_ts,
                            pnl_dollar=pnl_dollar, pnl_pct=pnl_pct,
                            close_reason='crossover')
-    msg = (f'EMAC SELL {symbol} {qty} @ ${fill_price:.2f}  '
+    msg = (f'SELL {symbol} {qty} @ ${fill_price:.2f}  '
            f'PnL: ${pnl_dollar:.2f} ({pnl_pct*100:+.2f}%)')
     print(f'[EXECUTOR] {msg}')
-    _send_slack(f'[EMAC] {msg}')
+    _send_slack(msg)
     return proceeds
 
 
@@ -162,8 +174,8 @@ def buy_position(conn, ticker_id, symbol, signal_ts, amount):
     db_module.upsert_position(conn, ticker_id, symbol, qty, fill_price, now)
     db_module.insert_trade(conn, ticker_id, symbol, 'BUY', qty, fill_price, now,
                            signal_ts=signal_ts)
-    msg = (f'EMAC BUY {symbol} {qty} @ ${fill_price:.2f} (${spent:.2f})  |  '
+    msg = (f'BUY {symbol} {qty} @ ${fill_price:.2f} (${spent:.2f})  |  '
            f'EMA({config.EMA_PERIOD})/SMA({config.SMA_PERIOD}) + MACD({config.MACD_FAST},{config.MACD_SLOW},{config.MACD_SIGNAL})')
     print(f'[EXECUTOR] {msg}')
-    _send_slack(f'[EMAC] {msg}')
+    _send_slack(msg)
     return spent
