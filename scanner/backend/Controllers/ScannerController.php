@@ -21,8 +21,9 @@ class ScannerController
         $timeframe = $request->query('timeframe', 'weekly');
         $table = $this->tableForTimeframe($timeframe);
         $undervalued = $request->boolean('undervalued');
-
         $weeklyCrossover = $request->boolean('weekly_crossover');
+        $long = $request->boolean('long');
+        $short = $request->boolean('short');
 
         if ($undervalued) {
             return $this->indexUndervalued($request, $timeframe, $table);
@@ -32,104 +33,12 @@ class ScannerController
             return $this->indexWeeklyCrossover($request, $timeframe, $table);
         }
 
-        $results = DB::select("
-            WITH cross_dates AS (
-                SELECT DISTINCT ON (t.ticker_id)
-                       t.ticker_id,
-                       mcd.date AS macd_cross_date,
-                       pcd.date AS ppo_cross_date,
-                       scd.date AS sma_cross_date,
-                       lc.cross_bullish
-                FROM {$table} t
-                LEFT JOIN LATERAL (
-                    SELECT date FROM {$table}
-                    WHERE ticker_id = t.ticker_id AND macd_crossover = true
-                    ORDER BY date DESC LIMIT 1
-                ) mcd ON true
-                LEFT JOIN LATERAL (
-                    SELECT date FROM {$table}
-                    WHERE ticker_id = t.ticker_id AND ppo_crossover = true
-                    ORDER BY date DESC LIMIT 1
-                ) pcd ON true
-                LEFT JOIN LATERAL (
-                    SELECT date FROM {$table}
-                    WHERE ticker_id = t.ticker_id AND sma_crossover = true
-                    ORDER BY date DESC LIMIT 1
-                ) scd ON true
-                LEFT JOIN LATERAL (
-                    SELECT
-                        CASE WHEN macd_crossover OR ppo_crossover OR sma_crossover
-                             THEN true ELSE false
-                        END AS cross_bullish
-                    FROM {$table}
-                    WHERE ticker_id = t.ticker_id
-                      AND (macd_crossover OR macd_cross_bearish
-                           OR ppo_crossover OR ppo_cross_bearish
-                           OR sma_crossover OR sma_cross_bearish)
-                    ORDER BY date DESC LIMIT 1
-                ) lc ON true
-                WHERE mcd.date IS NOT NULL
-                  AND pcd.date IS NOT NULL
-                  AND scd.date IS NOT NULL
-            ),
-            latest AS (
-                SELECT DISTINCT ON (ticker_id)
-                       ticker_id, date, close,
-                       atr_stop::float8
-                FROM {$table}
-                WHERE ticker_id IN (SELECT ticker_id FROM cross_dates)
-                ORDER BY ticker_id, date DESC
-            )
-            SELECT l.*,
-                   e.symbol AS ticker,
-                   e.company_name,
-                   cd.macd_cross_date,
-                   cd.ppo_cross_date,
-                   cd.sma_cross_date,
-                   cd.cross_bullish
-            FROM latest l
-            JOIN cross_dates cd ON cd.ticker_id = l.ticker_id
-             JOIN tbl_stock_tickers e ON e.id = l.ticker_id
-            ORDER BY GREATEST(cd.macd_cross_date, cd.ppo_cross_date, cd.sma_cross_date) DESC
-        ");
+        if ($short) {
+            return $this->indexShort($request, $timeframe, $table);
+        }
 
-        $results = collect($results)
-            ->filter(fn($r) => $r->cross_bullish && $r->atr_stop !== null)
-            ->take(50)
-            ->map(function ($r) {
-                $dist = (float)$r->close - (float)$r->atr_stop;
-                $r->stop_dist_dollar = round($dist, 2);
-                $r->stop_dist_pct = (float)$r->close > 0
-                    ? round($dist / (float)$r->close * 100, 2)
-                    : null;
-                return $r;
-            })
-            ->sortBy('stop_dist_pct')
-            ->values()
-            ->all();
-
-        $total_scanned = DB::table($table)
-            ->distinct('ticker_id')
-            ->count('ticker_id');
-
-        $all_tickers = DB::table('tbl_stock_tickers')
-            ->where('enabled', true)
-            ->orderBy('symbol')
-            ->pluck('symbol');
-
-        $latest_run = DB::table($table)
-            ->max('updated_at');
-
-        return view('scanner.index', [
-            'results' => $results,
-            'all_tickers' => $all_tickers,
-            'total_scanned' => $total_scanned,
-            'total_signals' => count($results),
-            'timeframe' => $timeframe,
-            'latest_run' => $latest_run,
-            'undervalued' => false,
-            'weekly_crossover' => false,
-        ]);
+        // Default to Long mode
+        return $this->indexLong($request, $timeframe, $table);
     }
 
     private function indexUndervalued(Request $request, string $timeframe, string $table)
@@ -366,6 +275,144 @@ class ScannerController
             'all_tickers' => $all_tickers,
             'weekly_crossover' => true,
             'undervalued' => false,
+        ]);
+    }
+
+    private function indexLong(Request $request, string $timeframe, string $table)
+    {
+        $rows = DB::select("
+            WITH ranked AS (
+                SELECT t.ticker_id, t.date,
+                       t.close::float8 AS close,
+                       t.macd_histogram::float8 AS macd_hist,
+                       t.ppo_histogram::float8 AS ppo_hist,
+                       t.atr_stop::float8 AS atr_stop,
+                       (t.macd_line::float8 - t.macd_signal::float8) AS macd_ms,
+                       ROW_NUMBER() OVER (PARTITION BY t.ticker_id ORDER BY t.date DESC) AS rn
+                FROM {$table} t
+            ),
+            curr AS (SELECT * FROM ranked WHERE rn = 1),
+            prev AS (SELECT * FROM ranked WHERE rn = 2)
+            SELECT c.ticker_id, c.date,
+                   c.close, c.macd_hist, c.ppo_hist, c.atr_stop, c.macd_ms,
+                   COALESCE(p.macd_hist, 0) AS prev_macd_hist,
+                   COALESCE(p.ppo_hist, 0) AS prev_ppo_hist,
+                   e.symbol AS ticker, e.company_name
+            FROM curr c
+            LEFT JOIN prev p ON p.ticker_id = c.ticker_id
+            JOIN tbl_stock_tickers e ON e.id = c.ticker_id
+            WHERE c.close > c.atr_stop
+              AND c.atr_stop IS NOT NULL
+              AND c.close > 0
+        ");
+
+        $results = [];
+
+        foreach ($rows as $r) {
+            $r->stop_dist_pct = round(($r->close - $r->atr_stop) / $r->close * 100, 2);
+
+            // MACD just crossed above zero: histogram went from <=0 to >0
+            $macdCross = $r->macd_hist > 0 && $r->prev_macd_hist <= 0;
+
+            // PPO just crossed above zero: histogram went from <=0 to >0
+            $ppoCross = $r->ppo_hist > 0 && $r->prev_ppo_hist <= 0;
+
+            if (!$macdCross && !$ppoCross) continue;
+
+            if ($macdCross && $ppoCross) {
+                $r->rule = 1; // Both crossed simultaneously — double confirmation
+            } elseif ($macdCross) {
+                $r->rule = 2; // MACD leading
+            } else {
+                $r->rule = 3; // PPO leading
+            }
+
+            $r->score = ($macdCross ? 5 : 0) + ($ppoCross ? 5 : 0)
+                      + min(5, max(0, (int)$r->stop_dist_pct));
+
+            $results[] = $r;
+        }
+
+        usort($results, fn($a, $b) =>
+            $a->rule <=> $b->rule ?: $b->score <=> $a->score ?: $b->macd_hist <=> $a->macd_hist
+        );
+
+        $all_tickers = DB::table('tbl_stock_tickers')
+            ->where('enabled', true)->orderBy('symbol')->pluck('symbol');
+
+        return view('scanner.index', [
+            'results' => $results,
+            'all_tickers' => $all_tickers,
+            'total_scanned' => DB::table($table)->distinct('ticker_id')->count('ticker_id'),
+            'total_signals' => count($results),
+            'timeframe' => $timeframe,
+            'latest_run' => DB::table($table)->max('updated_at'),
+            'long' => true, 'short' => false,
+            'undervalued' => false, 'weekly_crossover' => false,
+        ]);
+    }
+
+    private function indexShort(Request $request, string $timeframe, string $table)
+    {
+        $rows = DB::select("
+            WITH ranked AS (
+                SELECT t.ticker_id, t.date,
+                       t.close::float8 AS close,
+                       t.macd_histogram::float8 AS macd_hist,
+                       t.ppo_histogram::float8 AS ppo_hist,
+                       t.atr_stop::float8 AS atr_stop,
+                       (t.macd_line::float8 - t.macd_signal::float8) AS macd_ms,
+                       ROW_NUMBER() OVER (PARTITION BY t.ticker_id ORDER BY t.date DESC) AS rn
+                FROM {$table} t
+            ),
+            curr AS (SELECT * FROM ranked WHERE rn = 1),
+            prev AS (SELECT * FROM ranked WHERE rn = 2)
+            SELECT c.ticker_id, c.date,
+                   c.close, c.macd_hist, c.ppo_hist, c.atr_stop, c.macd_ms,
+                   COALESCE(p.macd_hist, 0) AS prev_macd_hist,
+                   COALESCE(p.ppo_hist, 0) AS prev_ppo_hist,
+                   e.symbol AS ticker, e.company_name
+            FROM curr c
+            LEFT JOIN prev p ON p.ticker_id = c.ticker_id
+            JOIN tbl_stock_tickers e ON e.id = c.ticker_id
+            WHERE c.macd_hist > 0
+              AND c.ppo_hist <= 0
+              AND c.close > 0
+        ");
+
+        $results = [];
+
+        foreach ($rows as $r) {
+            // Rule 3: Momentum Breaker — MACD still positive but PPO just turned negative or is negative
+            $r->stop_dist_pct = $r->atr_stop > 0
+                ? round(($r->close - $r->atr_stop) / $r->close * 100, 2)
+                : null;
+
+            // Cusp: PPO just turned negative (was positive last week) OR has been barely negative
+            $ppeJustBroke = $r->prev_ppo_hist > 0;
+
+            if (!$ppeJustBroke) continue;
+
+            $r->rule = 3;
+            $r->score = (int)(abs($r->ppo_hist) * 10) + ($r->macd_ms > 0 ? 3 : 0);
+
+            $results[] = $r;
+        }
+
+        usort($results, fn($a, $b) => $b->score <=> $a->score ?: $a->ppo_hist <=> $b->ppo_hist);
+
+        $all_tickers = DB::table('tbl_stock_tickers')
+            ->where('enabled', true)->orderBy('symbol')->pluck('symbol');
+
+        return view('scanner.index', [
+            'results' => $results,
+            'all_tickers' => $all_tickers,
+            'total_scanned' => DB::table($table)->distinct('ticker_id')->count('ticker_id'),
+            'total_signals' => count($results),
+            'timeframe' => $timeframe,
+            'latest_run' => DB::table($table)->max('updated_at'),
+            'long' => false, 'short' => true,
+            'undervalued' => false, 'weekly_crossover' => false,
         ]);
     }
 

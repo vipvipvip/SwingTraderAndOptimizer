@@ -52,12 +52,21 @@
         </select>
         <div class="divider"></div>
         <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="longToggle" {{ isset($long) && $long ? 'checked' : '' }} style="accent-color:#3fb950;cursor:pointer;">
+            <span style="color:#3fb950;font-weight:600;">Long</span>
+        </label>
+        <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="shortToggle" {{ isset($short) && $short ? 'checked' : '' }} style="accent-color:#f85149;cursor:pointer;">
+            <span style="color:#f85149;font-weight:600;">Short</span>
+        </label>
+        <div class="divider"></div>
+        <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
             <input type="checkbox" id="undervaluedToggle" {{ $undervalued ? 'checked' : '' }} style="accent-color:#3fb950;cursor:pointer;">
             Undervalued
         </label>
         <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
             <input type="checkbox" id="weeklyCrossoverToggle" {{ $weekly_crossover ? 'checked' : '' }} style="accent-color:#58a6ff;cursor:pointer;">
-            Weekly Crossover
+            Wkly Cross
         </label>
         @if ($undervalued)
             <button id="updateValuationsBtn" onclick="updateValuations()" style="background:#1c1e26;border:1px solid #2d2f3a;color:#e1e4e8;padding:3px 10px;border-radius:4px;font-size:12px;cursor:pointer;">Update Valuations</button>
@@ -117,6 +126,98 @@
                                 <td><span style="color:{{ $row->status === 'Bullish' ? '#3fb950' : ($row->status === 'Neutral' ? '#d29922' : '#f85149') }};font-size:10px;">{{ $row->status }}</span></td>
                                 <td style="font-size:10px;color:#8b949e;">{{ $row->last_cross_date ? \Carbon\Carbon::parse($row->last_cross_date)->format('M j, Y') : '-' }}</td>
                                 <td style="text-align:right;font-size:11px;color:{{ $row->momentum_score >= 7 ? '#3fb950' : ($row->momentum_score >= 4 ? '#d29922' : '#8b949e') }};">{{ $row->momentum_score }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            @elseif (isset($long) && $long)
+                {{-- Long signals: fresh MACD/PPO zero-line crossovers --}}
+                <table id="scannerTable">
+                    <colgroup>
+                        <col style="width:44px;">
+                        <col style="width:120px;">
+                        <col style="width:48px;">
+                        <col style="width:56px;">
+                        <col style="width:56px;">
+                        <col style="width:56px;">
+                        <col style="width:56px;">
+                        <col style="width:46px;">
+                        <col style="width:30px;">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Company</th>
+                            <th>Cross</th>
+                            <th style="text-align:right;">Close</th>
+                            <th style="text-align:right;">MACD</th>
+                            <th style="text-align:right;">PPO</th>
+                            <th style="text-align:right;">ATR Stop</th>
+                            <th style="text-align:right;">Dist%</th>
+                            <th style="text-align:right;">Scr</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($results as $row)
+                            @php
+                                $ruleLabels = [1 => 'Both', 2 => 'MACD Lead', 3 => 'PPO Lead'];
+                                $ruleColors = [1 => '#3fb950', 2 => '#58a6ff', 3 => '#d29922'];
+                                $rl = $ruleLabels[$row->rule] ?? '?';
+                                $rc = $ruleColors[$row->rule] ?? '#8b949e';
+                            @endphp
+                            <tr data-ticker="{{ $row->ticker }}">
+                                <td class="ticker ticker-bull">{{ $row->ticker }}</td>
+                                <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
+                                <td><span style="color:{{ $rc }};font-size:9px;font-weight:600;">{{ $rl }}</span></td>
+                                <td class="num pos">{{ number_format((float)$row->close, 2) }}</td>
+                                <td class="num {{ (float)$row->macd_hist >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->macd_hist, 2) }}</td>
+                                <td class="num {{ (float)$row->ppo_hist >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->ppo_hist, 2) }}</td>
+                                <td class="num">{{ number_format((float)$row->atr_stop, 2) }}</td>
+                                <td class="num pos">{{ $row->stop_dist_pct }}%</td>
+                                <td class="num" style="color:#3fb950;">{{ $row->score }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            @elseif (isset($short) && $short)
+                {{-- Short signals: Rule 3 — Momentum Breaker --}}
+                <table id="scannerTable">
+                    <colgroup>
+                        <col style="width:44px;">
+                        <col style="width:120px;">
+                        <col style="width:54px;">
+                        <col style="width:56px;">
+                        <col style="width:56px;">
+                        <col style="width:56px;">
+                        <col style="width:56px;">
+                        <col style="width:46px;">
+                        <col style="width:30px;">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Company</th>
+                            <th>Rule</th>
+                            <th style="text-align:right;">Close</th>
+                            <th style="text-align:right;">MACD</th>
+                            <th style="text-align:right;">PPO</th>
+                            <th style="text-align:right;">ATR Stop</th>
+                            <th style="text-align:right;">Dist%</th>
+                            <th style="text-align:right;">Scr</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($results as $row)
+                            <tr data-ticker="{{ $row->ticker }}">
+                                <td class="ticker ticker-bear">{{ $row->ticker }}</td>
+                                <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
+                                <td><span style="color:#f85149;font-size:9px;font-weight:600;">PPO Break</span></td>
+                                <td class="num">{{ number_format((float)$row->close, 2) }}</td>
+                                <td class="num pos">{{ number_format((float)$row->macd_hist, 2) }}</td>
+                                <td class="num neg">{{ number_format((float)$row->ppo_hist, 2) }}</td>
+                                <td class="num">{{ (float)$row->atr_stop > 0 ? number_format((float)$row->atr_stop, 2) : '-' }}</td>
+                                <td class="num {{ isset($row->stop_dist_pct) && $row->stop_dist_pct < 0 ? 'neg' : (isset($row->stop_dist_pct) && $row->stop_dist_pct > 0 ? 'pos' : '') }}">{{ $row->stop_dist_pct ?? '-' }}%</td>
+                                <td class="num" style="color:#f85149;">{{ $row->score }}</td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -235,6 +336,10 @@
         <div class="empty" style="padding:20px;text-align:center;color:#4a4d59;">
             @if ($weekly_crossover)
                 No tickers with weekly crossover data found.
+            @elseif (isset($long) && $long)
+                No long signals found for {{ $timeframe }} timeframe.
+            @elseif (isset($short) && $short)
+                No short signals found for {{ $timeframe }} timeframe.
             @elseif ($undervalued)
                 No undervalued stocks found.
             @else
@@ -266,12 +371,22 @@
             let url = '/scanner?timeframe=' + tf;
             if (document.getElementById('undervaluedToggle').checked) url += '&undervalued=1';
             if (document.getElementById('weeklyCrossoverToggle').checked) url += '&weekly_crossover=1';
+            if (document.getElementById('longToggle').checked) url += '&long=1';
+            if (document.getElementById('shortToggle').checked) url += '&short=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
             window.location = url;
         }
 
+        function uncheckAllFilters() {
+            document.getElementById('undervaluedToggle').checked = false;
+            document.getElementById('weeklyCrossoverToggle').checked = false;
+            document.getElementById('longToggle').checked = false;
+            document.getElementById('shortToggle').checked = false;
+        }
+
         document.getElementById('undervaluedToggle').addEventListener('change', function() {
-            if (this.checked) document.getElementById('weeklyCrossoverToggle').checked = false;
+            if (this.checked) uncheckAllFilters();
+            this.checked = true;
             let url = '/scanner?timeframe=' + currentTimeframe;
             if (this.checked) url += '&undervalued=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
@@ -279,9 +394,28 @@
         });
 
         document.getElementById('weeklyCrossoverToggle').addEventListener('change', function() {
-            if (this.checked) document.getElementById('undervaluedToggle').checked = false;
+            if (this.checked) uncheckAllFilters();
+            this.checked = true;
             let url = '/scanner?timeframe=' + currentTimeframe;
             if (this.checked) url += '&weekly_crossover=1';
+            if (activeTicker) url += '&ticker=' + activeTicker;
+            window.location = url;
+        });
+
+        document.getElementById('longToggle').addEventListener('change', function() {
+            if (this.checked) uncheckAllFilters();
+            this.checked = true;
+            let url = '/scanner?timeframe=' + currentTimeframe;
+            if (this.checked) url += '&long=1';
+            if (activeTicker) url += '&ticker=' + activeTicker;
+            window.location = url;
+        });
+
+        document.getElementById('shortToggle').addEventListener('change', function() {
+            if (this.checked) uncheckAllFilters();
+            this.checked = true;
+            let url = '/scanner?timeframe=' + currentTimeframe;
+            if (this.checked) url += '&short=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
             window.location = url;
         });
