@@ -143,6 +143,16 @@ CREATE TABLE mtcs_trades (
 );
 ```
 
+## References
+
+The signal processing techniques used here originate from **John F. Ehlers**:
+
+- **Detrend + SMA to isolate cycles** — *"Rocket Science for Traders"* (Wiley, 2001), Ch. 2
+- **Hilbert Transform for instantaneous phase** — *"Rocket Science for Traders"*, Ch. 8–10; also *"Using the Hilbert Transform for Cycle Detection"* (Technical Analysis of Stocks & Commodities, 1994). Unlike FFT (which averages over the entire window), the Hilbert Transform gives the phase at each bar.
+- **Sine/Lead-Sine crossover as entry signal** — *"Cycle Analytics for Traders"* (2014). cos(θ) = sin(θ + 90°) = sin(θ + ¼ cycle), so the cross of sin(θ) through cos(θ) catches cycle turns with zero lag.
+
+Online: search "Ehlers Hilbert Transform trading" for practical articles on StockCharts, MQL5, or the MESA Software website.
+
 ## Notes
 
 - Daily return correlation with CHAND: **-0.017** (essentially zero) — ideal for diversification

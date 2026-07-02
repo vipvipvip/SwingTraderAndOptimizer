@@ -99,6 +99,108 @@ def _send_slack(msg):
         print(f'[SLACK] Error: {e}')
 
 
+def _get_alpaca_positions():
+    url = f'{config.ALPACA_BASE_URL}/v2/positions'
+    resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
+    if resp.status_code >= 400:
+        return {}
+    return {p['symbol']: p for p in resp.json()}
+
+
+def _partial_sell(conn, symbol, qty_to_sell):
+    """Sell a specific number of shares, update DB. Returns proceeds."""
+    pos = db_module.get_position(conn, db_module.get_ticker_id(conn, symbol))
+    if not pos:
+        return 0.0
+    current_qty = int(float(pos[1]))
+    qty_to_sell = min(qty_to_sell, current_qty)
+    if qty_to_sell < 1:
+        return 0.0
+
+    _cancel_orders_for_symbol(symbol)
+    order = _place_order(symbol, qty_to_sell, 'sell')
+    fill_price = float(order['filled_avg_price']) if order.get('filled_avg_price') else None
+    order_id = order.get('id')
+    if not fill_price and order_id:
+        fill_price = _wait_for_fill(order_id)
+    if not fill_price:
+        return 0.0
+
+    remaining_qty = current_qty - qty_to_sell
+    now = datetime.now(NY)
+    if remaining_qty > 0:
+        db_module.upsert_position(conn, pos[0], symbol, remaining_qty, fill_price, now)
+    else:
+        db_module.delete_position(conn, db_module.get_ticker_id(conn, symbol))
+
+    entry_price = float(pos[2]) if pos[2] else 0
+    pnl_pct = (fill_price - entry_price) / entry_price * 100 if entry_price else 0
+    msg = (f'SELL {qty_to_sell} {symbol} @ ${fill_price:.2f}  |  '
+           f'Remaining {remaining_qty} shares  |  PnL: {pnl_pct:+.2f}%')
+    print(f'[EXECUTOR] {msg}')
+    _send_slack(msg)
+    return fill_price * qty_to_sell
+
+
+def rebalance_for_buys(conn, buy_signals):
+    """When new BUY signals fire, rebalance so all held tickers have equal dollar value.
+
+    Args:
+        conn: DB connection
+        buy_signals: list of (symbol, ticker_id, signal_ts) for new BUY signals
+    """
+    if not buy_signals:
+        return
+
+    alpaca_positions = _get_alpaca_positions()
+    account = _get_account()
+    cash = float(account.get('cash', 0))
+
+    buy_syms = {sym for sym, _, _ in buy_signals}
+    held_syms = {s for s, p in alpaca_positions.items()
+                 if float(p['qty']) > 0}
+    all_syms = sorted(held_syms | buy_syms)
+
+    values = {}
+    for s in all_syms:
+        if s in alpaca_positions:
+            p = alpaca_positions[s]
+            values[s] = float(p['qty']) * float(p['current_price'])
+        else:
+            values[s] = 0.0
+
+    total = cash + sum(values.values())
+    target = total / len(all_syms)
+    print(f'[EXECUTOR] Rebalance: ${total:.0f} total → ${target:.0f}/ea for {all_syms}')
+    _send_slack(f'Rebalance: ${total:.0f} total, ${target:.0f} target per ticker')
+
+    # Sell excess from over-allocated tickers first
+    for s in sorted(all_syms):
+        if values[s] > target * 1.02:
+            excess = values[s] - target
+            price = float(alpaca_positions[s]['current_price']) if s in alpaca_positions else 0
+            if price > 0:
+                qty = int(excess / price)
+                if qty > 0:
+                    p = _partial_sell(conn, s, qty)
+                    cash += p
+                    values[s] -= p
+
+    # Buy new signals up to target
+    for sym, tid, sig_ts in buy_signals:
+        current_val = values.get(sym, 0.0)
+        if current_val >= target * 0.98:
+            print(f'[EXECUTOR] {sym} already at ${current_val:.0f} near target ${target:.0f}')
+            continue
+        remaining = target - current_val
+        reserve = 10 * len(all_syms)
+        buy_amt = min(remaining, max(0, cash - reserve))
+        if buy_amt > 0:
+            spent = buy_position(conn, tid, sym, sig_ts, buy_amt)
+            cash -= spent
+            values[sym] += spent
+
+
 def sell_position(conn, ticker_id, symbol, signal_ts):
     now = datetime.now(NY)
     pos = db_module.get_position(conn, ticker_id)

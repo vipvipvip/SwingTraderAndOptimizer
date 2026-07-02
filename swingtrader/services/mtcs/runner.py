@@ -72,6 +72,26 @@ def _append_trade_csv(symbol, entry_date, entry_price, exit_date, exit_price, pn
         w.writerow([symbol, entry_date, round(entry_price, 2), exit_date, round(exit_price, 2), round(pnl_pct, 2)])
 
 
+_ALPACA_HEADERS = {
+    'APCA-API-KEY-ID': config.ALPACA_API_KEY,
+    'APCA-API-SECRET-KEY': config.ALPACA_SECRET_KEY,
+}
+
+
+def _latest_price(symbol):
+    url = f'https://data.alpaca.markets/v2/stocks/trades/latest'
+    try:
+        resp = requests.get(url, headers=_ALPACA_HEADERS,
+                            params={'symbols': symbol, 'feed': 'iex'}, timeout=5)
+        if resp.status_code < 400:
+            trade = resp.json().get('trades', {}).get(symbol)
+            if trade and 'p' in trade:
+                return float(trade['p'])
+    except Exception:
+        pass
+    return None
+
+
 def get_current_cycle_info(conn, ticker_id):
     closes, _ = db_module.get_daily_candles(conn, ticker_id)
     if not closes or len(closes) < 30:
@@ -126,9 +146,15 @@ def run():
                     continue
                 last_bar_dates[tid] = latest_ts
 
-                signal, price = check_signal(conn, tid)
+                signal, _ = check_signal(conn, tid)
                 if signal is None:
                     continue
+
+                daily_closes, _ = db_module.get_daily_candles(conn, tid)
+                last_close = daily_closes[-1] if daily_closes else None
+                live = _latest_price(sym)
+                price = live if live else last_close
+                price_source = 'live' if live else ('close' if last_close else 'none')
 
                 now = datetime.now(NY)
                 pos = db_module.get_position(conn, tid)
@@ -138,7 +164,7 @@ def run():
                     db_module.upsert_position(conn, tid, sym, 1, price, now)
                     db_module.insert_trade(conn, tid, sym, 'BUY', price, latest_ts, now)
                     cycle_info = get_current_cycle_info(conn, tid)
-                    msg = (f'BUY {sym} @ ${price:.2f}  |  '
+                    msg = (f'BUY {sym} @ ${price:.2f} ({price_source})  |  '
                            f'cycles: {cycle_info}  |  '
                            f'D({config.DETREND_PERIOD}) S({config.SMOOTHING})')
                     print(f'[MTCS RUNNER] {msg}')
@@ -153,7 +179,7 @@ def run():
                                       str(latest_ts.date()), price, pnl_pct)
                     db_module.delete_position(conn, tid)
                     db_module.insert_trade(conn, tid, sym, 'SELL', price, latest_ts, now)
-                    msg = (f'SELL {sym} @ ${price:.2f}  |  '
+                    msg = (f'SELL {sym} @ ${price:.2f} ({price_source})  |  '
                            f'PnL: {pnl_pct:+.2f}%  |  '
                            f'D({config.DETREND_PERIOD}) S({config.SMOOTHING})')
                     print(f'[MTCS RUNNER] {msg}')

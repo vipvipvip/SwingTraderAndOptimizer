@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 import config
 import db as db_module
 from candle_builder import CandleBuilder, BAR_MINUTES
-from executor import sell_position, buy_position, _get_account, _cancel_orders_for_symbol
+from executor import sell_position, buy_position, _get_account, _cancel_orders_for_symbol, rebalance_for_buys
 from price_collector import fetch_trades, is_trading_day, next_trading_dates
 from strategy import check_signal, WARMUP
 
@@ -227,19 +227,13 @@ def run():
                     except Exception as e:
                         print(f'[RUNNER] {sym} SELL failed: {e}')
 
-            # ── Step 4: split remaining cash among buys ──
+            # ── Step 4: rebalance portfolio for new buys ──
             buy_signals = [(sym, tid, sig_ts) for sym, tid, sig, sig_ts in signals if sig == 'BUY']
             if buy_signals:
-                account = _get_account()
-                cash = float(account.get('cash', 0))
-                per_ticker = cash / len(buy_signals)
-                print(f'[RUNNER] {len(buy_signals)} buy signals, '
-                      f'${cash:.2f} cash → ${per_ticker:.2f} each')
-                for sym, tid, sig_ts in buy_signals:
-                    try:
-                        buy_position(conn, tid, sym, sig_ts, per_ticker)
-                    except Exception as e:
-                        print(f'[RUNNER] {sym} BUY failed: {e}')
+                try:
+                    rebalance_for_buys(conn, buy_signals)
+                except Exception as e:
+                    print(f'[RUNNER] rebalance failed: {e}')
 
             if not signals and cycle_count % 5 == 1:
                 print(f'[RUNNER] heartbeat — cycle #{cycle_count}, no signals')
