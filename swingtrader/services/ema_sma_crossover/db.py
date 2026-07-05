@@ -4,6 +4,21 @@ import psycopg2
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS emac_daily_candles (
+    id SERIAL PRIMARY KEY,
+    ticker_id INTEGER NOT NULL REFERENCES tbl_etf_tickers(id),
+    ts DATE NOT NULL,
+    open NUMERIC(12,4) NOT NULL,
+    high NUMERIC(12,4) NOT NULL,
+    low NUMERIC(12,4) NOT NULL,
+    close NUMERIC(12,4) NOT NULL,
+    volume BIGINT NOT NULL DEFAULT 0,
+    fetched_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_emac_daily_candles_unique
+ON emac_daily_candles(ticker_id, ts);
+
 CREATE TABLE IF NOT EXISTS emac_candles (
     id SERIAL PRIMARY KEY,
     ticker_id INTEGER NOT NULL REFERENCES tbl_etf_tickers(id),
@@ -218,6 +233,59 @@ def insert_trade(conn, ticker_id, symbol, side, quantity, price, executed_at,
              close_reason),
         )
     conn.commit()
+
+
+# ── Daily Candles ──
+
+def insert_daily_candle(conn, ticker_id, ts, o, h, l, c, v):
+    with conn.cursor() as cur:
+        cur.execute(
+            'INSERT INTO emac_daily_candles (ticker_id, ts, open, high, low, close, volume) '
+            'VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING',
+            (ticker_id, ts, o, h, l, c, v),
+        )
+    conn.commit()
+
+
+def insert_daily_candles_bulk(conn, rows):
+    """Bulk insert daily candle rows: list of (ticker_id, ts, open, high, low, close, volume)"""
+    if not rows:
+        return
+    from psycopg2.extras import execute_values
+    with conn.cursor() as cur:
+        execute_values(cur,
+            'INSERT INTO emac_daily_candles (ticker_id, ts, open, high, low, close, volume) '
+            'VALUES %s ON CONFLICT DO NOTHING', rows)
+    conn.commit()
+
+
+def get_daily_candles(conn, ticker_id, limit=500):
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT ts, open, high, low, close, volume FROM emac_daily_candles '
+            'WHERE ticker_id = %s ORDER BY ts DESC LIMIT %s',
+            (ticker_id, limit),
+        )
+        rows = cur.fetchall()
+        rows.reverse()
+        return rows
+
+
+def get_last_daily_ts(conn, ticker_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT ts FROM emac_daily_candles WHERE ticker_id = %s ORDER BY ts DESC LIMIT 1',
+            (ticker_id,),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def count_daily_candles(conn, ticker_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT COUNT(*) FROM emac_daily_candles WHERE ticker_id = %s', (ticker_id,))
+        return cur.fetchone()[0]
 
 
 def insert_candles_bulk(conn, rows):

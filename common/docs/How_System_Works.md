@@ -111,34 +111,56 @@ The CHAND+REG live trading system reads **resampled daily bars** from `tbl_etf_t
 - Live price (`TradeExecutorService::getCurrentPrice`): latest hourly close (no daily filter)
 - Alpaca latest trade API used as fallback for current price
 
-### EMAC Crossover System (Separate, 30-min Bars)
-A separate EMA(10)/SMA(40) + MACD(10,40,400) crossover system using **30-min bars built from raw trade ticks**:
+### EMAC 30-min Crossover (Automated)
+A separate EMA(10)/SMA(40) crossover system using **30-min bars built from raw trade ticks**, with a daily EMA/SMA regime filter:
 
 ```
 Alpaca trades API (IEX) ──► emac-runner.service (2-min poll loop)
-                              │
-                              ├── emac_raw_trades (every tick persisted)
-                              │
-                              ├── CandleBuilder (filters to regular hours 9:30-16:00 ET)
-                              │     └── 30-min OHLCV bars → emac_candles
-                              │
-                              ├── Strategy (EMA/SMA crossover + MACD hist filter)
-                              │     ├── BUY: EMA>SMA AND MACD hist>0 AND either just flipped
-                              │     └── SELL: EMA<SMA AND MACD hist<0 AND either just flipped
-                              │
-                              └── Executor (Alpaca MARKET orders)
-                                    ├── Pass 1: sell positions first
-                                    └── Pass 2: split remaining cash equally among buy signals
+                               │
+                               ├── emac_raw_trades (every tick persisted)
+                               │
+                               ├── CandleBuilder (filters to regular hours 9:30-16:00 ET)
+                               │     └── 30-min OHLCV bars → emac_candles
+                               │
+                               ├── Strategy (EMA/SMA crossover)
+                               │     ├── ENTRY: EMA(10) > SMA(40) on 30-min
+                               │     │         AND daily EMA(10) > SMA(40) regime
+                               │     └── EXIT:  EMA(10) crosses below SMA(40) (no MACD wait)
+                               │
+                               └── Executor (Alpaca MARKET orders)
+                                     ├── Pass 1: sell positions first
+                                     └── Pass 2: split remaining cash equally among buy signals
 ```
 
 Key differences from CHAND+REG:
 - **Data source**: Raw trade ticks (not pre-computed bars)
 - **Timeframe**: 30-min bars (not 1-hour/daily resampled)
 - **Data pipeline**: Real-time via 2-min poll loop (not nightly batch)
-- **Strategy**: EMA/SMA crossover + MACD filter (not Chandelier/Regression)
+- **Strategy**: EMA/SMA crossover + daily regime filter (not Chandelier/Regression)
 - **Scope**: QQQ, VTI, VTV (same tickers, independent system)
 - **Account**: Separate Alpaca paper account, separate DB tables (`emac_*`)
 - **Service**: `emac-runner.service` (systemd, long-running daemon, not timer-based)
+
+### Daily Signal Service (Signal-Only)
+A signal-only companion to EMAC that runs **once per day after market close (4:30 PM ET)**:
+
+```
+daily-signal.timer (Mon–Fri 16:30 ET)
+       │
+       └── daily_signal_service.py
+             ├── Reads emac_daily_candles (daily OHLCV from DB)
+             ├── Computes EMA(10)/SMA(40) crossover on daily close
+             ├── Fresh crossover detected?
+             │     ├── YES → Slack alert [DAILY] + log to data/daily_signals.csv
+             │     └── NO  → nothing
+             └── State saved to .daily_signal_state.json (dedup)
+```
+
+- **No trading**: Slack alerts + CSV only; user decides to enter at next day's open
+- **Same logic as backtest**: Entry on EMA > SMA, exit on EMA cross below SMA
+- **Same tickers**: QQQ, VTI, VTV
+- **Dedup**: State file prevents duplicate alerts for the same bar
+- **Tables used**: `emac_daily_candles` (read-only)
 
 ### Stock Scanner Data (SP500, for Screening)
 ```

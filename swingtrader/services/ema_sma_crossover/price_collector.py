@@ -21,11 +21,12 @@ _HEADERS = {
 }
 
 
-def fetch_30min_bars(symbol, start=None, limit=1):
-    """Fetch 30-minute bars for a symbol.
+def fetch_bars(symbol, timeframe, start=None, limit=1):
+    """Fetch bars for a symbol at any timeframe.
 
     Args:
         symbol: ticker symbol
+        timeframe: Alpaca timeframe string e.g. '30Min', '1Hour', '1Day'
         start: ISO datetime string (optional)
         limit: max bars to return (default 1 = latest bar)
     Returns:
@@ -33,7 +34,7 @@ def fetch_30min_bars(symbol, start=None, limit=1):
     """
     url = f'{_DATA_URL}/v2/stocks/{symbol}/bars'
     params = {
-        'timeframe': '30Min',
+        'timeframe': timeframe,
         'limit': limit,
         'feed': 'iex',
         'adjustment': 'split',
@@ -43,22 +44,22 @@ def fetch_30min_bars(symbol, start=None, limit=1):
 
     resp = requests.get(url, headers=_HEADERS, params=params, timeout=15)
     if resp.status_code >= 400:
-        print(f'[PRICE] Alpaca error {resp.status_code} for {symbol}: {resp.text}')
+        print(f'[PRICE] Alpaca error {resp.status_code} for {symbol} ({timeframe}): {resp.text}')
         return []
 
     data = resp.json()
     return data.get('bars', [])
 
 
-def fetch_all_30min_bars(symbol, start='2020-01-01T00:00:00Z'):
-    """Fetch ALL historical 30-minute bars for a symbol (with pagination)."""
+def fetch_all_bars(symbol, timeframe, start='2020-01-01T00:00:00Z'):
+    """Fetch ALL historical bars for a symbol at given timeframe (with pagination)."""
     all_bars = []
     page_token = None
 
     while True:
         url = f'{_DATA_URL}/v2/stocks/{symbol}/bars'
         params = {
-            'timeframe': '30Min',
+            'timeframe': timeframe,
             'limit': 10000,
             'feed': 'iex',
             'adjustment': 'split',
@@ -69,7 +70,7 @@ def fetch_all_30min_bars(symbol, start='2020-01-01T00:00:00Z'):
 
         resp = requests.get(url, headers=_HEADERS, params=params, timeout=60)
         if resp.status_code >= 400:
-            print(f'[PRICE] Error fetching {symbol}: {resp.text}')
+            print(f'[PRICE] Error fetching {symbol} ({timeframe}): {resp.text}')
             break
 
         data = resp.json()
@@ -82,9 +83,24 @@ def fetch_all_30min_bars(symbol, start='2020-01-01T00:00:00Z'):
     return all_bars
 
 
-def latest_30min_bar(symbol):
-    """Get the most recent complete 30-min bar for a symbol."""
-    bars = fetch_30min_bars(symbol, limit=1)
+def fetch_30min_bars(symbol, start=None, limit=1):
+    """Fetch 30-minute bars for a symbol (backwards compat)."""
+    return fetch_bars(symbol, '30Min', start, limit)
+
+
+def fetch_all_30min_bars(symbol, start='2020-01-01T00:00:00Z'):
+    """Fetch ALL historical 30-minute bars for a symbol (backwards compat)."""
+    return fetch_all_bars(symbol, '30Min', start)
+
+
+def fetch_daily_bars(symbol, start='2020-01-01T00:00:00Z'):
+    """Fetch ALL historical daily bars for a symbol."""
+    return fetch_all_bars(symbol, '1Day', start)
+
+
+def latest_daily_bar(symbol):
+    """Get the most recent daily bar for a symbol."""
+    bars = fetch_bars(symbol, '1Day', limit=1)
     return bars[0] if bars else None
 
 

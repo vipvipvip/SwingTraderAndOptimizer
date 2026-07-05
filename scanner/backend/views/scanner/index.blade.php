@@ -68,9 +68,26 @@
             <input type="checkbox" id="weeklyCrossoverToggle" {{ $weekly_crossover ? 'checked' : '' }} style="accent-color:#58a6ff;cursor:pointer;">
             Wkly Cross
         </label>
+        <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="multitfUptrendToggle" {{ isset($multitf_uptrend) && $multitf_uptrend ? 'checked' : '' }} style="accent-color:#c9a0ff;cursor:pointer;">
+            Multi-TF
+        </label>
+        <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="infancyToggle" {{ isset($infancy) && $infancy ? 'checked' : '' }} style="accent-color:#ff7b72;cursor:pointer;">
+            Infancy
+        </label>
         @if ($undervalued)
             <button id="updateValuationsBtn" onclick="updateValuations()" style="background:#1c1e26;border:1px solid #2d2f3a;color:#e1e4e8;padding:3px 10px;border-radius:4px;font-size:12px;cursor:pointer;">Update Valuations</button>
         @endif
+        <span class="scanned" id="breadthBadge" style="font-size:12px;font-weight:600;cursor:default;" title="% of S&P 500 in multi-TF uptrend">
+            {{ isset($pct) ? $pct . '%' : '-' }}
+            @if (isset($pct))
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{{ $color ?? '#8b949e' }};margin-left:2px;vertical-align:middle;"></span>
+                <span style="color:{{ $color ?? '#8b949e' }};font-size:10px;">{{ $regime ?? '' }}</span>
+            @endif
+        </span>
+        <div class="divider"></div>
+        <button onclick="copyTickers()" style="background:#1c1e26;border:1px solid #2d2f3a;color:#e1e4e8;padding:3px 10px;border-radius:4px;font-size:12px;cursor:pointer;" title="Copy tickers to clipboard">📋 Copy</button>
         <div class="ticker-search">
             <input type="text" id="tickerSearch" placeholder="Ticker..." list="tickerList" autocomplete="off">
             <datalist id="tickerList"></datalist>
@@ -130,7 +147,71 @@
                         @endforeach
                     </tbody>
                 </table>
-            @elseif (isset($long) && $long)
+            @elseif (isset($multitf_uptrend) && $multitf_uptrend)
+                {{-- Multi-TF Uptrend: weekly + daily bullish, optionally 1-hour entry --}}
+                <table id="scannerTable" style="width:auto; table-layout:auto;">
+                    <colgroup>
+                        <col style="width:44px;">
+                        <col style="width:100px;">
+                        <col style="width:48px;">
+                        <col style="width:36px;">
+                        <col style="width:46px;">
+                        <col style="width:46px;">
+                        <col style="width:50px;">
+                        <col style="width:76px;">
+                        <col style="width:76px;">
+                        <col style="width:52px;">
+                        <col style="width:52px;">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Company</th>
+                            <th style="text-align:right;">Close</th>
+                            <th style="text-align:right;">Score</th>
+                            <th style="text-align:right;">GapW%</th>
+                            <th style="text-align:right;">ATR%</th>
+                            <th>Fresh</th>
+                            <th>Wkly Cross</th>
+                            <th>Daily Cross</th>
+                            <th>1H Entry</th>
+                            <th>New Daily</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($results as $row)
+                            @php $infancy = $row->infancy ?? false; @endphp
+                            <tr data-ticker="{{ $row->ticker }}" class="{{ $infancy ? 'new-row' : '' }}">
+                                <td class="ticker {{ $infancy ? 'ticker-bull' : (($row->gap_w ?? 0) >= 0 ? 'ticker-bull' : 'ticker-bear') }}">{{ $row->ticker }}</td>
+                                <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
+                                <td class="num pos">{{ number_format((float)$row->close, 2) }}</td>
+                                <td class="num" style="color:{{ $row->score >= 5 ? '#c9a0ff' : ($row->score >= 3 ? '#d29922' : '#8b949e') }};">{{ $row->score }}</td>
+                                <td class="num {{ (float)$row->gap_w >= 0 ? 'pos' : 'neg' }}">{{ $row->gap_w }}%</td>
+                                <td class="num pos">{{ $row->atr_dist }}%</td>
+                                <td style="font-size:10px;">
+                                    @if ($infancy)
+                                        <span class="new-badge" style="background:#3d1a1a;color:#ff7b72;">{{ $row->days_weekly }}d</span>
+                                    @else
+                                        <span style="color:#8b949e;">{{ $row->days_weekly }}d</span>
+                                    @endif
+                                </td>
+                                <td style="font-size:10px;color:#8b949e;">{{ $row->weekly_cross_date ? \Carbon\Carbon::parse($row->weekly_cross_date)->format('M j, Y') : '-' }}</td>
+                                <td style="font-size:10px;color:#8b949e;">{{ $row->daily_cross_date ? \Carbon\Carbon::parse($row->daily_cross_date)->format('M j, Y') : '-' }}</td>
+                                <td>
+                                    @if ($row->hourly_entry)
+                                        <span class="new-badge" style="background:#2d1b4e;color:#c9a0ff;">ENTRY</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if ($row->new_daily_uptrend)
+                                        <span class="new-badge" style="background:#1a3322;color:#3fb950;">NEW</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+        @elseif (isset($long) && $long)
                 {{-- Long signals: fresh MACD/PPO zero-line crossovers --}}
                 <table id="scannerTable">
                     <colgroup>
@@ -336,6 +417,12 @@
         <div class="empty" style="padding:20px;text-align:center;color:#4a4d59;">
             @if ($weekly_crossover)
                 No tickers with weekly crossover data found.
+            @elseif (isset($multitf_uptrend) && $multitf_uptrend)
+                @if (isset($infancy) && $infancy)
+                    No infancy entries found (weekly cross < 60 days).
+                @else
+                    No tickers in multi-timeframe uptrend.
+                @endif
             @elseif (isset($long) && $long)
                 No long signals found for {{ $timeframe }} timeframe.
             @elseif (isset($short) && $short)
@@ -368,9 +455,18 @@
         }
 
         function changeTimeframe(tf) {
+            if (activeTicker) {
+                // Chart is open — reload just the chart, not the whole page
+                currentTimeframe = tf;
+                document.querySelector('.top-bar select').value = tf;
+                loadChart(activeTicker);
+                return;
+            }
             let url = '/scanner?timeframe=' + tf;
             if (document.getElementById('undervaluedToggle').checked) url += '&undervalued=1';
             if (document.getElementById('weeklyCrossoverToggle').checked) url += '&weekly_crossover=1';
+            if (document.getElementById('multitfUptrendToggle').checked) url += '&multitf_uptrend=1';
+            if (document.getElementById('infancyToggle').checked) url += '&infancy=1';
             if (document.getElementById('longToggle').checked) url += '&long=1';
             if (document.getElementById('shortToggle').checked) url += '&short=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
@@ -380,6 +476,8 @@
         function uncheckAllFilters() {
             document.getElementById('undervaluedToggle').checked = false;
             document.getElementById('weeklyCrossoverToggle').checked = false;
+            document.getElementById('multitfUptrendToggle').checked = false;
+            document.getElementById('infancyToggle').checked = false;
             document.getElementById('longToggle').checked = false;
             document.getElementById('shortToggle').checked = false;
         }
@@ -398,6 +496,23 @@
             this.checked = true;
             let url = '/scanner?timeframe=' + currentTimeframe;
             if (this.checked) url += '&weekly_crossover=1';
+            if (activeTicker) url += '&ticker=' + activeTicker;
+            window.location = url;
+        });
+
+        document.getElementById('multitfUptrendToggle').addEventListener('change', function() {
+            if (this.checked) uncheckAllFilters();
+            this.checked = true;
+            let url = '/scanner?timeframe=' + currentTimeframe;
+            if (this.checked) url += '&multitf_uptrend=1';
+            if (activeTicker) url += '&ticker=' + activeTicker;
+            window.location = url;
+        });
+
+        document.getElementById('infancyToggle').addEventListener('change', function() {
+            let url = '/scanner?timeframe=' + currentTimeframe;
+            if (document.getElementById('multitfUptrendToggle').checked) url += '&multitf_uptrend=1';
+            if (this.checked) url += '&infancy=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
             window.location = url;
         });
@@ -535,6 +650,24 @@
         const urlParams = new URLSearchParams(window.location.search);
         const urlTicker = urlParams.get('ticker');
         if (urlTicker) doSelectTicker(urlTicker.toUpperCase());
+
+        function copyTickers() {
+            const params = new URLSearchParams(window.location.search);
+            let url = '/scanner/copy-tickers?' + params.toString();
+            fetch(url)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.tickers) {
+                        navigator.clipboard.writeText(d.tickers).then(() => {
+                            const badge = document.getElementById('breadthBadge');
+                            const orig = badge.innerHTML;
+                            badge.innerHTML = '✔ Copied!';
+                            setTimeout(() => badge.innerHTML = orig, 1500);
+                        });
+                    }
+                })
+                .catch(e => console.error('Copy failed:', e));
+        }
 
         function updateValuations() {
             const btn = document.getElementById('updateValuationsBtn');

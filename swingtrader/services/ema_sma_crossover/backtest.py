@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Proper backtest using real 30-min historical bars from Alpaca."""
+"""Proper backtest using real 30-min historical bars from Alpaca (with daily filter)."""
 import argparse
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 
 import config
-from price_collector import fetch_all_30min_bars
+from price_collector import fetch_all_30min_bars, fetch_daily_bars
 
 
 def _bars_to_df(bars):
-    """Convert Alpaca bar dicts to a DataFrame indexed by timestamp (NY time)."""
+    """Convert Alpaca bar dicts to a DataFrame indexed by timestamp (UTC)."""
     records = []
     for b in bars:
         records.append({
@@ -30,7 +30,59 @@ def _bars_to_df(bars):
     return df
 
 
-def run_backtest(df):
+def _daily_bars_to_series(bars):
+    """Convert daily Alpaca bars to a pd.Series of daily closes indexed by date (naive)."""
+    records = []
+    for b in bars:
+        ts_str = b['t']
+        if 'T' in ts_str:
+            d = datetime.fromisoformat(ts_str.split('T')[0]).date()
+        else:
+            ts_str = str(ts_str)
+            d = datetime.fromisoformat(ts_str[:10]).date()
+        records.append({'date': d, 'close': float(b['c'])})
+    df = pd.DataFrame(records)
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.sort_values('date').set_index('date')
+    return df['close']
+
+
+def _daily_bullish_regime(daily_closes):
+    """Compute a Series of booleans: is daily EMA(10) > SMA(40) at each day?
+    Returns an index-aligned boolean Series.
+    """
+    vals = daily_closes.values.astype(float)
+    series = pd.Series(vals, index=daily_closes.index)
+    ema = series.ewm(span=config.EMA_PERIOD, adjust=False).mean()
+    sma = series.rolling(window=config.SMA_PERIOD).mean()
+    return pd.Series(ema.values > sma.values, index=daily_closes.index).fillna(False)
+
+
+def _daily_regime_allows_entry(daily_bullish, dt_index):
+    """Check if the most recent daily EMA/SMA crossover was bullish.
+    Returns True if daily regime is currently bullish (last crossover was EMA> SMA).
+    """
+    dt_ts = pd.Timestamp(dt_index).tz_localize(None)
+    past = daily_bullish[daily_bullish.index <= dt_ts]
+    if len(past) < 2:
+        return False
+    # True if the most recent day is in bullish regime
+    return past.iloc[-1]
+    if len(daily_closes) < 50:
+        return False
+    vals = daily_closes.values.astype(float)
+    series = pd.Series(vals)
+    ema = series.ewm(span=config.EMA_PERIOD, adjust=False).mean().values[-1]
+    sma = series.rolling(window=config.SMA_PERIOD).mean().values[-1]
+    macd_fast = series.ewm(span=config.MACD_FAST, adjust=False).mean()
+    macd_slow = series.ewm(span=config.MACD_SLOW, adjust=False).mean()
+    ml = (macd_fast - macd_slow).values[-1]
+    sl = pd.Series((macd_fast - macd_slow).values).ewm(span=config.MACD_SIGNAL, adjust=False).mean().values[-1]
+    hist = ml - sl
+    return bool(ema > sma and hist > 0)
+
+
+def run_backtest(df, daily_bullish=None):
     n = len(df)
     if n < config.SMA_PERIOD + 2:
         return None
@@ -66,6 +118,7 @@ def run_backtest(df):
     for i in range(warmup, n):
         po = open_p[i]
         pc = close_p[i]
+        ts = df.index[i]
 
         if pending_exit and in_pos:
             allocated = equity_before
@@ -97,27 +150,21 @@ def run_backtest(df):
             pending_entry = False
 
         if not in_pos and not pending_entry:
-            if (not np.isnan(ema_fast[i]) and not np.isnan(sma_slow[i]) and not np.isnan(macd_hist[i])
-                    and not np.isnan(ema_fast[i - 1]) and not np.isnan(sma_slow[i - 1]) and not np.isnan(macd_hist[i - 1])):
+            if not np.isnan(ema_fast[i]) and not np.isnan(sma_slow[i]):
                 ema_gt = ema_fast[i] > sma_slow[i]
-                prev_ema_gt = ema_fast[i - 1] > sma_slow[i - 1]
-                macd_gt = macd_hist[i] > 0
-                prev_macd_gt = macd_hist[i - 1] > 0
-                both_ok = ema_gt and macd_gt
-                either_just_flipped = (ema_gt != prev_ema_gt) or (macd_gt != prev_macd_gt)
-                if both_ok and either_just_flipped:
+                # ENTRY: EMA > SMA (no MACD condition)
+                if ema_gt:
+                    # Daily filter: only enter if daily regime is bullish
+                    if daily_bullish is not None and not _daily_regime_allows_entry(daily_bullish, ts):
+                        continue
                     pending_entry = True
 
         if in_pos and not pending_exit:
-            if (not np.isnan(ema_fast[i]) and not np.isnan(sma_slow[i]) and not np.isnan(macd_hist[i])
-                    and not np.isnan(ema_fast[i - 1]) and not np.isnan(sma_slow[i - 1]) and not np.isnan(macd_hist[i - 1])):
+            if not np.isnan(ema_fast[i]) and not np.isnan(ema_fast[i - 1]) and not np.isnan(sma_slow[i]) and not np.isnan(sma_slow[i - 1]):
                 ema_lt = ema_fast[i] < sma_slow[i]
-                prev_ema_lt = ema_fast[i - 1] < sma_slow[i - 1]
-                macd_lt = macd_hist[i] < 0
-                prev_macd_lt = macd_hist[i - 1] < 0
-                both_ok = ema_lt and macd_lt
-                either_just_flipped = (ema_lt != prev_ema_lt) or (macd_lt != prev_macd_lt)
-                if both_ok and either_just_flipped:
+                prev_ema_ge = ema_fast[i - 1] >= sma_slow[i - 1]
+                # EXIT: EMA just crossed below SMA (MACD ignored)
+                if ema_lt and prev_ema_ge:
                     pending_exit = True
 
         if i == n - 1 and in_pos:
@@ -200,32 +247,66 @@ def store_results(conn, ticker_id, symbol, trades, metrics, equity, dates):
 
 
 
+def _buy_and_hold(daily_closes):
+    """Compute buy-and-hold return from a daily close series."""
+    if len(daily_closes) < 2:
+        return 0
+    first = daily_closes.iloc[0]
+    last = daily_closes.iloc[-1]
+    return (last - first) / first
+
+
 def main():
     parser = argparse.ArgumentParser(
         'EMA(10)/SMA(40) 30-min crossover — live backtest')
     parser.add_argument('--tickers', nargs='+', default=config.TICKERS)
+    parser.add_argument('--no-daily-filter', action='store_true',
+                        help='Disable the daily confirmation filter')
     args = parser.parse_args()
 
+    daily_filter = not args.no_daily_filter
+
     print()
-    print('=' * 95)
+    print('=' * 105)
     print(f'  EMA({config.EMA_PERIOD})/SMA({config.SMA_PERIOD}) + MACD({config.MACD_FAST},{config.MACD_SLOW},{config.MACD_SIGNAL}) — 30-MIN BACKTEST')
     print(f'  Using REAL 30-min bars from Alpaca')
-    print(f'  Entry: EMA> SMA & MACD hist>0  |  Exit: EMA< SMA & MACD hist<0')
+    print(f'  Entry: EMA> SMA  |  Exit: EMA cross below SMA (prev ≥)')
+    if daily_filter:
+        print(f'  Daily Filter: ON — same condition must hold on daily chart before entry')
+    else:
+        print(f'  Daily Filter: OFF')
     print(f'  Position: ${config.INITIAL_CAPITAL:,.0f} per ticker')
-    print('=' * 95)
+    print('=' * 105)
 
     results = []
     for sym in args.tickers:
         print(f'\n[{sym}] Fetching historical 30-min bars...')
         bars = fetch_all_30min_bars(sym)
         if not bars:
-            print(f'  ✗ No data')
+            print(f'  ✗ No 30-min data')
             continue
 
         df = _bars_to_df(bars)
-        print(f'  {len(df)} bars  ({df.index[0].date()} → {df.index[-1].date()})')
+        print(f'  30-min: {len(df)} bars  ({df.index[0].date()} → {df.index[-1].date()})')
 
-        trades, metrics, eq, eq_dates = run_backtest(df)
+        daily_bullish = None
+        bh_return = None
+        if daily_filter:
+            print(f'  Fetching daily bars for filter...')
+            daily_bars = fetch_daily_bars(sym)
+            if daily_bars:
+                daily_closes = _daily_bars_to_series(daily_bars)
+                daily_bullish = _daily_bullish_regime(daily_closes)
+                bh_return = _buy_and_hold(daily_closes)
+                bullish_days = daily_bullish.sum()
+                total_days = len(daily_bullish)
+                print(f'  Daily:   {len(daily_bars)} bars  ({daily_closes.index[0].date()} → {daily_closes.index[-1].date()})')
+                print(f'  Regime:  {bullish_days}/{total_days} days bullish ({bullish_days/total_days*100:.0f}%)')
+                print(f'  BH Ret:  {bh_return*100:+.2f}%')
+            else:
+                print(f'  ✗ No daily data — running without filter')
+
+        trades, metrics, eq, eq_dates = run_backtest(df, daily_bullish)
 
         if not trades:
             print(f'  ✗ No trades generated')
@@ -239,27 +320,41 @@ def main():
         print(f'  Total Ret: {metrics["total_return"]*100:+.2f}%')
         print(f'  Sharpe:    {metrics["sharpe_ratio"]:.2f}')
         print(f'  Max DD:    {metrics["max_drawdown"]*100:.1f}%')
-        results.append((sym, metrics, trades))
+        if bh_return is not None:
+            vs_bh = metrics["total_return"] - bh_return
+            print(f'  BH Ret:    {bh_return*100:+.2f}%')
+            print(f'  vs BH:     {vs_bh*100:+.2f}% {"▲" if vs_bh > 0 else "▼"}')
+        results.append((sym, metrics, trades, bh_return))
 
     if results:
         print()
-        print('=' * 95)
+        print('=' * 105)
         print('  SUMMARY')
-        print('=' * 95)
-        print(f'  {"Ticker":<8} {"Trades":<8} {"Win%":<8} {"Avg Ret":<10} {"Total Ret":<12} {"Sharpe":<8} {"Max DD":<8} {"Avg Bars":<8}')
-        print(f'  {"-"*70}')
-        for sym, m, _ in results:
+        print('=' * 105)
+        hdr = f'  {"Ticker":<8} {"Trades":<8} {"Win%":<8} {"Avg Ret":<10} {"Total Ret":<12} {"Sharpe":<8} {"Max DD":<8} {"BH Ret":<10} {"vs BH":<10}'
+        print(hdr)
+        print(f'  {"-"*84}')
+        for r in results:
+            sym, m, _, bh = r
+            bh_str = f'{bh*100:>+7.2f}%' if bh is not None else '  N/A    '
+            vs_str = f'{(m["total_return"] - (bh or 0))*100:>+7.2f}%{" ▲" if bh is not None and m["total_return"] > bh else " ▼" if bh is not None else " N/A"}'
             print(f'  {sym:<8} {m["total_trades"]:<8} {m["win_rate"]*100:>6.1f}% '
                   f'{m["avg_return"]*100:>+8.2f}% {m["total_return"]*100:>+10.2f}% '
                   f'{m["sharpe_ratio"]:>8.2f} {m["max_drawdown"]*100:>6.1f}% '
-                  f'{m["avg_bars_held"]:>6.0f}')
-        print(f'  {"-"*70}')
+                  f'{bh_str} {vs_str}')
+        print(f'  {"-"*84}')
         avg_s = np.mean([r[1]['sharpe_ratio'] for r in results])
         avg_r = np.mean([r[1]['total_return'] for r in results])
         avg_w = np.mean([r[1]['win_rate'] for r in results])
         tot_t = sum(r[1]['total_trades'] for r in results)
+        bhs = [r[3] for r in results if r[3] is not None]
+        avg_bh = np.mean(bhs) if bhs else None
+        avg_vs_bh = np.mean([r[1]['total_return'] - r[3] for r in results if r[3] is not None]) if bhs else None
+        bh_str = f'{avg_bh*100:>+7.2f}%' if avg_bh is not None else '  N/A    '
+        vs_str = f'{avg_vs_bh*100:>+7.2f}%{" ▲" if avg_vs_bh and avg_vs_bh > 0 else " ▼" if avg_vs_bh else ""}' if avg_vs_bh is not None else '  N/A    '
         print(f'  {"AVG":<8} {tot_t:<8} {avg_w*100:>6.1f}%           '
-              f'{avg_r*100:>+10.2f}% {avg_s:>8.2f}')
+              f'{avg_r*100:>+10.2f}% {avg_s:>8.2f}           '
+              f'{bh_str} {vs_str}')
         print()
 
     return 0 if results else 1

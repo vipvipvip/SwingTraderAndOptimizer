@@ -26,6 +26,33 @@ def macd_signal(prices):
     return pd.Series(ml).ewm(span=config.MACD_SIGNAL, adjust=False).mean().values
 
 
+def get_daily_close_array(conn, ticker_id):
+    rows = db_module.get_daily_candles(conn, ticker_id, limit=500)
+    if len(rows) < 50:
+        return None
+    return np.array([float(r[4]) for r in rows])
+
+
+def check_daily_bullish_regime(conn, ticker_id):
+    """Check if the last daily EMA/SMA crossover was bullish (EMA > SMA).
+    Only EMA/SMA on daily — no MACD filter.
+    """
+    closes = get_daily_close_array(conn, ticker_id)
+    if closes is None:
+        return False
+
+    close_series = pd.Series(closes)
+    ema = close_series.ewm(span=config.EMA_PERIOD, adjust=False).mean().values
+    sma = close_series.rolling(window=config.SMA_PERIOD).mean().values
+
+    i = len(closes) - 1
+    if np.isnan(ema[i]) or np.isnan(sma[i]):
+        return False
+
+    # Current day: is EMA > SMA? That means last crossover was bullish
+    return bool(ema[i] > sma[i])
+
+
 def check_signal(conn, ticker_id):
     closes = get_close_array(conn, ticker_id)
     if closes is None:
@@ -47,25 +74,21 @@ def check_signal(conn, ticker_id):
     in_position = pos is not None and float(pos[1]) > 0
 
     ema_gt = ema_fast[i] > sma_slow[i]
-    prev_ema_gt = ema_fast[i - 1] > sma_slow[i - 1]
-    macd_gt = hist[i] > 0
-    prev_macd_gt = hist[i - 1] > 0
 
     if not in_position:
-        both_ok = ema_gt and macd_gt
-        either_just_flipped = (ema_gt != prev_ema_gt) or (macd_gt != prev_macd_gt)
-        if both_ok and either_just_flipped:
+        # ENTRY: EMA > SMA (no MACD condition)
+        if ema_gt:
+            # Daily filter: only enter if daily EMA/SMA regime is bullish
+            if not check_daily_bullish_regime(conn, ticker_id):
+                print(f'[STRATEGY] ticker_id={ticker_id} BUY blocked by daily regime')
+                return None
             print(f'[STRATEGY] ticker_id={ticker_id} BUY')
             return 'BUY'
     else:
+        # EXIT: EMA just crossed below SMA (MACD ignored)
         ema_lt = ema_fast[i] < sma_slow[i]
-        prev_ema_lt = ema_fast[i - 1] < sma_slow[i - 1]
-        macd_lt = hist[i] < 0
-        prev_macd_lt = hist[i - 1] < 0
-
-        both_ok = ema_lt and macd_lt
-        either_just_flipped = (ema_lt != prev_ema_lt) or (macd_lt != prev_macd_lt)
-        if both_ok and either_just_flipped:
+        prev_ema_ge = ema_fast[i - 1] >= sma_slow[i - 1]
+        if ema_lt and prev_ema_ge:
             print(f'[STRATEGY] ticker_id={ticker_id} SELL')
             return 'SELL'
 

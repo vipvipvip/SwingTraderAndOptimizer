@@ -2,12 +2,14 @@
 
 ## Overview
 
-This project contains two distinct trading systems that operate independently:
+This project contains four distinct trading systems that operate independently:
 
 1. **Swing Trading System** (`optimizer/` + `TradeExecutorService`) — A live, fully-automated trend-following strategy using the Chandelier Exit method on daily data.
 2. **Technical Scanner** (`scanner/` + `ScannerController`) — A multi-timeframe market scanner that detects convergence of MACD, PPO, and SMA crossovers.
+3. **EMAC 30-min Crossover** (`swingtrader/services/ema_sma_crossover/`) — A live, automated EMA(10)/SMA(40) crossover system on 30-min bars (QQQ/VTI/VTV, Alpaca paper).
+4. **Daily Signal Service** (`swingtrader/services/ema_sma_crossover/daily_signal_service.py`) — A signal-only service for daily EMA(10)/SMA(40) crossovers that sends Slack alerts and logs to CSV (no trading).
 
-Both systems share the same database (`swingtrader`) and Alpaca data source, but their logic, parameters, and objectives are entirely separate.
+All systems share the same database (`swingtrader`) and Alpaca data source, but their logic, parameters, and objectives are entirely separate.
 
 ---
 
@@ -223,30 +225,73 @@ The scanner filters for tickers that have experienced all three crossover types 
 
 ---
 
-# 3. Key Differences
+---
 
-| Aspect | Swing Trading | Scanner |
-|--------|---------------|---------|
-| **Goal** | Automated live trading | Market analysis / signal discovery |
-| **Strategy** | Chandelier Exit (always-in) | 3-way crossover convergence |
-| **Data Frequency** | Daily bars | Weekly, Daily, 1-Hour |
-| **Decision Maker** | `TradeExecutorService` | `ScannerController` (UI only) |
-| **Optimizer** | Grid search + coordinate ascent | Not optimized |
-| **Entry** | Always-in (no filter) | Requires 3 aligned crossovers |
-| **Exit** | ATR trailing stop | N/A (scanner only, no trading) |
-| **Parameters Per Ticker** | Yes (optimized individually) | No (global config values) |
-| **Execution** | Live Alpaca orders | Read-only |
-| **Target** | Sharpe ratio maximization | Crossover recency and convergence |
+# 3. EMAC 30-min Crossover (Automated)
+
+**Service:** `emac-runner.service` (systemd, long-running daemon)  
+**Location:** `swingtrader/services/ema_sma_crossover/runner.py`  
+**Tickers:** QQQ, VTI, VTV  
+**Account:** Alpaca paper trading (separate from Swing Trading)
+
+### Strategy
+- **Bars:** 30-min OHLCV built from raw Alpaca trade ticks (IEX feed), filtered to regular hours 9:30–16:00 ET
+- **Entry:** EMA(10) > SMA(40) on 30-min bar **AND** daily EMA(10) > SMA(40) regime filter
+- **Exit:** EMA(10) crosses below SMA(40) on 30-min bar (immediate, no MACD wait)
+- **Portfolio:** Equal-weight split across tickers with BUY signals; sell before buy
+
+### Pipeline
+```
+Alpaca trades API ──► emac-runner.service (2-min poll loop)
+                         │
+                         ├── emac_raw_trades (raw ticks persisted)
+                         ├── CandleBuilder → 30-min bars → emac_candles
+                         ├── Strategy (EMA/SMA + daily regime filter)
+                         └── Executor (Alpaca MARKET orders, Slack alerts)
+```
+
+# 4. Daily Signal Service (Signal-Only)
+
+**Service:** `daily-signal.timer` (systemd, Mon–Fri 4:30 PM ET)  
+**Location:** `swingtrader/services/ema_sma_crossover/daily_signal_service.py`  
+**Tickers:** QQQ, VTI, VTV
+
+### Purpose
+Provides daily EMA(10)/SMA(40) crossover signals for manual trade decisions on TOS. **Does not trade** — alerts only.
+
+### Strategy
+- **Bars:** Daily OHLCV from `emac_daily_candles` table (backfilled from Alpaca)
+- **Signal:** EMA(10) crosses above SMA(40) → BUY alert; EMA(10) crosses below SMA(40) → SELL alert
+- **Execution:** Slack notification + CSV log (`data/daily_signals.csv`); user decides entry at next day's open
+
+### Output
+- **Slack:** Tagged `[DAILY]` prefix (distinct from `[EMAC]` live runner messages)
+- **CSV:** Columns: `date,ticker,action,close_price,ema,sma,reason`
+
+# 5. Key Differences
+
+| Aspect | Swing Trading | Scanner | EMAC 30-min | Daily Signal |
+|--------|---------------|---------|-------------|--------------|
+| **Goal** | Automated live trading | Market screening | Automated live trading | Signal alerts (manual) |
+| **Strategy** | Chandelier Exit (always-in) | 3-way crossover convergence | EMA/SMA crossover | EMA/SMA crossover |
+| **Data Frequency** | Daily bars | Weekly, Daily, 1-Hour | 30-min ticks | Daily bars |
+| **Decision Maker** | `TradeExecutorService` | `ScannerController` (UI) | `runner.py` | `daily_signal_service.py` |
+| **Optimizer** | Grid search + coordinate ascent | Not optimized | Not optimized | Not optimized |
+| **Entry** | Always-in (no filter) | Requires 3 aligned crossovers | EMA > SMA + daily regime | EMA > SMA |
+| **Exit** | ATR trailing stop | N/A (scanner only) | EMA < SMA crossover | EMA < SMA crossover |
+| **Parameters Per Ticker** | Yes (optimized individually) | No | No | No |
+| **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders | Slack + CSV only |
+| **Target** | Sharpe ratio maximization | Crossover recency | Trend following | Signal visibility |
 
 ---
 
-# 4. Parameters Quick Reference
+# 6. Parameters Quick Reference
 
-| Parameter | Swing Trading | Scanner |
-|-----------|---------------|---------|
-| Fast MA | `macd_fast` [14,18,22] | 24 |
-| Slow MA | N/A (uses ATR) | 52 |
-| Signal Line | N/A | 18 (MACD), 9 (PPO) |
-| ATR Period | `macd_fast` (same as chandelier) | 14 |
-| ATR Multiplier | `bb_std` [2.5, 3.0, 3.5] | 2.0 |
-| Primary Metric | Sharpe Ratio | Crossover recency |
+| Parameter | Swing Trading | Scanner | EMAC / Daily Signal |
+|-----------|---------------|---------|---------------------|
+| Fast MA | `macd_fast` [14,18,22] | 24 | 10 (EMA) |
+| Slow MA | N/A (uses ATR) | 52 | 40 (SMA) |
+| Signal Line | N/A | 18 (MACD), 9 (PPO) | N/A |
+| ATR Period | `macd_fast` (same as chandelier) | 14 | (not used) |
+| ATR Multiplier | `bb_std` [2.5, 3.0, 3.5] | 2.0 | (not used) |
+| Primary Metric | Sharpe Ratio | Crossover recency | Crossover direction |

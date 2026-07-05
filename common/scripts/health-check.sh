@@ -285,6 +285,62 @@ else
     fail "EMAC health check script not found at $EMAC_HEALTH"
 fi
 
+# ---- Daily EMA/SMA Crossover Signal Service ----
+echo ""
+echo "--- Daily Signal Service ---"
+
+DAILY_CSV="$PROJECT_DIR/swingtrader/services/ema_sma_crossover/data/daily_signals.csv"
+DAILY_STATE="$PROJECT_DIR/swingtrader/services/ema_sma_crossover/.daily_signal_state.json"
+
+if systemctl is-enabled daily-signal.timer >/dev/null 2>&1; then
+    NEXT=$(systemctl show daily-signal.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
+    pass "daily-signal.timer is enabled (next: $NEXT)"
+else
+    warn "daily-signal.timer is not enabled"
+fi
+
+if systemctl is-active daily-signal.timer >/dev/null 2>&1; then
+    pass "daily-signal.timer is active"
+else
+    warn "daily-signal.timer is not active"
+fi
+
+# Check daily candle freshness for each ETF
+for sym in $ENABLED_ETF; do
+    DAILY_LATEST=$(PSQL "SELECT MAX(ts)::date FROM emac_daily_candles dc JOIN tbl_etf_tickers t ON dc.ticker_id = t.id WHERE t.symbol='$sym';")
+    if [ -n "$DAILY_LATEST" ] && [ "$DAILY_LATEST" != " " ]; then
+        DAILY_DAYS=$(( ($(date +%s) - $(date -d "$DAILY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
+        if [ "$DAILY_DAYS" -le 7 ] 2>/dev/null; then
+            pass "  $sym daily candles: latest $DAILY_LATEST ($DAILY_DAYS days ago)"
+        else
+            warn "  $sym daily candles: latest $DAILY_LATEST ($DAILY_DAYS days ago - stale)"
+        fi
+    else
+        fail "  $sym: no daily candle data found"
+    fi
+done
+
+# Check CSV signal log
+if [ -f "$DAILY_CSV" ]; then
+    LAST_SIGNAL=$(tail -1 "$DAILY_CSV" 2>/dev/null || echo "")
+    if [ -n "$LAST_SIGNAL" ] && [ "$LAST_SIGNAL" != "date,ticker,action,close_price,ema,sma,reason" ]; then
+        pass "Daily signals CSV exists with entries"
+        echo "    Last signal: $LAST_SIGNAL"
+    else
+        echo "    CSV exists (header only, no signals yet)"
+    fi
+else
+    warn "Daily signals CSV not found at $DAILY_CSV"
+fi
+
+# Check state file freshness
+if [ -f "$DAILY_STATE" ]; then
+    STATE_AGE=$(( ($(date +%s) - $(stat -c %Y "$DAILY_STATE" 2>/dev/null || echo 0)) / 86400 ))
+    pass "Daily signal state file exists ($STATE_AGE days old)"
+else
+    warn "Daily signal state file not found (will be created on first run)"
+fi
+
 # ---- MTCS Hilbert Transform Cycle Strategy ----
 echo ""
 echo "--- MTCS Cycle Strategy ---"
