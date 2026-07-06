@@ -546,14 +546,15 @@
             selectedIndex = index;
             row.scrollIntoView({ block: 'center' });
             const ticker = row.dataset.ticker;
-            if (ticker && ticker !== activeTicker) loadChart(ticker);
+            if (ticker && ticker !== activeTicker) loadChart(ticker, row);
         }
 
-        function loadChart(ticker) {
+        function loadChart(ticker, row) {
             activeTicker = ticker;
-            const row = document.querySelector('tr[data-ticker="' + ticker + '"]');
+            if (!row) row = document.querySelector('tr[data-ticker="' + ticker + '"]');
             const company = row ? (row.children[1]?.textContent?.trim() || '') : '';
-            const headerHtml = '<div id="chartHeader" style="color:#e1e4e8;font-size:13px;font-weight:600;padding:4px 8px;border-bottom:1px solid #2d2f3a;flex-shrink:0;">' + ticker + (company ? ' — ' + company : '') + '</div>';
+            const label = company ? company + ' (' + ticker + ')' : ticker;
+            const headerHtml = '<div id="chartHeader" style="color:#e1e4e8;font-size:13px;font-weight:600;padding:4px 8px;border-bottom:1px solid #2d2f3a;flex-shrink:0;text-align:center;">' + label + '</div>';
             const body = document.getElementById('chartBody');
             body.innerHTML = headerHtml + '<div class="empty-chart">Loading ' + ticker + '...</div>';
             fetch('/scanner/data/' + ticker + '?timeframe=' + currentTimeframe)
