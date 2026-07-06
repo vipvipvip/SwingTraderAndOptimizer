@@ -21,7 +21,10 @@
         .table-wrap tr:last-child td { border-bottom: none; }
         .table-wrap tr:hover td { background: #23252f; }
         .table-wrap tr { cursor: pointer; }
-        .table-wrap tr.active td { background: #1a2a3a; }
+        .table-wrap tr.active td,
+        .table-wrap tr.new-row.active td { background: #1a3a5c; }
+        .table-wrap tr.active td:first-child,
+        .table-wrap tr.new-row.active td:first-child { border-left: 2px solid #58a6ff; padding-left: 3px; }
         .table-wrap tr.new-row td { background: #14281a; }
         .table-wrap tr.new-row:hover td { background: #1a3322; }
         .table-wrap .new-badge { display: inline-block; font-size: 8px; font-weight: 700; color: #3fb950; background: #1a3322; padding: 1px 4px; border-radius: 3px; margin-left: 4px; vertical-align: middle; }
@@ -100,20 +103,7 @@
         <div class="table-wrap" id="tableWrap">
             @if ($weekly_crossover)
                 {{-- Weekly EMA(10)/SMA(40) crossover table --}}
-                <table id="scannerTable" style="width:auto; table-layout:auto;">
-                    <colgroup>
-                        <col style="width:44px;">
-                        <col style="width:100px;">
-                        <col style="width:48px;">
-                        <col style="width:48px;">
-                        <col style="width:48px;">
-                        <col style="width:42px;">
-                        <col style="width:40px;">
-                        <col style="width:40px;">
-                        <col style="width:54px;">
-                        <col style="width:62px;">
-                        <col style="width:30px;">
-                    </colgroup>
+                <table id="scannerTable">
                     <thead>
                         <tr>
                             <th>Ticker</th>
@@ -149,20 +139,7 @@
                 </table>
             @elseif (isset($multitf_uptrend) && $multitf_uptrend)
                 {{-- Multi-TF Uptrend: weekly + daily bullish, optionally 1-hour entry --}}
-                <table id="scannerTable" style="width:auto; table-layout:auto;">
-                    <colgroup>
-                        <col style="width:44px;">
-                        <col style="width:100px;">
-                        <col style="width:48px;">
-                        <col style="width:36px;">
-                        <col style="width:46px;">
-                        <col style="width:46px;">
-                        <col style="width:50px;">
-                        <col style="width:76px;">
-                        <col style="width:76px;">
-                        <col style="width:52px;">
-                        <col style="width:52px;">
-                    </colgroup>
+                <table id="scannerTable">
                     <thead>
                         <tr>
                             <th>Ticker</th>
@@ -214,17 +191,6 @@
         @elseif (isset($long) && $long)
                 {{-- Long signals: fresh MACD/PPO zero-line crossovers --}}
                 <table id="scannerTable">
-                    <colgroup>
-                        <col style="width:44px;">
-                        <col style="width:120px;">
-                        <col style="width:48px;">
-                        <col style="width:56px;">
-                        <col style="width:56px;">
-                        <col style="width:56px;">
-                        <col style="width:56px;">
-                        <col style="width:46px;">
-                        <col style="width:30px;">
-                    </colgroup>
                     <thead>
                         <tr>
                             <th>Ticker</th>
@@ -263,17 +229,6 @@
             @elseif (isset($short) && $short)
                 {{-- Short signals: Rule 3 — Momentum Breaker --}}
                 <table id="scannerTable">
-                    <colgroup>
-                        <col style="width:44px;">
-                        <col style="width:120px;">
-                        <col style="width:54px;">
-                        <col style="width:56px;">
-                        <col style="width:56px;">
-                        <col style="width:56px;">
-                        <col style="width:56px;">
-                        <col style="width:46px;">
-                        <col style="width:30px;">
-                    </colgroup>
                     <thead>
                         <tr>
                             <th>Ticker</th>
@@ -305,19 +260,7 @@
                 </table>
             @elseif ($undervalued)
                 {{-- Stock Analyzer: undervalued table --}}
-                <table id="scannerTable" style="width:auto; table-layout:auto;">
-                    <colgroup>
-                        <col style="width:44px;">
-                        <col style="width:120px;">
-                        <col style="width:68px;">
-                        <col style="width:60px;">
-                        <col style="width:52px;">
-                        <col style="width:56px;">
-                        <col style="width:56px;">
-                        <col style="width:48px;">
-                        <col style="width:56px;">
-                        <col style="width:36px;">
-                    </colgroup>
+                <table id="scannerTable">
                     <thead>
                         <tr>
                             <th>Ticker</th>
@@ -366,15 +309,7 @@
                 </table>
             @else
                 {{-- Scanner: signal table (original) --}}
-                <table id="scannerTable" style="width:auto; table-layout:auto;">
-                    <colgroup>
-                        <col style="width:44px;">
-                        <col style="width:120px;">
-                        <col style="width:108px;">
-                        <col style="width:52px;">
-                        <col style="width:72px;">
-                        <col style="width:48px;">
-                    </colgroup>
+                <table id="scannerTable">
                     <thead>
                         <tr>
                             <th>Ticker</th>
@@ -535,6 +470,16 @@
             window.location = url;
         });
 
+        function scrollRowIntoView(row) {
+            const container = document.querySelector('.table-wrap');
+            if (!container) return;
+            const rowTop = row.offsetTop;
+            const rowH = row.offsetHeight;
+            const cH = container.clientHeight;
+            const target = rowTop - (cH / 2) + (rowH / 2);
+            container.scrollTop = Math.max(0, Math.min(target, container.scrollHeight - cH));
+        }
+
         function selectRow(index) {
             const rows = getRows();
             if (index < 0) index = 0;
@@ -544,7 +489,7 @@
             if (!row) return;
             row.classList.add('active');
             selectedIndex = index;
-            row.scrollIntoView({ block: 'center' });
+            scrollRowIntoView(row);
             const ticker = row.dataset.ticker;
             if (ticker && ticker !== activeTicker) loadChart(ticker, row);
         }
