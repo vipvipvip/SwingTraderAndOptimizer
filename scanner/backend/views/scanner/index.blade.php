@@ -544,19 +544,22 @@
             if (!row) return;
             row.classList.add('active');
             selectedIndex = index;
-            row.scrollIntoView({ block: 'nearest' });
+            row.scrollIntoView({ block: 'center' });
             const ticker = row.dataset.ticker;
             if (ticker && ticker !== activeTicker) loadChart(ticker);
         }
 
         function loadChart(ticker) {
             activeTicker = ticker;
+            const row = document.querySelector('tr[data-ticker="' + ticker + '"]');
+            const company = row ? (row.children[1]?.textContent?.trim() || '') : '';
+            const headerHtml = '<div id="chartHeader" style="color:#e1e4e8;font-size:13px;font-weight:600;padding:4px 8px;border-bottom:1px solid #2d2f3a;flex-shrink:0;">' + ticker + (company ? ' — ' + company : '') + '</div>';
             const body = document.getElementById('chartBody');
-            body.innerHTML = '<div class="empty-chart">Loading ' + ticker + '...</div>';
+            body.innerHTML = headerHtml + '<div class="empty-chart">Loading ' + ticker + '...</div>';
             fetch('/scanner/data/' + ticker + '?timeframe=' + currentTimeframe)
                 .then(r => r.json())
                 .then(d => renderChart(d))
-                .catch(e => body.innerHTML = '<div class="empty-chart" style="color:#f85149;">Error: ' + e.message + '</div>');
+                .catch(e => body.innerHTML = headerHtml + '<div class="empty-chart" style="color:#f85149;">Error: ' + e.message + '</div>');
         }
 
         function closeChart() {
@@ -705,8 +708,10 @@
         function renderChart(d) {
             const body = document.getElementById('chartBody');
             if (chartInstance) { chartInstance.remove(); chartInstance = null; }
+            const header = document.getElementById('chartHeader');
             body.innerHTML = '';
             body.style.display = 'flex'; body.style.flexDirection = 'column'; body.style.gap = '2px';
+            if (header) body.appendChild(header);
 
             const pricePanel = document.createElement('div'); pricePanel.style.flex = '3'; body.appendChild(pricePanel);
             pricePanel.style.position = 'relative';
