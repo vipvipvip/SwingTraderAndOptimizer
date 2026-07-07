@@ -106,6 +106,7 @@
                 <table id="scannerTable">
                     <thead>
                         <tr>
+                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
                             <th>Ticker</th>
                             <th>Company</th>
                             <th style="text-align:right;">Close</th>
@@ -122,6 +123,7 @@
                     <tbody>
                         @foreach ($results as $row)
                             <tr data-ticker="{{ $row->ticker }}">
+                                <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
                                 <td class="ticker" style="color:{{ $row->status === 'Bullish' ? '#3fb950' : ($row->status === 'Neutral' ? '#d29922' : '#f85149') }};">{{ $row->ticker }}</td>
                                 <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
                                 <td class="num">{{ number_format((float)$row->close, 2) }}</td>
@@ -142,6 +144,7 @@
                 <table id="scannerTable">
                     <thead>
                         <tr>
+                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
                             <th>Ticker</th>
                             <th>Company</th>
                             <th style="text-align:right;">Close</th>
@@ -159,6 +162,7 @@
                         @foreach ($results as $row)
                             @php $infancy = $row->infancy ?? false; @endphp
                             <tr data-ticker="{{ $row->ticker }}" class="{{ $infancy ? 'new-row' : '' }}">
+                                <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
                                 <td class="ticker {{ $infancy ? 'ticker-bull' : (($row->gap_w ?? 0) >= 0 ? 'ticker-bull' : 'ticker-bear') }}">{{ $row->ticker }}</td>
                                 <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
                                 <td class="num pos">{{ number_format((float)$row->close, 2) }}</td>
@@ -193,6 +197,7 @@
                 <table id="scannerTable">
                     <thead>
                         <tr>
+                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
                             <th>Ticker</th>
                             <th>Company</th>
                             <th>Cross</th>
@@ -213,6 +218,7 @@
                                 $rc = $ruleColors[$row->rule] ?? '#8b949e';
                             @endphp
                             <tr data-ticker="{{ $row->ticker }}">
+                                <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
                                 <td class="ticker ticker-bull">{{ $row->ticker }}</td>
                                 <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
                                 <td><span style="color:{{ $rc }};font-size:9px;font-weight:600;">{{ $rl }}</span></td>
@@ -231,6 +237,7 @@
                 <table id="scannerTable">
                     <thead>
                         <tr>
+                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
                             <th>Ticker</th>
                             <th>Company</th>
                             <th>Rule</th>
@@ -245,6 +252,7 @@
                     <tbody>
                         @foreach ($results as $row)
                             <tr data-ticker="{{ $row->ticker }}">
+                                <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
                                 <td class="ticker ticker-bear">{{ $row->ticker }}</td>
                                 <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
                                 <td><span style="color:#f85149;font-size:9px;font-weight:600;">PPO Break</span></td>
@@ -263,6 +271,7 @@
                 <table id="scannerTable">
                     <thead>
                         <tr>
+                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
                             <th>Ticker</th>
                             <th>Company</th>
                             <th style="text-align:right;">Valuation</th>
@@ -293,9 +302,10 @@
                                 $pe = $row->db_pe_ratio !== null ? number_format((float)$row->db_pe_ratio, 1) : '-';
                             @endphp
                             <tr data-ticker="{{ $row->ticker }}">
-                                <td class="ticker ticker-bull">{{ $row->ticker }}</td>
-                                <td style="color:#8b949e;">{{ $row->db_company_name ?? '-' }}</td>
-                                <td class="num pos">${{ number_format((float)$row->db_valuation_price, 2) }}</td>
+                                    <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
+                                    <td class="ticker ticker-bull">{{ $row->ticker }}</td>
+                                    <td style="color:#8b949e;">{{ $row->db_company_name ?? '-' }}</td>
+                                    <td class="num pos">${{ number_format((float)$row->db_valuation_price, 2) }}</td>
                                 <td class="num">{{ number_format((float)$row->db_close, 2) }}</td>
                                 <td class="num pos">{{ number_format((float)$row->upside_pct, 1) }}%</td>
                                 <td class="num">{{ $revFmt }}</td>
@@ -312,6 +322,7 @@
                 <table id="scannerTable">
                     <thead>
                         <tr>
+                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
                             <th>Ticker</th>
                             <th>Company</th>
                             <th>Crossovers</th>
@@ -332,6 +343,7 @@
                                 $distP = $row->stop_dist_pct !== null ? number_format($row->stop_dist_pct, 1) . '%' : '-';
                             @endphp
                             <tr data-ticker="{{ $row->ticker }}">
+                                <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
                                 <td class="ticker {{ $row->cross_bullish ? 'ticker-bull' : 'ticker-bear' }}">{{ $row->ticker }}</td>
                                 <td style="color:#8b949e;">{{ $row->company_name ?? '-' }}</td>
                                 <td style="font-size:10px; line-height:1.5; letter-spacing:-0.2px;">
@@ -600,7 +612,22 @@
         const urlTicker = urlParams.get('ticker');
         if (urlTicker) doSelectTicker(urlTicker.toUpperCase());
 
+        function toggleAll(selectAll) {
+            document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = selectAll.checked);
+        }
+
         function copyTickers() {
+            const checked = document.querySelectorAll('.row-checkbox:checked');
+            if (checked.length > 0) {
+                const tickers = Array.from(checked).map(cb => cb.value).join(',');
+                navigator.clipboard.writeText(tickers).then(() => {
+                    const badge = document.getElementById('breadthBadge');
+                    const orig = badge.innerHTML;
+                    badge.innerHTML = '✔ Copied!';
+                    setTimeout(() => badge.innerHTML = orig, 1500);
+                });
+                return;
+            }
             const params = new URLSearchParams(window.location.search);
             let url = '/scanner/copy-tickers?' + params.toString();
             fetch(url)

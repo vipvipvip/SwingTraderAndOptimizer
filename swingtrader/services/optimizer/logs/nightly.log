@@ -7735,3 +7735,2275 @@ Results for VTV:
   Trades: 38
   Runtime: 2.2s
 [2026-06-03 08:46:06] Optimizer finished (exit: 0)
+[2026-06-30 09:26:02] Nightly optimizer starting...
+[2026-06-30 09:26:02] Waiting for PostgreSQL...
+[2026-06-30 09:26:02] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-06-30T09:26:03.996402-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1487 bars for QQQ from PostgreSQL
+Current data: 1487 bars, last: 2026-06-29
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-06-29
+Fetching QQQ data from 2026-06-29 to 2026-06-30
+Fetched 1 bars for QQQ (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1487 bars for QQQ from PostgreSQL
+✓ Updated: 1487 total bars, last: 2026-06-29
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1487 bars for VTI from PostgreSQL
+Current data: 1487 bars, last: 2026-06-29
+Fetching incremental data...
+Fetching VTI incremental data since 2026-06-29
+Fetching VTI data from 2026-06-29 to 2026-06-30
+Fetched 1 bars for VTI (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1487 bars for VTI from PostgreSQL
+✓ Updated: 1487 total bars, last: 2026-06-29
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1487 bars for VTV from PostgreSQL
+Current data: 1487 bars, last: 2026-06-29
+Fetching incremental data...
+Fetching VTV incremental data since 2026-06-29
+Fetching VTV data from 2026-06-29 to 2026-06-30
+Fetched 1 bars for VTV (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1487 bars for VTV from PostgreSQL
+✓ Updated: 1487 total bars, last: 2026-06-29
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    3.7s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.0922948628028113
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0474717880907913
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9552315336291056
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1487 bars for QQQ from PostgreSQL
+Loaded 1487 bars for VTI from PostgreSQL
+Loaded 1487 bars for VTV from PostgreSQL
+  Promotion gate: 0.8275 (best ever: 0.0000, current: 0.8275)
+  Converged after 2 iterations
+  Portfolio return: 164.74%
+  Sharpe: 1.00 (baseline: 0.83)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8275 → 1.0047 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1470 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 22.0s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.09 | Return: 137.93%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.05 | Return: 89.60%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.96 | Return: 65.79%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.09, Return: 137.93%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.05, Return: 89.60%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.96, Return: 65.79%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.00, Return: 164.74%, Win Rate: 54.3%
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1487 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.05       54.3     89.60     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.02       53.7     80.78     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.01       58.1     83.11     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      0.98       52.3     78.94     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.91       56.4     73.71     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.05 vs regression 1.05
+
+Results for VTI:
+  Best Sharpe: 1.05
+  Win Rate: 54.3%
+  Total Return: 89.60%
+  Trades: 46
+  Runtime: 2.6s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1487 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.94       52.9     64.53     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.86       58.3     61.00     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.82       52.2     55.46     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.80       53.8     58.78     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       56.5     47.52     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.96 vs 0.94
+
+Results for VTV:
+  Best Sharpe: 0.96
+  Win Rate: 51.9%
+  Total Return: 65.79%
+  Trades: 52
+  Runtime: 2.7s
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1487 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.06       58.3     132.22    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      0.98       48.7     127.13    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.97       46.3     131.12    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.97       51.3     121.85    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.92       60.0     103.25    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.09 vs 1.06
+
+Results for QQQ:
+  Best Sharpe: 1.09
+  Win Rate: 58.3%
+  Total Return: 137.93%
+  Trades: 36
+  Runtime: 2.8s
+[2026-06-30 09:26:27] Optimizer finished (exit: 0)
+[2026-07-01 09:17:00] Nightly optimizer starting...
+[2026-07-01 09:17:00] Waiting for PostgreSQL...
+[2026-07-01 09:17:00] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-01T09:17:01.312697-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1487 bars for QQQ from PostgreSQL
+Current data: 1487 bars, last: 2026-06-29
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-06-29
+Fetching QQQ data from 2026-06-29 to 2026-07-01
+Fetched 2 bars for QQQ (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for QQQ to PostgreSQL
+Loaded 1488 bars for QQQ from PostgreSQL
+✓ Updated: 1488 total bars, last: 2026-06-30
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1487 bars for VTI from PostgreSQL
+Current data: 1487 bars, last: 2026-06-29
+Fetching incremental data...
+Fetching VTI incremental data since 2026-06-29
+Fetching VTI data from 2026-06-29 to 2026-07-01
+Fetched 2 bars for VTI (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTI to PostgreSQL
+Loaded 1488 bars for VTI from PostgreSQL
+✓ Updated: 1488 total bars, last: 2026-06-30
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1487 bars for VTV from PostgreSQL
+Current data: 1487 bars, last: 2026-06-29
+Fetching incremental data...
+Fetching VTV incremental data since 2026-06-29
+Fetching VTV data from 2026-06-29 to 2026-07-01
+Fetched 2 bars for VTV (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTV to PostgreSQL
+Loaded 1488 bars for VTV from PostgreSQL
+✓ Updated: 1488 total bars, last: 2026-06-30
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    3.5s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.1249808691166738
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0694337887950414
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9494018138438095
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1488 bars for QQQ from PostgreSQL
+Loaded 1488 bars for VTI from PostgreSQL
+Loaded 1488 bars for VTV from PostgreSQL
+  Promotion gate: 0.8239 (best ever: 0.0000, current: 0.8239)
+  Converged after 2 iterations
+  Portfolio return: 163.95%
+  Sharpe: 1.00 (baseline: 0.82)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8239 → 1.0016 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1471 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 22.4s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.12 | Return: 145.50%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.07 | Return: 92.53%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.95 | Return: 65.29%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.12, Return: 145.50%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.07, Return: 92.53%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.95, Return: 65.29%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.00, Return: 163.95%, Win Rate: 54.3%
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1488 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.07       54.3     92.53     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.04       53.7     83.57     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.03       58.1     85.94     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      1.01       52.3     81.70     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.93       56.4     76.39     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.07 vs regression 1.07
+
+Results for VTI:
+  Best Sharpe: 1.07
+  Win Rate: 54.3%
+  Total Return: 92.53%
+  Trades: 46
+  Runtime: 2.6s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1488 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.93       52.9     64.04     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.85       58.3     60.52     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.81       52.2     54.99     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.80       53.8     58.31     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       56.5     47.08     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.95 vs 0.93
+
+Results for VTV:
+  Best Sharpe: 0.95
+  Win Rate: 51.9%
+  Total Return: 65.29%
+  Trades: 52
+  Runtime: 2.6s
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1488 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.09       58.3     139.60    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      1.01       48.7     134.35    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      1.00       46.3     138.47    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      1.00       51.3     128.90    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.95       60.0     109.71    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.12 vs 1.09
+
+Results for QQQ:
+  Best Sharpe: 1.12
+  Win Rate: 58.3%
+  Total Return: 145.50%
+  Trades: 36
+  Runtime: 2.7s
+[2026-07-01 09:17:24] Optimizer finished (exit: 0)
+[2026-07-02 08:53:10] Nightly optimizer starting...
+[2026-07-02 08:53:10] Waiting for PostgreSQL...
+[2026-07-02 08:53:10] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-02T08:53:11.380874-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1488 bars for QQQ from PostgreSQL
+Current data: 1488 bars, last: 2026-06-30
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-06-30
+Fetching QQQ data from 2026-06-30 to 2026-07-02
+Fetched 2 bars for QQQ (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for QQQ to PostgreSQL
+Loaded 1489 bars for QQQ from PostgreSQL
+✓ Updated: 1489 total bars, last: 2026-07-01
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1488 bars for VTI from PostgreSQL
+Current data: 1488 bars, last: 2026-06-30
+Fetching incremental data...
+Fetching VTI incremental data since 2026-06-30
+Fetching VTI data from 2026-06-30 to 2026-07-02
+Fetched 2 bars for VTI (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTI to PostgreSQL
+Loaded 1489 bars for VTI from PostgreSQL
+✓ Updated: 1489 total bars, last: 2026-07-01
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1488 bars for VTV from PostgreSQL
+Current data: 1488 bars, last: 2026-06-30
+Fetching incremental data...
+Fetching VTV incremental data since 2026-06-30
+Fetching VTV data from 2026-06-30 to 2026-07-02
+Fetched 2 bars for VTV (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTV to PostgreSQL
+Loaded 1489 bars for VTV from PostgreSQL
+✓ Updated: 1489 total bars, last: 2026-07-01
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    3.7s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.1063072467102788
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0663719210684752
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9443157216862127
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1489 bars for QQQ from PostgreSQL
+Loaded 1489 bars for VTI from PostgreSQL
+Loaded 1489 bars for VTV from PostgreSQL
+  Promotion gate: 0.8208 (best ever: 0.0000, current: 0.8208)
+  Converged after 2 iterations
+  Portfolio return: 163.26%
+  Sharpe: 1.00 (baseline: 0.82)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8208 → 0.9987 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1472 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 22.3s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.11 | Return: 141.91%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.07 | Return: 92.21%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.94 | Return: 64.86%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.11, Return: 141.91%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.07, Return: 92.21%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.94, Return: 64.86%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.00, Return: 163.26%, Win Rate: 54.3%
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1489 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.93       52.9     63.61     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.85       58.3     60.10     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.81       52.2     54.58     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.79       53.8     57.90     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.79       56.5     46.69     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.94 vs 0.93
+
+Results for VTV:
+  Best Sharpe: 0.94
+  Win Rate: 51.9%
+  Total Return: 64.86%
+  Trades: 52
+  Runtime: 2.5s
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1489 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.07       58.3     136.10    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      1.00       48.7     130.93    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.99       46.3     134.99    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.98       51.3     125.56    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.93       60.0     106.65    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.11 vs 1.07
+
+Results for QQQ:
+  Best Sharpe: 1.11
+  Win Rate: 58.3%
+  Total Return: 141.91%
+  Trades: 36
+  Runtime: 2.6s
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1489 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.07       54.3     92.21     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.04       53.7     83.27     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.02       58.1     85.63     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      1.00       52.3     81.40     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.93       56.4     76.10     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.07 vs regression 1.07
+
+Results for VTI:
+  Best Sharpe: 1.07
+  Win Rate: 54.3%
+  Total Return: 92.21%
+  Trades: 46
+  Runtime: 2.8s
+[2026-07-02 08:53:35] Optimizer finished (exit: 0)
+[2026-07-04 13:31:27] Nightly optimizer starting...
+[2026-07-04 13:31:27] Waiting for PostgreSQL...
+[2026-07-04 13:31:27] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-04T13:31:28.785283-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1489 bars for QQQ from PostgreSQL
+Current data: 1489 bars, last: 2026-07-01
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-07-01
+Fetching QQQ data from 2026-07-01 to 2026-07-04
+Fetched 2 bars for QQQ (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for QQQ to PostgreSQL
+Loaded 1490 bars for QQQ from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1489 bars for VTI from PostgreSQL
+Current data: 1489 bars, last: 2026-07-01
+Fetching incremental data...
+Fetching VTI incremental data since 2026-07-01
+Fetching VTI data from 2026-07-01 to 2026-07-04
+Fetched 2 bars for VTI (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTI to PostgreSQL
+Loaded 1490 bars for VTI from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1489 bars for VTV from PostgreSQL
+Current data: 1489 bars, last: 2026-07-01
+Fetching incremental data...
+Fetching VTV incremental data since 2026-07-01
+Fetching VTV data from 2026-07-01 to 2026-07-04
+Fetched 2 bars for VTV (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTV to PostgreSQL
+Loaded 1490 bars for VTV from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    8.7s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.0838827208981672
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0641940765399398
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9575249016007009
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Loaded 1490 bars for VTI from PostgreSQL
+Loaded 1490 bars for VTV from PostgreSQL
+  Promotion gate: 0.8288 (best ever: 0.0000, current: 0.8288)
+  Converged after 2 iterations
+  Portfolio return: 165.30%
+  Sharpe: 1.01 (baseline: 0.83)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8288 → 1.0056 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1473 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 38.8s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.08 | Return: 137.65%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.06 | Return: 91.98%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.96 | Return: 66.14%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.08, Return: 137.65%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.06, Return: 91.98%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.96, Return: 66.14%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.01, Return: 165.30%, Win Rate: 54.3%
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.05       58.3     131.94    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      0.98       48.7     126.86    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.97       46.3     130.85    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.96       51.3     121.59    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.91       60.0     103.01    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.08 vs 1.05
+
+Results for QQQ:
+  Best Sharpe: 1.08
+  Win Rate: 58.3%
+  Total Return: 137.65%
+  Trades: 36
+  Runtime: 5.7s
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1490 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.06       54.3     91.98     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.03       53.7     83.05     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.02       58.1     85.42     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      1.00       52.3     81.19     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.92       56.4     75.89     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.06 vs regression 1.06
+
+Results for VTI:
+  Best Sharpe: 1.06
+  Win Rate: 54.3%
+  Total Return: 91.98%
+  Trades: 46
+  Runtime: 6.7s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1490 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.94       52.9     64.88     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.86       58.3     61.34     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.82       52.2     55.79     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.81       53.8     59.12     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       56.5     47.84     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.96 vs 0.94
+
+Results for VTV:
+  Best Sharpe: 0.96
+  Win Rate: 51.9%
+  Total Return: 66.14%
+  Trades: 52
+  Runtime: 5.7s
+[2026-07-04 13:32:18] Optimizer finished (exit: 0)
+[2026-07-04 21:35:07] Nightly optimizer starting...
+[2026-07-04 21:35:07] Waiting for PostgreSQL...
+[2026-07-04 21:35:07] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-04T21:35:08.661031-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-07-02
+Fetching QQQ data from 2026-07-02 to 2026-07-04
+Fetched 1 bars for QQQ (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for QQQ from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1490 bars for VTI from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTI incremental data since 2026-07-02
+Fetching VTI data from 2026-07-02 to 2026-07-04
+Fetched 1 bars for VTI (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for VTI from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1490 bars for VTV from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTV incremental data since 2026-07-02
+Fetching VTV data from 2026-07-02 to 2026-07-04
+Fetched 1 bars for VTV (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for VTV from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    3.8s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.0838827208981672
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0641940765399398
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9575249016007009
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Loaded 1490 bars for VTI from PostgreSQL
+Loaded 1490 bars for VTV from PostgreSQL
+  Promotion gate: 0.8288 (best ever: 0.0000, current: 0.8288)
+  Converged after 2 iterations
+  Portfolio return: 165.30%
+  Sharpe: 1.01 (baseline: 0.83)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8288 → 1.0056 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1473 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 25.0s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.08 | Return: 137.65%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.06 | Return: 91.98%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.96 | Return: 66.14%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.08, Return: 137.65%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.06, Return: 91.98%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.96, Return: 66.14%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.01, Return: 165.30%, Win Rate: 54.3%
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1490 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.06       54.3     91.98     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.03       53.7     83.05     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.02       58.1     85.42     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      1.00       52.3     81.19     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.92       56.4     75.89     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.06 vs regression 1.06
+
+Results for VTI:
+  Best Sharpe: 1.06
+  Win Rate: 54.3%
+  Total Return: 91.98%
+  Trades: 46
+  Runtime: 2.7s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1490 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.94       52.9     64.88     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.86       58.3     61.34     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.82       52.2     55.79     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.81       53.8     59.12     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       56.5     47.84     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.96 vs 0.94
+
+Results for VTV:
+  Best Sharpe: 0.96
+  Win Rate: 51.9%
+  Total Return: 66.14%
+  Trades: 52
+  Runtime: 2.8s
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.05       58.3     131.94    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      0.98       48.7     126.86    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.97       46.3     130.85    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.96       51.3     121.59    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.91       60.0     103.01    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.08 vs 1.05
+
+Results for QQQ:
+  Best Sharpe: 1.08
+  Win Rate: 58.3%
+  Total Return: 137.65%
+  Trades: 36
+  Runtime: 2.9s
+[2026-07-04 21:35:34] Optimizer finished (exit: 0)
+[2026-07-05 12:40:32] Nightly optimizer starting...
+[2026-07-05 12:40:32] Waiting for PostgreSQL...
+[2026-07-05 12:40:32] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-05T12:40:33.829714-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-07-02
+Fetching QQQ data from 2026-07-02 to 2026-07-05
+Fetched 1 bars for QQQ (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for QQQ from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1490 bars for VTI from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTI incremental data since 2026-07-02
+Fetching VTI data from 2026-07-02 to 2026-07-05
+Fetched 1 bars for VTI (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for VTI from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1490 bars for VTV from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTV incremental data since 2026-07-02
+Fetching VTV data from 2026-07-02 to 2026-07-05
+Fetched 1 bars for VTV (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for VTV from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    3.7s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.0838827208981672
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0641940765399398
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9575249016007009
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Loaded 1490 bars for VTI from PostgreSQL
+Loaded 1490 bars for VTV from PostgreSQL
+  Promotion gate: 0.8288 (best ever: 0.0000, current: 0.8288)
+  Converged after 2 iterations
+  Portfolio return: 165.30%
+  Sharpe: 1.01 (baseline: 0.83)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8288 → 1.0056 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1473 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 25.4s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.08 | Return: 137.65%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.06 | Return: 91.98%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.96 | Return: 66.14%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.08, Return: 137.65%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.06, Return: 91.98%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.96, Return: 66.14%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.01, Return: 165.30%, Win Rate: 54.3%
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.05       58.3     131.94    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      0.98       48.7     126.86    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.97       46.3     130.85    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.96       51.3     121.59    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.91       60.0     103.01    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.08 vs 1.05
+
+Results for QQQ:
+  Best Sharpe: 1.08
+  Win Rate: 58.3%
+  Total Return: 137.65%
+  Trades: 36
+  Runtime: 2.7s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1490 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.94       52.9     64.88     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.86       58.3     61.34     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.82       52.2     55.79     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.81       53.8     59.12     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       56.5     47.84     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.96 vs 0.94
+
+Results for VTV:
+  Best Sharpe: 0.96
+  Win Rate: 51.9%
+  Total Return: 66.14%
+  Trades: 52
+  Runtime: 2.7s
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1490 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.06       54.3     91.98     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.03       53.7     83.05     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.02       58.1     85.42     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      1.00       52.3     81.19     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.92       56.4     75.89     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.06 vs regression 1.06
+
+Results for VTI:
+  Best Sharpe: 1.06
+  Win Rate: 54.3%
+  Total Return: 91.98%
+  Trades: 46
+  Runtime: 2.8s
+[2026-07-05 12:41:00] Optimizer finished (exit: 0)
+[2026-07-05 16:55:42] Nightly optimizer starting...
+[2026-07-05 16:55:42] Waiting for PostgreSQL...
+[2026-07-05 16:55:42] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-05T16:55:43.866715-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-07-02
+Fetching QQQ data from 2026-07-02 to 2026-07-05
+Fetched 1 bars for QQQ (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for QQQ from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1490 bars for VTI from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTI incremental data since 2026-07-02
+Fetching VTI data from 2026-07-02 to 2026-07-05
+Fetched 1 bars for VTI (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for VTI from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1490 bars for VTV from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTV incremental data since 2026-07-02
+Fetching VTV data from 2026-07-02 to 2026-07-05
+Fetched 1 bars for VTV (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for VTV from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    5.3s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.0838827208981672
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0641940765399398
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9575249016007009
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Loaded 1490 bars for VTI from PostgreSQL
+Loaded 1490 bars for VTV from PostgreSQL
+  Promotion gate: 0.8288 (best ever: 0.0000, current: 0.8288)
+  Converged after 2 iterations
+  Portfolio return: 165.30%
+  Sharpe: 1.01 (baseline: 0.83)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8288 → 1.0056 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1473 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 24.9s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.08 | Return: 137.65%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.06 | Return: 91.98%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.96 | Return: 66.14%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.08, Return: 137.65%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.06, Return: 91.98%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.96, Return: 66.14%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.01, Return: 165.30%, Win Rate: 54.3%
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1490 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.06       54.3     91.98     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.03       53.7     83.05     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.02       58.1     85.42     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      1.00       52.3     81.19     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.92       56.4     75.89     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.06 vs regression 1.06
+
+Results for VTI:
+  Best Sharpe: 1.06
+  Win Rate: 54.3%
+  Total Return: 91.98%
+  Trades: 46
+  Runtime: 3.6s
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.05       58.3     131.94    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      0.98       48.7     126.86    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.97       46.3     130.85    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.96       51.3     121.59    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.91       60.0     103.01    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.08 vs 1.05
+
+Results for QQQ:
+  Best Sharpe: 1.08
+  Win Rate: 58.3%
+  Total Return: 137.65%
+  Trades: 36
+  Runtime: 3.6s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1490 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.94       52.9     64.88     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.86       58.3     61.34     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.82       52.2     55.79     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.81       53.8     59.12     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       56.5     47.84     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.96 vs 0.94
+
+Results for VTV:
+  Best Sharpe: 0.96
+  Win Rate: 51.9%
+  Total Return: 66.14%
+  Trades: 52
+  Runtime: 3.5s
+[2026-07-05 16:56:10] Optimizer finished (exit: 0)
+[2026-07-06 09:18:44] Nightly optimizer starting...
+[2026-07-06 09:18:44] Waiting for PostgreSQL...
+[2026-07-06 09:18:44] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-06T09:18:44.938316-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-07-02
+Fetching QQQ data from 2026-07-02 to 2026-07-06
+Fetched 1 bars for QQQ (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for QQQ from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1490 bars for VTI from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTI incremental data since 2026-07-02
+Fetching VTI data from 2026-07-02 to 2026-07-06
+Fetched 1 bars for VTI (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for VTI from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1490 bars for VTV from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTV incremental data since 2026-07-02
+Fetching VTV data from 2026-07-02 to 2026-07-06
+Fetched 1 bars for VTV (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1490 bars for VTV from PostgreSQL
+✓ Updated: 1490 total bars, last: 2026-07-02
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    3.8s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.0838827208981672
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0641940765399398
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9575249016007009
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Loaded 1490 bars for VTI from PostgreSQL
+Loaded 1490 bars for VTV from PostgreSQL
+  Promotion gate: 0.8288 (best ever: 0.0000, current: 0.8288)
+  Converged after 2 iterations
+  Portfolio return: 165.30%
+  Sharpe: 1.01 (baseline: 0.83)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8288 → 1.0056 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1473 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 22.4s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.08 | Return: 137.65%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.06 | Return: 91.98%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.96 | Return: 66.14%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.08, Return: 137.65%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.06, Return: 91.98%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.96, Return: 66.14%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.01, Return: 165.30%, Win Rate: 54.3%
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1490 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.06       54.3     91.98     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.03       53.7     83.05     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.02       58.1     85.42     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      1.00       52.3     81.19     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.92       56.4     75.89     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.06 vs regression 1.06
+
+Results for VTI:
+  Best Sharpe: 1.06
+  Win Rate: 54.3%
+  Total Return: 91.98%
+  Trades: 46
+  Runtime: 2.6s
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.05       58.3     131.94    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      0.98       48.7     126.86    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.97       46.3     130.85    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.96       51.3     121.59    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.91       60.0     103.01    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.08 vs 1.05
+
+Results for QQQ:
+  Best Sharpe: 1.08
+  Win Rate: 58.3%
+  Total Return: 137.65%
+  Trades: 36
+  Runtime: 2.7s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1490 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.94       52.9     64.88     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.86       58.3     61.34     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.82       52.2     55.79     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.81       53.8     59.12     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       56.5     47.84     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.96 vs 0.94
+
+Results for VTV:
+  Best Sharpe: 0.96
+  Win Rate: 51.9%
+  Total Return: 66.14%
+  Trades: 52
+  Runtime: 2.8s
+[2026-07-06 09:19:08] Optimizer finished (exit: 0)
+[2026-07-06 11:29:10] Nightly optimizer starting...
+[2026-07-06 11:29:10] Waiting for PostgreSQL...
+[2026-07-06 11:29:10] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-06T11:29:11.092521-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1490 bars for QQQ from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-07-02
+Fetching QQQ data from 2026-07-02 to 2026-07-06
+Fetched 2 bars for QQQ (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for QQQ to PostgreSQL
+Loaded 1491 bars for QQQ from PostgreSQL
+✓ Updated: 1491 total bars, last: 2026-07-06
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1490 bars for VTI from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTI incremental data since 2026-07-02
+Fetching VTI data from 2026-07-02 to 2026-07-06
+Fetched 2 bars for VTI (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTI to PostgreSQL
+Loaded 1491 bars for VTI from PostgreSQL
+✓ Updated: 1491 total bars, last: 2026-07-06
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1490 bars for VTV from PostgreSQL
+Current data: 1490 bars, last: 2026-07-02
+Fetching incremental data...
+Fetching VTV incremental data since 2026-07-02
+Fetching VTV data from 2026-07-02 to 2026-07-06
+Fetched 2 bars for VTV (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTV to PostgreSQL
+Loaded 1491 bars for VTV from PostgreSQL
+✓ Updated: 1491 total bars, last: 2026-07-06
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    3.7s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.1023583348609787
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0747323209505804
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9571293009251781
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1491 bars for QQQ from PostgreSQL
+Loaded 1491 bars for VTI from PostgreSQL
+Loaded 1491 bars for VTV from PostgreSQL
+  Promotion gate: 0.8285 (best ever: 0.0000, current: 0.8285)
+  Converged after 2 iterations
+  Portfolio return: 165.30%
+  Sharpe: 1.01 (baseline: 0.83)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8285 → 1.0052 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1474 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 22.0s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.10 | Return: 141.70%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.07 | Return: 93.37%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.96 | Return: 66.14%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.10, Return: 141.70%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.07, Return: 93.37%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.96, Return: 66.14%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.01, Return: 165.30%, Win Rate: 54.3%
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1491 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.07       58.3     135.90    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      0.99       48.7     130.73    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.98       46.3     134.79    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.98       51.3     125.37    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.93       60.0     106.47    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.10 vs 1.07
+
+Results for QQQ:
+  Best Sharpe: 1.10
+  Win Rate: 58.3%
+  Total Return: 141.70%
+  Trades: 36
+  Runtime: 2.6s
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1491 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.07       54.3     93.37     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.05       53.7     84.38     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.03       58.1     86.76     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      1.01       52.3     82.50     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.93       56.4     77.16     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.07 vs regression 1.07
+
+Results for VTI:
+  Best Sharpe: 1.07
+  Win Rate: 54.3%
+  Total Return: 93.37%
+  Trades: 46
+  Runtime: 2.8s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1491 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.94       52.9     64.88     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.86       58.3     61.34     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.82       52.2     55.79     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.81       53.8     59.12     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       56.5     47.84     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.96 vs 0.94
+
+Results for VTV:
+  Best Sharpe: 0.96
+  Win Rate: 51.9%
+  Total Return: 66.14%
+  Trades: 52
+  Runtime: 2.8s
+[2026-07-06 11:29:34] Optimizer finished (exit: 0)
+[2026-07-07 09:18:14] Nightly optimizer starting...
+[2026-07-07 09:18:14] Waiting for PostgreSQL...
+[2026-07-07 09:18:14] PostgreSQL ready.
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-07T09:18:15.115749-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1491 bars for QQQ from PostgreSQL
+Current data: 1491 bars, last: 2026-07-06
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-07-06
+Fetching QQQ data from 2026-07-06 to 2026-07-07
+Fetched 1 bars for QQQ (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1491 bars for QQQ from PostgreSQL
+✓ Updated: 1491 total bars, last: 2026-07-06
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1491 bars for VTI from PostgreSQL
+Current data: 1491 bars, last: 2026-07-06
+Fetching incremental data...
+Fetching VTI incremental data since 2026-07-06
+Fetching VTI data from 2026-07-06 to 2026-07-07
+Fetched 1 bars for VTI (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1491 bars for VTI from PostgreSQL
+✓ Updated: 1491 total bars, last: 2026-07-06
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1491 bars for VTV from PostgreSQL
+Current data: 1491 bars, last: 2026-07-06
+Fetching incremental data...
+Fetching VTV incremental data since 2026-07-06
+Fetching VTV data from 2026-07-06 to 2026-07-07
+Fetched 1 bars for VTV (timestamped in America/New_York)
+Appending 1 bars to database...
+Loaded 1491 bars for VTV from PostgreSQL
+✓ Updated: 1491 total bars, last: 2026-07-06
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    3.6s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.1023583348609787
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0747323209505804
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9571293009251781
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1491 bars for QQQ from PostgreSQL
+Loaded 1491 bars for VTI from PostgreSQL
+Loaded 1491 bars for VTV from PostgreSQL
+  Promotion gate: 0.8285 (best ever: 0.0000, current: 0.8285)
+  Converged after 2 iterations
+  Portfolio return: 165.30%
+  Sharpe: 1.01 (baseline: 0.83)
+  Max DD: 24.33%
+  Trades: 35
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_atr 3d th=-2.0)
+  VTI: CHAND(18, 3.5, entry_mult=1.5)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8285 → 1.0052 — promoting new params
+✓ Saved 35 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1474 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 22.1s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.10 | Return: 141.70%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.07 | Return: 93.37%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.96 | Return: 66.14%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.10, Return: 141.70%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.07, Return: 93.37%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.96, Return: 66.14%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.01, Return: 165.30%, Win Rate: 54.3%
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1491 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.07       54.3     93.37     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.05       53.7     84.38     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.03       58.1     86.76     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      1.01       52.3     82.50     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.93       56.4     77.16     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.07 vs regression 1.07
+
+Results for VTI:
+  Best Sharpe: 1.07
+  Win Rate: 54.3%
+  Total Return: 93.37%
+  Trades: 46
+  Runtime: 2.6s
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1491 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.07       58.3     135.90    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      0.99       48.7     130.73    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.98       46.3     134.79    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.98       51.3     125.37    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.93       60.0     106.47    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.10 vs 1.07
+
+Results for QQQ:
+  Best Sharpe: 1.10
+  Win Rate: 58.3%
+  Total Return: 141.70%
+  Trades: 36
+  Runtime: 2.7s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1491 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.94       52.9     64.88     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.86       58.3     61.34     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.82       52.2     55.79     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.81       53.8     59.12     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       56.5     47.84     % 46       CHAND(period=18, mult=2.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.96 vs 0.94
+
+Results for VTV:
+  Best Sharpe: 0.96
+  Win Rate: 51.9%
+  Total Return: 66.14%
+  Trades: 52
+  Runtime: 2.7s
+[2026-07-07 09:18:38] Optimizer finished (exit: 0)
