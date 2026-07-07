@@ -156,12 +156,19 @@ class EquityService
                 $existing = LiveTrade::where('alpaca_order_id', $buyOrder['id'])->first();
 
                 if ($existing) {
+                    if ($existing->status !== 'open') {
+                        continue;
+                    }
                     $existing->update([
                         'entry_price' => $buyOrder['price'],
                         'quantity' => $buyOrder['qty'],
-                        'status' => 'open',
                     ]);
                 } else {
+                    $hasOpen = LiveTrade::where('symbol', $buyOrder['symbol'])
+                        ->where('status', 'open')->exists();
+                    if ($hasOpen) {
+                        continue;
+                    }
                     LiveTrade::create([
                         'ticker_id' => $buyOrder['ticker_id'],
                         'symbol' => $buyOrder['symbol'],

@@ -377,7 +377,6 @@ class TradeExecutorService
                     $openTrade->update([
                         'quantity' => $newQty,
                         'entry_price' => round($weightedPrice, 4),
-                        'alpaca_order_id' => $orderId,
                     ]);
                 } else {
                     LiveTrade::create([
