@@ -63,13 +63,13 @@ def _send_slack(msg):
         print(f'[MTCS SLACK] Error: {e}')
 
 
-def _append_trade_csv(symbol, entry_date, entry_price, exit_date, exit_price, pnl_pct):
+def _append_signal_csv(symbol, side, price, date, extra=None):
     fresh = not os.path.exists(TRADES_CSV)
     with open(TRADES_CSV, 'a', newline='') as f:
         w = csv.writer(f)
         if fresh:
-            w.writerow(['symbol', 'entry_date', 'entry_price', 'exit_date', 'exit_price', 'pnl_pct'])
-        w.writerow([symbol, entry_date, round(entry_price, 2), exit_date, round(exit_price, 2), round(pnl_pct, 2)])
+            w.writerow(['symbol', 'side', 'price', 'date', 'extra'])
+        w.writerow([symbol, side, round(price, 2), str(date), extra or ''])
 
 
 _ALPACA_HEADERS = {
@@ -163,6 +163,7 @@ def run():
                 if signal == 'BUY' and not in_position:
                     db_module.upsert_position(conn, tid, sym, 1, price, now)
                     db_module.insert_trade(conn, tid, sym, 'BUY', price, latest_ts, now)
+                    _append_signal_csv(sym, 'BUY', price, latest_ts.date())
                     cycle_info = get_current_cycle_info(conn, tid)
                     msg = (f'BUY {sym} @ ${price:.2f} ({price_source})  |  '
                            f'cycles: {cycle_info}  |  '
@@ -175,8 +176,7 @@ def run():
                     entry_price = float(pos[2]) if pos[2] else 0
                     entry_date = str(pos[3].date()) if pos[3] else '?'
                     pnl_pct = (price - entry_price) / entry_price * 100 if entry_price else 0
-                    _append_trade_csv(sym, entry_date, entry_price,
-                                      str(latest_ts.date()), price, pnl_pct)
+                    _append_signal_csv(sym, 'SELL', price, latest_ts.date(), f'{pnl_pct:+.2f}%')
                     db_module.delete_position(conn, tid)
                     db_module.insert_trade(conn, tid, sym, 'SELL', price, latest_ts, now)
                     msg = (f'SELL {sym} @ ${price:.2f} ({price_source})  |  '
