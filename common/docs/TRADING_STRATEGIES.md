@@ -2,12 +2,15 @@
 
 ## Overview
 
-This project contains four distinct trading systems that operate independently:
+This project contains five distinct trading systems that operate independently:
 
-1. **Swing Trading System** (`optimizer/` + `TradeExecutorService`) — A live, fully-automated trend-following strategy using the Chandelier Exit method on daily data.
-2. **Technical Scanner** (`scanner/` + `ScannerController`) — A multi-timeframe market scanner that detects convergence of MACD, PPO, and SMA crossovers.
-3. **EMAC 30-min Crossover** (`swingtrader/services/ema_sma_crossover/`) — A live, automated EMA(10)/SMA(40) crossover system on 30-min bars (QQQ/VTI/VTV, Alpaca paper).
-4. **Daily Signal Service** (`swingtrader/services/ema_sma_crossover/daily_signal_service.py`) — A signal-only service for daily EMA(10)/SMA(40) crossovers that sends Slack alerts and logs to CSV (no trading).
+| # | Name | Universe | Signals | Status |
+|---|------|----------|---------|--------|
+| 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/IWM | Optimized trailing stop | ✅ Live (Laravel) |
+| 2 | **EMAC** (EMA/SMA 30-min) | QQQ/VTI/VTV | EMA10 > SMA40 cross | ✅ Live (systemd) |
+| 3 | **MTCS** (Hilbert sine/lead) | QQQ/VTI/VTV | Sine wave crossover | ✅ Live — **slated for replacement by #4** |
+| 4 | **MTF Top-N** (Multi-TF rotation) | S&P 500 (503 stocks) | gap_w + atr_dist + freshness → top 10 daily | 🚧 Phase 1 (paper) |
+| 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 4:30 PM |
 
 All systems share the same database (`swingtrader`) and Alpaca data source, but their logic, parameters, and objectives are entirely separate.
 
@@ -227,71 +230,124 @@ The scanner filters for tickers that have experienced all three crossover types 
 
 ---
 
-# 3. EMAC 30-min Crossover (Automated)
+# 3. MTCS — Hilbert Sine/Lead Crossover
 
-**Service:** `emac-runner.service` (systemd, long-running daemon)  
-**Location:** `swingtrader/services/ema_sma_crossover/runner.py`  
+**Service:** `mtcs-runner.service` (systemd, long-running daemon)  
+**Location:** `swingtrader/services/mtcs/runner.py`  
 **Tickers:** QQQ, VTI, VTV  
-**Account:** Alpaca paper trading (separate from Swing Trading)
+**Account:** Alpaca paper (dedicated account #PA3NCXU4O2CN)
 
 ### Strategy
-- **Bars:** 30-min OHLCV built from raw Alpaca trade ticks (IEX feed), filtered to regular hours 9:30–16:00 ET
-- **Entry:** EMA(10) > SMA(40) on 30-min bar **AND** daily EMA(10) > SMA(40) regime filter
-- **Exit:** EMA(10) crosses below SMA(40) on 30-min bar (immediate, no MACD wait)
-- **Portfolio:** Equal-weight split across tickers with BUY signals; sell before buy
+Uses Hilbert Transform spectral analysis to detect dominant market cycles
+and generate BUY/SELL signals at cycle turning points.
 
-### Pipeline
-```
-Alpaca trades API ──► emac-runner.service (2-min poll loop)
-                         │
-                         ├── emac_raw_trades (raw ticks persisted)
-                         ├── CandleBuilder → 30-min bars → emac_candles
-                         ├── Strategy (EMA/SMA + daily regime filter)
-                         └── Executor (Alpaca MARKET orders, Slack alerts)
-```
+- **Bars:** Daily OHLC from `tbl_etf_tickers_1hour`
+- **Signal:** Hilbert Transform → sine/lead-sine crossover
+  - BUY when sine crosses **above** lead (cycle trough)
+  - SELL when sine crosses **below** lead (cycle peak)
+- **Execution:** Real Alpaca orders — BUY pools cash equally across signals, SELL liquidates full position
+- **Uncorrelated** from CHAND (daily return correlation: -0.017)
 
-# 4. Daily Signal Service (Signal-Only)
+### Files
+- `runner.py` — Main loop, polls every 30 min during RTH, checks for new daily bars
+- `strategy.py` — Signal detection from daily closes
+- `spectral.py` — Hilbert Transform, FFT dominant cycle
+- `executor.py` — Alpaca buy/sell (modeled on EMAC executor)
+- `db.py` — DB access for mtcs_positions/trades tables
+- `chart.py` — Matplotlib visualization of Hilbert sine/lead
+- `health_check.py` — Alpaca account + position status
+
+### Parameters
+| Parameter | Value |
+|-----------|-------|
+| Detrend period | 30 |
+| Smoothing | 5 |
+| Warmup bars | 60 |
+| Poll interval | 1800s (30 min) |
+
+### Backtest Results (Blended QQQ/VTI/VTV)
+| Metric | Value |
+|--------|-------|
+| Return | 68.5% |
+| Sharpe | 1.14 |
+| Win rate | 59% |
+| Max DD | 15.6% |
+| Trades | 147 |
+
+# 4. MTF Top-N (Multi-TF Rotation) — Replaces MTCS
+
+**Service:** `mtf-daily-runner.service` (systemd, oneshot — Phase 1)  
+**Location:** `swingtrader/services/mtf/runner.py`  
+**Universe:** S&P 500 (503 stocks from scanner DB)  
+**Account:** Paper-only (Phase 1) → Alpaca paper (Phase 2)
+
+### Strategy
+Daily rotation into top N S&P 500 stocks ranked by Multi-TF score:
+- **Weekly filter:** EMA(10) > SMA(40) (bullish weekly trend)
+- **Daily filter:** EMA(10) > SMA(40) (bullish daily trend)
+- **Score:** `min(gap_w/20, 3) + min(atr_dist/1.5, 3) + max(0, 2 - days_since_weekly/60)`
+- **Rebalance:** Daily — sell dropped, buy new entrants, equal weight
+- **Exit:** Dropped from top N → sell at next day's open
+
+### Backtest Results (Daily Rebalance, Jul 2023–Jul 2026)
+| Metric | Value |
+|--------|-------|
+| Return | +5,299% ($100k → $5.4M) |
+| Max DD | 22.2% |
+| Win rate | 68% |
+| Avg win | +16.24% |
+| Avg loss | -5.31% |
+
+### Phase Plan
+| Phase | Action | Status |
+|-------|--------|--------|
+| 1 | Paper trading — log picks, CSV portfolio, Slack alerts. MTCS runs alongside. | 🚧 In Progress |
+| 2 | Stop MTCS, wire MTF into Alpaca executor (--top-n 5) | ⏳ Pending |
+| 3 | Scale to --top-n 10, add exit rules | ⏳ Pending |
+
+# 5. Daily Signal Service (Signal-Only)
 
 **Service:** `daily-signal.timer` (systemd, Mon–Fri 4:30 PM ET)  
 **Location:** `swingtrader/services/ema_sma_crossover/daily_signal_service.py`  
-**Tickers:** QQQ, VTI, VTV
+**Universe:** S&P 500 (503 stocks from scanner DB)
 
 ### Purpose
-Provides daily EMA(10)/SMA(40) crossover signals for manual trade decisions on TOS. **Does not trade** — alerts only.
+Multi-timeframe EMA(10)/SMA(40) scanner that detects fresh 1-hour entry signals within weekly+daily uptrend. **Does not trade** — sends Slack alerts only.
 
 ### Strategy
-- **Bars:** Daily OHLCV from `emac_daily_candles` table (backfilled from Alpaca)
-- **Signal:** EMA(10) crosses above SMA(40) → BUY alert; EMA(10) crosses below SMA(40) → SELL alert
-- **Execution:** Slack notification + CSV log (`data/daily_signals.csv`); user decides entry at next day's open
+- **Bars:** Weekly + daily + 1-hour from `tbl_scanner_tickers*` tables
+- **Entry filter:** Weekly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) AND fresh 1-hour EMA cross above SMA(40)
+- **Scoring:** Freshness-based momentum score with infancy buckets
+- **Output:** Slack alert with top signals sorted by score, infancy-highlighted entries, market breadth regime
 
 ### Output
-- **Slack:** Tagged `[DAILY]` prefix (distinct from `[EMAC]` live runner messages)
+- **Slack:** Tagged `[DAILY]` prefix (distinct from `[EMAC]` and `[MTF]` live runner messages)
 - **CSV:** Columns: `date,ticker,action,close_price,ema,sma,reason`
 
-# 5. Key Differences
+# 6. Key Differences
 
-| Aspect | Swing Trading | Scanner | EMAC 30-min | Daily Signal |
-|--------|---------------|---------|-------------|--------------|
-| **Goal** | Automated live trading | Market screening | Automated live trading | Signal alerts (manual) |
-| **Strategy** | Chandelier Exit (always-in) | 3-way crossover convergence | EMA/SMA crossover | EMA/SMA crossover |
-| **Data Frequency** | Daily bars | Weekly, Daily, 1-Hour | 30-min ticks | Daily bars |
-| **Decision Maker** | `TradeExecutorService` | `ScannerController` (UI) | `runner.py` | `daily_signal_service.py` |
-| **Optimizer** | Grid search + coordinate ascent | Not optimized | Not optimized | Not optimized |
-| **Entry** | Always-in (no filter) | Requires 3 aligned crossovers | EMA > SMA + daily regime | EMA > SMA |
-| **Exit** | ATR trailing stop | N/A (scanner only) | EMA < SMA crossover | EMA < SMA crossover |
-| **Parameters Per Ticker** | Yes (optimized individually) | No | No | No |
-| **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders | Slack + CSV only |
-| **Target** | Sharpe ratio maximization | Crossover recency | Trend following | Signal visibility |
+| Aspect | CHAND | Scanner | EMAC 30-min | MTCS | MTF Top-N | Daily Signal |
+|--------|-------|---------|-------------|------|-----------|--------------|
+| **Goal** | Automated live trading | Market screening | Automated live trading | Cycle trading | Rotation trading | Signal alerts |
+| **Strategy** | Chandelier Exit (always-in) | 3-way crossover convergence | EMA/SMA crossover | Hilbert sine/lead | Multi-TF score top-N | Multi-TF fresh crosses |
+| **Universe** | QQQ/VTI/IWM | S&P 500 | QQQ/VTI/VTV | QQQ/VTI/VTV | S&P 500 (503 stocks) | S&P 500 |
+| **Data Frequency** | Daily bars | Weekly, Daily, 1-Hour | 30-min ticks | Daily bars | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour |
+| **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders | Live Alpaca orders | Phase 1: paper, Phase 2: live | Slack + CSV only |
+| **Entry** | Always-in (no filter) | 3 aligned crossovers | EMA > SMA + daily regime | Sine > lead cross | Top-N by score | Fresh 1-hour cross |
+| **Exit** | ATR trailing stop | N/A (scanner only) | EMA < SMA crossover | Sine < lead cross | Dropped from top N | N/A |
+| **Parameters** | Optimized per ticker | Fixed | Fixed | Fixed | Fixed | Fixed |
+| **Return (backtest)** | 97.8% | N/A | N/A | 68.5% (blended) | +5,299% (daily reb) | N/A |
+| **Max DD** | 10.0% | N/A | N/A | 15.6% | 22.2% | N/A |
 
 ---
 
-# 6. Parameters Quick Reference
+# 7. Parameters Quick Reference
 
-| Parameter | Swing Trading | Scanner | EMAC / Daily Signal |
-|-----------|---------------|---------|---------------------|
-| Fast MA | `macd_fast` [14,18,22] | 24 | 10 (EMA) |
-| Slow MA | N/A (uses ATR) | 52 | 40 (SMA) |
-| Signal Line | N/A | 18 (MACD), 9 (PPO) | N/A |
-| ATR Period | `macd_fast` (same as chandelier) | 14 | (not used) |
-| ATR Multiplier | `bb_std` [2.5, 3.0, 3.5] | 2.0 | (not used) |
-| Primary Metric | Sharpe Ratio | Crossover recency | Crossover direction |
+| Parameter | CHAND | Scanner | EMAC | MTCS | MTF Top-N | Daily Signal |
+|-----------|-------|---------|------|------|-----------|--------------|
+| Fast MA | `macd_fast` [14,18,22] | 24 | 10 (EMA) | N/A | 10 (EMA) | 10 (EMA) |
+| Slow MA | N/A (uses ATR) | 52 | 40 (SMA) | 30 (detrend) | 40 (SMA) | 40 (SMA) |
+| Signal Line | N/A | 18 (MACD), 9 (PPO) | N/A | 5 (smoothing) | N/A | N/A |
+| ATR Period | `macd_fast` (same as chandelier) | 14 | (not used) | N/A | N/A | N/A |
+| ATR Multiplier | `bb_std` [2.5, 3.0, 3.5] | 2.0 | (not used) | N/A | N/A | N/A |
+| Primary Metric | Sharpe Ratio | Crossover recency | Crossover direction | Cycle phase | Score (gap+atr+fresh) | Momentum score |

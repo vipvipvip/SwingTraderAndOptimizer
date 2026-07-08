@@ -7,9 +7,10 @@ and generate BUY/SELL signals at cycle turning points. It operates on **daily**
 OHLC data and is designed to be **uncorrelated** from the CHAND trend-following
 strategy (daily return correlation: -0.017).
 
-- **No trade execution** — signal-only (notifications via Slack)
+- **Real trade execution** — BUY pools cash equally across signals, SELL liquidates via Alpaca
 - **No candle building** — reads daily bars from shared `tbl_etf_tickers_1hour`
 - **3 tickers**: QQQ, VTI, VTV
+- **Slated for replacement** by MTF Top-N (strategy #4) after Phase 1 validation
 
 ## How It Works
 
@@ -43,12 +44,15 @@ All files live under `swingtrader/services/mtcs/`:
 
 | File | Purpose |
 |------|---------|
-| `runner.py` | Main loop — polls every 30 min during RTH, checks for new daily bars, triggers signal detection, sends Slack |
+| `runner.py` | Main loop — polls every 30 min during RTH, checks for new daily bars, triggers signal detection, executes trades via executor, sends Slack |
 | `strategy.py` | Loads daily closes, runs `spectral.dominant_cycle()`, checks last 2 bars for sine/lead cross |
 | `spectral.py` | Hilbert Transform, FFT dominant cycle detection, smoothing functions |
+| `executor.py` | Alpaca buy/sell — `buy_position()` pools cash equally, `sell_position()` liquidates full position |
 | `db.py` | DB schema + CRUD for `mtcs_positions`, `mtcs_trades`; reads OHLC from `tbl_etf_tickers_1hour` |
-| `config.py` | Tickers, MTCS parameters (detrend=30, smooth=5), DB/Slack config |
-| `.env` | Environment variables (DB creds, Slack webhook URL) |
+| `config.py` | Tickers, MTCS parameters (detrend=30, smooth=5), DB/Slack config, Alpaca API key |
+| `chart.py` | Matplotlib utility — visualizes Hilbert sine/lead for any ticker |
+| `health_check.py` | Alpaca account balance + real position status |
+| `.env` | Environment variables (DB creds, Slack webhook URL, Alpaca keys) |
 | `systemd/mtcs-runner.service` | systemd unit for auto-start + restart |
 
 ## Parameters (tuned via grid search, no look-ahead bias)
@@ -90,14 +94,33 @@ Messages are sent to the **same Slack webhook** as EMAC, tagged `[MTCS]`:
 
 ## CSV Trade Log
 
-Completed trades are logged to `swingtrader/services/mtcs/mtcs_trades.csv` for
-analysis in Google Sheets or other tools.
+All signals (BUY and SELL) are logged to `swingtrader/services/mtcs/mtcs_trades.csv`:
 
 ```
-symbol,entry_date,entry_price,exit_date,exit_price,pnl_pct
-VTV,2026-03-15,208.50,2026-05-02,225.10,7.96
-QQQ,2026-04-01,720.30,2026-05-15,705.62,-2.04
+symbol,side,price,date,extra
+VTV,BUY,218.57,2026-06-15,cycles: 78.3d, 87.5d
+VTV,SELL,225.10,2026-07-01,+2.99%
 ```
+
+## Alpaca Account
+
+| Property | Value |
+|----------|-------|
+| API Key | `PKQK45DA2ERAXX6XKPUDORIWSH` |
+| Account # | PA3NCXU4O2CN |
+| Type | Paper |
+| Balance | $1,000,000 |
+| Status | ACTIVE |
+
+## Replacement Status
+
+MTCS is **slated for replacement** by **MTF Top-N** (strategy #4).
+See `common/docs/services_doc/mtf_daily_runner.md` for details.
+
+| Phase | Action | Status |
+|-------|--------|--------|
+| 1 | Paper trading MTF picks alongside running MTCS | 🚧 In Progress |
+| 2 | Stop MTCS, wire MTF picks into Alpaca executor | ⏳ Pending |
 
 ## Service Management
 

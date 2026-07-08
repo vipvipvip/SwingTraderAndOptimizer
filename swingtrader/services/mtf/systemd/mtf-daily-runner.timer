@@ -1,0 +1,12 @@
+[Unit]
+Description=MTF Top-N Daily Runner Timer (weekdays at 5:30 PM ET after market close)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target postgresql.service
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 17:30:00 America/New_York
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
