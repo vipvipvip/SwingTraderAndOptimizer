@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""MTCS (Multi-Timeframe Cycle Strategy) — live signal service.
+"""MTCS (Multi-Timeframe Cycle Strategy) — live signal + execution service.
 
 Poll daily OHLC from shared DB every 30 minutes during market hours,
-compute Hilbert Transform cycle signals, and send Slack notifications.
-No trade execution — signal-only.
+compute Hilbert Transform cycle signals, place trades on Alpaca, and
+send Slack notifications.
 """
 import csv
 import os
@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 import config
 import db as db_module
+import executor
 import spectral
 from strategy import check_signal
 
@@ -117,10 +118,10 @@ def run():
             print(f'[MTCS RUNNER] {sym} → ticker_id={tid}')
 
         # Track which daily bar we've last processed per ticker
+        # Start with None so the first cycle processes the latest bar
         last_bar_dates = {}
         for sym, tid in ticker_ids.items():
-            ts = db_module.get_latest_candle_ts(conn, tid)
-            last_bar_dates[tid] = ts
+            last_bar_dates[tid] = None
 
         while running:
             now_ny = datetime.now(NY)
@@ -136,7 +137,8 @@ def run():
             cycle_count = getattr(run, 'cycle_count', 0) + 1
             run.cycle_count = cycle_count
 
-            new_signals = []
+            pending_buys = []
+            had_activity = False
             for sym in config.TICKERS:
                 tid = ticker_ids[sym]
                 latest_ts = db_module.get_latest_candle_ts(conn, tid)
@@ -161,38 +163,45 @@ def run():
                 in_position = pos is not None and float(pos[1]) > 0
 
                 if signal == 'BUY' and not in_position:
-                    db_module.upsert_position(conn, tid, sym, 1, price, now)
-                    db_module.insert_trade(conn, tid, sym, 'BUY', price, latest_ts, now)
                     _append_signal_csv(sym, 'BUY', price, latest_ts.date())
                     cycle_info = get_current_cycle_info(conn, tid)
-                    msg = (f'BUY {sym} @ ${price:.2f} ({price_source})  |  '
+                    msg = (f'BUY signal {sym} @ ${price:.2f} ({price_source})  |  '
                            f'cycles: {cycle_info}  |  '
                            f'D({config.DETREND_PERIOD}) S({config.SMOOTHING})')
                     print(f'[MTCS RUNNER] {msg}')
                     _send_slack(msg)
-                    new_signals.append((sym, 'BUY', price))
+                    pending_buys.append((sym, tid, latest_ts))
+                    had_activity = True
 
                 elif signal == 'SELL' and in_position:
                     entry_price = float(pos[2]) if pos[2] else 0
-                    entry_date = str(pos[3].date()) if pos[3] else '?'
                     pnl_pct = (price - entry_price) / entry_price * 100 if entry_price else 0
                     _append_signal_csv(sym, 'SELL', price, latest_ts.date(), f'{pnl_pct:+.2f}%')
-                    db_module.delete_position(conn, tid)
-                    db_module.insert_trade(conn, tid, sym, 'SELL', price, latest_ts, now)
-                    msg = (f'SELL {sym} @ ${price:.2f} ({price_source})  |  '
-                           f'PnL: {pnl_pct:+.2f}%  |  '
-                           f'D({config.DETREND_PERIOD}) S({config.SMOOTHING})')
-                    print(f'[MTCS RUNNER] {msg}')
-                    _send_slack(msg)
-                    new_signals.append((sym, 'SELL', price))
+                    print(f'[MTCS RUNNER] SELL signal {sym} — executing...')
+                    executor.sell_position(conn, tid, sym, latest_ts)
+                    had_activity = True
 
-            if not new_signals and cycle_count % 5 == 1:
+            # Execute pooled BUY orders with equal cash allocation
+            if pending_buys:
+                try:
+                    account = executor._get_account()
+                    cash = float(account.get('cash', 0))
+                    if cash > 0 and len(pending_buys) > 0:
+                        alloc = cash * 0.95 / len(pending_buys)
+                        for sym, tid, signal_ts in pending_buys:
+                            executor.buy_position(conn, tid, sym, signal_ts, alloc)
+                except Exception as e:
+                    print(f'[MTCS RUNNER] BUY execution failed: {e}')
+
+            if not had_activity and cycle_count % 5 == 1:
                 print(f'[MTCS RUNNER] heartbeat — cycle #{cycle_count}, no new bars/signals')
 
             elapsed = time.time() - cycle_start
             sleep_sec = max(5, config.POLL_INTERVAL_SEC - int(elapsed))
-            if running:
-                time.sleep(sleep_sec)
+            for _ in range(int(sleep_sec / 5)):
+                if not running:
+                    break
+                time.sleep(5)
 
     finally:
         conn.close()

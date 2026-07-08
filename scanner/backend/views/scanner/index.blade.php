@@ -22,11 +22,8 @@
         .table-wrap tr:hover td { background: #23252f; }
         .table-wrap tr { cursor: pointer; }
         .table-wrap tr.active td,
-        .table-wrap tr.new-row.active td { background: #1a3a5c; }
-        .table-wrap tr.active td:first-child,
-        .table-wrap tr.new-row.active td:first-child { border-left: 2px solid #58a6ff; padding-left: 3px; }
-        .table-wrap tr.new-row td { background: #14281a; }
-        .table-wrap tr.new-row:hover td { background: #1a3322; }
+        .table-wrap tr.active td { background: #1a3a5c; }
+        .table-wrap tr.active td:first-child { border-left: 2px solid #58a6ff; padding-left: 3px; }
         .table-wrap .new-badge { display: inline-block; font-size: 8px; font-weight: 700; color: #3fb950; background: #1a3322; padding: 1px 4px; border-radius: 3px; margin-left: 4px; vertical-align: middle; }
         .table-wrap .ticker { font-weight: 600; }
         .table-wrap .ticker-bull { color: #3fb950; }
@@ -68,10 +65,6 @@
             Undervalued
         </label>
         <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
-            <input type="checkbox" id="weeklyCrossoverToggle" {{ $weekly_crossover ? 'checked' : '' }} style="accent-color:#58a6ff;cursor:pointer;">
-            Wkly Cross
-        </label>
-        <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
             <input type="checkbox" id="multitfUptrendToggle" {{ isset($multitf_uptrend) && $multitf_uptrend ? 'checked' : '' }} style="accent-color:#c9a0ff;cursor:pointer;">
             Multi-TF
         </label>
@@ -101,45 +94,7 @@
 
     @if (count($results) > 0)
         <div class="table-wrap" id="tableWrap">
-            @if ($weekly_crossover)
-                {{-- Weekly EMA(10)/SMA(40) crossover table --}}
-                <table id="scannerTable">
-                    <thead>
-                        <tr>
-                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
-                            <th>Ticker</th>
-                            <th>Company</th>
-                            <th style="text-align:right;">Close</th>
-                            <th style="text-align:right;">EMA(10)</th>
-                            <th style="text-align:right;">SMA(40)</th>
-                            <th style="text-align:right;">Gap %</th>
-                            <th style="text-align:right;">MACD</th>
-                            <th style="text-align:right;">PPO</th>
-                            <th>Status</th>
-                            <th>Cross</th>
-                            <th style="text-align:right;">Mom</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($results as $row)
-                            <tr data-ticker="{{ $row->ticker }}">
-                                <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
-                                <td class="ticker" style="color:{{ $row->status === 'Bullish' ? '#3fb950' : ($row->status === 'Neutral' ? '#d29922' : '#f85149') }};">{{ $row->ticker }}</td>
-                                <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
-                                <td class="num">{{ number_format((float)$row->close, 2) }}</td>
-                                <td class="num {{ (float)$row->close >= (float)$row->ema10 ? 'pos' : 'neg' }}">{{ number_format((float)$row->ema10, 2) }}</td>
-                                <td class="num {{ (float)$row->close >= (float)$row->sma40 ? 'pos' : 'neg' }}">{{ number_format((float)$row->sma40, 2) }}</td>
-                                <td class="num {{ (float)$row->gap_pct >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->gap_pct, 1) }}%</td>
-                                <td class="num {{ (float)$row->macd_hist >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->macd_hist, 2) }}</td>
-                                <td class="num {{ (float)$row->ppo_hist >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->ppo_hist, 2) }}</td>
-                                <td><span style="color:{{ $row->status === 'Bullish' ? '#3fb950' : ($row->status === 'Neutral' ? '#d29922' : '#f85149') }};font-size:10px;">{{ $row->status }}</span></td>
-                                <td style="font-size:10px;color:#8b949e;">{{ $row->last_cross_date ? \Carbon\Carbon::parse($row->last_cross_date)->format('M j, Y') : '-' }}</td>
-                                <td style="text-align:right;font-size:11px;color:{{ $row->momentum_score >= 7 ? '#3fb950' : ($row->momentum_score >= 4 ? '#d29922' : '#8b949e') }};">{{ $row->momentum_score }}</td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            @elseif (isset($multitf_uptrend) && $multitf_uptrend)
+            @if (isset($multitf_uptrend) && $multitf_uptrend)
                 {{-- Multi-TF Uptrend: weekly + daily bullish, optionally 1-hour entry --}}
                 <table id="scannerTable">
                     <thead>
@@ -160,17 +115,16 @@
                     </thead>
                     <tbody>
                         @foreach ($results as $row)
-                            @php $infancy = $row->infancy ?? false; @endphp
-                            <tr data-ticker="{{ $row->ticker }}" class="{{ $infancy ? 'new-row' : '' }}">
+                            <tr data-ticker="{{ $row->ticker }}">
                                 <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
-                                <td class="ticker {{ $infancy ? 'ticker-bull' : (($row->gap_w ?? 0) >= 0 ? 'ticker-bull' : 'ticker-bear') }}">{{ $row->ticker }}</td>
+                                <td class="ticker {{ ($row->infancy ?? false) ? 'ticker-bull' : (($row->gap_w ?? 0) >= 0 ? 'ticker-bull' : 'ticker-bear') }}">{{ $row->ticker }}</td>
                                 <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
                                 <td class="num pos">{{ number_format((float)$row->close, 2) }}</td>
                                 <td class="num" style="color:{{ $row->score >= 5 ? '#c9a0ff' : ($row->score >= 3 ? '#d29922' : '#8b949e') }};">{{ $row->score }}</td>
                                 <td class="num {{ (float)$row->gap_w >= 0 ? 'pos' : 'neg' }}">{{ $row->gap_w }}%</td>
                                 <td class="num pos">{{ $row->atr_dist }}%</td>
                                 <td style="font-size:10px;">
-                                    @if ($infancy)
+                                    @if ($row->infancy ?? false)
                                         <span class="new-badge" style="background:#3d1a1a;color:#ff7b72;">{{ $row->days_weekly }}d</span>
                                     @else
                                         <span style="color:#8b949e;">{{ $row->days_weekly }}d</span>
@@ -362,9 +316,7 @@
         </div>
     @else
         <div class="empty" style="padding:20px;text-align:center;color:#4a4d59;">
-            @if ($weekly_crossover)
-                No tickers with weekly crossover data found.
-            @elseif (isset($multitf_uptrend) && $multitf_uptrend)
+            @if (isset($multitf_uptrend) && $multitf_uptrend)
                 @if (isset($infancy) && $infancy)
                     No infancy entries found (weekly cross < 60 days).
                 @else
@@ -411,7 +363,6 @@
             }
             let url = '/scanner?timeframe=' + tf;
             if (document.getElementById('undervaluedToggle').checked) url += '&undervalued=1';
-            if (document.getElementById('weeklyCrossoverToggle').checked) url += '&weekly_crossover=1';
             if (document.getElementById('multitfUptrendToggle').checked) url += '&multitf_uptrend=1';
             if (document.getElementById('infancyToggle').checked) url += '&infancy=1';
             if (document.getElementById('longToggle').checked) url += '&long=1';
@@ -422,7 +373,6 @@
 
         function uncheckAllFilters() {
             document.getElementById('undervaluedToggle').checked = false;
-            document.getElementById('weeklyCrossoverToggle').checked = false;
             document.getElementById('multitfUptrendToggle').checked = false;
             document.getElementById('infancyToggle').checked = false;
             document.getElementById('longToggle').checked = false;
@@ -434,15 +384,6 @@
             this.checked = true;
             let url = '/scanner?timeframe=' + currentTimeframe;
             if (this.checked) url += '&undervalued=1';
-            if (activeTicker) url += '&ticker=' + activeTicker;
-            window.location = url;
-        });
-
-        document.getElementById('weeklyCrossoverToggle').addEventListener('change', function() {
-            if (this.checked) uncheckAllFilters();
-            this.checked = true;
-            let url = '/scanner?timeframe=' + currentTimeframe;
-            if (this.checked) url += '&weekly_crossover=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
             window.location = url;
         });

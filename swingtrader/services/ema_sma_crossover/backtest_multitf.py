@@ -56,7 +56,8 @@ def load_stock_bars(conn, ticker_id, table, date_field):
 
 
 def backtest(ticker_id, weekly_rows, daily_rows, hourly_rows,
-             exit_mode='ema', atr_period=14, atr_mult=2.0):
+             exit_mode='ema', atr_period=14, atr_mult=2.0,
+             infancy=False):
     if len(hourly_rows) < WARMUP + 10:
         return None, None
 
@@ -119,7 +120,17 @@ def backtest(ticker_id, weekly_rows, daily_rows, hourly_rows,
                 and hourly_ema[hi - 1] <= hourly_sma[hi - 1]
             )
             if weekly_bullish and daily_bullish and hourly_cross_above:
-                if hi + 1 < len(hourly_rows):
+                should_enter = True
+                if infancy:
+                    days_since_weekly = 999
+                    for j in range(wi, 0, -1):
+                        if (not np.isnan(weekly_ema[j]) and not np.isnan(weekly_sma[j])
+                                and not np.isnan(weekly_ema[j - 1]) and not np.isnan(weekly_sma[j - 1])):
+                            if weekly_ema[j] > weekly_sma[j] and weekly_ema[j - 1] <= weekly_sma[j - 1]:
+                                days_since_weekly = (h_date - weekly_rows[j][0]).days
+                                break
+                    should_enter = days_since_weekly < 60
+                if should_enter and hi + 1 < len(hourly_rows):
                     entry_price = hourly_open[hi + 1]
                     entry_hi = hi
                     highest_since_entry = entry_price
@@ -280,6 +291,7 @@ def main():
                         help='Exit method (default: ema)')
     parser.add_argument('--atr-period', type=int, default=14, help='ATR period (default: 14)')
     parser.add_argument('--atr-mult', type=float, default=2.0, help='ATR multiplier (default: 2.0)')
+    parser.add_argument('--infancy', action='store_true', help='Only enter when days_since_weekly < 60')
     args = parser.parse_args()
 
     if args.exit == 'atr':
@@ -349,7 +361,8 @@ def main():
             trades, metrics = backtest(tid, w, d, h,
                                        exit_mode=args.exit,
                                        atr_period=args.atr_period,
-                                       atr_mult=args.atr_mult)
+                                       atr_mult=args.atr_mult,
+                                       infancy=args.infancy)
             if metrics is None:
                 print(f'  {sym:<6}  No trades')
                 continue
@@ -375,7 +388,8 @@ def main():
 
         print(f'\n{"="*100}')
         print(f'  MULTI-TIMEFRAME EMA(10)/SMA(40) BACKTEST')
-        print(f'  Entry: weekly + daily bullish + 1-hour fresh crossover')
+        print(f'  Entry: weekly + daily bullish + 1-hour fresh crossover'
+              f'{" + infancy (<60d)" if args.infancy else ""}')
         print(f'  Exit:  {exit_label}')
         print(f'{"="*100}\n')
 

@@ -24,6 +24,7 @@ SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
 
 ALPACA_API_KEY = os.getenv('ALPACA_API_KEY')
 ALPACA_SECRET_KEY = os.getenv('ALPACA_SECRET_KEY')
+ALPACA_BASE_URL = os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
 
 MARKET_OPEN = (9, 30)
 MARKET_CLOSE = (16, 0)

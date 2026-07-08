@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""MTCS system health check."""
+"""MTCS system health check — real-trading enabled."""
 import os
 import sys
+import requests
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import config
 import db as db_module
+import executor
 from strategy import check_signal
 
 NY = ZoneInfo('America/New_York')
@@ -76,6 +78,39 @@ def main():
     else:
         ok('No errors in last hour of journal')
 
+    # ── Alpaca account check ──
+    print()
+    try:
+        acct = executor._get_account()
+        account_no = acct.get('account_number', '?')
+        cash = float(acct.get('cash', 0))
+        equity = float(acct.get('equity', 0))
+        status = acct.get('status', '?')
+        ok(f'Alpaca account #{account_no} ({status}) — cash=${cash:,.0f} equity=${equity:,.0f}')
+    except Exception as e:
+        fail(f'Alpaca account check failed: {e}')
+
+    # ── Alpaca positions check ──
+    try:
+        headers = executor._alpaca_headers()
+        resp = requests.get(f'{config.ALPACA_BASE_URL}/v2/positions', headers=headers, timeout=10)
+        if resp.status_code < 400:
+            positions = resp.json()
+            if positions:
+                print(f'  Alpaca open positions:')
+                for pos in positions:
+                    sym = pos.get('symbol')
+                    qty = float(pos.get('qty', 0))
+                    mkt_val = float(pos.get('market_value', 0))
+                    upl = float(pos.get('unrealized_pl', 0))
+                    print(f'    {sym}: {qty} shares (${mkt_val:,.0f}, P&L ${upl:,.2f})')
+            else:
+                print(f'  Alpaca open positions: none')
+        else:
+            warn(f'Cannot fetch Alpaca positions: {resp.status_code}')
+    except Exception as e:
+        warn(f'Alpaca positions fetch failed: {e}')
+
     # ── Data freshness & signal state per ticker ──
     print()
     ticker_issues = 0
@@ -124,23 +159,23 @@ def main():
         warn('CSV trade log not found (will be created on first SELL)')
         csv_issues += 1
 
-    # ── Position status ──
+    # ── DB position status ──
     cur = conn.cursor()
     cur.execute(
         'SELECT symbol, quantity, entry_price, entry_at FROM mtcs_positions '
         'WHERE quantity > 0 ORDER BY symbol')
-    positions = cur.fetchall()
-    if positions:
-        print(f'  Open positions (virtual):')
-        for symbol, qty, ep, ets in positions:
+    db_positions = cur.fetchall()
+    if db_positions:
+        print(f'  DB tracked positions:')
+        for symbol, qty, ep, ets in db_positions:
             print(f'    {symbol}: {qty} share(s) @ ${ep:.2f} (since {ets})')
     else:
-        print(f'  Open positions (virtual): none')
+        print(f'  DB tracked positions: none')
 
     # ── Trade count ──
     cur.execute('SELECT COUNT(*) FROM mtcs_trades')
     trade_count = cur.fetchone()[0]
-    print(f'  Total signals recorded (all time): {trade_count}')
+    print(f'  Total trades executed (all time): {trade_count}')
 
     conn.close()
 
