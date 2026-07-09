@@ -169,7 +169,6 @@ def run():
                            f'cycles: {cycle_info}  |  '
                            f'D({config.DETREND_PERIOD}) S({config.SMOOTHING})')
                     print(f'[MTCS RUNNER] {msg}')
-                    _send_slack(msg)
                     pending_buys.append((sym, tid, latest_ts))
                     had_activity = True
 
@@ -177,7 +176,11 @@ def run():
                     entry_price = float(pos[2]) if pos[2] else 0
                     pnl_pct = (price - entry_price) / entry_price * 100 if entry_price else 0
                     _append_signal_csv(sym, 'SELL', price, latest_ts.date(), f'{pnl_pct:+.2f}%')
-                    print(f'[MTCS RUNNER] SELL signal {sym} — executing...')
+                    msg = (f'SELL signal {sym} @ ${price:.2f}  |  '
+                           f'est. PnL: {pnl_pct:+.2f}%  |  '
+                           f'acct #{config.ALPACA_ACCOUNT_NO}')
+                    print(f'[MTCS RUNNER] {msg}')
+                    _send_slack(msg)
                     executor.sell_position(conn, tid, sym, latest_ts)
                     had_activity = True
 

@@ -31,7 +31,7 @@ def _send_slack(msg):
     if not config.SLACK_WEBHOOK_URL:
         return
     try:
-        requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'[MTF] {msg}'}, timeout=10)
+        requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'[MTF-TopN] {msg}'}, timeout=10)
     except Exception as e:
         print(f'[SLACK] Error: {e}')
 
