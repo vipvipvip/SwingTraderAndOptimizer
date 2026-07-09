@@ -21,6 +21,14 @@ class ExecuteDailyTrades extends Command
         $equityService = app(EquityService::class);
         $forceTest = $this->option('force-test');
 
+        // Get CHAND Alpaca account number
+        try {
+            $chandAccount = $alpacaService->getAccount();
+            $chandAcctNo = $chandAccount['account_number'] ?? '?';
+        } catch (\Exception $e) {
+            $chandAcctNo = '?';
+        }
+
         // Record execution time
         $this->recordExecutionTime();
 
@@ -54,13 +62,13 @@ class ExecuteDailyTrades extends Command
             // Only send Slack report if trades occurred
             $hasTrades = count($results['buys'] ?? []) > 0 || count($results['sells'] ?? []) > 0;
             if ($hasTrades) {
-                $this->sendSlackReport($results, $equity, true);
+                $this->sendSlackReport($results, $equity, true, null, $chandAcctNo);
             }
 
             return 0;
         } catch (\Exception $e) {
             $this->error('Trade execution failed: ' . $e->getMessage());
-            $this->sendSlackReport(null, null, false, $e->getMessage());
+            $this->sendSlackReport(null, null, false, $e->getMessage(), $chandAcctNo);
             return 1;
         }
     }
@@ -76,7 +84,7 @@ class ExecuteDailyTrades extends Command
         }
     }
 
-    private function sendSlackReport($results, $equity, $success = true, $errorMsg = null)
+    private function sendSlackReport($results, $equity, $success = true, $errorMsg = null, $acctNo = '?')
     {
         $webhookUrl = env('SLACK_WEBHOOK_URL');
 
@@ -86,7 +94,7 @@ class ExecuteDailyTrades extends Command
 
         if (!$success) {
             $payload = [
-                'text' => ':x: Trade Execution Failed',
+                'text' => '[CHAND] :x: Trade Execution Failed  |  acct #' . $acctNo,
                 'attachments' => [
                     [
                         'color' => 'danger',
@@ -111,7 +119,7 @@ class ExecuteDailyTrades extends Command
             $color = ($buyCounts > 0 || $sellCount > 0) ? 'good' : '#cccccc';
 
             $payload = [
-                'text' => ':chart_with_upwards_trend: Trade Execution Summary',
+                'text' => '[CHAND] :chart_with_upwards_trend: Trade Execution Summary  |  acct #' . $acctNo,
                 'attachments' => [
                     [
                         'color' => $color,
@@ -130,6 +138,11 @@ class ExecuteDailyTrades extends Command
                             [
                                 'title' => 'Account Equity',
                                 'value' => '$' . number_format($equity ?? 0, 2),
+                                'short' => true
+                            ],
+                            [
+                                'title' => 'Account #',
+                                'value' => $acctNo,
                                 'short' => true
                             ],
                             [
