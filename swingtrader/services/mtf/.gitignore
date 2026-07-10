@@ -3,3 +3,4 @@ __pycache__/
 .env
 .mtf_state.json
 data/
+*.png

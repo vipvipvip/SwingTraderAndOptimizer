@@ -57,6 +57,75 @@
             "justMyCode": false
         },
         {
+            "name": "EMAC Runner",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/runner.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/ema_sma_crossover",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/.env",
+            "justMyCode": false
+        },
+        {
+            "name": "EMAC Signal",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/daily_signal_service.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/ema_sma_crossover",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/.env",
+            "justMyCode": false
+        },
+        {
+            "name": "MTCS Health Check",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/mtcs/health_check.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/mtcs",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/mtcs/.env",
+            "justMyCode": false
+        },
+        {
+            "name": "MTCS Backtest",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/mtcs/backtest.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/mtcs",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/mtcs/.env",
+            "args": [],
+            "justMyCode": false
+        },
+        {
+            "name": "Multi-TF Backtest",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/backtest_multitf.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/ema_sma_crossover",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/.env",
+            "args": ["--exit", "daily-ema"],
+            "justMyCode": false
+        },
+        {
+            "name": "Multi-TF TopN Backtest",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/backtest_topn_multitf.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/ema_sma_crossover",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/.env",
+            "args": ["--top-n", "10", "--rebalance", "daily"],
+            "justMyCode": false
+        },
+        {
             "name": "PHP: Current File",
             "type": "php",
             "request": "launch",
