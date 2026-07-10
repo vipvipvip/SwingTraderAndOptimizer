@@ -187,7 +187,7 @@ def run():
         # Compute scores
         candidates = []
         for tid in weekly_data:
-            di = daily_idx[tid].get(sig_date)
+            di = _nearest_date_idx(daily_idx[tid], daily_dates_sorted[tid], sig_date)
             wi = _nearest_date_idx(weekly_idx[tid], weekly_dates_sorted[tid], sig_date)
             hi = _nearest_date_idx(hourly_idx[tid], hourly_dates_sorted[tid], sig_date)
             if di is None or wi is None or hi is None:
