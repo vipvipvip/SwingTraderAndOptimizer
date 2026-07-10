@@ -23,6 +23,37 @@
             "port": 9003
         },
         {
+            "name": "MTCS Runner",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/mtcs/runner.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/mtcs",
+            "python": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/mtcs/.env"
+        },
+        {
+            "name": "MTCS Strategy",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/mtcs/strategy.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/mtcs",
+            "python": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/mtcs/.env",
+            "args": ["QQQ"]
+        },
+        {
+            "name": "MTF Top-N Runner",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/mtf/runner.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/mtf",
+            "python": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/mtf/.env"
+        },
+        {
             "name": "PHP: Current File",
             "type": "php",
             "request": "launch",

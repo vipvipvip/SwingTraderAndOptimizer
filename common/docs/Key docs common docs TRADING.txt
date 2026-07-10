@@ -5,8 +5,12 @@ Key docs:
 
 Quick summary of triggers:
 EMAC (strategy.py:56-94): BUY when hourly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) (daily regime filter). SELL when hourly EMA crosses below SMA. Position sizing via equal-weight rebalance across all tickers with signals.
+Account: PA3EHVX93SJT
 
 CHAND (TradeExecutorService.php:599-712): Always-in strategy. Entry via Chandelier Entry filter. Exit when price hits trailing stop = highestHigh_since_entry - ATR * multiplier (configurable per-ticker). Also has a regression slope exit option.
+Account: PA31Z71315NM
 
-MTCS (strategy.py in mtcs/): BUY when Hilbert Transform dominant cycle sine wave crosses above lead wave on last 2 daily bars. SELL when sine crosses below lead. Signal-only (no Alpaca execution).
-Daily Signal (daily_signal_service.py): BUY signal if weekly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) AND 1-hour EMA just crossed above SMA(40). Scored by momentum + gap + infancy. Signal-only via Slack.
+MTCS (strategy.py in mtcs/): BUY when Hilbert Transform dominant cycle sine wave crosses above lead wave on last 2 daily bars. SELL when sine crosses below lead.
+Account: PA3NCXU4O2CN
+
+MTF Daily Signal (daily_signal_service.py): BUY signal if weekly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) AND 1-hour EMA just crossed above SMA(40). Scored by momentum + gap + infancy. Signal-only via Slack.
