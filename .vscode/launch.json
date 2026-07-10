@@ -24,34 +24,37 @@
         },
         {
             "name": "MTCS Runner",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/swingtrader/services/mtcs/runner.py",
             "cwd": "${workspaceFolder}/swingtrader/services/mtcs",
-            "python": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
             "console": "integratedTerminal",
-            "envFile": "${workspaceFolder}/swingtrader/services/mtcs/.env"
+            "envFile": "${workspaceFolder}/swingtrader/services/mtcs/.env",
+            "justMyCode": false
         },
         {
             "name": "MTCS Strategy",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/swingtrader/services/mtcs/strategy.py",
             "cwd": "${workspaceFolder}/swingtrader/services/mtcs",
-            "python": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
             "console": "integratedTerminal",
             "envFile": "${workspaceFolder}/swingtrader/services/mtcs/.env",
-            "args": ["QQQ"]
+            "args": ["QQQ"],
+            "justMyCode": false
         },
         {
             "name": "MTF Top-N Runner",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/swingtrader/services/mtf/runner.py",
             "cwd": "${workspaceFolder}/swingtrader/services/mtf",
-            "python": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
             "console": "integratedTerminal",
-            "envFile": "${workspaceFolder}/swingtrader/services/mtf/.env"
+            "envFile": "${workspaceFolder}/swingtrader/services/mtf/.env",
+            "justMyCode": false
         },
         {
             "name": "PHP: Current File",
