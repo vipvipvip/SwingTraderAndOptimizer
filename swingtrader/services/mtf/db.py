@@ -9,6 +9,12 @@ def get_conn():
     return psycopg2.connect(host=DB_HOST, port=DB_PORT, database=DB_NAME, user=DB_USER, password=DB_PASS)
 
 
+def init_db():
+    conn = get_conn()
+    conn.close()
+    print('[MTF DB] Scanner tables available')
+
+
 def get_all_tickers(conn):
     with conn.cursor() as cur:
         cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true ORDER BY symbol')
@@ -80,7 +86,7 @@ def get_latest_daily_bar_date(conn):
 def get_market_breadth(conn):
     with conn.cursor() as cur:
         cur.execute('''
-            SELECT COUNT(*) FILTER (WHERE we.ema10 > we.sma40 AND de.ema10 > de.sma40) AS uptrend,
+            SELECT COUNT(*) FILTER (WHERE we.ema10_sma40_crossover AND de.ema10_sma40_crossover) AS uptrend,
                    COUNT(*) AS total
             FROM tbl_scanner_tickers we
             JOIN tbl_scanner_tickers_daily de ON de.ticker_id = we.ticker_id

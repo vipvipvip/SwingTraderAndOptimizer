@@ -102,27 +102,50 @@
             "justMyCode": false
         },
         {
-            "name": "Multi-TF Backtest",
+            "name": "MTF Backtest",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/backtest_multitf.py",
-            "cwd": "${workspaceFolder}/swingtrader/services/ema_sma_crossover",
+            "program": "${workspaceFolder}/swingtrader/services/mtf/backtest_multitf.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/mtf",
             "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
             "console": "integratedTerminal",
-            "envFile": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/.env",
+            "envFile": "${workspaceFolder}/swingtrader/services/mtf/.env",
             "args": ["--exit", "daily-ema"],
             "justMyCode": false
         },
         {
-            "name": "Multi-TF TopN Backtest",
+            "name": "MTF TopN Backtest (Multi-TF score)",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/backtest_topn_multitf.py",
-            "cwd": "${workspaceFolder}/swingtrader/services/ema_sma_crossover",
+            "program": "${workspaceFolder}/swingtrader/services/mtf/backtest_topn_multitf.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/mtf",
             "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
             "console": "integratedTerminal",
-            "envFile": "${workspaceFolder}/swingtrader/services/ema_sma_crossover/.env",
+            "envFile": "${workspaceFolder}/swingtrader/services/mtf/.env",
             "args": ["--top-n", "10", "--rebalance", "daily"],
+            "justMyCode": false
+        },
+        {
+            "name": "MTF TopN Backtest (Long scanner)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/mtf/backtest_topn.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/mtf",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/mtf/.env",
+            "args": ["--top-n", "10", "--rebalance", "weekly"],
+            "justMyCode": false
+        },
+        {
+            "name": "MTF Health Check",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/swingtrader/services/mtf/health_check.py",
+            "cwd": "${workspaceFolder}/swingtrader/services/mtf",
+            "pythonPath": "${workspaceFolder}/swingtrader/services/optimizer/venv/bin/python",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/swingtrader/services/mtf/.env",
             "justMyCode": false
         },
         {

@@ -358,6 +358,23 @@ else
     fail "MTCS health check script not found at $MTCS_HEALTH"
 fi
 
+# ---- MTF Top-N Multi-TF Rotation (Phase 1 Paper) ----
+echo ""
+echo "--- MTF Top-N Rotation ---"
+
+MTF_HEALTH="$PROJECT_DIR/swingtrader/services/mtf/health_check.py"
+if [ -f "$MTF_HEALTH" ]; then
+    cd "$PROJECT_DIR/swingtrader/services/mtf" && python3 "$MTF_HEALTH"
+    MTF_EXIT=$?
+    if [ "$MTF_EXIT" -eq 0 ]; then
+        pass "MTF Top-N health check passed"
+    else
+        fail "MTF Top-N health check detected issues"
+    fi
+else
+    fail "MTF Top-N health check script not found at $MTF_HEALTH"
+fi
+
 # ---- API Health ----
 echo ""
 echo "--- API Endpoints ---"
