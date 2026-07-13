@@ -11,6 +11,7 @@ import json
 import os
 import csv
 import sys
+import argparse
 import numpy as np
 import requests
 from datetime import datetime, date as dt_date
@@ -22,29 +23,47 @@ import db as db_module
 
 NY = ZoneInfo('America/New_York')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PICKS_CSV = os.path.join(BASE_DIR, 'data', 'mtf_picks.csv')
-PORTFOLIO_CSV = os.path.join(BASE_DIR, 'data', 'mtf_portfolio.csv')
-STATE_FILE = os.path.join(BASE_DIR, '.mtf_state.json')
+
+MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs'}
+CSV_SUFFIX = {'stock': '_stock', 'etf': '_etf'}
 
 
-def _send_slack(msg):
+def _csv_path(name):
+    return os.path.join(BASE_DIR, 'data', f'mtf_{name}.csv')
+
+
+def _state_path(mode):
+    return os.path.join(BASE_DIR, f'.mtf_state_{mode}.json')
+
+
+def _send_slack(msg, mode='stock'):
     if not config.SLACK_WEBHOOK_URL:
         return
+    label = MODE_LABEL.get(mode, mode)
     try:
-        requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'[MTF-TopN] {msg}'}, timeout=10)
+        requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'[MTF-TopN {label}] {msg}'}, timeout=10)
     except Exception as e:
         print(f'[SLACK] Error: {e}')
 
 
-def _load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE) as f:
+def _load_state(mode='stock'):
+    sp = _state_path(mode)
+    if os.path.exists(sp):
+        with open(sp) as f:
             return json.load(f)
+    # Fallback: migrate old state file for stock mode
+    old_sp = os.path.join(BASE_DIR, '.mtf_state.json')
+    if mode == 'stock' and os.path.exists(old_sp):
+        with open(old_sp) as f:
+            data = json.load(f)
+        _save_state(data, mode)
+        os.rename(old_sp, old_sp + '.bak')
+        return data
     return {}
 
 
-def _save_state(state):
-    with open(STATE_FILE, 'w') as f:
+def _save_state(state, mode='stock'):
+    with open(_state_path(mode), 'w') as f:
         json.dump(state, f, indent=2)
 
 
@@ -120,23 +139,27 @@ def _format_regime(pct):
         return f'{pct:.0f}% uptrend \u2705 Risk-on'
 
 
-def run():
+def run(mode='stock'):
     now = datetime.now(NY)
     today = now.date()
 
     db_module.get_conn()
     conn = db_module.get_conn()
     try:
-        tickers = db_module.get_all_tickers(conn)
-        print(f'[MTF] Loaded {len(tickers)} tickers')
+        is_etf = mode == 'etf'
+        tickers = db_module.get_all_tickers(conn, is_etf=is_etf)
+        print(f'[MTF] Loaded {len(tickers)} {MODE_LABEL[mode]}')
 
         # Load all three timeframes for all tickers
         weekly_data = {}
         daily_data = {}
         hourly_data = {}
         ticker_names = {}
+        company_names = {}
         for tid, sym in tickers:
             ticker_names[tid] = sym
+            if is_etf:
+                company_names[tid] = db_module.get_etf_name(conn, tid) or sym
             w = db_module.load_weekly(conn, tid)
             d = db_module.load_daily(conn, tid)
             h = db_module.load_hourly(conn, tid)
@@ -200,11 +223,12 @@ def run():
 
             result['tid'] = tid
             result['symbol'] = ticker_names[tid]
+            result['name'] = company_names.get(tid)
             candidates.append(result)
 
         if not candidates:
-            print('[MTF] No qualifying tickers')
-            _send_slack(f'No qualifying tickers on {sig_date}')
+            print(f'[MTF] No qualifying {MODE_LABEL[mode]}')
+            _send_slack(f'No qualifying {MODE_LABEL[mode]} on {sig_date}', mode)
             return
 
         # Sort by score DESC
@@ -220,11 +244,12 @@ def run():
                 'atr_dist': t['atr_dist'],
                 'freshness': t['freshness'],
                 'close': t['close'],
+                'name': t['name'],
             }
         top_symbols = [t['symbol'] for t in top_n]
 
         # Load previous state
-        state = _load_state()
+        state = _load_state(mode)
         prev_picks = state.get('last_picks', [])
         prev_scores = state.get('last_scores', {})
         prev_date = state.get('last_date')
@@ -294,12 +319,14 @@ def run():
         state['last_picks'] = top_symbols
         state['last_scores'] = score_detail
         state['portfolio'] = portfolio
-        _save_state(state)
+        _save_state(state, mode)
 
+        suffix = CSV_SUFFIX[mode]
         # Log picks to CSV
         _ensure_csv()
-        picks_header = not os.path.exists(PICKS_CSV)
-        with open(PICKS_CSV, 'a', newline='') as f:
+        picks_csv = _csv_path(f'picks{suffix}')
+        picks_header = not os.path.exists(picks_csv)
+        with open(picks_csv, 'a', newline='') as f:
             w = csv.writer(f)
             if picks_header:
                 w.writerow(['date', 'rank', 'symbol', 'score', 'gap_w', 'atr_dist', 'freshness', 'close'])
@@ -308,8 +335,9 @@ def run():
                             t['gap_w'], t['atr_dist'], t['freshness'], t['close']])
 
         # Log portfolio to CSV
-        port_header = not os.path.exists(PORTFOLIO_CSV)
-        with open(PORTFOLIO_CSV, 'a', newline='') as f:
+        port_csv = _csv_path(f'portfolio{suffix}')
+        port_header = not os.path.exists(port_csv)
+        with open(port_csv, 'a', newline='') as f:
             w = csv.writer(f)
             if port_header:
                 w.writerow(['date', 'cash', 'mtm_value', 'return_pct',
@@ -319,7 +347,7 @@ def run():
                         '|'.join(buys), '|'.join(sells)])
 
         # Log trades
-        trades_csv = os.path.join(BASE_DIR, 'data', 'mtf_trades.csv')
+        trades_csv = _csv_path(f'trades{suffix}')
         trades_header = not os.path.exists(trades_csv)
         with open(trades_csv, 'a', newline='') as f:
             w = csv.writer(f)
@@ -329,12 +357,13 @@ def run():
                 w.writerow(entry)
 
         # Build Slack message
-        lines = [f'Multi-TF Top {config.TOP_N} \u2014 {sig_date}']
+        label = MODE_LABEL[mode]
+        lines = [f'Multi-TF Top {config.TOP_N} \u2014 {sig_date} ({label})']
         lines.append('\u2501' * 32)
 
         # Market breadth
         try:
-            pct = db_module.get_market_breadth(conn)
+            pct = db_module.get_market_breadth(conn, is_etf=is_etf)
             if pct is not None:
                 lines.append(f'Breadth: {_format_regime(pct)}')
                 lines.append('')
@@ -378,11 +407,15 @@ def run():
         msg = '\n'.join(lines)
 
         print(f'\n{msg}\n')
-        _send_slack(msg)
+        _send_slack(msg, mode)
 
     finally:
         conn.close()
 
 
 if __name__ == '__main__':
-    run()
+    parser = argparse.ArgumentParser(description='MTF Top-N Daily Runner')
+    parser.add_argument('--mode', choices=['stock', 'etf'], default='stock',
+                        help='Ticker universe to score (default: stock)')
+    args = parser.parse_args()
+    run(mode=args.mode)

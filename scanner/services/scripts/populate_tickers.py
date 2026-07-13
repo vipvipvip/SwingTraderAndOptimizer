@@ -194,20 +194,17 @@ def main():
 
     client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 
-    # Read existing tickers from tbl_stock_tickers
+    # Read all enabled tickers from tbl_stock_tickers
     conn = get_db_conn()
     try:
         tickers = pd.read_sql(
-            f"""SELECT DISTINCT e.symbol
-                FROM {table} s
-                JOIN tbl_stock_tickers e ON e.id = s.ticker_id
-                ORDER BY e.symbol""", conn
+            "SELECT symbol FROM tbl_stock_tickers WHERE enabled ORDER BY symbol", conn
         )['symbol'].tolist()
     finally:
         conn.close()
 
     if not tickers:
-        print(f"Table {table} is empty, fetching SP500 ticker list from Wikipedia...")
+        print("No enabled tickers found, fetching SP500 list from Wikipedia...")
         tickers = fetch_sp500_tickers()
         print(f"Fetched {len(tickers)} SP500 tickers from Wikipedia")
 
