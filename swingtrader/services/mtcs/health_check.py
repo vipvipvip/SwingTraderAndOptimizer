@@ -3,7 +3,7 @@
 import os
 import sys
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import config
@@ -133,11 +133,19 @@ def main():
 
         if latest_ts:
             age = (datetime.now(timezone.utc) - latest_ts.replace(tzinfo=timezone.utc)).total_seconds()
-            if age > 3600 * 72:
-                warn(f'    Daily bar is {age/3600:.0f}h old (stale — no new bar in 3+ trading days)')
+            now_utc = datetime.now(timezone.utc)
+            bar_dt = latest_ts.replace(tzinfo=timezone.utc) if latest_ts.tzinfo is None else latest_ts
+            trading_days = 0
+            check = bar_dt
+            while check.date() < now_utc.date():
+                check += timedelta(days=1)
+                if check.weekday() < 5:
+                    trading_days += 1
+            if trading_days > 2:
+                warn(f'    Daily bar is {age/3600:.0f}h old ({trading_days} trading days ago — stale)')
                 ticker_issues += 1
             else:
-                ok(f'    Bar age: {age/3600:.1f}h (last completed trading day)')
+                ok(f'    Bar age: {age/3600:.1f}h (last completed trading day, {trading_days} trading days ago)')
 
     # ── CSV trade log ──
     csv_issues = 0

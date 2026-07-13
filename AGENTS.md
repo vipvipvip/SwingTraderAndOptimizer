@@ -58,6 +58,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Duplicate entry creation** — Step 1 created new entries for buy orders whose symbol already had an open trade (fixed: check `exists()` by symbol before creating)
 - **Alpaca API keys** — Both CHAND (`PKBMUPEMGYQAKNZDQPDD4KI6O7`) and EMAC (`PKZQGO72QD3G4XDOL5HDV5IARX`) were invalid/expired (replaced with new keys)
 - **Reset fallout** — Full DB transaction reset required `backfill.py` + `backfill_daily.py` to restore candle data for signal computation
+- **Weekend stale-bar false alarms** — MTCS health check and unified health-check.sh both flagged Friday bars as stale on Monday; fixed both to count trading days (Mon-Fri) instead of raw calendar/hours
+- **MTF runner zero candidates with incomplete daily data** — daily index lookup used exact `.get(sig_date)`, failed when scanner daily table had only 1 row for today; fixed to use `_nearest_date_idx` fallback like weekly/hourly already did
 
 ### In Progress
 - **Phase 1 — MTF Top-N paper trading** (`swingtrader/services/mtf/runner.py`): Daily one-shot script scoring all 503 S&P stocks, logging top-10 picks + paper portfolio to CSV, sending Slack alert with picks, changes, and simulated P&L. MTCS continues running alongside.
