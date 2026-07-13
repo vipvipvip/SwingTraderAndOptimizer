@@ -21,4 +21,6 @@ Route::get('/api/documentation', function () {
 Route::get('/scanner', [\Scanner\Backend\Controllers\ScannerController::class, 'index']);
 Route::get('/scanner/copy-tickers', [\Scanner\Backend\Controllers\ScannerController::class, 'copyTickers']);
 Route::get('/scanner/data/{ticker}', [\Scanner\Backend\Controllers\ScannerController::class, 'chart']);
+Route::get('/scanner/explorer', [\Scanner\Backend\Controllers\ScannerController::class, 'explorer']);
+Route::get('/scanner/explorer-data', [\Scanner\Backend\Controllers\ScannerController::class, 'explorerData']);
 Route::post('/scanner/update-valuations', [\Scanner\Backend\Controllers\ScannerController::class, 'updateValuations']);

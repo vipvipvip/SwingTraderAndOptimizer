@@ -618,6 +618,180 @@ class ScannerController
         return $results;
     }
 
+    public function explorer(Request $request)
+    {
+        $mode = $request->query('mode', 'stock');
+        return view('scanner.explorer', ['mode' => $mode]);
+    }
+
+    public function explorerData(Request $request)
+    {
+        $mode = $request->query('mode', 'stock');
+        $isEft = $mode === 'etf';
+
+        // Cache key based on mode — data only changes once per day
+        $cacheFile = storage_path("framework/cache/explorer_{$mode}.json");
+        $cacheTtl = 300; // 5 min
+        if (file_exists($cacheFile) && time() - filemtime($cacheFile) < $cacheTtl) {
+            return response()->json(json_decode(file_get_contents($cacheFile), true));
+        }
+
+        $tickerInfo = DB::table('tbl_stock_tickers')
+            ->where('enabled', true)
+            ->where('is_etf', $isEft)
+            ->select('id', 'symbol', 'company_name')
+            ->get()
+            ->keyBy('id');
+
+        $latestWeekly = DB::selectOne("SELECT MAX(date) AS d FROM tbl_scanner_tickers");
+        $latestDaily = DB::selectOne("SELECT MAX(date) AS d FROM tbl_scanner_tickers_daily");
+        $latestHourlyDate = DB::selectOne("SELECT MAX(date)::date AS d FROM tbl_scanner_tickers_1hour");
+        if (!$latestWeekly || !$latestDaily || !$latestHourlyDate) {
+            return response()->json(['error' => 'No data'], 500);
+        }
+        $wkDate = $latestWeekly->d;
+        $hrDate = $latestHourlyDate->d;
+
+        // Correlated subqueries: only read latest 40 rows per ticker (uses the new index)
+        // For the cross-date detection we still need a window function, but only on weekly (small table)
+        $allData = DB::select("
+            WITH tickers AS (
+                SELECT id FROM tbl_stock_tickers WHERE enabled AND is_etf = ?
+            ),
+            wk_latest AS (
+                SELECT t.id AS ticker_id,
+                       (SELECT close::float8 FROM tbl_scanner_tickers WHERE ticker_id = t.id ORDER BY date DESC LIMIT 1) AS close,
+                       (SELECT AVG(sub.close::float8) FROM (SELECT close FROM tbl_scanner_tickers WHERE ticker_id = t.id ORDER BY date DESC LIMIT 40) sub) AS sma40,
+                       (SELECT AVG(sub.close::float8) FROM (SELECT close FROM tbl_scanner_tickers WHERE ticker_id = t.id ORDER BY date DESC LIMIT 10) sub) AS ema10
+                FROM tickers t
+            ),
+            dy_latest AS (
+                SELECT t.id AS ticker_id,
+                       (SELECT close::float8 FROM tbl_scanner_tickers_daily WHERE ticker_id = t.id ORDER BY date DESC LIMIT 1) AS close,
+                       (SELECT AVG(sub.close::float8) FROM (SELECT close FROM tbl_scanner_tickers_daily WHERE ticker_id = t.id ORDER BY date DESC LIMIT 40) sub) AS sma40
+                FROM tickers t
+            ),
+            xover_ranked AS (
+                SELECT ticker_id, date,
+                       close::float8 AS close,
+                       AVG(close::float8) OVER (PARTITION BY ticker_id ORDER BY date ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) AS sma40,
+                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rn
+                FROM tbl_scanner_tickers
+                WHERE EXISTS (SELECT 1 FROM tickers t WHERE t.id = ticker_id)
+            ),
+            xover_cross AS (
+                SELECT DISTINCT ON (a.ticker_id) a.ticker_id, a.date AS cross_date
+                FROM xover_ranked a
+                JOIN xover_ranked b ON b.ticker_id = a.ticker_id AND b.rn = a.rn + 1
+                WHERE a.rn <= 60 AND a.close > a.sma40 AND b.close <= b.sma40
+                ORDER BY a.ticker_id, a.date DESC
+            ),
+            broad AS (
+                SELECT COUNT(*) FILTER (WHERE wk.close > wk.sma40 AND dy.close > dy.sma40) AS uptrend,
+                       COUNT(*) AS total
+                FROM wk_latest wk
+                JOIN dy_latest dy ON dy.ticker_id = wk.ticker_id
+                WHERE wk.sma40 > 0 AND dy.sma40 > 0
+            )
+            SELECT wk.ticker_id, wk.close, wk.sma40, wk.ema10,
+                   x.cross_date,
+                   dy.close AS daily_close, dy.sma40 AS daily_sma40,
+                   b.uptrend, b.total
+            FROM wk_latest wk
+            JOIN dy_latest dy ON dy.ticker_id = wk.ticker_id
+            LEFT JOIN xover_cross x ON x.ticker_id = wk.ticker_id
+            CROSS JOIN broad b
+            WHERE wk.sma40 > 0 AND dy.sma40 > 0 AND wk.ema10 > 0
+        ", [$isEft]);
+
+        // Hourly atr_stop — separate query (fast)
+        $hourlyData = DB::select("
+            SELECT DISTINCT ON (ticker_id) ticker_id,
+                   close::float8 AS close,
+                   atr_stop::float8 AS atr_stop
+            FROM tbl_scanner_tickers_1hour h
+            WHERE date >= ? AND EXISTS (SELECT 1 FROM tbl_stock_tickers s WHERE s.id = h.ticker_id AND s.enabled AND s.is_etf = ?)
+            ORDER BY ticker_id, date DESC
+        ", [$hrDate, $isEft]);
+        $hourlyById = [];
+        foreach ($hourlyData as $r) {
+            if ($r->atr_stop !== null && $r->atr_stop > 0) {
+                $hourlyById[$r->ticker_id] = $r;
+            }
+        }
+
+        $results = [];
+        $infoById = [];
+        foreach ($tickerInfo as $tid => $info) {
+            $infoById[$tid] = $info;
+        }
+
+        foreach ($allData as $r) {
+            $tid = $r->ticker_id;
+            $h = $hourlyById[$tid] ?? null;
+            if (!$h) continue;
+
+            $close_w = (float)$r->close;
+            $sma40_w = (float)$r->sma40;
+            $ema10_w = (float)$r->ema10;
+            $close_h = (float)$h->close;
+            $atr_stop_w = (float)$h->atr_stop;
+
+            // Weekly filter: close > SMA40 and EMA10 > SMA40; daily close > SMA40
+            if ($close_w <= $sma40_w || !$ema10_w || $ema10_w <= $sma40_w) continue;
+            $dailyClose = (float)$r->daily_close;
+            $dailySma40 = (float)$r->daily_sma40;
+            if ($dailyClose <= $dailySma40) continue;
+
+            $gap_w = ($close_w - $sma40_w) / $sma40_w * 100;
+            $atr_dist = ($close_h - $atr_stop_w) / $close_h * 100;
+
+            $crossDate = $r->cross_date;
+            $daysSince = 999;
+            if ($crossDate) {
+                $daysSince = (new \DateTime($crossDate))->diff(new \DateTime())->days;
+            }
+
+            $gap_pts = min($gap_w / 20, 3);
+            $atr_pts = min($atr_dist / 1.5, 3);
+            $fresh_pts = max(0, 2 - $daysSince / 60);
+            $score = round($gap_pts + $atr_pts + $fresh_pts, 1);
+
+            $info = $infoById[$tid] ?? null;
+            if (!$info) continue;
+
+            $results[] = [
+                'tid' => $tid,
+                'symbol' => $info->symbol,
+                'name' => $info->company_name,
+                'score' => $score,
+                'gap_w' => round($gap_w, 1),
+                'atr_dist' => round($atr_dist, 2),
+                'freshness' => $daysSince >= 999 ? 'old' : $daysSince,
+                'close' => round($close_w, 2),
+            ];
+        }
+
+        usort($results, fn($a, $b) => $b['score'] <=> $a['score']);
+
+        $breadthPct = null;
+        if (count($allData) > 0 && isset($allData[0]->total) && $allData[0]->total > 0) {
+            $breadthPct = round($allData[0]->uptrend / $allData[0]->total * 100, 1);
+        }
+
+        $payload = [
+            'picks' => array_slice($results, 0, 50),
+            'total' => count($results),
+            'breadth' => $breadthPct,
+            'mode' => $mode,
+            'date' => $wkDate,
+        ];
+
+        file_put_contents($cacheFile, json_encode($payload), LOCK_EX);
+
+        return response()->json($payload);
+    }
+
     public function chart($symbol, Request $request)
     {
         $symbol = strtoupper($symbol);

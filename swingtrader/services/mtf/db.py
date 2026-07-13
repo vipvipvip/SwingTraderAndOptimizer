@@ -99,14 +99,24 @@ def get_latest_daily_bar_date(conn):
 def get_market_breadth(conn, is_etf=False):
     with conn.cursor() as cur:
         cur.execute('''
-            SELECT COUNT(*) FILTER (WHERE we.ema10_sma40_crossover AND de.ema10_sma40_crossover) AS uptrend,
+            WITH wk AS (
+                SELECT ticker_id, close::float8 AS close,
+                       AVG(close::float8) OVER (PARTITION BY ticker_id ORDER BY date ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) AS sma40,
+                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rn
+                FROM tbl_scanner_tickers
+            ),
+            dy AS (
+                SELECT ticker_id, close::float8 AS close,
+                       AVG(close::float8) OVER (PARTITION BY ticker_id ORDER BY date ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) AS sma40,
+                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rn
+                FROM tbl_scanner_tickers_daily
+            )
+            SELECT COUNT(*) FILTER (WHERE wk.close > wk.sma40 AND dy.close > dy.sma40) AS uptrend,
                    COUNT(*) AS total
-            FROM tbl_scanner_tickers we
-            JOIN tbl_scanner_tickers_daily de ON de.ticker_id = we.ticker_id
-                AND de.date = (SELECT MAX(date) FROM tbl_scanner_tickers_daily)
-            JOIN tbl_stock_tickers s ON s.id = we.ticker_id
-            WHERE we.date = (SELECT MAX(date) FROM tbl_scanner_tickers)
-              AND s.is_etf = %s
+            FROM wk
+            JOIN dy ON dy.ticker_id = wk.ticker_id
+            JOIN tbl_stock_tickers s ON s.id = wk.ticker_id
+            WHERE wk.rn = 1 AND dy.rn = 1 AND s.is_etf = %s
         ''', (is_etf,))
         row = cur.fetchone()
     if row and row[1] > 0:
