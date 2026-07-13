@@ -107,13 +107,28 @@ SCAN_HOURLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers_1hour;")
 SCAN_HOURLY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_HOURLY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
 SCAN_WEEKLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers;")
 SCAN_WEEKLY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_WEEKLY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
+# Count trading days (Mon-Fri) since the latest bar
+_trading_days_since() {
+    local d="$1" count=0
+    local bar_epoch bar_day today_epoch today_day i dow
+    bar_epoch=$(date -d "$d" +%s 2>/dev/null || echo 0)
+    today_epoch=$(date +%s)
+    bar_day=$((bar_epoch / 86400))
+    today_day=$((today_epoch / 86400))
+    for i in $(seq $((bar_day + 1)) "$today_day" 2>/dev/null); do
+        dow=$(date -d "@$((i * 86400))" +%u 2>/dev/null)
+        [ "$dow" -le 5 ] && count=$((count + 1))
+    done
+    echo "$count"
+}
+SCAN_HOURLY_TRADING_DAYS=$(_trading_days_since "$SCAN_HOURLY_LATEST")
 if [ -n "$SCAN_HOURLY_LATEST" ]; then
-    if [ "$SCAN_HOURLY_DAYS" -le 1 ] 2>/dev/null; then
-        pass "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_DAYS days ago)"
-    elif [ "$SCAN_HOURLY_DAYS" -le 3 ] 2>/dev/null; then
-        warn "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_DAYS days ago - stale)"
+    if [ "$SCAN_HOURLY_TRADING_DAYS" -le 1 ] 2>/dev/null; then
+        pass "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_TRADING_DAYS trading days ago)"
+    elif [ "$SCAN_HOURLY_TRADING_DAYS" -le 3 ] 2>/dev/null; then
+        warn "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_TRADING_DAYS trading days ago - stale)"
     else
-        fail "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_DAYS days ago - severely stale)"
+        fail "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_TRADING_DAYS trading days ago - severely stale)"
     fi
 else
     fail "Scanner hourly table is empty"
