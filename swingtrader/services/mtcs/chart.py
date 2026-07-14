@@ -2,6 +2,22 @@
 """Hilbert sine/lead chart — works for any ticker in tbl_stock_tickers."""
 import sys
 import os
+
+# Auto-restart with optimizer venv if matplotlib isn't available
+try:
+    import matplotlib
+except ImportError:
+    _venv = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        '..', 'optimizer', 'venv', 'bin', 'python')
+    _venv = os.path.normpath(_venv)
+    if os.path.exists(_venv):
+        os.execv(_venv, [_venv] + sys.argv)
+    else:
+        print(f'ERROR: venv not found at {_venv}', file=sys.stderr)
+        print('Install dependencies: cd swingtrader/services/optimizer && python3 -m venv venv && venv/bin/pip install matplotlib numpy', file=sys.stderr)
+        sys.exit(1)
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
