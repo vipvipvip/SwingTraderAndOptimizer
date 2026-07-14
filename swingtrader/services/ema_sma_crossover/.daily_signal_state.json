@@ -1,0 +1,58 @@
+{
+  "D": {
+    "action": "ENTRY",
+    "date": "2026-07-06"
+  },
+  "EIX": {
+    "action": "ENTRY",
+    "date": "2026-07-06"
+  },
+  "STT": {
+    "action": "ENTRY",
+    "date": "2026-07-06"
+  },
+  "VMC": {
+    "action": "ENTRY",
+    "date": "2026-07-08"
+  },
+  "CARR": {
+    "action": "ENTRY",
+    "date": "2026-07-10"
+  },
+  "HON": {
+    "action": "ENTRY",
+    "date": "2026-07-10"
+  },
+  "IEX": {
+    "action": "ENTRY",
+    "date": "2026-07-10"
+  },
+  "PH": {
+    "action": "ENTRY",
+    "date": "2026-07-10"
+  },
+  "TT": {
+    "action": "ENTRY",
+    "date": "2026-07-10"
+  },
+  "USB": {
+    "action": "ENTRY",
+    "date": "2026-07-10"
+  },
+  "ACGL": {
+    "action": "ENTRY",
+    "date": "2026-07-13"
+  },
+  "FRT": {
+    "action": "ENTRY",
+    "date": "2026-07-13"
+  },
+  "GL": {
+    "action": "ENTRY",
+    "date": "2026-07-13"
+  },
+  "XEL": {
+    "action": "ENTRY",
+    "date": "2026-07-13"
+  }
+}
