@@ -6,7 +6,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 ## Strategy Map
 | # | Name | Universe | Signals | Status |
 |---|------|----------|---------|--------|
-| 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/IWM | Optimized trailing stop | ✅ Live (Laravel) |
+| 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/VTV | Optimized trailing stop | ✅ Live (Laravel) |
 | 2 | **EMAC** (EMA/SMA 30-min) | QQQ/VTI/VTV | EMA10 > SMA40 cross | ✅ Live (systemd) |
 | 3 | **MTCS** (Hilbert sine/lead) | QQQ/VTI/VTV | Sine wave crossover | ✅ Live — **slated for replacement** |
 | 4 | **MTF Top-N** (Multi-TF rotation) | S&P 500 (503 stocks) | gap_w + atr_dist + freshness → top 10 daily | 🚧 Phase 1 (paper) |
