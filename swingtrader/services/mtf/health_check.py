@@ -105,8 +105,11 @@ def main():
             age = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(state_path))).total_seconds()
             if age < 86400:
                 ok(f'State file updated {age/3600:.1f}h ago')
-            else:
+            elif age < 172800:
                 warn(f'State file stale ({age/3600:.1f}h ago)')
+            else:
+                msg = f'State file not updated for {age/3600:.1f}h — runner may be failing silently'
+                fail(msg)
         else:
             warn('No state file (not yet run)')
 

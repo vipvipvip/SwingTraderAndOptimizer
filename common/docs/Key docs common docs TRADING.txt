@@ -4,13 +4,42 @@ Key docs:
 - common/docs/services_doc/mtcs_service.md — MTCS-specific
 
 Quick summary of triggers:
-EMAC (strategy.py:56-94): BUY when hourly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) (daily regime filter). SELL when hourly EMA crosses below SMA. Position sizing via equal-weight rebalance across all tickers with signals.
-Account: PA3EHVX93SJT
-
 CHAND (TradeExecutorService.php:599-712): Always-in strategy. Entry via Chandelier Entry filter. Exit when price hits trailing stop = highestHigh_since_entry - ATR * multiplier (configurable per-ticker). Also has a regression slope exit option.
 Account: PA31Z71315NM
+
+EMAC (strategy.py:56-94): BUY when hourly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) (daily regime filter). SELL when hourly EMA crosses below SMA. Position sizing via equal-weight rebalance across all tickers with signals.
+Account: PA3EHVX93SJT
 
 MTCS (strategy.py in mtcs/): BUY when Hilbert Transform dominant cycle sine wave crosses above lead wave on last 2 daily bars. SELL when sine crosses below lead.
 Account: PA3NCXU4O2CN
 
-MTF Daily Signal (daily_signal_service.py): BUY signal if weekly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) AND 1-hour EMA just crossed above SMA(40). Scored by momentum + gap + infancy. Signal-only via Slack.
+MTF Daily Signal (daily_signal_service.py): BUY signal if weekly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) AND 1-hour EMA just crossed above SMA(40). Scored by momentum + gap + infancy. Signal-only via Slack. (Multi-TF-EMAC Scan)
+
+	gap_w = (close_weekly - sma40_weekly) / sma40_weekly * 100
+	How far price is stretched above its 40-week SMA, as a percentage. High gap_w means the stock has run up far from its cost basis — signals strong momentum but also risk of mean reversion. Scored as min(gap_w / 20, 3) — caps at 3 pts when 60%+ above SMA40.
+
+	atr_dist = (close_hourly - atr_stop_hourly) / close_hourly * 100
+	Distance from the ATR trailing stop on the hourly chart, as a percentage. atr_stop is close - sma(tr, 14) * 2.0 — a 2x average true range band below price. Wide atr_dist means the stock has room before hitting its trailing stop. Scored as min(atr_dist / 1.5, 3) — caps at 3 pts when 4.5%+ above the stop.
+	Both are capped at 3 pts each, plus fresh_pts (0-2), giving a max MTF score of 8.
+
+	Testing with low score but with all greens. However:
+	Not good. -40.77%, 49% win rate, 45.9% max DD. The Early score kills returns.
+	The reason: penalizing gap_w removes the very stocks that produce explosive gains. The original finding was right — high gap_w stocks (WDC +1,517%, APP +741%) kept running despite being "stretched." The gap widens further in strong trends before reversing. Avoiding them misses the breakout entirely.
+	The MTF score's strength is that gap_w rewards momentum rather than penalizing it. The key insight from the backtest still holds: you want stocks that have already broken out hard and are still running, not stocks that just barely crossed.
+
+
+1. CHAND — ✅ Live (Alpaca paper, key ending DTWMJC) (Slack: CHAND) (QQQ/VTI/VTV)
+2. EMAC — ✅ Live (Alpaca paper, key ending 22RZS, acct #PA3EHVX93SJT) (Slack: EMAC) (QQQ/VTI/VTV)
+3. MTCS — ✅ Live (Alpaca paper, key ending ORIWSH, acct #PA3NCXU4O2CN) (Slack: MTCS) (QQQ/VTI/VTV)
+4. MTF Top-N — 🚧 Paper only (CSV logs + Slack, no Alpaca orders) (Slack: MTF Top-N) (Sp500 + 22 ETFs)
+5. Daily Signal Service — 📋 Slack-only (manual trades, separate infra) (Slack: Daily Signal) (SP500 stocks)
+All three live runners operate on $1M paper accounts. MTF is in Phase 1 validation; once confirmed it'll replace MTCS (Phase 2).
+
+Here's the table with the Slack tag column:
+#	Name	Universe
+1	CHAND	QQQ/VTI/VTV
+2	EMAC	QQQ/VTI/VTV
+3	MTCS	QQQ/VTI/VTV
+4	MTF Top-N	S&P 500 (503 stocks + 22 ETFs)
+5	Daily Signal	S&P 500
+All three live runners on $1M Alpaca paper accounts. MTF Phase 1 paper validation underway — replaces MTCS after confirmation (Phase 2).

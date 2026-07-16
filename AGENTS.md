@@ -1,7 +1,7 @@
 # Anchored Summary — SwingTraderAndOptimizer
 
 ## Goal
-Find and trade the best entry among ALL strategies through systematic backtesting and live automated execution.
+Find and trade the best entry among ALL strategies through systematic backtesting, scanner UI integration, and live automated execution — Explorer Dashboard unifies signals from all strategies (CHAND/EMAC/MTCS/MTF/Daily) with Early breakout column.
 
 ## Strategy Map
 | # | Name | Universe | Signals | Status |
@@ -13,44 +13,50 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 | 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 4:30 PM |
 
 ## Constraints & Preferences
-- EMAC live runner must remain untouched
-- MTCS (Alpaca paper acct #PA3NCXU4O2CN) is the candidate for replacement by MTF Top-N
+- EMAC 30-min runner (QQQ/VTI/VTV, Alpaca paper, Slack tag `[EMAC]`) must remain untouched
+- MTCS (Alpaca paper acct #PA3NCXU4O2CN, Slack tag `[MTCS]`) runs alongside MTF Top-N during Phase 1 paper validation; slated for replacement by MTF Top-N
 - Daily Signal Service (Mon–Fri 4:30 PM ET, Slack tagged `[DAILY]`) is separate and stays
-- Backtests use scanner DB tables (`tbl_scanner_tickers*`)
+- MTF Top-N Phase 1 is paper-only (Slack tag `[MTF-TopN]`) — no real Alpaca trading
+- CHAND (Alpaca paper, Slack tag `[CHAND]`) runs via Laravel `ExecuteDailyTrades` command on same trio (QQQ/VTI/VTV)
+- All backtests use scanner DB tables (`tbl_scanner_tickers*`), not strategy-specific ETF tables
+- MTCS uses optimizer venv for Python execution; Hilbert chart script (`chart.py`) auto-detects this venv via `os.execv`
+- Three Alpaca paper accounts: CHAND (#PA31Z71315NM), EMAC (#PA3EHVX93SJT), MTCS (#PA3NCXU4O2CN)
+- Keep same Slack channel for all services — differentiate via prefix tags
+- One combined Slack message per day for MTF (stocks + ETFs together) via `--mode all`
+- `--min-score 5` variant tracked separately with isolated state files / CSVs
+- ETFs and stocks live in same scanner tables with `is_etf` flag; `tbl_etf_tickers` is display-only registry
+- Laravel cache must be cleared in `swingtrader/backend/storage/framework/` (not `scanner/backend/`) — both data cache (`cache/explorer_*.json`) and compiled views (`views/*.php`) must be cleared after blade changes
 
 ## Progress
 ### Done
-- Added `--exit daily-ema` to `backtest_multitf.py` — detects daily EMA cross below SMA on fresh daily bar; won big on explosive stocks (WDC +1,517%, APP +741%, MU +669%) with dramatically fewer trades
-- Ran full 502-stock backtest with `--exit daily-ema` — strategy captures +360% avg on top 25 (vs BH +950%) but avoids catastrophic losers (KLAC +99% vs BH -50%)
-- Wrote and later removed `analyze_explosives.py` — analyzed 4,967 entry signals across 503 stocks to find what differentiates explosive 90-day returns
-- Discovered top 3 predictive features at entry: **weekly gap from SMA(40)** (30% vs 12.6%), **ATR distance %** (2.2% vs 1.3%), **freshness** (days since weekly cross < 60)
-- Rewrote `daily_signal_service.py` as multi-TF scanner with momentum score + infancy buckets + Slack alert
-- Added `indexMultiTfUptrend()` to `ScannerController.php` — Multi-TF filter mode with score/gap_w/atr_dist/infancy
-- Updated `index.blade.php` — Multi-TF table, infancy toggle, row highlighting, AJAX timeframe switch
-- Optimized chart endpoint — 1-hour 500 bars, daily 500, weekly 300
-- Removed temp `analyze_explosives.py` after use
-- Added market breadth computation to daily signal service — `pct_in_uptrend` with regime label (⚠️ Risk-off < 35%, ➖ Neutral 35-54%, ✅ Risk-on > 54%) in Slack alert
-- Added market breadth badge to scanner UI — colored dot + regime label visible on all filter pages (computed via `getMarketBreadth()` in controller from latest crossover events)
-- Added Copy Tickers button (📋 Copy) to scanner top bar — calls `/scanner/copy-tickers` endpoint, returns comma-delimited tickers matching current filter
-- Added `getMultiTfUptrendTickers()` helper + `copyTickers()` public method + `/scanner/copy-tickers` route
-- Fixed internal server error: `copyTickers()` Long-mode SQL was missing `atr_stop` in subquery SELECT clause
-- Scanner up/down arrow navigation now scrolls active row to center of `.table-wrap` container via manual `scrollRowIntoView()` (was `scrollIntoView({block:'center'})` which scrolled wrong container)
-- Chart header now shows `Company Name (TICKER)` centered above price panels, extracted from `row.children[1]` on click
-- Active row highlight uses blue background (`#1a3a5c`) + 2px blue left border (`#58a6ff`) — overrides `new-row` green via combined `.new-row.active td` selector
-- All 6 table modes now use same base styling — removed all per-mode `<colgroup>` width overrides
-- Added `--infancy` flag to `backtest_multitf.py` — filters entries to `days_since_weekly < 60`; run backtest with `--exit daily-ema --infancy`
-- **Found Multi-TF scoring massively outperforms Long scanner for rotation** — Multi-TF daily rebalance: +5,299% (22.2% DD, 68% win rate); Long scanner daily: -6.26% (50% win rate, noisy 8.3 buys/day)
-- **MTCS upgraded to real Alpaca trading** — created `executor.py` with `buy_position()`/`sell_position()`, wired into `runner.py` (BUY pools cash, SELL liquidates)
-- **MTCS given dedicated Alpaca account** — key `PKQK45DA2ERAXX6XKPUDORIWSH`, acct #PA3NCXU4O2CN, $1M paper (same pool as CHAND/EMAC)
-- **MTCS chart utility** — `chart.py` for matplotlib Hilbert sine/lead visualization
-- **MTCS health check updated** — checks Alpaca account balance + real positions
-- **MTCS startup bug fixed** — `last_bar_dates[tid] = None` so signals process first bar
-- **MTCS SIGTERM responsiveness fixed** — broke `time.sleep()` into 5s chunks
-- **Stale MTCS virtual positions cleared** — deleted old `mtcs_positions` and `mtcs_trades` rows
-- **EMAC roundtrip closed** — VTI -$3,487, VTV -$3,702; no open positions remain
-- **Weekly Crossover removed from scanner** — redundant with Long mode
-- **Created `backtest_topn_multitf.py`** — Top-N rotation backtest using Multi-TF score (gap_w/20 + atr_dist/1.5 + freshness)
-- **Created `backtest_topn.py`** — Top-N rotation using Long scanner score (MACD/PPO zero-line crosses)
+- Fixed MTF runner daily fallback: `_nearest_date_idx` replaces exact `.get(sig_date)` so picks still generate when scanner daily table hasn't finished updating
+- Fixed weekend stale-bar false alarms in MTCS health check and unified health-check.sh: count trading days (Mon-Fri) instead of raw calendar/hours
+- Merged `rnd/signal-processing` → `main` (22 commits, 58 files, ~8,900 additions)
+- Created `feature/mtf-explorer-dashboard` branch
+- Added `is_etf` boolean to `tbl_stock_tickers`, created/updated `tbl_etf_tickers` with 22 ETFs
+- Updated `populate_tickers.py` to read all enabled tickers from `tbl_stock_tickers`
+- Populated + computed all 22 ETFs: weekly (312 bars), daily (1,497 bars), hourly (~450 bars) with full indicators
+- Updated MTF runner with `--mode stock|etf` flag, separate CSVs/state/Slack tags per mode, scoped market breadth
+- Built MTF Explorer Dashboard: full scanner-style UI with checkboxes, keyboard navigation (arrow keys), ticker search/autocomplete, Copy button, 3-panel lightweight-charts (price + MACD + PPO), ETF/Stock mode toggle
+- Fixed Explorer backend: optimized window function queries from 33s+ to **6s cold / 0.16s cached** using ROW_NUMBER + GROUP BY + FILTER pattern; fixed SMA40 frame to use ORDER BY ASC (PRECEDING); moved market breadth to PHP computation
+- Fixed SQL bugs: `bt` CTE name (reserved keyword `both`), view path (`../../scanner/backend/views`), missing `close > sma40` filter conditions (caused 0 picks)
+- Fixed EMAC overstated-position bug: `buy_position()` now reads `order['filled_qty']` instead of requested qty; `sell_position()` checks Alpaca position and caps qty; `_sync_alpaca_positions()` detects DB > Alpaca mismatches and corrects; all trade failures send `⚠️` Slack via `_send_slack_error()`
+- Extended MTCS Hilbert chart to any ticker in DB: reads `tbl_stock_tickers` + `tbl_scanner_tickers_daily` (525 tickers); supports `--save=path.png` with auto-per-symbol filenames; auto-detects optimizer venv via `os.execv`
+- Fixed AGENTS.md: CHAND universe is QQQ/VTI/VTV (was IWM)
+- Explorer columns restructured: Ticker → Price → MTF Score → Daily Signal → EMAC → CHAND → MTCS → Combined → Early — all sortable by click, sorted by Combined descending by default
+- Added CHAND/EMAC/Daily Signal/Combined/Early columns: CHAND = close > atr_stop on hourly; EMAC = daily EMA10 > SMA40; Daily Signal = fresh weekly SMA40 cross < 60 days; Combined = mtf_score + signal bonuses; Early = signal_count + fresh_pts - gap_pts
+- Daily Signal fixed: uses infancy (fresh weekly cross < 60 days) instead of `sma_crossover` DB column
+- Added `--etf` flag to `backtest_topn_multitf.py` for ETF universe backtesting
+- Added `--score` flag to backtest (`mtf` or `early`) for alternate scoring strategies
+- Backtest results confirmed: MTF scoring on stocks: +5,469% (22.2% DD); Early score: -40.77% (45.9% DD) — penalizing gap_w kills returns
+- **SPOF hardening in runner.py**: crash alerting (global try/except → Slack `⚠️ CRASH`), stale data detection (>2d aborts, 1d warns), atomic state writes (tempfile+os.replace), DB connection retry (3 attempts, 5s delay)
+- **Combined Slack message**: refactored runner to `--mode all` (runs both stock + ETF in one shot), single combined Slack alert per day, separate `_run_single_mode()` core logic
+- **Systemd service updated**: single `ExecStart --mode all`, `TimeoutStopSec=300`
+- **Deleted stale scanner-intraday.service + timer** (replaced by scanner-hourly)
+- **Service docs updated**: `common/docs/services_doc/mtf-daily-runner.service` and `mtf_daily_runner.md` reflect `--mode all`, combined message, --user commands
+- **Backtest fixed**: partial-date bug — excludes dates with <400 tickers so incomplete last trading day doesn't artifact -100% loss
+- **Backtest `--min-score` + `--infancy` flags added** and confirmed: `--min-score 5` alone returns **+9,061%** (33.2% DD, 280 buys) vs unfiltered +5,469% (22.2% DD, 526 buys); adding infancy drops to +688% (59.2% DD, 93 buys) — infancy is the drag, not min-score
+- **Adding `--min-score 5` variant to runner.py**: separate state files (`.mtf_state_min5_stock.json`), separate CSVs (`mtf_picks_min5_stock.csv`), isolated from default pipeline
 
 ### Fixed Bugs
 - **Duplicate live_trades entries** — `syncLiveTradesFromAlpaca()` Step 1 in EquityService.php re-opened closed trades via `status => 'open'` (fixed: skip if `status !== 'open'`)
@@ -62,7 +68,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **MTF runner zero candidates with incomplete daily data** — daily index lookup used exact `.get(sig_date)`, failed when scanner daily table had only 1 row for today; fixed to use `_nearest_date_idx` fallback like weekly/hourly already did
 
 ### In Progress
-- **Phase 1 — MTF Top-N paper trading** (`swingtrader/services/mtf/runner.py`): Daily one-shot script scoring all 503 S&P stocks, logging top-10 picks + paper portfolio to CSV, sending Slack alert with picks, changes, and simulated P&L. MTCS continues running alongside.
+- Integrating `--min-score` into runner.py (`--min-score` CLI arg, filtered candidates, isolated state/CSV suffix)
 
 ### Blocked
 - (none)
@@ -88,43 +94,47 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Phase 1 (paper only)** — validate live scoring matches backtest by logging picks alongside running MTCS; sends Slack alert daily with picks, changes, and paper P&L
 - **Phase 2 (replace MTCS)** — stop Hilbert runner, point Alpaca executor at MTF top-N picks; start with `--top-n 5` then scale to 10
 - **Phase 3 (scale)** — increase to `--top-n 10` once comfortable; optionally add stop-loss or trailing exit to protect gains
+- **One combined Slack message** per day instead of separate stock+ETF messages — reduces noise, one view of both universes
+- **`--mode all` refactored runner**: `_run_single_mode()` returns (success, lines, sig_date), `run_all()` merges both sections into one Slack send
+- **`--min-score 5` isolated as separate pipeline** with its own state files / CSVs — tracks as an alternative paper portfolio alongside the default top-10, no interference
+- **Partial-date fix for backtests**: filter out dates where <400 tickers have daily data (prevents incomplete-last-day artifacts)
+- **Infancy filter drags performance** — `--min-score 5` alone crushes (+9,061% vs unfiltered +5,469%), but `+ --infancy` drops to +688% because it skips too many explosive entries
 
 ## Next Steps
 1. ✅ Test infancy-filtered variant of the strategy — **done: infancy as hard filter degrades returns** (top 25 avg +101% vs unfiltered +356%)
 2. ✅ Multi-TF daily beats weekly + crushes Long scanner — **shift strategy: MTF Top-N replaces MTCS**
-3. 🚧 **Phase 1** — Build `mtf_daily_runner.py`: daily one-shot, scores 503 stocks, top-10 to CSV + Slack, paper portfolio tracking. MTCS runs alongside.
-4. **Phase 2** — After 1 month of validation, stop MTCS, wire MTF picks into executor for real Alpaca trading
-5. **Phase 3** — Optimize top-N size, add exit rules (stop-loss, trailing)
+3. 🚧 **Phase 1** — Finish `--min-score` integration in runner.py (CLI arg, filtered candidates, isolated suffix)
+4. 🚧 Add health check for min-score state files
+5. ⏳ After 1-week validation: Phase 2 — stop MTCS runner, wire MTF picks into real Alpaca executor (`--top-n 5`)
+6. ⏳ Phase 3 — Optimize top-N size, add exit rules (stop-loss, trailing)
 
 ## Critical Context
-- PostgreSQL `swingtrader-db` on `127.0.0.1:5432`
-- Scanner tables (`tbl_stock_tickers`, `tbl_scanner_tickers`, `tbl_scanner_tickers_daily`, `tbl_scanner_tickers_1hour`): all 503 S&P 500 stocks, OHLCV + pre-computed MACD/PPO/SMA/ATR indicators
-- EMA periods: 10, SMA periods: 40 (config), COST = 0.0005, CAPITAL = 100000
-- Market breadth computed from cross-over events: `SELECT DISTINCT ON (ticker_id)` from `tbl_scanner_tickers` and `tbl_scanner_tickers_daily`
-- Copy-tickers endpoint mirrors all filter logic: Long, Short, Weekly Crossover, Multi-TF (+infancy), Undervalued
+- PostgreSQL `swingtrader-db` on `127.0.0.1:5432`, docker container healthy
+- Scanner tables: 503 stocks + 22 ETFs with `is_etf` flag; `tbl_etf_tickers` has company names
+- EMA=10, SMA=40, COST=0.0005, CAPITAL=100000
+- MTF Top-N Phase 1: separate paper portfolios per mode (stock + ETF) + min-score variant, state in `.mtf_state_*.json`
+- `mtf-daily-runner.timer` active at 5:30 PM ET weekdays — runs `--mode all` via systemd (single ExecStart)
+- `ema10_sma40_crossover` and `sma_crossover` columns in scanner tables are never populated by the pipeline (all false) — must compute inline via window functions
+- Laravel backend runs on port 9000 with `artisan serve` via systemd
+- Three composite indexes: `idx_daily_tid_date_close`, `idx_wk_tid_date_close`, `idx_1h_tid_date_atr`
+- Scanner daily data incomplete for current day — `populate_tickers.py --timeframe day` runs at 9 AM before market close
+- Explorer page: `http://localhost:9000/scanner/explorer` (HTML), data: `/scanner/explorer-data?mode=stock|etf` (JSON, ~6s uncached / 0.16s cached)
+- Backtest results: unfiltered MTF +5,469% (22.2% DD); `--min-score 5` +9,061% (33.2% DD); `--min-score 5 + --infancy` +688% (59.2% DD)
 - **CHAND Alpaca** (key `PK7DIID4NUY5N7HODFQRDTWMJC`): $1M paper, active, 0 positions
 - **EMAC Alpaca** (key `PK6IRYP5QWRVRVYJJYH5Q22RZS`, acct #PA3EHVX93SJT): $1M paper, active, 0 positions
 - **MTCS Alpaca** (key `PKQK45DA2ERAXX6XKPUDORIWSH`, acct #PA3NCXU4O2CN): $1M paper, active, 0 positions
-- systemd timer fires Mon–Fri 16:30 ET, already enabled and active
-- MTCS runner uses optimizer venv for Python execution
-- Multi-TF backtest only active from July 2023 (when hourly atr_stop data starts)
-- Multi-TF daily: 526 buys across ~1,200 days = 0.44 buys/day (stable rankings)
-- Long scanner daily: 12,399 buys across ~1,493 days = 8.3 buys/day (noisy rankings)
 
 ## Relevant Files
-- `swingtrader/services/ema_sma_crossover/daily_signal_service.py`: Multi-TF scanner with scoring + infancy buckets + market breadth → Slack alert
-- `swingtrader/services/ema_sma_crossover/backtest_multitf.py`: Multi-timeframe backtest, supports `--exit daily-ema` mode
-- `swingtrader/services/ema_sma_crossover/backtest_topn.py`: Top-N rotation backtest (Long scanner score)
-- `swingtrader/services/ema_sma_crossover/backtest_topn_multitf.py`: Top-N rotation backtest (Multi-TF score)
-- `swingtrader/services/mtf/`: Phase 1 paper trading — runner, config, db, CSV logs
-- `scanner/backend/Controllers/ScannerController.php`: `indexMultiTfUptrend()`, `getMarketBreadth()`, `copyTickers()`, `getMultiTfUptrendTickers()`; optimized `chart()` with bar limits
-- `scanner/backend/views/scanner/index.blade.php`: Multi-TF table, infancy toggle, AJAX timeframe switch, breadth badge, copy button, scroll-to-center, chart header, active-row highlight, unified colgroup-free table styling
-- `swingtrader/backend/routes/web.php`: `/scanner/copy-tickers` route
-- `swingtrader/backend/app/Services/EquityService.php`: `syncLiveTradesFromAlpaca()` — CHAND reconciliation (Fixed: don't re-open closed trades, skip duplicate entry creation)
-- `swingtrader/backend/app/Services/TradeExecutorService.php`: CHAND trade execution (Fixed: don't overwrite `alpaca_order_id` on scale-in)
-- `common/scripts/health-check.sh`: Daily Signal Service monitoring section
-- `common/docs/services_doc/mtcs_service.md`: MTCS service documentation
-- `common/docs/services_doc/mtf_daily_runner.md`: MTF Top-N service documentation
-- `common/docs/TRADING_STRATEGIES.md`: All strategies overview
-- `common/docs/How_System_Works.md`: EMAC pipeline + Daily Signal Service
-- `.env` files across: `swingtrader/backend/`, `scanner/backend/`, `swingtrader/services/optimizer/`, `swingtrader/services/ema_sma_crossover/`, `swingtrader/services/mtcs/`
+- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 1 — `--mode stock|etf|all` flag, `--min-score` (CLI arg + filtered candidates), separate CSVs/state per variant, crash alerting, stale data check, atomic writes, DB retry
+- `swingtrader/services/mtf/db.py`: Market breadth queries — compute close>SMA40 inline, fixed `both`→`bt` CTE name
+- `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy` flags, partial-date exclusion fix
+- `swingtrader/services/mtf/config.py`: DB config, TOP_N=10, COST=0.0005, CAPITAL=100000
+- `swingtrader/services/mtf/systemd/mtf-daily-runner.service`: Single ExecStart `--mode all`, `TimeoutStopSec=300`
+- `swingtrader/services/mtf/health_check.py`: Checks timer, journal errors, data freshness, state file staleness
+- `swingtrader/backend/storage/framework/cache/`: Explorer data cache (5-min TTL) — clear this + `views/` for blade changes
+- `common/docs/services_doc/mtf-daily-runner.service`: Docs copy matching active service (`--mode all`, `TimeoutStopSec=300`)
+- `common/docs/services_doc/mtf_daily_runner.md`: Updated with combined Slack message example, per-mode CSVs, `--mode all` CLI docs, `--user` systemd commands
+- `scanner/backend/Controllers/ScannerController.php`: Explorer data endpoint with optimized window function queries
+- `scanner/backend/views/scanner/explorer.blade.php`: Explorer Dashboard — 3-panel charts, all-strategy signal columns, sortable
+- `swingtrader/services/ema_sma_crossover/daily_signal_service.py`: Multi-TF scanner with scoring + infancy + market breadth → Slack
+- `swingtrader/services/ema_sma_crossover/backtest_multitf.py`: Multi-timeframe backtest with `--exit daily-ema` mode

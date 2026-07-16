@@ -678,7 +678,8 @@ class ScannerController
         $dailyData = DB::select("
             SELECT ticker_id,
                    MAX(CASE WHEN rnd = 1 THEN close END) AS close,
-                   AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40
+                   AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40,
+                   AVG(close::float8) FILTER (WHERE rnd <= 10) AS ema10
             FROM (
                 SELECT ticker_id, date, close::float8 AS close,
                        ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
@@ -687,8 +688,10 @@ class ScannerController
             WHERE rnd <= 40
             GROUP BY ticker_id
         ");
+        $dailyById = [];
         $dailyBullishById = [];
         foreach ($dailyData as $r) {
+            $dailyById[$r->ticker_id] = $r;
             if ($r->close !== null && $r->sma40 !== null && (float)$r->close > (float)$r->sma40) {
                 $dailyBullishById[$r->ticker_id] = true;
             }
@@ -752,6 +755,7 @@ class ScannerController
         foreach ($tickerInfo as $tid => $info) {
             $w = $weeklyById[$tid] ?? null;
             $h = $hourlyById[$tid] ?? null;
+            $d = $dailyById[$tid] ?? null;
             $dBullish = $dailyBullishById[$tid] ?? false;
             if (!$w || !$h) continue;
 
@@ -779,19 +783,36 @@ class ScannerController
             $fresh_pts = max(0, 2 - $daysSince / 60);
             $score = round($gap_pts + $atr_pts + $fresh_pts, 1);
 
+            // CHAND: close > ATR stop on hourly = bullish
+            $chand = $close_h > $atr_stop ? 'bull' : 'bear';
+            // EMAC: daily EMA10 > SMA40 = bullish (SMA10 proxy for EMA10)
+            $emac = ($d && $d->ema10 !== null && $d->sma40 !== null && (float)$d->ema10 > (float)$d->sma40)
+                ? 'bull' : 'bear';
+            // Daily Signal: fresh weekly SMA40 cross within 60 days (infancy)
+            $daily_signal = ($daysSince < 60) ? 'bull' : 'bear';
+            // Combined: mtf score +2 per bullish daily signal +1 per bullish emac/chand
+            $combined = round($score + ($daily_signal === 'bull' ? 2 : 0)
+                + ($emac === 'bull' ? 1 : 0) + ($chand === 'bull' ? 1 : 0), 1);
+            // Early Score: favors fresh all-green stocks that haven't run up yet
+            // = signal count (3 max) + fresh_pts - gap_pts
+            $signal_count = ($daily_signal === 'bull' ? 1 : 0) + ($emac === 'bull' ? 1 : 0) + ($chand === 'bull' ? 1 : 0);
+            $early = round($signal_count + $fresh_pts - $gap_pts, 1);
+
             $results[] = [
-                'tid' => $tid,
                 'symbol' => $info->symbol,
                 'name' => $info->company_name,
-                'score' => $score,
-                'gap_w' => round($gap_w, 1),
-                'atr_dist' => round($atr_dist, 2),
-                'freshness' => $daysSince >= 999 ? 'old' : $daysSince,
                 'close' => round($close_w, 2),
+                'mtf_score' => $score,
+                'daily_signal' => $daily_signal,
+                'emac' => $emac,
+                'chand' => $chand,
+                'mtcs' => null,
+                'combined' => $combined,
+                'early' => $early,
             ];
         }
 
-        usort($results, fn($a, $b) => $b['score'] <=> $a['score']);
+        usort($results, fn($a, $b) => $b['combined'] <=> $a['combined']);
 
         $payload = [
             'picks' => array_slice($results, 0, 50),

@@ -38,15 +38,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .score-high { color: #c9a0ff; }
 .score-mid { color: #d29922; }
 .score-low { color: #8b949e; }
-.gap-pos { color: #3fb950; }
-.gap-neg { color: #f85149; }
-.atr-col { color: #d2a8ff; }
-.fresh-col { color: #8b949e; }
-.fresh-old { color: #484f58; }
 .loading-overlay { display: flex; position: absolute; inset: 0; background: #0f1117; z-index: 10; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
 .loading-overlay.hidden { display: none; }
 .spinner { width: 40px; height: 40px; border: 3px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { color: #e1e4e8; }
+.sort-arrow { display: inline-block; width: 10px; margin-left: 2px; font-size: 9px; }
+.signal-bull { color: #3fb950; font-size: 11px; font-weight: 700; }
+.signal-bear { color: #f85149; font-size: 11px; font-weight: 700; }
+.signal-na { color: #484f58; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -78,13 +79,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     <thead>
       <tr>
         <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
-        <th>Ticker</th>
-        <th>Company</th>
-        <th style="text-align:right;">Score</th>
-        <th style="text-align:right;">GapW%</th>
-        <th style="text-align:right;">ATR%</th>
-        <th style="text-align:right;">Fresh</th>
-        <th style="text-align:right;">Close</th>
+        <th data-sort="symbol" class="sortable">Ticker <span class="sort-arrow"></span></th>
+        <th data-sort="close" class="sortable" style="text-align:right;">Price <span class="sort-arrow"></span></th>
+        <th data-sort="mtf_score" class="sortable" style="text-align:right;">MTF Score <span class="sort-arrow"></span></th>
+        <th data-sort="daily_signal" class="sortable" style="text-align:center;">Daily Signal <span class="sort-arrow"></span></th>
+        <th data-sort="emac" class="sortable" style="text-align:center;">EMAC <span class="sort-arrow"></span></th>
+        <th data-sort="chand" class="sortable" style="text-align:center;">CHAND <span class="sort-arrow"></span></th>
+        <th data-sort="mtcs" class="sortable" style="text-align:center;">MTCS <span class="sort-arrow"></span></th>
+        <th data-sort="combined" class="sortable" style="text-align:right;">Combined <span class="sort-arrow"></span></th>
+        <th data-sort="early" class="sortable" style="text-align:right;">Early <span class="sort-arrow"></span></th>
       </tr>
     </thead>
     <tbody id="tableBody"></tbody>
@@ -105,6 +108,54 @@ let allSymbols = [];
 let chartInstance = null;
 let activeTicker = null;
 let selectedIndex = -1;
+let sortField = 'combined';
+let sortDir = -1;
+
+function getSortValue(p, field) {
+  if (field === 'symbol') return p.symbol.toUpperCase();
+  if (field === 'name') return (p.name || '').toUpperCase();
+  if (field === 'chand' || field === 'emac' || field === 'mtcs' || field === 'daily_signal') {
+    if (p[field] === 'bull') return 1;
+    if (p[field] === 'bear') return -1;
+    return 0;
+  }
+  return p[field] ?? 0;
+}
+
+function signalHtml(val) {
+  if (val === 'bull') return '<span class="signal-bull">▲</span>';
+  if (val === 'bear') return '<span class="signal-bear">▼</span>';
+  return '<span class="signal-na">—</span>';
+}
+
+function sortData() {
+  allData.sort((a, b) => {
+    const va = getSortValue(a, sortField);
+    const vb = getSortValue(b, sortField);
+    if (va < vb) return -sortDir;
+    if (va > vb) return sortDir;
+    return 0;
+  });
+}
+
+function handleSort(field) {
+  if (sortField === field) {
+    sortDir *= -1;
+  } else {
+    sortField = field;
+    sortDir = field === 'symbol' || field === 'name' ? 1 : -1;
+  }
+  sortData();
+  const arrows = document.querySelectorAll('.sort-arrow');
+  arrows.forEach(a => a.textContent = '');
+  const idx = Array.from(document.querySelectorAll('th.sortable')).findIndex(th => th.dataset.sort === field);
+  if (idx >= 0) arrows[idx].textContent = sortDir === 1 ? '▲' : '▼';
+  renderTable();
+  if (activeTicker) {
+    const i = allData.findIndex(p => p.symbol === activeTicker);
+    if (i >= 0) selectRow(i);
+  }
+}
 
 function getRows() {
   return document.querySelectorAll('#scannerTable tbody tr');
@@ -139,19 +190,19 @@ function renderTable() {
   const q = document.getElementById('tickerSearch').value.toUpperCase();
   const filtered = allData.filter(p => p.symbol.includes(q) || (p.name && p.name.toUpperCase().includes(q)));
   tbody.innerHTML = filtered.map((p, i) => {
-    const freshStr = typeof p.freshness === 'number' ? p.freshness + 'd' : p.freshness;
-    const freshClass = p.freshness === 'old' || p.freshness > 365 ? 'fresh-old' : 'fresh-col';
-    const scoreClass = p.score >= 5 ? 'score-high' : p.score >= 3 ? 'score-mid' : 'score-low';
-    const gapClass = p.gap_w >= 0 ? 'gap-pos' : 'gap-neg';
+    const scoreClass = p.mtf_score >= 5 ? 'score-high' : p.mtf_score >= 3 ? 'score-mid' : 'score-low';
+    const combinedClass = p.combined >= 8 ? 'score-high' : p.combined >= 5 ? 'score-mid' : 'score-low';
     return '<tr data-ticker="' + p.symbol + '" data-index="' + i + '">'
       + '<td><input type="checkbox" class="row-checkbox" value="' + p.symbol + '"></td>'
       + '<td class="ticker ticker-bull">' + p.symbol + '</td>'
-      + '<td style="color:#8b949e;font-size:9px;">' + (p.name || '') + '</td>'
-      + '<td class="num ' + scoreClass + '">' + p.score.toFixed(1) + '</td>'
-      + '<td class="num ' + gapClass + '">' + (p.gap_w > 0 ? '+' : '') + p.gap_w + '%</td>'
-      + '<td class="num atr-col">' + p.atr_dist + '%</td>'
-      + '<td class="num ' + freshClass + '">' + freshStr + '</td>'
-      + '<td class="num pos">$' + p.close.toFixed(2) + '</td>'
+      + '<td class="num pos">$' + (p.close ? p.close.toFixed(2) : '') + '</td>'
+      + '<td class="num ' + scoreClass + '">' + p.mtf_score.toFixed(1) + '</td>'
+      + '<td style="text-align:center;">' + signalHtml(p.daily_signal) + '</td>'
+      + '<td style="text-align:center;">' + signalHtml(p.emac) + '</td>'
+      + '<td style="text-align:center;">' + signalHtml(p.chand) + '</td>'
+      + '<td style="text-align:center;">' + signalHtml(p.mtcs) + '</td>'
+      + '<td class="num ' + combinedClass + '">' + p.combined.toFixed(1) + '</td>'
+      + '<td class="num ' + (p.early >= 2 ? 'score-high' : p.early >= 0 ? 'score-mid' : 'score-low') + '">' + p.early.toFixed(1) + '</td>'
       + '</tr>';
   }).join('');
   allSymbols = filtered.map(p => p.symbol);
@@ -172,8 +223,9 @@ async function loadData() {
     const res = await fetch('/scanner/explorer-data?mode=' + currentMode);
     const data = await res.json();
     overlay.classList.add('hidden');
-    if (data.error) { tbody.innerHTML = '<tr><td colspan="8" style="color:#da3633;padding:20px;text-align:center;">' + data.error + '</td></tr>'; return; }
+    if (data.error) { tbody.innerHTML = '<tr><td colspan="9" style="color:#da3633;padding:20px;text-align:center;">' + data.error + '</td></tr>'; return; }
     allData = data.picks;
+    sortData();
     document.getElementById('countLabel').textContent = data.total + ' tickers';
     if (data.breadth !== null) {
       document.getElementById('breadthLabel').innerHTML = 'Breadth: ' + data.breadth + '%'
@@ -188,7 +240,7 @@ async function loadData() {
     }
   } catch (e) {
     overlay.classList.add('hidden');
-    tbody.innerHTML = '<tr><td colspan="8" style="color:#da3633;padding:20px;text-align:center;">Failed to load data</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="color:#da3633;padding:20px;text-align:center;">Failed to load data</td></tr>';
   }
 }
 
@@ -249,8 +301,7 @@ function parseTime(v) {
 function loadChart(ticker, row) {
   activeTicker = ticker;
   if (!row) row = document.querySelector('tr[data-ticker="' + ticker + '"]');
-  const company = row ? (row.children[2]?.textContent?.trim() || '') : '';
-  const label = company ? company + ' (' + ticker + ')' : ticker;
+  const label = ticker;
   const body = document.getElementById('chartBody');
   body.innerHTML = '<div id="chartHeader" style="color:#e1e4e8;font-size:13px;font-weight:600;padding:4px 8px;border-bottom:1px solid #2d2f3a;flex-shrink:0;text-align:center;">' + label + '</div><div class="empty-chart">Loading ' + ticker + '...</div>';
   fetch('/scanner/data/' + ticker + '?timeframe=weekly&limit=300')
@@ -408,7 +459,15 @@ function renderChart(d) {
   chartInstance = chart;
 }
 
-document.addEventListener('DOMContentLoaded', loadData);
+document.addEventListener('DOMContentLoaded', () => {
+  const initialArrow = document.querySelector('th[data-sort="combined"] .sort-arrow');
+  if (initialArrow) initialArrow.textContent = '▼';
+  loadData();
+});
+
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.addEventListener('click', () => handleSort(th.dataset.sort));
+});
 
 document.getElementById('scannerTable')?.addEventListener('click', e => {
   if (e.target.closest('.row-checkbox')) return;

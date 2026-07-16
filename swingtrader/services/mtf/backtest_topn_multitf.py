@@ -22,12 +22,12 @@ EMA = 10
 SMA = 40
 
 
-def load_bars(conn, table, date_col):
+def load_bars(conn, table, date_col, is_etf=False):
     """Load OHLC data from a table for all tickers."""
     with conn.cursor() as cur:
-        cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true ORDER BY symbol')
+        cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=%s ORDER BY symbol', (is_etf,))
         tickers = cur.fetchall()
-    print(f'  Loading {table}...')
+    print(f'  Loading {table} ({len(tickers)} tickers)...')
 
     data = {}
     for tid, sym in tickers:
@@ -79,15 +79,25 @@ def main():
     parser.add_argument('--top-n', type=int, default=10)
     parser.add_argument('--rebalance', choices=['daily', 'weekly'], default='daily')
     parser.add_argument('--detail', action='store_true')
+    parser.add_argument('--etf', action='store_true', help='Run on ETF universe (is_etf=true)')
+    parser.add_argument('--score', choices=['mtf', 'early'], default='mtf',
+                        help='Sorting score: mtf=gap+atr+fresh, early=signals+fresh-gap')
+    parser.add_argument('--min-score', type=float, default=None,
+                        help='Minimum MTF score to consider (e.g. 5.0 = only stocks with score >= 5)')
+    parser.add_argument('--infancy', action='store_true',
+                        help='Only consider tickers with days_since_weekly_cross < 60')
     args = parser.parse_args()
 
     db_module.init_db()
     conn = db_module.get_conn()
     try:
+        is_etf = args.etf
+        label = 'ETF' if is_etf else 'Stock'
+        print(f'\n  Mode: {label} universe\n')
         # Load three timeframes
-        _, weekly = load_bars(conn, 'tbl_scanner_tickers', 'date')
-        _, daily = load_bars(conn, 'tbl_scanner_tickers_daily', 'date')
-        _, hourly = load_bars(conn, 'tbl_scanner_tickers_1hour', None)
+        _, weekly = load_bars(conn, 'tbl_scanner_tickers', 'date', is_etf)
+        _, daily = load_bars(conn, 'tbl_scanner_tickers_daily', 'date', is_etf)
+        _, hourly = load_bars(conn, 'tbl_scanner_tickers_1hour', None, is_etf)
 
         # Only keep tickers present in all datasets
         common = set(weekly) & set(daily) & set(hourly)
@@ -123,12 +133,14 @@ def main():
         for tid in hourly:
             hourly_idx[tid] = {dt: i for i, dt in enumerate(hourly[tid]['dates'])}
 
+        MIN_TICKERS = 10 if is_etf else 400
         # All trading dates from daily table (union across all tickers)
         all_dates = sorted(set().union(*[set(d['dates']) for d in daily.values()]))
+        # Exclude dates where fewer than MIN_TICKERS tickers have data (partial days)
+        all_dates = [d for d in all_dates if sum(1 for td in daily.values() if d in td['dates']) >= MIN_TICKERS]
         print(f'  Daily date range: {all_dates[0]} to {all_dates[-1]} ({len(all_dates)} days)')
 
         # Start when enough tickers have data
-        MIN_TICKERS = 400
         skip = 0
         for ri, d in enumerate(all_dates):
             cnt = sum(1 for td in daily.values() if d in td['dates'])
@@ -136,11 +148,8 @@ def main():
                 skip = ri
                 break
         all_dates = all_dates[skip:]
-        # Also need warmup for SMA computation
-        print(f'  Coverage: {MIN_TICKERS}+ tickers from {all_dates[0]}')
 
         # Further filter: need at least WARMUP bars for SMA
-        # Find date where at least MIN_TICKERS have WARMUP bars of weekly data
         start_idx = 0
         for ri, d in enumerate(all_dates):
             cnt = 0
@@ -152,7 +161,7 @@ def main():
                 start_idx = ri
                 break
         all_dates = all_dates[start_idx:]
-        print(f'  Warmup complete from {all_dates[0]}')
+        print(f'  Universe: {len(common)} tickers, warmup from {all_dates[0]}')
 
         step = 5 if args.rebalance == 'weekly' else 1
         period_label = f'{args.rebalance} (every {step} trading day{"s" if step > 1 else ""})'
@@ -217,9 +226,20 @@ def main():
                 gap_pts = min(gap_w / 20, 3)
                 atr_pts = min(atr_dist / 1.5, 3)
                 fresh_pts = max(0, 2 - days_since / 60)
-                score = round(gap_pts + atr_pts + fresh_pts, 1)
+                mtf_score = round(gap_pts + atr_pts + fresh_pts, 1)
 
-                candidates.append((tid, score))
+                # Early score: signal count + fresh_pts - gap_pts
+                # Signal count: daily_signal (days_since<60) + emac (daily EMA>SMA) + chand (close>atr_stop)
+                # EMAC and CHAND are already required by the filter, so base is 2
+                signal_cnt = 2 + (1 if days_since < 60 else 0)
+                early_score = round(signal_cnt + fresh_pts - gap_pts, 1)
+
+                decision_score = early_score if args.score == 'early' else mtf_score
+                if args.min_score is not None and mtf_score < args.min_score:
+                    continue
+                if args.infancy and days_since >= 60:
+                    continue
+                candidates.append((tid, decision_score))
 
             if not candidates:
                 # MTM
