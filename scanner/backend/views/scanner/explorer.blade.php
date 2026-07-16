@@ -13,8 +13,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .top-bar .signals { font-size: 12px; color: #3fb950; margin-left: auto; }
 .top-bar .scanned { font-size: 12px; color: #8b949e; }
 .divider { width:1px; height:16px; background:#2d2f3a; }
-.table-wrap { flex-shrink: 0; overflow-y: auto; max-height: 180px; border-bottom: 1px solid #2d2f3a; }
-.table-wrap table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.table-wrap { flex-shrink: 0; overflow: auto; max-height: 180px; border-bottom: 1px solid #2d2f3a; }
+.table-wrap table { border-collapse: collapse; min-width: 700px; }
 .table-wrap thead { position: sticky; top: 0; z-index: 1; }
 .table-wrap th { background: #23252f; padding: 3px 5px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.3px; color: #8b949e; white-space: nowrap; }
 .table-wrap td { padding: 2px 5px; font-size: 10px; border-bottom: 1px solid #1c1e26; white-space: nowrap; }
@@ -48,6 +48,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .signal-bull { color: #3fb950; font-size: 11px; font-weight: 700; }
 .signal-bear { color: #f85149; font-size: 11px; font-weight: 700; }
 .signal-na { color: #484f58; font-size: 11px; }
+@media (max-width: 768px) {
+  body { height: auto; min-height: 100vh; }
+  .top-bar { flex-wrap: wrap; gap: 4px; padding: 4px 8px; font-size: 11px; }
+  .top-bar select { font-size: 11px; padding: 4px 6px; }
+  .top-bar .scanned, .top-bar .signals { font-size: 11px; }
+  .ticker-search input { width: 70px; font-size: 11px; }
+  .table-wrap { max-height: 150px; }
+  .table-wrap th, .table-wrap td { font-size: 9px; padding: 2px 3px; }
+  .table-wrap th:nth-child(n+5):nth-child(-n+8),
+  .table-wrap td:nth-child(n+5):nth-child(-n+8) { display: none; }
+  .chart-wrap { min-height: 300px; }
+  .chart-wrap .chart-inner { gap: 1px; }
+}
+@media (max-width: 480px) {
+  .top-bar { gap: 2px; }
+  .top-bar .divider { display: none; }
+  .ticker-search input { width: 60px; }
+  .table-wrap th, .table-wrap td { font-size: 8px; padding: 1px 2px; }
+  .table-wrap th:nth-child(9), .table-wrap td:nth-child(9),
+  .table-wrap th:nth-child(10), .table-wrap td:nth-child(10) { display: none; }
+}
 </style>
 </head>
 <body>
