@@ -1,10 +1,10 @@
 [Unit]
-Description=Daily EMA(10)/SMA(40) Signal Timer (weekdays at 4:30 PM ET)
+Description=Daily EMA(10)/SMA(40) Signal Timer (weekdays at 5:00 PM ET after MTF)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target swingtrader-db.service
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 17:15:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 17:00:00 America/New_York
 Persistent=true
 RandomizedDelaySec=120
 

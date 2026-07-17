@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily hourly bar backfill (30 min after market close, weekdays 16:30 ET)
+Description=Daily hourly bar backfill (30 min after market close, weekdays 4:30 PM ET)
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 16:30:00
