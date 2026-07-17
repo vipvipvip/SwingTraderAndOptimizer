@@ -1,7 +1,8 @@
 [Unit]
 Description=EMAC EMA(10)/SMA(40) Crossover Runner
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
-After=network.target postgresql.service
+After=network.target swingtrader-db.service
+Wants=swingtrader-db.service
 
 [Service]
 Type=simple

@@ -1,7 +1,7 @@
 [Unit]
 Description=Scanner hourly price capture + indicator computation
-After=network-online.target
-Wants=network-online.target
+After=network-online.target swingtrader-db.service
+Wants=network-online.target swingtrader-db.service
 
 [Service]
 Type=oneshot
