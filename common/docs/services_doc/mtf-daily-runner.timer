@@ -4,6 +4,7 @@ Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target postgresql.service
 
 [Timer]
+OnCalendar=Mon..Fri *-*-* 08:00:00 America/New_York
 OnCalendar=Mon..Fri *-*-* 17:30:00 America/New_York
 Persistent=true
 RandomizedDelaySec=120
