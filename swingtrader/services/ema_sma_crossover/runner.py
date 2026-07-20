@@ -233,6 +233,14 @@ def run():
                     processed.add(seen_key)
                     run._processed_signals = processed
 
+                    # Skip BUY signals before 10:00 ET to avoid open volatility
+                    if sig == 'BUY':
+                        now_et = datetime.now(NY)
+                        now_min = now_et.hour * 60 + now_et.minute
+                        if 570 <= now_min < 600:  # 9:30-10:00 ET
+                            print(f'[RUNNER] {sym} skipping BUY before 10:00 ET — will re-evaluate next cycle')
+                            continue
+
                     signals.append((sym, tid, sig, sig_ts))
 
             # ── Step 3: sell first ──

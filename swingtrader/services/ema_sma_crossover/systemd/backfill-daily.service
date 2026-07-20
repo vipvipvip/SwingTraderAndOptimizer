@@ -1,0 +1,17 @@
+[Unit]
+Description=EMAC Daily Candle Backfill
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=swingtrader-db.service
+Wants=swingtrader-db.service
+
+[Service]
+Type=oneshot
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover
+ExecStart=/usr/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover/backfill_daily.py
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
