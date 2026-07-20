@@ -17,7 +17,7 @@ import argparse
 import traceback
 import numpy as np
 import requests
-from datetime import datetime, date as dt_date
+from datetime import datetime, date as dt_date, timedelta
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -273,6 +273,16 @@ def _run_single_mode(mode, now, today, min_score=None):
         return False, ['No daily data found'], None
 
     sig_date = latest_date
+
+    # Monday before market open: force signal date to last trading day (Friday)
+    if now.weekday() == 0 and (now.hour < 9 or (now.hour == 9 and now.minute < 30)):
+        last_trading = today - timedelta(days=3)
+        with conn.cursor() as cur:
+            cur.execute('SELECT 1 FROM tbl_scanner_tickers_daily WHERE date::date = %s LIMIT 1', (last_trading,))
+            if cur.fetchone():
+                sig_date = last_trading
+                print(f'[MTF] Monday catch-up: using last trading day {sig_date} (latest is {latest_date})')
+
     print(f'[MTF] Signal date: {sig_date}')
 
     candidates = []

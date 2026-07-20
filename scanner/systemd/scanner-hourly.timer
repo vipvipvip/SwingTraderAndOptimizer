@@ -2,7 +2,7 @@
 Description=Daily hourly bar backfill (30 min after market close, weekdays 4:30 PM ET)
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 16:30:00
+OnCalendar=Mon..Fri *-*-* 16:30:00 America/New_York
 Persistent=true
 
 [Install]
