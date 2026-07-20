@@ -181,6 +181,10 @@ def run():
                 for sym in config.TICKERS:
                     _cancel_orders_for_symbol(sym)
 
+            # Periodically reconcile DB positions with Alpaca
+            if cycle_count % 5 == 1:
+                _sync_alpaca_positions(conn, ticker_ids)
+
             # ── Step 1: fetch trades, build 30-min bars ──
             for sym in config.TICKERS:
                 tid = ticker_ids[sym]
