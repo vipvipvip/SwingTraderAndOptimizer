@@ -639,6 +639,7 @@ class ScannerController
         $tickerInfo = DB::table('tbl_stock_tickers')
             ->where('enabled', true)
             ->where('is_etf', $isEft)
+            ->when($isEft, fn($q) => $q->whereIn('symbol', ['QQQ', 'VTI', 'VTV']))
             ->select('id', 'symbol', 'company_name')
             ->get()
             ->keyBy('id');
