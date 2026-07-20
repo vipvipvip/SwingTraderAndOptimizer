@@ -57,7 +57,7 @@ def _place_order(symbol, qty, side):
     return resp.json()
 
 
-def _wait_for_fill(order_id, max_retries=10, delay=1):
+def _wait_for_fill(order_id, max_retries=30, delay=1):
     """Poll order until filled or max_retries. Returns fill price or None."""
     for _ in range(max_retries):
         order = _get_order(order_id)
@@ -281,6 +281,8 @@ def sell_position(conn, ticker_id, symbol, signal_ts):
     fill_price = float(order['filled_avg_price']) if order.get('filled_avg_price') else None
     if not fill_price and order_id:
         fill_price = _wait_for_fill(order_id)
+        if fill_price:
+            order = _get_order(order_id) or order
     if not fill_price:
         msg = f'{symbol} SELL order {order_id} never filled'
         print(f'[EXECUTOR] {msg}')
@@ -339,6 +341,8 @@ def buy_position(conn, ticker_id, symbol, signal_ts, amount):
     fill_price = float(order['filled_avg_price']) if order.get('filled_avg_price') else None
     if not fill_price and order_id:
         fill_price = _wait_for_fill(order_id)
+        if fill_price:
+            order = _get_order(order_id) or order
 
     if not fill_price:
         fill_price = price  # fallback to pre-trade price
