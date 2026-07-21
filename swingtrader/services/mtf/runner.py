@@ -349,8 +349,9 @@ def _run_single_mode(mode, now, today, min_score=None):
             ret = (close_price - entry_price) / entry_price - config.COST_PER_TRADE
             cash += proceeds
             sells.append(f'{sym} {ret*100:+.1f}%')
+            pnl = proceeds - shares * entry_price
             trade_log_entries.append((str(sig_date), sym, 'SELL', f'{shares:.4f}',
-                                      f'{close_price:.2f}', f'{ret*100:+.2f}%'))
+                                      f'{close_price:.2f}', f'{ret*100:+.2f}%', f'{pnl:.2f}'))
             del positions[sym]
 
     if new_entries:
@@ -366,7 +367,7 @@ def _run_single_mode(mode, now, today, min_score=None):
             positions[sym] = {'shares': round(shares, 4), 'entry_price': bp}
             buys.append(f'{sym} @ ${bp:.2f}')
             trade_log_entries.append((str(sig_date), sym, 'BUY', f'{shares:.4f}',
-                                      f'{bp:.2f}', ''))
+                                      f'{bp:.2f}', '', ''))
 
     mtm_value = cash
     for sym, pos in list(positions.items()):
@@ -410,7 +411,7 @@ def _run_single_mode(mode, now, today, min_score=None):
     with open(trades_csv, 'a', newline='') as f:
         w = csv.writer(f)
         if trades_header:
-            w.writerow(['date', 'symbol', 'side', 'shares', 'price', 'return'])
+            w.writerow(['date', 'symbol', 'side', 'shares', 'price', 'return', 'pnl'])
         for entry in trade_log_entries:
             w.writerow(entry)
 
