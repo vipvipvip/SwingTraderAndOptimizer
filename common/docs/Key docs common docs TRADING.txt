@@ -27,6 +27,10 @@ MTF Daily Signal (daily_signal_service.py): BUY signal if weekly EMA(10) > SMA(4
 	The reason: penalizing gap_w removes the very stocks that produce explosive gains. The original finding was right — high gap_w stocks (WDC +1,517%, APP +741%) kept running despite being "stretched." The gap widens further in strong trends before reversing. Avoiding them misses the breakout entirely.
 	The MTF score's strength is that gap_w rewards momentum rather than penalizing it. The key insight from the backtest still holds: you want stocks that have already broken out hard and are still running, not stocks that just barely crossed.
 
+===== Time frames ====
+only QQQ/VTI/VTV have 30-min candles (EMAC system). Everything else (all other ETFs + all stocks) uses 1hr scanner data. It's not ETF vs stock, it's EMAC tickers vs scanner tickers.
+===== Time frames ====
+
 All three live runners operate on $1M paper accounts:
 1. CHAND — ✅ Live (Alpaca paper, key ending DTWMJC) (Slack: CHAND) (QQQ/VTI/VTV)
 2. EMAC — ✅ Live (Alpaca paper, key ending 22RZS, acct #PA3EHVX93SJT) (Slack: EMAC) (QQQ/VTI/VTV)
@@ -61,7 +65,7 @@ All three live runners on $1M Alpaca paper accounts. MTF Phase 1 paper validatio
 
 
 === See results with this utility
-home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/scripts/show_picks.py
+python3 home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/scripts/show_picks.py
 
 Here's the schedule with actual runtimes:
 All 9 timer files confirmed with America/New_York timezone. Here's the full schedule:
@@ -128,5 +132,8 @@ Losers — all capped around -5% to -7.4% by the stop-loss:
 - IJR: -6.48% ($1,209) — stopped out Aug 2024
 The stop-loss capped worst-case losses effectively. The bottom 10 are all SELL-STOP exits, confirming the rule is doing its job.
 You can run this anytime with:
-python3 backtest_topn_multitf.py --etf --top-n 10 --rebalance daily --stop-loss 5.0 --top-trades 10
+python3 ~/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/backtest_topn_multitf.py --etf --top-n 10 --rebalance daily --stop-loss 5.0 --top-trades 10
+
+======================== Get Signals on any ticker - hourly crossover
+python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover/signal_trailing_stop.py [--all-etfs, [<ticker>,<ticker>,<ticker>]]
 
