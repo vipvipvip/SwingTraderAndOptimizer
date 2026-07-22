@@ -1,8 +1,8 @@
 [Unit]
 Description=MTF Top-N Daily Paper Runner (Multi-TF rotation, Phase 1)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
-After=network.target swingtrader-db.service
-Wants=swingtrader-db.service
+After=network.target swingtrader-db.service scanner-hourly.service
+Wants=swingtrader-db.service scanner-hourly.service
 
 [Service]
 Type=oneshot

@@ -167,17 +167,19 @@ One combined `[MTF-TopN]` message at 5:30 PM ET with both stock and ETF results:
 ### Systemd
 ```bash
 # Run once (manual)
-systemctl --user start mtf-daily-runner.service
+sudo systemctl start mtf-daily-runner.service
 
 # Journal
-journalctl --user -u mtf-daily-runner.service -n 50 --no-pager
+sudo journalctl -u mtf-daily-runner.service -n 50 --no-pager
 
 # Status
-systemctl --user status mtf-daily-runner.timer
+sudo systemctl status mtf-daily-runner.timer
 
 # Tail live
-journalctl --user -u mtf-daily-runner.service -f
+sudo journalctl -u mtf-daily-runner.service -f
 ```
+
+**Dependency**: `mtf-daily-runner.service` declares `After=scanner-hourly.service` + `Wants=scanner-hourly.service`. When the runner starts, it pulls in `scanner-hourly.service` (populate + capture close quote + compute ATR_stop) and waits for it to complete before scoring. This ensures hourly `atr_stop` indicators are always freshly computed, even if `scanner-hourly.timer` is disabled or delayed.
 
 ### Manual
 ```bash
