@@ -372,8 +372,22 @@ def _run_single_mode(mode, now, today, min_score=None):
     mtm_value = cash
     for sym, pos in list(positions.items()):
         sd = score_detail.get(sym)
-        if sd:
-            mtm_value += pos['shares'] * sd['close'] * (1 - config.COST_PER_TRADE)
+        close = sd['close'] if sd else None
+        if not close:
+            try:
+                conn = db_module.get_conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT close FROM tbl_scanner_tickers_daily "
+                        "WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol=%s) "
+                        "ORDER BY date DESC LIMIT 1", (sym,))
+                    row = cur.fetchone()
+                    close = float(row[0]) if row else None
+                conn.close()
+            except Exception:
+                close = None
+        if close:
+            mtm_value += pos['shares'] * close * (1 - config.COST_PER_TRADE)
 
     total_ret = (mtm_value - config.INITIAL_CAPITAL) / config.INITIAL_CAPITAL * 100
 

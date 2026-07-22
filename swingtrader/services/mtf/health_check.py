@@ -35,12 +35,12 @@ def main():
 
     # ── Service timer status ──
     svc_status = os.popen(
-        'systemctl --user is-active mtf-daily-runner.timer 2>/dev/null || echo "not-found"'
+        'systemctl is-active mtf-daily-runner.timer 2>/dev/null || echo "not-found"'
     ).read().strip()
     if svc_status == 'active':
         ok('mtf-daily-runner.timer is active')
         trigger = os.popen(
-            'systemctl --user show mtf-daily-runner.timer -p TriggerOnCalendar --value 2>/dev/null'
+            'systemctl show mtf-daily-runner.timer -p TriggerOnCalendar --value 2>/dev/null'
         ).read().strip()
         if trigger:
             print(f'    Schedule: {trigger}')
@@ -51,7 +51,7 @@ def main():
 
     # ── Recent journal errors ──
     errors = os.popen(
-        'journalctl --user -u mtf-daily-runner --since "1 day ago" -p err -q --no-pager 2>/dev/null '
+        'journalctl -u mtf-daily-runner --since "1 day ago" -p err -q --no-pager 2>/dev/null '
         '| tail -5'
     ).read().strip()
     if errors:

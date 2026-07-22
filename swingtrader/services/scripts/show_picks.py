@@ -164,21 +164,35 @@ def show_daily():
         print(f"  {sym:8s} ${entry:<5.2f}  {now_s:>8s}  {ret:>7s}  {typ:8s}")
 
 
+def _live_mtm(state_file):
+    """Compute live MTM from state positions + db_close() prices."""
+    path = os.path.join(os.path.dirname(MTF_DATA), state_file)
+    try:
+        state = json.load(open(path))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    portfolio = state.get('portfolio', {})
+    cash = portfolio.get('cash', 0)
+    positions = portfolio.get('positions', {})
+    mtm = cash
+    for sym, pos in positions.items():
+        close = db_close(sym)
+        if close:
+            mtm += pos['shares'] * close
+    return mtm
+
+
 def show_summary():
+    configs = [
+        ('MTF Stock (default)', '.mtf_state_stock.json', 100000),
+        ('MTF Stock (min-score 5)', '.mtf_state_min5_stock.json', 100000),
+        ('MTF ETF', '.mtf_state_etf.json', 100000),
+    ]
     lines = []
-    for label, fn, cap in [
-        ('MTF Stock (default)', 'mtf_portfolio_stock.csv', 100000),
-        ('MTF Stock (min-score 5)', 'mtf_portfolio_min5_stock.csv', 100000),
-        ('MTF ETF', 'mtf_portfolio_etf.csv', 100000),
-    ]:
-        try:
-            with open(os.path.join(MTF_DATA, fn)) as f:
-                last = f.read().strip().split('\n')[-1]
-            parts = last.split(',')
-            mtm = float(parts[2])
-            lines.append((label, cap, mtm, parts[3]))
-        except (IndexError, OSError):
-            continue
+    for label, state_file, cap in configs:
+        mtm = _live_mtm(state_file)
+        if mtm is not None:
+            lines.append((label, cap, mtm))
 
     spy = db_close('SPY') or 748.23
     spy_ref = 749.66  # SPY on 7/13
@@ -189,7 +203,7 @@ def show_summary():
     print(f"{'=' * 72}")
     print(f"  {'Strategy':30s} {'Capital':>9s} {'MTM':>10s} {'Return':>8s} {'vs SPY':>8s}")
     print(f"  {'─' * 67}")
-    for label, cap, mtm, ret_str in lines:
+    for label, cap, mtm in lines:
         ret = (mtm - cap) / cap * 100
         print(f"  {label:30s} ${cap:>7,} ${mtm:>8,.2f}  {ret:>+7.2f}%  {ret-spy_ret:>+7.2f}%")
     print(f"  {'SPY':30s} {'':>9s} {'':>10s}  {spy_ret:>+7.2f}%")

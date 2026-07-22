@@ -86,6 +86,10 @@ def main():
                         help='Minimum MTF score to consider (e.g. 5.0 = only stocks with score >= 5)')
     parser.add_argument('--infancy', action='store_true',
                         help='Only consider tickers with days_since_weekly_cross < 60')
+    parser.add_argument('--stop-loss', type=float, default=None,
+                        help='Stop-loss exit: sell if position drops >N%% from entry (e.g. 5.0)')
+    parser.add_argument('--top-trades', type=int, default=0,
+                        help='Print top N winning/losing trades by return %%')
     args = parser.parse_args()
 
     db_module.init_db()
@@ -260,6 +264,31 @@ def main():
                 break
             exec_date = all_dates[exec_idx]
 
+            # STOP-LOSS: sell positions that dropped >stop-loss% from entry
+            if args.stop_loss is not None:
+                for tid in list(positions):
+                    d = daily.get(tid)
+                    if d is None:
+                        continue
+                    si = daily_idx[tid].get(sig_date)
+                    if si is None:
+                        continue
+                    current_close = float(d['close'][si])
+                    pos = positions[tid]
+                    drop_pct = (pos['entry_price'] - current_close) / pos['entry_price'] * 100
+                    if drop_pct >= args.stop_loss:
+                        xi = daily_idx[tid].get(exec_date)
+                        if xi is None or xi >= len(d['open']):
+                            continue
+                        sp = float(d['open'][xi])
+                        proceeds = pos['shares'] * sp * (1 - COST)
+                        ret = (sp - pos['entry_price']) / pos['entry_price'] - COST
+                        cash += proceeds
+                        trade_log.append((exec_date, pos['symbol'], 'SELL-STOP', pos['shares'], sp, ret))
+                        if args.detail:
+                            print(f'  {exec_date} STOP  {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f} ({drop_pct:.1f}% drop)')
+                        del positions[tid]
+
             # SELL: liquidate positions not in selected
             for tid in list(positions):
                 if tid not in selected:
@@ -320,7 +349,8 @@ def main():
         peak = np.maximum.accumulate(eq_arr)
         dd = np.max((peak - eq_arr) / peak)
 
-        all_sells = [t for t in trade_log if t[2] == 'SELL']
+        all_sells = [t for t in trade_log if t[2] in ('SELL', 'SELL-STOP')]
+        stop_sells = [t for t in trade_log if t[2] == 'SELL-STOP']
         all_buys = [t for t in trade_log if t[2] == 'BUY']
         winners = [t for t in all_sells if t[5] is not None and t[5] > 0]
         losers = [t for t in all_sells if t[5] is not None and t[5] <= 0]
@@ -340,7 +370,7 @@ def main():
         print(f'  Final:   ${equity_curve[-1]:,.0f}')
         print(f'  Return:  {total_ret*100:+.2f}%')
         print(f'  Max DD:  {dd*100:.1f}%')
-        print(f'  Trades:  {sells} sells / {buys} buys')
+        print(f'  Trades:  {sells} sells ({len(stop_sells)} stop-loss) / {buys} buys')
         print(f'  Win:     {len(winners)} ({wr:.0f}%)  avg +{avg_win:+.2f}%')
         print(f'  Loss:    {len(losers)} ({lr:.0f}%)  avg {avg_loss:+.2f}%')
         print(f'  Hold:    {len(all_dates) // max(1, sells) * step:.0f} days')
@@ -361,8 +391,64 @@ def main():
             for mk in sorted(monthly):
                 vals = monthly[mk]
                 mret = (vals[-1] - prev) / prev
-                print(f'  {mk}: {mret*100:+7.2f}%  (${prev:,.0f} → ${vals[-1]:,.0f})')
+                print(f'  {mk}: {mret*100:+7.2f}%  (${prev:,.0f} -> ${vals[-1]:,.0f})')
                 prev = vals[-1]
+
+        # --- Top trades ---
+        if args.top_trades > 0 and trade_log:
+            buys_map = {}
+            completed = []
+            for t in trade_log:
+                tdate, tsym, taction, tshares, tprice, tret = t
+                if taction == 'BUY':
+                    buys_map[tsym] = {'date': tdate, 'price': tprice, 'shares': tshares}
+                elif taction in ('SELL', 'SELL-STOP'):
+                    if tsym in buys_map:
+                        b = buys_map.pop(tsym)
+                        pnl_pct = (tprice - b['price']) / b['price'] * 100
+                        dollar_pnl = (tprice - b['price']) * b['shares']
+                        completed.append({
+                            'symbol': tsym,
+                            'entry_date': b['date'],
+                            'entry_price': b['price'],
+                            'exit_date': tdate,
+                            'exit_price': tprice,
+                            'return_pct': pnl_pct,
+                            'dollar_pnl': dollar_pnl,
+                            'exit_type': taction
+                        })
+
+            if completed:
+                completed.sort(key=lambda x: x['return_pct'], reverse=True)
+                n = min(args.top_trades, len(completed))
+                hdr = f'  {"#":<4} {"Ticker":<7} {"Entry Date":<13} {"Entry $":<11} {"Exit Date":<13} {"Exit $":<11} {"Return":>9} {"P&L $":>12} {"Exit":>9}'
+                sep = '-' * 92
+
+                print(f'\n  TOP {n} WINNING TRADES')
+                print(sep)
+                print(hdr)
+                print(sep)
+                for i, t in enumerate(completed[:n], 1):
+                    ed = str(t["entry_date"]) if not hasattr(t["entry_date"], 'date') else str(t["entry_date"].date())
+                    xd = str(t["exit_date"]) if not hasattr(t["exit_date"], 'date') else str(t["exit_date"].date())
+                    print(f'  {i:<4} {t["symbol"]:<7} {ed:<13} ${t["entry_price"]:<10.2f} {xd:<13} ${t["exit_price"]:<10.2f} {t["return_pct"]:>+8.2f}% ${t["dollar_pnl"]:>+11,.2f} {t["exit_type"]:>9}')
+
+                print(f'\n  BOTTOM {n} LOSING TRADES')
+                print(sep)
+                print(hdr)
+                print(sep)
+                for i, t in enumerate(completed[-n:], 1):
+                    ed = str(t["entry_date"]) if not hasattr(t["entry_date"], 'date') else str(t["entry_date"].date())
+                    xd = str(t["exit_date"]) if not hasattr(t["exit_date"], 'date') else str(t["exit_date"].date())
+                    print(f'  {i:<4} {t["symbol"]:<7} {ed:<13} ${t["entry_price"]:<10.2f} {xd:<13} ${t["exit_price"]:<10.2f} {t["return_pct"]:>+8.2f}% ${t["dollar_pnl"]:>+11,.2f} {t["exit_type"]:>9}')
+
+                wins = [t for t in completed if t['return_pct'] > 0]
+                losses = [t for t in completed if t['return_pct'] <= 0]
+                print(f'\n  Total: {len(completed)} trades  |  Winners: {len(wins)} ({len(wins)/len(completed)*100:.0f}%)  |  Losers: {len(losses)} ({len(losses)/len(completed)*100:.0f}%)')
+                if wins:
+                    print(f'  Avg win:  +{np.mean([t["return_pct"] for t in wins]):.2f}%  (${np.mean([t["dollar_pnl"] for t in wins]):+,.0f})')
+                if losses:
+                    print(f'  Avg loss: {np.mean([t["return_pct"] for t in losses]):.2f}%  (${np.mean([t["dollar_pnl"] for t in losses]):+,.0f})')
         print()
 
     finally:
