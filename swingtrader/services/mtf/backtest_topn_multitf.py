@@ -22,6 +22,18 @@ EMA = 10
 SMA = 40
 
 
+def _last_idx_before(idx_map, dates, target):
+    """Return index for `target` date, or the last available index on/before it."""
+    xi = idx_map.get(target)
+    if xi is not None:
+        return xi
+    # Walk backwards from target to find last available date
+    for i in range(len(dates) - 1, -1, -1):
+        if dates[i] <= target:
+            return i
+    return None
+
+
 def load_bars(conn, table, date_col, is_etf=False):
     """Load OHLC data from a table for all tickers."""
     with conn.cursor() as cur:
@@ -246,10 +258,10 @@ def main():
                 candidates.append((tid, decision_score))
 
             if not candidates:
-                # MTM
+                # MTM — fall back to last available close if sig_date missing
                 pf_val = cash
                 for tid in list(positions):
-                    p = daily_idx[tid].get(sig_date)
+                    p = _last_idx_before(daily_idx[tid], daily[tid]['dates'], sig_date)
                     if p is not None:
                         pf_val += positions[tid]['shares'] * float(daily[tid]['close'][p])
                 equity_curve.append(pf_val)
@@ -270,14 +282,14 @@ def main():
                     d = daily.get(tid)
                     if d is None:
                         continue
-                    si = daily_idx[tid].get(sig_date)
+                    si = _last_idx_before(daily_idx[tid], daily[tid]['dates'], sig_date)
                     if si is None:
                         continue
                     current_close = float(d['close'][si])
                     pos = positions[tid]
                     drop_pct = (pos['entry_price'] - current_close) / pos['entry_price'] * 100
                     if drop_pct >= args.stop_loss:
-                        xi = daily_idx[tid].get(exec_date)
+                        xi = _last_idx_before(daily_idx[tid], daily[tid]['dates'], exec_date)
                         if xi is None or xi >= len(d['open']):
                             continue
                         sp = float(d['open'][xi])
@@ -295,7 +307,7 @@ def main():
                     d = daily.get(tid)
                     if d is None:
                         continue
-                    xi = daily_idx[tid].get(exec_date)
+                    xi = _last_idx_before(daily_idx[tid], daily[tid]['dates'], exec_date)
                     if xi is None or xi >= len(d['open']):
                         continue
                     sp = float(d['open'][xi])
@@ -316,7 +328,7 @@ def main():
                     d = daily.get(tid)
                     if d is None:
                         continue
-                    xi = daily_idx[tid].get(exec_date)
+                    xi = _last_idx_before(daily_idx[tid], daily[tid]['dates'], exec_date)
                     if xi is None or xi >= len(d['open']):
                         continue
                     bp = float(d['open'][xi])
@@ -329,13 +341,13 @@ def main():
                     if args.detail:
                         print(f'  {exec_date} BUY  {sym} {shares:.2f} @ ${bp:.2f}')
 
-            # MTM at exec_date close
+            # MTM at exec_date close — fall back to last available close
             pf_val = cash
             for tid, pos in positions.items():
                 d = daily.get(tid)
                 if d is None:
                     continue
-                xi = daily_idx[tid].get(exec_date)
+                xi = _last_idx_before(daily_idx[tid], daily[tid]['dates'], exec_date)
                 if xi is not None:
                     pf_val += pos['shares'] * float(d['close'][xi])
             equity_curve.append(pf_val)
