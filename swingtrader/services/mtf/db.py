@@ -15,10 +15,23 @@ def init_db():
     print('[MTF DB] Scanner tables available')
 
 
-def get_all_tickers(conn):
+def get_all_tickers(conn, is_etf=False):
     with conn.cursor() as cur:
-        cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true ORDER BY symbol')
+        cur.execute(
+            'SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=%s ORDER BY symbol',
+            (is_etf,))
         return cur.fetchall()
+
+
+def get_etf_name(conn, ticker_id):
+    with conn.cursor() as cur:
+        cur.execute('''
+            SELECT e.company_name FROM tbl_etf_tickers e
+            JOIN tbl_stock_tickers s ON s.symbol = e.symbol
+            WHERE s.id = %s
+        ''', (ticker_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
 
 
 def load_weekly(conn, ticker_id):
@@ -83,16 +96,28 @@ def get_latest_daily_bar_date(conn):
         return cur.fetchone()[0]
 
 
-def get_market_breadth(conn):
+def get_market_breadth(conn, is_etf=False):
     with conn.cursor() as cur:
         cur.execute('''
-            SELECT COUNT(*) FILTER (WHERE we.ema10_sma40_crossover AND de.ema10_sma40_crossover) AS uptrend,
+            WITH wk AS (
+                SELECT ticker_id, close::float8 AS close,
+                       AVG(close::float8) OVER (PARTITION BY ticker_id ORDER BY date ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) AS sma40,
+                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rn
+                FROM tbl_scanner_tickers
+            ),
+            dy AS (
+                SELECT ticker_id, close::float8 AS close,
+                       AVG(close::float8) OVER (PARTITION BY ticker_id ORDER BY date ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) AS sma40,
+                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rn
+                FROM tbl_scanner_tickers_daily
+            )
+            SELECT COUNT(*) FILTER (WHERE wk.close > wk.sma40 AND dy.close > dy.sma40) AS uptrend,
                    COUNT(*) AS total
-            FROM tbl_scanner_tickers we
-            JOIN tbl_scanner_tickers_daily de ON de.ticker_id = we.ticker_id
-                AND de.date = (SELECT MAX(date) FROM tbl_scanner_tickers_daily)
-            WHERE we.date = (SELECT MAX(date) FROM tbl_scanner_tickers)
-        ''')
+            FROM wk
+            JOIN dy ON dy.ticker_id = wk.ticker_id
+            JOIN tbl_stock_tickers s ON s.id = wk.ticker_id
+            WHERE wk.rn = 1 AND dy.rn = 1 AND s.is_etf = %s
+        ''', (is_etf,))
         row = cur.fetchone()
     if row and row[1] > 0:
         return row[0] / row[1] * 100

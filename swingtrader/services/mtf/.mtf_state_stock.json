@@ -1,0 +1,1960 @@
+{
+  "last_date": "2026-07-13",
+  "last_picks": [
+    "HPE",
+    "SNDK",
+    "WDC",
+    "MU",
+    "DDOG",
+    "DELL",
+    "MRNA",
+    "PANW",
+    "AMAT",
+    "AMD"
+  ],
+  "last_scores": {
+    "HPE": {
+      "score": 6.2,
+      "gap_w": 64.0,
+      "atr_dist": 4.4,
+      "freshness": 105,
+      "close": 46.83,
+      "name": null
+    },
+    "SNDK": {
+      "score": 6,
+      "gap_w": 97.5,
+      "atr_dist": 7.25,
+      "freshness": 999,
+      "close": 1785.69,
+      "name": null
+    },
+    "WDC": {
+      "score": 6,
+      "gap_w": 66.1,
+      "atr_dist": 5.09,
+      "freshness": 420,
+      "close": 550.32,
+      "name": null
+    },
+    "MU": {
+      "score": 5.9,
+      "gap_w": 81.5,
+      "atr_dist": 4.34,
+      "freshness": 399,
+      "close": 923.22,
+      "name": null
+    },
+    "DDOG": {
+      "score": 5.8,
+      "gap_w": 58.0,
+      "atr_dist": 3.12,
+      "freshness": 70,
+      "close": 259.19,
+      "name": null
+    },
+    "DELL": {
+      "score": 5.7,
+      "gap_w": 101.4,
+      "atr_dist": 4.01,
+      "freshness": 133,
+      "close": 422.05,
+      "name": null
+    },
+    "MRNA": {
+      "score": 5.5,
+      "gap_w": 50.7,
+      "atr_dist": 4.78,
+      "freshness": 210,
+      "close": 66.06,
+      "name": null
+    },
+    "PANW": {
+      "score": 5.5,
+      "gap_w": 56.6,
+      "atr_dist": 2.54,
+      "freshness": 63,
+      "close": 324.32,
+      "name": null
+    },
+    "AMAT": {
+      "score": 5.4,
+      "gap_w": 55.4,
+      "atr_dist": 3.93,
+      "freshness": 378,
+      "close": 573.3,
+      "name": null
+    },
+    "AMD": {
+      "score": 5.4,
+      "gap_w": 74.6,
+      "atr_dist": 3.63,
+      "freshness": 378,
+      "close": 536.51,
+      "name": null
+    },
+    "FTNT": {
+      "score": 5.2,
+      "gap_w": 63.2,
+      "atr_dist": 2.26,
+      "freshness": 77,
+      "close": 160.82,
+      "name": null
+    },
+    "NTAP": {
+      "score": 5.2,
+      "gap_w": 36.7,
+      "atr_dist": 3.64,
+      "freshness": 63,
+      "close": 168.18,
+      "name": null
+    },
+    "HUM": {
+      "score": 5.1,
+      "gap_w": 57.0,
+      "atr_dist": 1.76,
+      "freshness": 56,
+      "close": 407.57,
+      "name": null
+    },
+    "GLW": {
+      "score": 4.5,
+      "gap_w": 36.1,
+      "atr_dist": 4.06,
+      "freshness": 413,
+      "close": 182.6,
+      "name": null
+    },
+    "LRCX": {
+      "score": 4.4,
+      "gap_w": 36.6,
+      "atr_dist": 3.88,
+      "freshness": 413,
+      "close": 334.81,
+      "name": null
+    },
+    "CRL": {
+      "score": 4.3,
+      "gap_w": 24.9,
+      "atr_dist": 1.96,
+      "freshness": 14,
+      "close": 230.68,
+      "name": null
+    },
+    "ANET": {
+      "score": 3.9,
+      "gap_w": 25.6,
+      "atr_dist": 3.18,
+      "freshness": 91,
+      "close": 181.88,
+      "name": null
+    },
+    "DLTR": {
+      "score": 3.9,
+      "gap_w": 12.5,
+      "atr_dist": 2.14,
+      "freshness": 7,
+      "close": 127.73,
+      "name": null
+    },
+    "DD": {
+      "score": 3.8,
+      "gap_w": 160.6,
+      "atr_dist": 1.25,
+      "freshness": 322,
+      "close": 132.62,
+      "name": null
+    },
+    "DVA": {
+      "score": 3.8,
+      "gap_w": 53.3,
+      "atr_dist": 1.71,
+      "freshness": 140,
+      "close": 234.96,
+      "name": null
+    },
+    "KMB": {
+      "score": 3.8,
+      "gap_w": 7.0,
+      "atr_dist": 2.41,
+      "freshness": 7,
+      "close": 113.12,
+      "name": null
+    },
+    "OMC": {
+      "score": 3.8,
+      "gap_w": 8.7,
+      "atr_dist": 2.03,
+      "freshness": 0,
+      "close": 82.73,
+      "name": null
+    },
+    "UAL": {
+      "score": 3.8,
+      "gap_w": 15.3,
+      "atr_dist": 2.53,
+      "freshness": 42,
+      "close": 124.48,
+      "name": null
+    },
+    "BAX": {
+      "score": 3.7,
+      "gap_w": 16.4,
+      "atr_dist": 1.72,
+      "freshness": 14,
+      "close": 22.48,
+      "name": null
+    },
+    "BBY": {
+      "score": 3.7,
+      "gap_w": 18.5,
+      "atr_dist": 1.87,
+      "freshness": 28,
+      "close": 82.33,
+      "name": null
+    },
+    "CDW": {
+      "score": 3.7,
+      "gap_w": 10.0,
+      "atr_dist": 1.78,
+      "freshness": 0,
+      "close": 144.53,
+      "name": null
+    },
+    "VLO": {
+      "score": 3.7,
+      "gap_w": 38.8,
+      "atr_dist": 2.57,
+      "freshness": 392,
+      "close": 286.87,
+      "name": null
+    },
+    "EXPE": {
+      "score": 3.6,
+      "gap_w": 8.8,
+      "atr_dist": 1.8,
+      "freshness": 0,
+      "close": 266.83,
+      "name": null
+    },
+    "AMP": {
+      "score": 3.5,
+      "gap_w": 9.5,
+      "atr_dist": 1.48,
+      "freshness": 0,
+      "close": 514.75,
+      "name": null
+    },
+    "GEN": {
+      "score": 3.5,
+      "gap_w": 9.3,
+      "atr_dist": 1.66,
+      "freshness": 7,
+      "close": 26.26,
+      "name": null
+    },
+    "TTWO": {
+      "score": 3.5,
+      "gap_w": 7.2,
+      "atr_dist": 1.84,
+      "freshness": 7,
+      "close": 243.94,
+      "name": null
+    },
+    "AON": {
+      "score": 3.4,
+      "gap_w": 9.7,
+      "atr_dist": 1.3,
+      "freshness": 0,
+      "close": 366.82,
+      "name": null
+    },
+    "CNC": {
+      "score": 3.4,
+      "gap_w": 48.3,
+      "atr_dist": 1.45,
+      "freshness": 182,
+      "close": 68.12,
+      "name": null
+    },
+    "DXCM": {
+      "score": 3.4,
+      "gap_w": 13.4,
+      "atr_dist": 2.19,
+      "freshness": 42,
+      "close": 76.12,
+      "name": null
+    },
+    "FFIV": {
+      "score": 3.4,
+      "gap_w": 38.3,
+      "atr_dist": 1.45,
+      "freshness": 91,
+      "close": 423.04,
+      "name": null
+    },
+    "MPC": {
+      "score": 3.4,
+      "gap_w": 37.7,
+      "atr_dist": 2.29,
+      "freshness": 413,
+      "close": 290.33,
+      "name": null
+    },
+    "ABBV": {
+      "score": 3.3,
+      "gap_w": 12.0,
+      "atr_dist": 1.38,
+      "freshness": 14,
+      "close": 247.16,
+      "name": null
+    },
+    "PGR": {
+      "score": 3.3,
+      "gap_w": 13.1,
+      "atr_dist": 1.09,
+      "freshness": 7,
+      "close": 233.67,
+      "name": null
+    },
+    "TXN": {
+      "score": 3.3,
+      "gap_w": 33.2,
+      "atr_dist": 2.53,
+      "freshness": 175,
+      "close": 305.16,
+      "name": null
+    },
+    "ZBRA": {
+      "score": 3.3,
+      "gap_w": 9.1,
+      "atr_dist": 1.4,
+      "freshness": 7,
+      "close": 272.5,
+      "name": null
+    },
+    "INCY": {
+      "score": 3.2,
+      "gap_w": 14.3,
+      "atr_dist": 1.63,
+      "freshness": 35,
+      "close": 114.5,
+      "name": null
+    },
+    "TECH": {
+      "score": 3.2,
+      "gap_w": 21.8,
+      "atr_dist": 0.41,
+      "freshness": 7,
+      "close": 71.16,
+      "name": null
+    },
+    "TROW": {
+      "score": 3.2,
+      "gap_w": 12.7,
+      "atr_dist": 2.26,
+      "freshness": 56,
+      "close": 119.03,
+      "name": null
+    },
+    "WRB": {
+      "score": 3.2,
+      "gap_w": 6.8,
+      "atr_dist": 1.3,
+      "freshness": 0,
+      "close": 73.02,
+      "name": null
+    },
+    "ACGL": {
+      "score": 3.1,
+      "gap_w": 9.5,
+      "atr_dist": 1.18,
+      "freshness": 7,
+      "close": 103.17,
+      "name": null
+    },
+    "GEV": {
+      "score": 3.1,
+      "gap_w": 25.9,
+      "atr_dist": 2.68,
+      "freshness": 999,
+      "close": 1043.73,
+      "name": null
+    },
+    "HIG": {
+      "score": 3.1,
+      "gap_w": 5.6,
+      "atr_dist": 1.21,
+      "freshness": 0,
+      "close": 140.67,
+      "name": null
+    },
+    "KHC": {
+      "score": 3.1,
+      "gap_w": 6.8,
+      "atr_dist": 1.28,
+      "freshness": 7,
+      "close": 25.22,
+      "name": null
+    },
+    "RCL": {
+      "score": 3.1,
+      "gap_w": 3.3,
+      "atr_dist": 1.88,
+      "freshness": 21,
+      "close": 287.24,
+      "name": null
+    },
+    "RJF": {
+      "score": 3.1,
+      "gap_w": 6.8,
+      "atr_dist": 1.19,
+      "freshness": 0,
+      "close": 167.23,
+      "name": null
+    },
+    "SW": {
+      "score": 3.1,
+      "gap_w": 5.7,
+      "atr_dist": 2.04,
+      "freshness": 35,
+      "close": 44.42,
+      "name": null
+    },
+    "SYY": {
+      "score": 3.1,
+      "gap_w": 7.9,
+      "atr_dist": 1.34,
+      "freshness": 14,
+      "close": 84.08,
+      "name": null
+    },
+    "V": {
+      "score": 3.1,
+      "gap_w": 9.4,
+      "atr_dist": 1.34,
+      "freshness": 14,
+      "close": 352.58,
+      "name": null
+    },
+    "AMCR": {
+      "score": 3.0,
+      "gap_w": 3.4,
+      "atr_dist": 1.4,
+      "freshness": 7,
+      "close": 42.26,
+      "name": null
+    },
+    "CI": {
+      "score": 3.0,
+      "gap_w": 9.4,
+      "atr_dist": 1.62,
+      "freshness": 35,
+      "close": 303.81,
+      "name": null
+    },
+    "LII": {
+      "score": 3.0,
+      "gap_w": 7.7,
+      "atr_dist": 1.6,
+      "freshness": 28,
+      "close": 546.65,
+      "name": null
+    },
+    "PRU": {
+      "score": 3.0,
+      "gap_w": 13.3,
+      "atr_dist": 1.19,
+      "freshness": 28,
+      "close": 116.64,
+      "name": null
+    },
+    "WSM": {
+      "score": 3.0,
+      "gap_w": 9.6,
+      "atr_dist": 1.73,
+      "freshness": 35,
+      "close": 223.5,
+      "name": null
+    },
+    "XYZ": {
+      "score": 3.0,
+      "gap_w": 16.4,
+      "atr_dist": 1.91,
+      "freshness": 63,
+      "close": 78.46,
+      "name": null
+    },
+    "BXP": {
+      "score": 2.9,
+      "gap_w": 6.3,
+      "atr_dist": 1.08,
+      "freshness": 7,
+      "close": 66.86,
+      "name": null
+    },
+    "HBAN": {
+      "score": 2.9,
+      "gap_w": 7.8,
+      "atr_dist": 1.26,
+      "freshness": 21,
+      "close": 17.88,
+      "name": null
+    },
+    "NWSA": {
+      "score": 2.9,
+      "gap_w": 8.7,
+      "atr_dist": 1.43,
+      "freshness": 28,
+      "close": 27.62,
+      "name": null
+    },
+    "PSX": {
+      "score": 2.9,
+      "gap_w": 26.7,
+      "atr_dist": 2.27,
+      "freshness": 371,
+      "close": 197.48,
+      "name": null
+    },
+    "RTX": {
+      "score": 2.9,
+      "gap_w": 5.2,
+      "atr_dist": 1.06,
+      "freshness": 7,
+      "close": 197.24,
+      "name": null
+    },
+    "SJM": {
+      "score": 2.9,
+      "gap_w": 8.3,
+      "atr_dist": 1.54,
+      "freshness": 35,
+      "close": 112.62,
+      "name": null
+    },
+    "WM": {
+      "score": 2.9,
+      "gap_w": 6.9,
+      "atr_dist": 1.05,
+      "freshness": 7,
+      "close": 234.6,
+      "name": null
+    },
+    "BRK.B": {
+      "score": 2.8,
+      "gap_w": 1.5,
+      "atr_dist": 1.07,
+      "freshness": 0,
+      "close": 497.77,
+      "name": null
+    },
+    "DAL": {
+      "score": 2.8,
+      "gap_w": 22.9,
+      "atr_dist": 2.56,
+      "freshness": 329,
+      "close": 86.3,
+      "name": null
+    },
+    "DOC": {
+      "score": 2.8,
+      "gap_w": 22.0,
+      "atr_dist": 1.32,
+      "freshness": 70,
+      "close": 21.61,
+      "name": null
+    },
+    "GE": {
+      "score": 2.8,
+      "gap_w": 12.5,
+      "atr_dist": 1.38,
+      "freshness": 42,
+      "close": 352.79,
+      "name": null
+    },
+    "HRL": {
+      "score": 2.8,
+      "gap_w": 6.4,
+      "atr_dist": 1.3,
+      "freshness": 21,
+      "close": 24.44,
+      "name": null
+    },
+    "LH": {
+      "score": 2.8,
+      "gap_w": 4.8,
+      "atr_dist": 0.94,
+      "freshness": 7,
+      "close": 277.47,
+      "name": null
+    },
+    "MET": {
+      "score": 2.8,
+      "gap_w": 18.9,
+      "atr_dist": 1.19,
+      "freshness": 56,
+      "close": 92.68,
+      "name": null
+    },
+    "PHM": {
+      "score": 2.8,
+      "gap_w": -0.3,
+      "atr_dist": 1.52,
+      "freshness": 14,
+      "close": 124.92,
+      "name": null
+    },
+    "UNH": {
+      "score": 2.8,
+      "gap_w": 26.4,
+      "atr_dist": 1.16,
+      "freshness": 77,
+      "close": 426.93,
+      "name": null
+    },
+    "URI": {
+      "score": 2.8,
+      "gap_w": 21.5,
+      "atr_dist": 1.15,
+      "freshness": 63,
+      "close": 1093.61,
+      "name": null
+    },
+    "WST": {
+      "score": 2.8,
+      "gap_w": 27.3,
+      "atr_dist": 1.22,
+      "freshness": 84,
+      "close": 358.93,
+      "name": null
+    },
+    "BAC": {
+      "score": 2.7,
+      "gap_w": 12.1,
+      "atr_dist": 0.97,
+      "freshness": 35,
+      "close": 59.31,
+      "name": null
+    },
+    "DHI": {
+      "score": 2.7,
+      "gap_w": -0.5,
+      "atr_dist": 1.6,
+      "freshness": 21,
+      "close": 149.56,
+      "name": null
+    },
+    "JBHT": {
+      "score": 2.7,
+      "gap_w": 28.2,
+      "atr_dist": 1.91,
+      "freshness": 266,
+      "close": 284.67,
+      "name": null
+    },
+    "JPM": {
+      "score": 2.7,
+      "gap_w": 8.5,
+      "atr_dist": 1.04,
+      "freshness": 28,
+      "close": 334.5,
+      "name": null
+    },
+    "KVUE": {
+      "score": 2.7,
+      "gap_w": 11.3,
+      "atr_dist": 2.09,
+      "freshness": 77,
+      "close": 19.55,
+      "name": null
+    },
+    "VMC": {
+      "score": 2.7,
+      "gap_w": 0.6,
+      "atr_dist": 1.41,
+      "freshness": 14,
+      "close": 296.74,
+      "name": null
+    },
+    "CAT": {
+      "score": 2.6,
+      "gap_w": 27.2,
+      "atr_dist": 1.83,
+      "freshness": 378,
+      "close": 931.5,
+      "name": null
+    },
+    "ITW": {
+      "score": 2.6,
+      "gap_w": 4.5,
+      "atr_dist": 1.13,
+      "freshness": 21,
+      "close": 271.03,
+      "name": null
+    },
+    "KDP": {
+      "score": 2.6,
+      "gap_w": 10.7,
+      "atr_dist": 1.78,
+      "freshness": 70,
+      "close": 31.62,
+      "name": null
+    },
+    "PG": {
+      "score": 2.6,
+      "gap_w": 0.6,
+      "atr_dist": 1.27,
+      "freshness": 14,
+      "close": 148.11,
+      "name": null
+    },
+    "RVTY": {
+      "score": 2.6,
+      "gap_w": 13.5,
+      "atr_dist": 1.17,
+      "freshness": 49,
+      "close": 111.31,
+      "name": null
+    },
+    "WAT": {
+      "score": 2.6,
+      "gap_w": 5.3,
+      "atr_dist": 1.36,
+      "freshness": 35,
+      "close": 373.32,
+      "name": null
+    },
+    "AVB": {
+      "score": 2.5,
+      "gap_w": 9.6,
+      "atr_dist": 1.28,
+      "freshness": 49,
+      "close": 194.42,
+      "name": null
+    },
+    "ELV": {
+      "score": 2.5,
+      "gap_w": 21.4,
+      "atr_dist": 1.12,
+      "freshness": 77,
+      "close": 424.5,
+      "name": null
+    },
+    "IBKR": {
+      "score": 2.5,
+      "gap_w": 23.5,
+      "atr_dist": 2.01,
+      "freshness": 917,
+      "close": 92.9,
+      "name": null
+    },
+    "MGM": {
+      "score": 2.5,
+      "gap_w": 24.1,
+      "atr_dist": 1.93,
+      "freshness": 224,
+      "close": 48.14,
+      "name": null
+    },
+    "NWS": {
+      "score": 2.5,
+      "gap_w": 7.6,
+      "atr_dist": 1.26,
+      "freshness": 42,
+      "close": 31.38,
+      "name": null
+    },
+    "VTRS": {
+      "score": 2.5,
+      "gap_w": 20.4,
+      "atr_dist": 2.18,
+      "freshness": 322,
+      "close": 16.32,
+      "name": null
+    },
+    "ADM": {
+      "score": 2.4,
+      "gap_w": 20.7,
+      "atr_dist": 1.97,
+      "freshness": 385,
+      "close": 82.28,
+      "name": null
+    },
+    "BEN": {
+      "score": 2.4,
+      "gap_w": 24.1,
+      "atr_dist": 1.75,
+      "freshness": 420,
+      "close": 32.87,
+      "name": null
+    },
+    "CARR": {
+      "score": 2.4,
+      "gap_w": 13.2,
+      "atr_dist": 1.64,
+      "freshness": 84,
+      "close": 68.56,
+      "name": null
+    },
+    "MAS": {
+      "score": 2.4,
+      "gap_w": 12.0,
+      "atr_dist": 1.44,
+      "freshness": 70,
+      "close": 75.79,
+      "name": null
+    },
+    "STT": {
+      "score": 2.4,
+      "gap_w": 29.8,
+      "atr_dist": 1.29,
+      "freshness": 420,
+      "close": 177.33,
+      "name": null
+    },
+    "TRGP": {
+      "score": 2.4,
+      "gap_w": 27.8,
+      "atr_dist": 1.5,
+      "freshness": 224,
+      "close": 280.58,
+      "name": null
+    },
+    "CPT": {
+      "score": 2.3,
+      "gap_w": 8.5,
+      "atr_dist": 1.0,
+      "freshness": 49,
+      "close": 114.08,
+      "name": null
+    },
+    "CVS": {
+      "score": 2.3,
+      "gap_w": 28.1,
+      "atr_dist": 1.42,
+      "freshness": 511,
+      "close": 106.16,
+      "name": null
+    },
+    "ESS": {
+      "score": 2.3,
+      "gap_w": 14.3,
+      "atr_dist": 1.15,
+      "freshness": 70,
+      "close": 296.79,
+      "name": null
+    },
+    "INVH": {
+      "score": 2.3,
+      "gap_w": 9.8,
+      "atr_dist": 1.06,
+      "freshness": 56,
+      "close": 29.98,
+      "name": null
+    },
+    "MAA": {
+      "score": 2.3,
+      "gap_w": 4.4,
+      "atr_dist": 1.04,
+      "freshness": 35,
+      "close": 136.22,
+      "name": null
+    },
+    "UDR": {
+      "score": 2.3,
+      "gap_w": 11.0,
+      "atr_dist": 1.2,
+      "freshness": 63,
+      "close": 40.13,
+      "name": null
+    },
+    "CASY": {
+      "score": 2.2,
+      "gap_w": 24.8,
+      "atr_dist": 1.45,
+      "freshness": 1176,
+      "close": 853.68,
+      "name": null
+    },
+    "CF": {
+      "score": 2.2,
+      "gap_w": 19.4,
+      "atr_dist": 1.84,
+      "freshness": 161,
+      "close": 120.93,
+      "name": null
+    },
+    "EQR": {
+      "score": 2.2,
+      "gap_w": 11.6,
+      "atr_dist": 1.29,
+      "freshness": 77,
+      "close": 69.58,
+      "name": null
+    },
+    "BIIB": {
+      "score": 2.1,
+      "gap_w": 13.3,
+      "atr_dist": 2.12,
+      "freshness": 308,
+      "close": 207.68,
+      "name": null
+    },
+    "CPAY": {
+      "score": 2.1,
+      "gap_w": 13.2,
+      "atr_dist": 1.41,
+      "freshness": 91,
+      "close": 362.15,
+      "name": null
+    },
+    "EW": {
+      "score": 2.1,
+      "gap_w": 9.6,
+      "atr_dist": 1.6,
+      "freshness": 84,
+      "close": 91.82,
+      "name": null
+    },
+    "LLY": {
+      "score": 2.1,
+      "gap_w": 16.5,
+      "atr_dist": 1.9,
+      "freshness": 259,
+      "close": 1174.99,
+      "name": null
+    },
+    "LUV": {
+      "score": 2.1,
+      "gap_w": 15.1,
+      "atr_dist": 1.96,
+      "freshness": 406,
+      "close": 47.89,
+      "name": null
+    },
+    "TGT": {
+      "score": 2.1,
+      "gap_w": 21.0,
+      "atr_dist": 1.64,
+      "freshness": 203,
+      "close": 136.16,
+      "name": null
+    },
+    "TPL": {
+      "score": 2.1,
+      "gap_w": 8.0,
+      "atr_dist": 2.56,
+      "freshness": 154,
+      "close": 412.83,
+      "name": null
+    },
+    "IVZ": {
+      "score": 2.0,
+      "gap_w": 10.1,
+      "atr_dist": 2.26,
+      "freshness": 364,
+      "close": 28.36,
+      "name": null
+    },
+    "MSCI": {
+      "score": 2.0,
+      "gap_w": 8.3,
+      "atr_dist": 1.44,
+      "freshness": 84,
+      "close": 618.61,
+      "name": null
+    },
+    "ABNB": {
+      "score": 1.9,
+      "gap_w": 10.1,
+      "atr_dist": 1.47,
+      "freshness": 98,
+      "close": 145.36,
+      "name": null
+    },
+    "ALL": {
+      "score": 1.9,
+      "gap_w": 21.9,
+      "atr_dist": 1.14,
+      "freshness": 1001,
+      "close": 255.44,
+      "name": null
+    },
+    "APH": {
+      "score": 1.9,
+      "gap_w": 10.0,
+      "atr_dist": 2.05,
+      "freshness": 441,
+      "close": 155.65,
+      "name": null
+    },
+    "CMI": {
+      "score": 1.9,
+      "gap_w": 15.4,
+      "atr_dist": 1.71,
+      "freshness": 350,
+      "close": 663.0,
+      "name": null
+    },
+    "CTVA": {
+      "score": 1.9,
+      "gap_w": 15.4,
+      "atr_dist": 1.68,
+      "freshness": 168,
+      "close": 85.72,
+      "name": null
+    },
+    "EBAY": {
+      "score": 1.9,
+      "gap_w": 20.9,
+      "atr_dist": 1.24,
+      "freshness": 868,
+      "close": 115.01,
+      "name": null
+    },
+    "GWW": {
+      "score": 1.9,
+      "gap_w": 23.5,
+      "atr_dist": 1.12,
+      "freshness": 182,
+      "close": 1383.28,
+      "name": null
+    },
+    "OKE": {
+      "score": 1.9,
+      "gap_w": 15.5,
+      "atr_dist": 1.69,
+      "freshness": 161,
+      "close": 91.74,
+      "name": null
+    },
+    "PFG": {
+      "score": 1.9,
+      "gap_w": 21.7,
+      "atr_dist": 1.19,
+      "freshness": 322,
+      "close": 113.14,
+      "name": null
+    },
+    "AAPL": {
+      "score": 1.8,
+      "gap_w": 15.3,
+      "atr_dist": 1.53,
+      "freshness": 315,
+      "close": 317.13,
+      "name": null
+    },
+    "C": {
+      "score": 1.8,
+      "gap_w": 18.0,
+      "atr_dist": 1.33,
+      "freshness": 952,
+      "close": 139.13,
+      "name": null
+    },
+    "CSX": {
+      "score": 1.8,
+      "gap_w": 22.7,
+      "atr_dist": 1.0,
+      "freshness": 371,
+      "close": 49.62,
+      "name": null
+    },
+    "EG": {
+      "score": 1.8,
+      "gap_w": 13.4,
+      "atr_dist": 0.97,
+      "freshness": 91,
+      "close": 378.63,
+      "name": null
+    },
+    "EXPD": {
+      "score": 1.8,
+      "gap_w": 17.6,
+      "atr_dist": 1.38,
+      "freshness": 357,
+      "close": 176.46,
+      "name": null
+    },
+    "GL": {
+      "score": 1.8,
+      "gap_w": 21.8,
+      "atr_dist": 1.01,
+      "freshness": 651,
+      "close": 178.6,
+      "name": null
+    },
+    "HWM": {
+      "score": 1.8,
+      "gap_w": 15.6,
+      "atr_dist": 1.54,
+      "freshness": 1351,
+      "close": 271.56,
+      "name": null
+    },
+    "LYV": {
+      "score": 1.8,
+      "gap_w": 17.9,
+      "atr_dist": 1.42,
+      "freshness": 147,
+      "close": 183.17,
+      "name": null
+    },
+    "MNST": {
+      "score": 1.8,
+      "gap_w": 21.7,
+      "atr_dist": 1.01,
+      "freshness": 504,
+      "close": 96.72,
+      "name": null
+    },
+    "MO": {
+      "score": 1.8,
+      "gap_w": 11.9,
+      "atr_dist": 1.87,
+      "freshness": 168,
+      "close": 71.68,
+      "name": null
+    },
+    "MS": {
+      "score": 1.8,
+      "gap_w": 20.5,
+      "atr_dist": 1.12,
+      "freshness": 427,
+      "close": 219.76,
+      "name": null
+    },
+    "NTRS": {
+      "score": 1.8,
+      "gap_w": 23.2,
+      "atr_dist": 0.97,
+      "freshness": 420,
+      "close": 183.3,
+      "name": null
+    },
+    "UPS": {
+      "score": 1.8,
+      "gap_w": 11.7,
+      "atr_dist": 1.8,
+      "freshness": 217,
+      "close": 113.05,
+      "name": null
+    },
+    "WMB": {
+      "score": 1.8,
+      "gap_w": 10.3,
+      "atr_dist": 1.92,
+      "freshness": 1106,
+      "close": 74.85,
+      "name": null
+    },
+    "CB": {
+      "score": 1.7,
+      "gap_w": 12.5,
+      "atr_dist": 1.62,
+      "freshness": 245,
+      "close": 355.12,
+      "name": null
+    },
+    "CHRW": {
+      "score": 1.7,
+      "gap_w": 15.0,
+      "atr_dist": 1.43,
+      "freshness": 350,
+      "close": 196.78,
+      "name": null
+    },
+    "CINF": {
+      "score": 1.7,
+      "gap_w": 11.1,
+      "atr_dist": 1.76,
+      "freshness": 434,
+      "close": 182.3,
+      "name": null
+    },
+    "PM": {
+      "score": 1.7,
+      "gap_w": 8.2,
+      "atr_dist": 1.9,
+      "freshness": 168,
+      "close": 181.05,
+      "name": null
+    },
+    "SBUX": {
+      "score": 1.7,
+      "gap_w": 15.1,
+      "atr_dist": 1.42,
+      "freshness": 182,
+      "close": 106.5,
+      "name": null
+    },
+    "SPG": {
+      "score": 1.7,
+      "gap_w": 12.9,
+      "atr_dist": 1.62,
+      "freshness": 329,
+      "close": 218.38,
+      "name": null
+    },
+    "SWK": {
+      "score": 1.7,
+      "gap_w": 11.5,
+      "atr_dist": 1.63,
+      "freshness": 224,
+      "close": 87.72,
+      "name": null
+    },
+    "WELL": {
+      "score": 1.7,
+      "gap_w": 16.5,
+      "atr_dist": 1.39,
+      "freshness": 1204,
+      "close": 233.54,
+      "name": null
+    },
+    "AIZ": {
+      "score": 1.6,
+      "gap_w": 19.3,
+      "atr_dist": 1.02,
+      "freshness": 322,
+      "close": 280.38,
+      "name": null
+    },
+    "ALGN": {
+      "score": 1.6,
+      "gap_w": 8.7,
+      "atr_dist": 1.75,
+      "freshness": 175,
+      "close": 181.65,
+      "name": null
+    },
+    "CAH": {
+      "score": 1.6,
+      "gap_w": 12.5,
+      "atr_dist": 1.39,
+      "freshness": 686,
+      "close": 233.8,
+      "name": null
+    },
+    "CFG": {
+      "score": 1.6,
+      "gap_w": 16.7,
+      "atr_dist": 1.08,
+      "freshness": 371,
+      "close": 70.35,
+      "name": null
+    },
+    "EIX": {
+      "score": 1.6,
+      "gap_w": 15.5,
+      "atr_dist": 1.21,
+      "freshness": 287,
+      "close": 76.08,
+      "name": null
+    },
+    "FITB": {
+      "score": 1.6,
+      "gap_w": 18.2,
+      "atr_dist": 1.08,
+      "freshness": 357,
+      "close": 57.12,
+      "name": null
+    },
+    "JNJ": {
+      "score": 1.6,
+      "gap_w": 15.9,
+      "atr_dist": 1.19,
+      "freshness": 413,
+      "close": 258.08,
+      "name": null
+    },
+    "RF": {
+      "score": 1.6,
+      "gap_w": 14.9,
+      "atr_dist": 1.29,
+      "freshness": 371,
+      "close": 31.15,
+      "name": null
+    },
+    "RL": {
+      "score": 1.6,
+      "gap_w": 4.0,
+      "atr_dist": 2.04,
+      "freshness": 966,
+      "close": 394.85,
+      "name": null
+    },
+    "TRV": {
+      "score": 1.6,
+      "gap_w": 15.7,
+      "atr_dist": 1.26,
+      "freshness": 959,
+      "close": 340.85,
+      "name": null
+    },
+    "VRTX": {
+      "score": 1.6,
+      "gap_w": 6.7,
+      "atr_dist": 1.84,
+      "freshness": 203,
+      "close": 483.0,
+      "name": null
+    },
+    "GS": {
+      "score": 1.5,
+      "gap_w": 15.0,
+      "atr_dist": 1.15,
+      "freshness": 427,
+      "close": 1040.03,
+      "name": null
+    },
+    "JCI": {
+      "score": 1.5,
+      "gap_w": 10.0,
+      "atr_dist": 1.5,
+      "freshness": 861,
+      "close": 142.79,
+      "name": null
+    },
+    "MTB": {
+      "score": 1.5,
+      "gap_w": 16.2,
+      "atr_dist": 0.98,
+      "freshness": 371,
+      "close": 242.88,
+      "name": null
+    },
+    "PNC": {
+      "score": 1.5,
+      "gap_w": 18.1,
+      "atr_dist": 0.92,
+      "freshness": 364,
+      "close": 253.48,
+      "name": null
+    },
+    "ROK": {
+      "score": 1.5,
+      "gap_w": 12.9,
+      "atr_dist": 1.35,
+      "freshness": 420,
+      "close": 469.42,
+      "name": null
+    },
+    "UNP": {
+      "score": 1.5,
+      "gap_w": 17.5,
+      "atr_dist": 0.89,
+      "freshness": 231,
+      "close": 289.32,
+      "name": null
+    },
+    "USB": {
+      "score": 1.5,
+      "gap_w": 15.8,
+      "atr_dist": 1.04,
+      "freshness": 336,
+      "close": 62.62,
+      "name": null
+    },
+    "VTR": {
+      "score": 1.5,
+      "gap_w": 12.1,
+      "atr_dist": 1.39,
+      "freshness": 805,
+      "close": 91.56,
+      "name": null
+    },
+    "BA": {
+      "score": 1.4,
+      "gap_w": -1.6,
+      "atr_dist": 1.28,
+      "freshness": 84,
+      "close": 215.82,
+      "name": null
+    },
+    "BMY": {
+      "score": 1.4,
+      "gap_w": 7.4,
+      "atr_dist": 1.5,
+      "freshness": 217,
+      "close": 58.84,
+      "name": null
+    },
+    "CL": {
+      "score": 1.4,
+      "gap_w": 8.7,
+      "atr_dist": 1.5,
+      "freshness": 161,
+      "close": 92.97,
+      "name": null
+    },
+    "ES": {
+      "score": 1.4,
+      "gap_w": 8.8,
+      "atr_dist": 1.37,
+      "freshness": 420,
+      "close": 75.04,
+      "name": null
+    },
+    "ETN": {
+      "score": 1.4,
+      "gap_w": 7.3,
+      "atr_dist": 1.53,
+      "freshness": 154,
+      "close": 399.36,
+      "name": null
+    },
+    "EXR": {
+      "score": 1.4,
+      "gap_w": 4.5,
+      "atr_dist": 1.26,
+      "freshness": 98,
+      "close": 145.52,
+      "name": null
+    },
+    "FAST": {
+      "score": 1.4,
+      "gap_w": 6.8,
+      "atr_dist": 1.64,
+      "freshness": 154,
+      "close": 46.84,
+      "name": null
+    },
+    "KEY": {
+      "score": 1.4,
+      "gap_w": 12.4,
+      "atr_dist": 1.19,
+      "freshness": 371,
+      "close": 23.4,
+      "name": null
+    },
+    "KO": {
+      "score": 1.4,
+      "gap_w": 11.8,
+      "atr_dist": 1.16,
+      "freshness": 238,
+      "close": 83.89,
+      "name": null
+    },
+    "MRK": {
+      "score": 1.4,
+      "gap_w": 12.1,
+      "atr_dist": 1.25,
+      "freshness": 280,
+      "close": 123.56,
+      "name": null
+    },
+    "PSA": {
+      "score": 1.4,
+      "gap_w": 10.7,
+      "atr_dist": 1.29,
+      "freshness": 147,
+      "close": 321.57,
+      "name": null
+    },
+    "TPR": {
+      "score": 1.4,
+      "gap_w": 1.0,
+      "atr_dist": 1.95,
+      "freshness": 665,
+      "close": 140.05,
+      "name": null
+    },
+    "APD": {
+      "score": 1.3,
+      "gap_w": 10.4,
+      "atr_dist": 1.16,
+      "freshness": 140,
+      "close": 301.96,
+      "name": null
+    },
+    "D": {
+      "score": 1.3,
+      "gap_w": 13.8,
+      "atr_dist": 0.97,
+      "freshness": 413,
+      "close": 70.68,
+      "name": null
+    },
+    "DE": {
+      "score": 1.3,
+      "gap_w": 7.9,
+      "atr_dist": 1.39,
+      "freshness": 175,
+      "close": 584.44,
+      "name": null
+    },
+    "ETR": {
+      "score": 1.3,
+      "gap_w": 11.5,
+      "atr_dist": 1.02,
+      "freshness": 952,
+      "close": 115.1,
+      "name": null
+    },
+    "FRT": {
+      "score": 1.3,
+      "gap_w": 13.7,
+      "atr_dist": 0.87,
+      "freshness": 301,
+      "close": 121.74,
+      "name": null
+    },
+    "FTV": {
+      "score": 1.3,
+      "gap_w": 9.7,
+      "atr_dist": 1.26,
+      "freshness": 259,
+      "close": 62.14,
+      "name": null
+    },
+    "HSIC": {
+      "score": 1.3,
+      "gap_w": 12.6,
+      "atr_dist": 1.05,
+      "freshness": 231,
+      "close": 85.53,
+      "name": null
+    },
+    "KIM": {
+      "score": 1.3,
+      "gap_w": 12.0,
+      "atr_dist": 1.03,
+      "freshness": 161,
+      "close": 25.0,
+      "name": null
+    },
+    "KMI": {
+      "score": 1.3,
+      "gap_w": 7.8,
+      "atr_dist": 1.34,
+      "freshness": 245,
+      "close": 32.28,
+      "name": null
+    },
+    "PCAR": {
+      "score": 1.3,
+      "gap_w": 8.7,
+      "atr_dist": 1.27,
+      "freshness": 266,
+      "close": 124.24,
+      "name": null
+    },
+    "PKG": {
+      "score": 1.3,
+      "gap_w": 4.6,
+      "atr_dist": 1.6,
+      "freshness": 315,
+      "close": 230.55,
+      "name": null
+    },
+    "PNW": {
+      "score": 1.3,
+      "gap_w": 13.5,
+      "atr_dist": 1.01,
+      "freshness": 182,
+      "close": 108.94,
+      "name": null
+    },
+    "PPG": {
+      "score": 1.3,
+      "gap_w": 4.5,
+      "atr_dist": 1.66,
+      "freshness": 168,
+      "close": 113.55,
+      "name": null
+    },
+    "TT": {
+      "score": 1.3,
+      "gap_w": 8.8,
+      "atr_dist": 1.32,
+      "freshness": 154,
+      "close": 475.23,
+      "name": null
+    },
+    "AEP": {
+      "score": 1.2,
+      "gap_w": 9.1,
+      "atr_dist": 1.09,
+      "freshness": 882,
+      "close": 136.27,
+      "name": null
+    },
+    "AFL": {
+      "score": 1.2,
+      "gap_w": 10.6,
+      "atr_dist": 1.08,
+      "freshness": 322,
+      "close": 123.7,
+      "name": null
+    },
+    "CHD": {
+      "score": 1.2,
+      "gap_w": 4.4,
+      "atr_dist": 1.47,
+      "freshness": 161,
+      "close": 96.72,
+      "name": null
+    },
+    "EVRG": {
+      "score": 1.2,
+      "gap_w": 9.9,
+      "atr_dist": 1.07,
+      "freshness": 812,
+      "close": 86.55,
+      "name": null
+    },
+    "IEX": {
+      "score": 1.2,
+      "gap_w": 12.9,
+      "atr_dist": 0.8,
+      "freshness": 217,
+      "close": 220.64,
+      "name": null
+    },
+    "IFF": {
+      "score": 1.2,
+      "gap_w": 4.7,
+      "atr_dist": 1.51,
+      "freshness": 168,
+      "close": 75.03,
+      "name": null
+    },
+    "LIN": {
+      "score": 1.2,
+      "gap_w": 11.0,
+      "atr_dist": 1.03,
+      "freshness": 147,
+      "close": 523.5,
+      "name": null
+    },
+    "LNT": {
+      "score": 1.2,
+      "gap_w": 10.3,
+      "atr_dist": 0.97,
+      "freshness": 805,
+      "close": 76.76,
+      "name": null
+    },
+    "PCG": {
+      "score": 1.2,
+      "gap_w": 4.9,
+      "atr_dist": 1.37,
+      "freshness": 266,
+      "close": 17.21,
+      "name": null
+    },
+    "TFC": {
+      "score": 1.2,
+      "gap_w": 7.9,
+      "atr_dist": 1.23,
+      "freshness": 364,
+      "close": 51.9,
+      "name": null
+    },
+    "YUM": {
+      "score": 1.2,
+      "gap_w": 5.4,
+      "atr_dist": 1.44,
+      "freshness": 238,
+      "close": 163.82,
+      "name": null
+    },
+    "AMGN": {
+      "score": 1.1,
+      "gap_w": 6.1,
+      "atr_dist": 1.27,
+      "freshness": 287,
+      "close": 359.54,
+      "name": null
+    },
+    "BALL": {
+      "score": 1.1,
+      "gap_w": 6.8,
+      "atr_dist": 1.07,
+      "freshness": 182,
+      "close": 60.57,
+      "name": null
+    },
+    "CNP": {
+      "score": 1.1,
+      "gap_w": 7.4,
+      "atr_dist": 1.12,
+      "freshness": 651,
+      "close": 44.04,
+      "name": null
+    },
+    "DGX": {
+      "score": 1.1,
+      "gap_w": 9.2,
+      "atr_dist": 0.89,
+      "freshness": 812,
+      "close": 208.76,
+      "name": null
+    },
+    "ED": {
+      "score": 1.1,
+      "gap_w": 6.7,
+      "atr_dist": 1.09,
+      "freshness": 175,
+      "close": 112.1,
+      "name": null
+    },
+    "GD": {
+      "score": 1.1,
+      "gap_w": 6.9,
+      "atr_dist": 1.07,
+      "freshness": 399,
+      "close": 370.49,
+      "name": null
+    },
+    "L": {
+      "score": 1.1,
+      "gap_w": 9.2,
+      "atr_dist": 0.95,
+      "freshness": 1274,
+      "close": 116.56,
+      "name": null
+    },
+    "O": {
+      "score": 1.1,
+      "gap_w": 6.4,
+      "atr_dist": 1.13,
+      "freshness": 406,
+      "close": 63.58,
+      "name": null
+    },
+    "REG": {
+      "score": 1.1,
+      "gap_w": 8.0,
+      "atr_dist": 0.98,
+      "freshness": 175,
+      "close": 80.2,
+      "name": null
+    },
+    "AEE": {
+      "score": 1.0,
+      "gap_w": 6.4,
+      "atr_dist": 1.02,
+      "freshness": 728,
+      "close": 113.61,
+      "name": null
+    },
+    "DTE": {
+      "score": 1.0,
+      "gap_w": 7.2,
+      "atr_dist": 1.0,
+      "freshness": 154,
+      "close": 150.6,
+      "name": null
+    },
+    "NSC": {
+      "score": 1.0,
+      "gap_w": 10.1,
+      "atr_dist": 0.8,
+      "freshness": 385,
+      "close": 328.44,
+      "name": null
+    },
+    "SNA": {
+      "score": 1.0,
+      "gap_w": 10.2,
+      "atr_dist": 0.79,
+      "freshness": 308,
+      "close": 400.39,
+      "name": null
+    },
+    "SO": {
+      "score": 1.0,
+      "gap_w": 5.6,
+      "atr_dist": 1.07,
+      "freshness": 140,
+      "close": 96.78,
+      "name": null
+    },
+    "TDY": {
+      "score": 1.0,
+      "gap_w": 5.4,
+      "atr_dist": 1.12,
+      "freshness": 679,
+      "close": 627.02,
+      "name": null
+    },
+    "AME": {
+      "score": 0.9,
+      "gap_w": 5.8,
+      "atr_dist": 0.96,
+      "freshness": 343,
+      "close": 230.8,
+      "name": null
+    },
+    "DUK": {
+      "score": 0.9,
+      "gap_w": 3.1,
+      "atr_dist": 1.08,
+      "freshness": 161,
+      "close": 127.02,
+      "name": null
+    },
+    "EXC": {
+      "score": 0.9,
+      "gap_w": 2.9,
+      "atr_dist": 1.19,
+      "freshness": 714,
+      "close": 47.32,
+      "name": null
+    },
+    "GRMN": {
+      "score": 0.9,
+      "gap_w": 7.3,
+      "atr_dist": 0.74,
+      "freshness": 140,
+      "close": 242.8,
+      "name": null
+    },
+    "HUBB": {
+      "score": 0.9,
+      "gap_w": -0.8,
+      "atr_dist": 1.44,
+      "freshness": 364,
+      "close": 475.66,
+      "name": null
+    },
+    "NDSN": {
+      "score": 0.9,
+      "gap_w": 6.9,
+      "atr_dist": 0.87,
+      "freshness": 336,
+      "close": 285.36,
+      "name": null
+    },
+    "NI": {
+      "score": 0.9,
+      "gap_w": 4.6,
+      "atr_dist": 0.94,
+      "freshness": 861,
+      "close": 47.0,
+      "name": null
+    },
+    "PH": {
+      "score": 0.9,
+      "gap_w": 5.6,
+      "atr_dist": 0.98,
+      "freshness": 406,
+      "close": 950.78,
+      "name": null
+    },
+    "SRE": {
+      "score": 0.9,
+      "gap_w": 3.3,
+      "atr_dist": 1.13,
+      "freshness": 336,
+      "close": 94.59,
+      "name": null
+    },
+    "WEC": {
+      "score": 0.9,
+      "gap_w": 4.0,
+      "atr_dist": 1.02,
+      "freshness": 175,
+      "close": 115.66,
+      "name": null
+    },
+    "XEL": {
+      "score": 0.9,
+      "gap_w": 2.9,
+      "atr_dist": 1.2,
+      "freshness": 714,
+      "close": 80.39,
+      "name": null
+    },
+    "CMS": {
+      "score": 0.8,
+      "gap_w": 3.0,
+      "atr_dist": 1.05,
+      "freshness": 161,
+      "close": 75.65,
+      "name": null
+    },
+    "FE": {
+      "score": 0.8,
+      "gap_w": 3.3,
+      "atr_dist": 1.02,
+      "freshness": 441,
+      "close": 48.36,
+      "name": null
+    },
+    "NEE": {
+      "score": 0.8,
+      "gap_w": 1.3,
+      "atr_dist": 1.06,
+      "freshness": 371,
+      "close": 87.9,
+      "name": null
+    },
+    "AES": {
+      "score": 0.3,
+      "gap_w": 2.9,
+      "atr_dist": 0.26,
+      "freshness": 357,
+      "close": 14.76,
+      "name": null
+    },
+    "EA": {
+      "score": 0.3,
+      "gap_w": 2.3,
+      "atr_dist": 0.24,
+      "freshness": 434,
+      "close": 206.56,
+      "name": null
+    }
+  },
+  "portfolio": {
+    "cash": 10.730163456219088,
+    "positions": {
+      "PANW": {
+        "shares": 29.6552,
+        "entry_price": 337.04
+      },
+      "DDOG": {
+        "shares": 38.935,
+        "entry_price": 256.71
+      },
+      "MRNA": {
+        "shares": 125.282,
+        "entry_price": 79.78
+      },
+      "MU": {
+        "shares": 10.6368,
+        "entry_price": 939.66
+      },
+      "SNDK": {
+        "shares": 6.1777,
+        "entry_price": 1617.92
+      },
+      "WDC": {
+        "shares": 16.9714,
+        "entry_price": 591.29
+      },
+      "AMAT": {
+        "shares": 16.8186,
+        "entry_price": 617.61
+      },
+      "HPE": {
+        "shares": 220.5373,
+        "entry_price": 47.1
+      },
+      "DELL": {
+        "shares": 25.4112,
+        "entry_price": 422.05
+      },
+      "AMD": {
+        "shares": 19.9899,
+        "entry_price": 536.51
+      }
+    },
+    "last_value": 99557.11,
+    "inception": "2026-07-08"
+  }
+}

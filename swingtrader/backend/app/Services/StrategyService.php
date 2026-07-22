@@ -157,7 +157,7 @@ class StrategyService
         }
 
         $tickers = Ticker::whereEnabled(1)
-            ->where('symbol', '!=', 'BLENDED')
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
             ->with('strategyParameter')
             ->get()
             ->map(function ($ticker) {

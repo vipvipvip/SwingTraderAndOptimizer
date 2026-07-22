@@ -4,13 +4,129 @@ Key docs:
 - common/docs/services_doc/mtcs_service.md — MTCS-specific
 
 Quick summary of triggers:
-EMAC (strategy.py:56-94): BUY when hourly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) (daily regime filter). SELL when hourly EMA crosses below SMA. Position sizing via equal-weight rebalance across all tickers with signals.
-Account: PA3EHVX93SJT
-
 CHAND (TradeExecutorService.php:599-712): Always-in strategy. Entry via Chandelier Entry filter. Exit when price hits trailing stop = highestHigh_since_entry - ATR * multiplier (configurable per-ticker). Also has a regression slope exit option.
 Account: PA31Z71315NM
+
+EMAC (strategy.py:56-94): BUY when daily EMA(10) > SMA(40) (daily regime filter) AND hourly EMA(10) > SMA(40). SELL when hourly EMA crosses below SMA. Position sizing via equal-weight rebalance across all tickers with signals.
+Account: PA3EHVX93SJT
 
 MTCS (strategy.py in mtcs/): BUY when Hilbert Transform dominant cycle sine wave crosses above lead wave on last 2 daily bars. SELL when sine crosses below lead.
 Account: PA3NCXU4O2CN
 
-MTF Daily Signal (daily_signal_service.py): BUY signal if weekly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) AND 1-hour EMA just crossed above SMA(40). Scored by momentum + gap + infancy. Signal-only via Slack.
+MTF Daily Signal (daily_signal_service.py): BUY signal if weekly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) AND 1-hour EMA just crossed above SMA(40). Scored by momentum + gap + infancy. Signal-only via Slack. (Multi-TF-EMAC Scan)
+
+	gap_w = (close_weekly - sma40_weekly) / sma40_weekly * 100
+	How far price is stretched above its 40-week SMA, as a percentage. High gap_w means the stock has run up far from its cost basis — signals strong momentum but also risk of mean reversion. Scored as min(gap_w / 20, 3) — caps at 3 pts when 60%+ above SMA40.
+
+	atr_dist = (close_hourly - atr_stop_hourly) / close_hourly * 100
+	Distance from the ATR trailing stop on the hourly chart, as a percentage. atr_stop is close - sma(tr, 14) * 2.0 — a 2x average true range band below price. Wide atr_dist means the stock has room before hitting its trailing stop. Scored as min(atr_dist / 1.5, 3) — caps at 3 pts when 4.5%+ above the stop.
+	Both are capped at 3 pts each, plus fresh_pts (0-2), giving a max MTF score of 8.
+
+	Testing with low score but with all greens. However:
+	Not good. -40.77%, 49% win rate, 45.9% max DD. The Early score kills returns.
+	The reason: penalizing gap_w removes the very stocks that produce explosive gains. The original finding was right — high gap_w stocks (WDC +1,517%, APP +741%) kept running despite being "stretched." The gap widens further in strong trends before reversing. Avoiding them misses the breakout entirely.
+	The MTF score's strength is that gap_w rewards momentum rather than penalizing it. The key insight from the backtest still holds: you want stocks that have already broken out hard and are still running, not stocks that just barely crossed.
+
+All three live runners operate on $1M paper accounts:
+1. CHAND — ✅ Live (Alpaca paper, key ending DTWMJC) (Slack: CHAND) (QQQ/VTI/VTV)
+2. EMAC — ✅ Live (Alpaca paper, key ending 22RZS, acct #PA3EHVX93SJT) (Slack: EMAC) (QQQ/VTI/VTV)
+3. MTCS — ✅ Live (Alpaca paper, key ending ORIWSH, acct #PA3NCXU4O2CN) (Slack: MTCS) (QQQ/VTI/VTV)
+
+MTF is in Phase 1 validation; once confirmed it'll replace MTCS (Phase 2):
+4. MTF Top-N — 🚧 Paper only (CSV logs + Slack, no Alpaca orders) (Slack: MTF Top-N) (Sp500 + 22 ETFs seperately)
+
+No Trading - Just Signals/picks on Slack:
+5. Daily Signal Service — 📋 Slack-only (manual trades, separate infra) (Slack: Daily Signal) (SP500 stocks)
+
+================== Explanation
+BAX is in the MTF Top-N picks, not the Daily Signal. Different rules:
+MTF Top-N (what you're running):
+- Filter: weekly EMA10 > SMA40 AND daily EMA10 > SMA40 (multi-TF uptrend)
+- Score: gap_w (0-3pt) + atr_dist (0-3pt) + freshness (0-2pt)
+- Top 10 by score → BAX scored 3.7 (gap 14.4%, atr 1.98%, freshness 21d)
+Daily Signal (separate Slack-only service):
+- Same filters + FRESH 1-hour EMA10 > SMA40 crossover required
+- Only alerts when a fresh cross happens on the last completed bar
+BAX is in a multi-TF uptrend and scores well on momentum metrics — it doesn't need a fresh 1-hour cross to be a Top-N pick. The Daily Signal would only flag it if the 1-hour cross just fired today.
+==================
+
+Here's the table with the Slack tag column:
+#	Name	Universe
+1	CHAND	QQQ/VTI/VTV
+2	EMAC	QQQ/VTI/VTV
+3	MTCS	QQQ/VTI/VTV
+4	MTF Top-N	S&P 500 (503 stocks + 22 ETFs)
+5	Daily Signal	S&P 500
+All three live runners on $1M Alpaca paper accounts. MTF Phase 1 paper validation underway — replaces MTCS after confirmation (Phase 2).
+
+
+=== See results with this utility
+home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/scripts/show_picks.py
+
+Here's the schedule with actual runtimes:
+All 9 timer files confirmed with America/New_York timezone. Here's the full schedule:
+Time ET	Timer
+02:00	swingtrader-optimizer
+09:00	scanner-update (Mon–Fri)
+08:00 Mon mtf-daily-runner catch-up
+16:15	backfill-daily (Mon–Fri)
+16:15	swingtrader-backup
+16:30	scanner-hourly (Mon–Fri)
+16:45	mtf-daily-runner (Mon–Fri)
+17:00	daily-signal (Mon–Fri)
+Safe shutdown: 17:05 ET weekdays, 08:15 ET Monday mornings.
+
+
+All 12 trading services consolidated to system-level:
+Service	Type	Timer	Schedule (ET)
+swingtrader-db.service	long-running	—	always on
+swingtrader-backend.service	long-running	—	always on
+swingtrader-fe-dev.service	long-running	—	always on
+emac-runner.service	long-running	—	always on
+mtcs-runner.service	long-running	—	always on
+scanner-hourly.service	oneshot	scanner-hourly.timer	Mon-Fri 16:30
+scanner-update.service	oneshot	scanner-update.timer	Mon-Fri 09:00
+backfill-daily.service	oneshot	backfill-daily.timer	Mon-Fri 16:15
+mtf-daily-runner.service	oneshot	mtf-daily-runner.timer	Mon 08:00 + Mon-Fri 16:45
+daily-signal.service	oneshot	daily-signal.timer	Mon-Fri 17:00
+swingtrader-backup.service	oneshot	swingtrader-backup.timer	daily 16:15
+swingtrader-optimizer.service	oneshot	swingtrader-optimizer.timer	daily 02:00
+Zero user-level service/timer files remaining. Everything runs 24/7 regardless of login.
+
+
+====== Top 10 ETF selection explanation
+Yes — scores update daily with fresh prices. Three things drive changes:
+1. Hard filters kill entries — if VTI's hourly close drops below its ATR stop, or weekly EMA crosses below SMA, it gets filtered out entirely (line 156-158). Something like XLU or TLT replaces it.
+2. Freshness decays — fresh_pts = max(0, 2 - days_since/60). AETF that crossed 60+ days ago loses all freshness points and drops in rank.
+3. gap_w and atr_dist fluctuate — as prices move, the distance from SMA40 and ATR stop changes daily.
+But realistically with 22 ETFs and 10 slots, turnover is slow. The biggest driver will be regime shifts — if broad market tanks, defensive ETFs (XLU, TLT, GLD) surge into the top-10 while growth ETFs (QQQ, VGT, SMH) drop out.
+Right now all 22 have atr_dist = 0 for most because they're ETFs — they don't gap as aggressively as individual stocks. The scores are dominated by gap_w (distance from weekly SMA40) and freshness. XLF leads at 1.9 because it's the freshest crossover (28 days) with decent gap.
+
+========================================
+
+==== TOP 10 ETF results
+Here's the full comparison (Sep 2021 – Jul 2026):
+Strategy	Return	Max DD	Trades	Win Rate
+MTF ETF (no stop-loss)	+76.51%	12.4%	228 sells / 238 buys	63%
+MTF ETF (5% stop-loss)	+76.42%	12.4%	231 sells (8 stop) / 241 buys	62%
+SPY Buy-and-Hold	+83.88%	24.5%	—	—
+Key takeaways:
+- Stop-loss barely matters — 8 stop-losses triggered out of 231 sells, and return/max-DD are nearly identical. The daily rebalance already exits losers fast enough.
+- SPY b-and-h holds a higher return (+83.9% vs +76.5%) but with 2x the drawdown (24.5% vs 12.4%). Risk-adjusted, the MTF strategy is better.
+- The ETF universe backtest confirms what we saw in paper: MTF rotation captures diversified sector exposure while keeping drawdowns tight.
+========================================
+
+Here are the Top 10 trades from the ETF backtest (5% stop-loss, daily rebalance):
+Winners — held 1-5 months, captured big trends:
+- SMH: +27.75% ($3,445) — Jun → Nov 2025
+- XLK: +24.88% ($3,828) — Apr → Jul 2026
+- GLD: +24.10% ($16,569) — Jan → Jun 2025
+- VGT: +21.89% ($3,368) — Apr → Jul 2026
+Losers — all capped around -5% to -7.4% by the stop-loss:
+- IWM: -7.40% ($1,379) — the worst trade, stopped out Aug 2024
+- EEM: -7.31% ($403) — stopped out Apr 2025
+- IJR: -6.48% ($1,209) — stopped out Aug 2024
+The stop-loss capped worst-case losses effectively. The bottom 10 are all SELL-STOP exits, confirming the rule is doing its job.
+You can run this anytime with:
+python3 backtest_topn_multitf.py --etf --top-n 10 --rebalance daily --stop-loss 5.0 --top-trades 10
+

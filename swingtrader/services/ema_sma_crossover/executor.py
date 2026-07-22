@@ -57,7 +57,7 @@ def _place_order(symbol, qty, side):
     return resp.json()
 
 
-def _wait_for_fill(order_id, max_retries=10, delay=1):
+def _wait_for_fill(order_id, max_retries=30, delay=1):
     """Poll order until filled or max_retries. Returns fill price or None."""
     for _ in range(max_retries):
         order = _get_order(order_id)
@@ -99,6 +99,36 @@ def _send_slack(msg):
         print(f'[SLACK] Error: {e}')
 
 
+def _send_slack_error(msg):
+    """Send an error alert to Slack with a warning emoji prefix."""
+    if not config.SLACK_WEBHOOK_URL:
+        return
+    tag = f'[EMAC] [Paper:{_get_account_number()}]'
+    try:
+        requests.post(config.SLACK_WEBHOOK_URL,
+                      json={'text': f'⚠️ {tag} {msg}'}, timeout=5)
+    except Exception as e:
+        print(f'[SLACK] Error: {e}')
+
+
+def _get_alpaca_position(symbol):
+    """Get Alpaca position for a symbol, or None."""
+    url = f'{config.ALPACA_BASE_URL}/v2/positions/{symbol}'
+    headers = {
+        'APCA-API-KEY-ID': config.ALPACA_API_KEY,
+        'APCA-API-SECRET-KEY': config.ALPACA_SECRET_KEY,
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 404:
+            return None
+        if resp.status_code >= 400:
+            return None
+        return resp.json()
+    except Exception:
+        return None
+
+
 def _get_alpaca_positions():
     url = f'{config.ALPACA_BASE_URL}/v2/positions'
     resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
@@ -118,15 +148,26 @@ def _partial_sell(conn, symbol, qty_to_sell):
         return 0.0
 
     _cancel_orders_for_symbol(symbol)
-    order = _place_order(symbol, qty_to_sell, 'sell')
+    try:
+        order = _place_order(symbol, qty_to_sell, 'sell')
+    except Exception as e:
+        msg = f'{symbol} partial SELL failed: {e}'
+        print(f'[EXECUTOR] {msg}')
+        _send_slack_error(msg)
+        return 0.0
+
     fill_price = float(order['filled_avg_price']) if order.get('filled_avg_price') else None
     order_id = order.get('id')
     if not fill_price and order_id:
         fill_price = _wait_for_fill(order_id)
     if not fill_price:
+        msg = f'{symbol} partial SELL order never filled'
+        print(f'[EXECUTOR] {msg}')
+        _send_slack_error(msg)
         return 0.0
 
-    remaining_qty = current_qty - qty_to_sell
+    filled_qty = float(order.get('filled_qty', qty_to_sell))
+    remaining_qty = max(0, current_qty - filled_qty)
     now = datetime.now(NY)
     if remaining_qty > 0:
         db_module.upsert_position(conn, pos[0], symbol, remaining_qty, fill_price, now)
@@ -135,11 +176,11 @@ def _partial_sell(conn, symbol, qty_to_sell):
 
     entry_price = float(pos[2]) if pos[2] else 0
     pnl_pct = (fill_price - entry_price) / entry_price * 100 if entry_price else 0
-    msg = (f'SELL {qty_to_sell} {symbol} @ ${fill_price:.2f}  |  '
+    msg = (f'SELL {filled_qty:.0f} {symbol} @ ${fill_price:.2f}  |  '
            f'Remaining {remaining_qty} shares  |  PnL: {pnl_pct:+.2f}%')
     print(f'[EXECUTOR] {msg}')
     _send_slack(msg)
-    return fill_price * qty_to_sell
+    return fill_price * filled_qty
 
 
 def rebalance_for_buys(conn, buy_signals):
@@ -208,27 +249,58 @@ def sell_position(conn, ticker_id, symbol, signal_ts):
         print(f'[EXECUTOR] {symbol} no position, skipping SELL')
         return 0.0
 
-    qty = float(pos[1])
+    db_qty = float(pos[1])
+    # Reconcile with actual Alpaca position to avoid overstated-DB bugs
+    alpaca_pos = _get_alpaca_position(symbol)
+    alpaca_qty = abs(float(alpaca_pos['qty'])) if alpaca_pos else 0
+    qty = min(db_qty, alpaca_qty) if alpaca_qty > 0 else db_qty
+
+    if qty < 1:
+        msg = (f'{symbol} SELL blocked: DB qty={db_qty:.0f}, Alpaca qty={alpaca_qty:.0f} — '
+               'no shares available to sell')
+        print(f'[EXECUTOR] {msg}')
+        _send_slack_error(msg)
+        return 0.0
+
+    if qty < db_qty:
+        msg = (f'{symbol} SELL qty corrected: DB={db_qty:.0f}, Alpaca={alpaca_qty:.0f}, '
+               f'selling {qty:.0f} (partial fill on entry?)')
+        print(f'[EXECUTOR] {msg}')
+        _send_slack_error(msg)
+
     _cancel_orders_for_symbol(symbol)
-    order = _place_order(symbol, int(qty), 'sell')
+    try:
+        order = _place_order(symbol, int(qty), 'sell')
+    except Exception as e:
+        msg = f'{symbol} SELL order placement failed: {e}'
+        print(f'[EXECUTOR] {msg}')
+        _send_slack_error(msg)
+        return 0.0
+
     order_id = order.get('id')
     fill_price = float(order['filled_avg_price']) if order.get('filled_avg_price') else None
     if not fill_price and order_id:
         fill_price = _wait_for_fill(order_id)
+        if fill_price:
+            order = _get_order(order_id) or order
     if not fill_price:
-        print(f'[EXECUTOR] {symbol} SELL order {order_id} never filled')
+        msg = f'{symbol} SELL order {order_id} never filled'
+        print(f'[EXECUTOR] {msg}')
+        _send_slack_error(msg)
         return 0.0
+
+    filled_qty = float(order.get('filled_qty', qty))
     entry_price = float(pos[2]) if pos[2] else 0
-    pnl_dollar = (fill_price - entry_price) * qty
+    pnl_dollar = (fill_price - entry_price) * filled_qty
     pnl_pct = (fill_price - entry_price) / entry_price if entry_price else 0
-    proceeds = fill_price * qty
+    proceeds = fill_price * filled_qty
 
     db_module.delete_position(conn, ticker_id)
-    db_module.insert_trade(conn, ticker_id, symbol, 'SELL', qty, fill_price, now,
+    db_module.insert_trade(conn, ticker_id, symbol, 'SELL', filled_qty, fill_price, now,
                            signal_ts=signal_ts,
                            pnl_dollar=pnl_dollar, pnl_pct=pnl_pct,
                            close_reason='crossover')
-    msg = (f'SELL {symbol} {qty} @ ${fill_price:.2f}  '
+    msg = (f'SELL {symbol} {filled_qty:.0f} @ ${fill_price:.2f}  '
            f'PnL: ${pnl_dollar:.2f} ({pnl_pct*100:+.2f}%)')
     print(f'[EXECUTOR] {msg}')
     _send_slack(msg)
@@ -260,23 +332,35 @@ def buy_position(conn, ticker_id, symbol, signal_ts, amount):
     try:
         order = _place_order(symbol, qty, 'buy')
     except Exception as e:
-        print(f'[EXECUTOR] {symbol} order placement failed: {e}')
+        msg = f'{symbol} BUY order placement failed: {e}'
+        print(f'[EXECUTOR] {msg}')
+        _send_slack_error(msg)
         return 0.0
 
     order_id = order.get('id')
     fill_price = float(order['filled_avg_price']) if order.get('filled_avg_price') else None
     if not fill_price and order_id:
         fill_price = _wait_for_fill(order_id)
+        if fill_price:
+            order = _get_order(order_id) or order
 
     if not fill_price:
         fill_price = price  # fallback to pre-trade price
 
-    spent = fill_price * qty
+    # Read actual filled quantity from Alpaca — market orders can partially fill
+    filled_qty = int(float(order.get('filled_qty', qty)))
+    if filled_qty < qty:
+        msg = (f'{symbol} BUY partial fill: requested {qty}, got {filled_qty} '
+               f'(${fill_price:.2f}/share) — DB updated to reflect actual fill')
+        print(f'[EXECUTOR] {msg}')
+        _send_slack_error(msg)
 
-    db_module.upsert_position(conn, ticker_id, symbol, qty, fill_price, now)
-    db_module.insert_trade(conn, ticker_id, symbol, 'BUY', qty, fill_price, now,
+    spent = fill_price * filled_qty
+
+    db_module.upsert_position(conn, ticker_id, symbol, filled_qty, fill_price, now)
+    db_module.insert_trade(conn, ticker_id, symbol, 'BUY', filled_qty, fill_price, now,
                            signal_ts=signal_ts)
-    msg = (f'BUY {symbol} {qty} @ ${fill_price:.2f} (${spent:.2f})  |  '
+    msg = (f'BUY {symbol} {filled_qty} @ ${fill_price:.2f} (${spent:.2f})  |  '
            f'EMA({config.EMA_PERIOD})/SMA({config.SMA_PERIOD}) + MACD({config.MACD_FAST},{config.MACD_SLOW},{config.MACD_SIGNAL})')
     print(f'[EXECUTOR] {msg}')
     _send_slack(msg)

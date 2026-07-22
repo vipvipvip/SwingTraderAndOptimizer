@@ -107,6 +107,19 @@ def _sync_alpaca_positions(conn, ticker_ids):
             print(f'[RUNNER] Syncing {sym} position: {qty} @ ${price:.2f} (Alpaca → DB)')
             db_module.upsert_position(conn, tid, sym, abs(qty), price,
                                       datetime.now(NY))
+        elif db_pos and float(db_pos[1]) > 0 and (not alp_pos or float(alp_pos['qty']) <= 0):
+            qty = float(db_pos[1])
+            print(f'[RUNNER] WARNING: {sym} DB has {qty:.0f} shares but Alpaca has none')
+        elif db_pos and alp_pos and float(alp_pos['qty']) > 0:
+            db_qty = float(db_pos[1])
+            alp_qty = abs(float(alp_pos['qty']))
+            if abs(db_qty - alp_qty) > 1:
+                msg = (f'{sym} position mismatch: DB={db_qty:.0f}, Alpaca={alp_qty:.0f} '
+                       '- correcting DB to match Alpaca')
+                print(f'[RUNNER] {msg}')
+                price = float(alp_pos['avg_entry_price'])
+                db_module.upsert_position(conn, tid, sym, alp_qty, price,
+                                          datetime.now(NY))
 
 
 def run():
@@ -168,6 +181,10 @@ def run():
                 for sym in config.TICKERS:
                     _cancel_orders_for_symbol(sym)
 
+            # Periodically reconcile DB positions with Alpaca
+            if cycle_count % 5 == 1:
+                _sync_alpaca_positions(conn, ticker_ids)
+
             # ── Step 1: fetch trades, build 30-min bars ──
             for sym in config.TICKERS:
                 tid = ticker_ids[sym]
@@ -216,6 +233,14 @@ def run():
                     processed.add(seen_key)
                     run._processed_signals = processed
 
+                    # Skip BUY signals before 10:00 ET to avoid open volatility
+                    if sig == 'BUY':
+                        now_et = datetime.now(NY)
+                        now_min = now_et.hour * 60 + now_et.minute
+                        if 570 <= now_min < 600:  # 9:30-10:00 ET
+                            print(f'[RUNNER] {sym} skipping BUY before 10:00 ET — will re-evaluate next cycle')
+                            continue
+
                     signals.append((sym, tid, sig, sig_ts))
 
             # ── Step 3: sell first ──
@@ -226,6 +251,11 @@ def run():
                         sell_position(conn, tid, sym, sig_ts)
                     except Exception as e:
                         print(f'[RUNNER] {sym} SELL failed: {e}')
+                        try:
+                            from executor import _send_slack_error
+                            _send_slack_error(f'{sym} SELL failed: {e}')
+                        except Exception:
+                            pass
 
             # ── Step 4: rebalance portfolio for new buys ──
             buy_signals = [(sym, tid, sig_ts) for sym, tid, sig, sig_ts in signals if sig == 'BUY']
@@ -234,6 +264,11 @@ def run():
                     rebalance_for_buys(conn, buy_signals)
                 except Exception as e:
                     print(f'[RUNNER] rebalance failed: {e}')
+                    try:
+                        from executor import _send_slack_error
+                        _send_slack_error(f'rebalance failed: {e}')
+                    except Exception:
+                        pass
 
             if not signals and cycle_count % 5 == 1:
                 print(f'[RUNNER] heartbeat — cycle #{cycle_count}, no signals')

@@ -35,12 +35,12 @@ def main():
 
     # ── Service timer status ──
     svc_status = os.popen(
-        'systemctl --user is-active mtf-daily-runner.timer 2>/dev/null || echo "not-found"'
+        'systemctl is-active mtf-daily-runner.timer 2>/dev/null || echo "not-found"'
     ).read().strip()
     if svc_status == 'active':
         ok('mtf-daily-runner.timer is active')
         trigger = os.popen(
-            'systemctl --user show mtf-daily-runner.timer -p TriggerOnCalendar --value 2>/dev/null'
+            'systemctl show mtf-daily-runner.timer -p TriggerOnCalendar --value 2>/dev/null'
         ).read().strip()
         if trigger:
             print(f'    Schedule: {trigger}')
@@ -51,7 +51,7 @@ def main():
 
     # ── Recent journal errors ──
     errors = os.popen(
-        'journalctl --user -u mtf-daily-runner --since "1 day ago" -p err -q --no-pager 2>/dev/null '
+        'journalctl -u mtf-daily-runner --since "1 day ago" -p err -q --no-pager 2>/dev/null '
         '| tail -5'
     ).read().strip()
     if errors:
@@ -105,8 +105,11 @@ def main():
             age = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(state_path))).total_seconds()
             if age < 86400:
                 ok(f'State file updated {age/3600:.1f}h ago')
-            else:
+            elif age < 172800:
                 warn(f'State file stale ({age/3600:.1f}h ago)')
+            else:
+                msg = f'State file not updated for {age/3600:.1f}h — runner may be failing silently'
+                fail(msg)
         else:
             warn('No state file (not yet run)')
 

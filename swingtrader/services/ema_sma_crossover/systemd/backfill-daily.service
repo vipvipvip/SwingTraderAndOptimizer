@@ -1,16 +1,14 @@
 [Unit]
-Description=EMAC EMA(10)/SMA(40) Crossover Runner
+Description=EMAC Daily Candle Backfill
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
-After=network.target swingtrader-db.service
+After=swingtrader-db.service
 Wants=swingtrader-db.service
 
 [Service]
-Type=simple
+Type=oneshot
 User=dikesh
 WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover
-ExecStart=/usr/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover/runner.py
-Restart=always
-RestartSec=30
+ExecStart=/usr/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover/backfill_daily.py
 StandardOutput=journal
 StandardError=journal
 Environment=PYTHONUNBUFFERED=1

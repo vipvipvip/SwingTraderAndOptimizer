@@ -618,6 +618,216 @@ class ScannerController
         return $results;
     }
 
+    public function explorer(Request $request)
+    {
+        $mode = $request->query('mode', 'stock');
+        return view('scanner.explorer', ['mode' => $mode]);
+    }
+
+    public function explorerData(Request $request)
+    {
+        $mode = $request->query('mode', 'stock');
+        $isEft = $mode === 'etf';
+
+        // Cache key based on mode — data only changes once per day
+        $cacheFile = storage_path("framework/cache/explorer_{$mode}.json");
+        $cacheTtl = 300; // 5 min
+        if (file_exists($cacheFile) && time() - filemtime($cacheFile) < $cacheTtl) {
+            return response()->json(json_decode(file_get_contents($cacheFile), true));
+        }
+
+        $tickerInfo = DB::table('tbl_stock_tickers')
+            ->where('enabled', true)
+            ->where('is_etf', $isEft)
+            ->when($isEft, fn($q) => $q->whereIn('symbol', ['QQQ', 'VTI', 'VTV']))
+            ->select('id', 'symbol', 'company_name')
+            ->get()
+            ->keyBy('id');
+
+        $latestWeekly = DB::selectOne("SELECT MAX(date) AS d FROM tbl_scanner_tickers");
+        $latestDaily = DB::selectOne("SELECT MAX(date) AS d FROM tbl_scanner_tickers_daily");
+        $latestHourlyDate = DB::selectOne("SELECT MAX(date)::date AS d FROM tbl_scanner_tickers_1hour");
+        if (!$latestWeekly || !$latestDaily || !$latestHourlyDate) {
+            return response()->json(['error' => 'No data'], 500);
+        }
+        $wkDate = $latestWeekly->d;
+        $hrDate = $latestHourlyDate->d;
+
+        // SMA40/EMA10 computed via ROW_NUMBER + GROUP BY + FILTER — avoids expensive
+        // window-function frames by reducing to 40 (or 10) rows per ticker before averaging.
+        // The 5-min file cache means this runs at most once per session.
+        $weeklyData = DB::select("
+            SELECT ticker_id,
+                   MAX(CASE WHEN rnd = 1 THEN close END) AS close,
+                   AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40,
+                   AVG(close::float8) FILTER (WHERE rnd <= 10) AS ema10
+            FROM (
+                SELECT ticker_id, date, close::float8 AS close,
+                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
+                FROM tbl_scanner_tickers
+            ) sub
+            WHERE rnd <= 40
+            GROUP BY ticker_id
+        ");
+        $weeklyById = [];
+        foreach ($weeklyData as $r) {
+            if ($r->sma40 !== null && $r->sma40 > 0) {
+                $weeklyById[$r->ticker_id] = $r;
+            }
+        }
+
+        $dailyData = DB::select("
+            SELECT ticker_id,
+                   MAX(CASE WHEN rnd = 1 THEN close END) AS close,
+                   AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40,
+                   AVG(close::float8) FILTER (WHERE rnd <= 10) AS ema10
+            FROM (
+                SELECT ticker_id, date, close::float8 AS close,
+                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
+                FROM tbl_scanner_tickers_daily
+            ) sub
+            WHERE rnd <= 40
+            GROUP BY ticker_id
+        ");
+        $dailyById = [];
+        $dailyBullishById = [];
+        foreach ($dailyData as $r) {
+            $dailyById[$r->ticker_id] = $r;
+            if ($r->close !== null && $r->sma40 !== null && (float)$r->close > (float)$r->sma40) {
+                $dailyBullishById[$r->ticker_id] = true;
+            }
+        }
+
+        $hourlyData = DB::select("
+            SELECT DISTINCT ON (ticker_id) ticker_id,
+                   close::float8 AS close,
+                   atr_stop::float8 AS atr_stop
+            FROM tbl_scanner_tickers_1hour
+            WHERE date >= ?
+            ORDER BY ticker_id, date DESC
+        ", [$hrDate]);
+        $hourlyById = [];
+        foreach ($hourlyData as $r) {
+            if ($r->atr_stop !== null && $r->atr_stop > 0) {
+                $hourlyById[$r->ticker_id] = $r;
+            }
+        }
+
+        // Cross dates: weekly SMA40 cross above within last 60 rows.
+        $crossDates = DB::select("
+            WITH ranked AS (
+                SELECT ticker_id, date, close::float8 AS close,
+                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
+                FROM tbl_scanner_tickers
+            ),
+            sma AS (
+                SELECT ticker_id, date, close,
+                       AVG(close) OVER (PARTITION BY ticker_id ORDER BY date ASC ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) AS sma40
+                FROM ranked WHERE rnd <= 60
+            )
+            SELECT DISTINCT ON (a.ticker_id) a.ticker_id, a.date
+            FROM sma a
+            JOIN sma b ON b.ticker_id = a.ticker_id
+               AND b.date = (SELECT MAX(c.date) FROM sma c WHERE c.ticker_id = a.ticker_id AND c.date < a.date)
+            WHERE a.close > a.sma40 AND b.close <= b.sma40
+            ORDER BY a.ticker_id, a.date DESC
+        ");
+        $crossDateById = [];
+        foreach ($crossDates as $r) {
+            $crossDateById[$r->ticker_id] = $r->date;
+        }
+
+        // Market breadth computed from already-loaded data.
+        $breadthTotal = 0;
+        $breadthUp = 0;
+        foreach ($tickerInfo as $tid => $info) {
+            $w = $weeklyById[$tid] ?? null;
+            $dBullish = $dailyBullishById[$tid] ?? false;
+            if (!$w) continue;
+            $breadthTotal++;
+            if ((float)$w->close > (float)$w->sma40 && $dBullish) {
+                $breadthUp++;
+            }
+        }
+        $breadthPct = $breadthTotal > 0
+            ? round($breadthUp / $breadthTotal * 100, 1) : null;
+
+        $results = [];
+        foreach ($tickerInfo as $tid => $info) {
+            $w = $weeklyById[$tid] ?? null;
+            $h = $hourlyById[$tid] ?? null;
+            $d = $dailyById[$tid] ?? null;
+            $dBullish = $dailyBullishById[$tid] ?? false;
+            if (!$w || !$h) continue;
+
+            $close_w = (float)$w->close;
+            $sma40_w = (float)$w->sma40;
+            $ema10_w = (float)$w->ema10;
+            $close_h = (float)$h->close;
+            $atr_stop = (float)$h->atr_stop;
+
+            // Weekly filter: close > SMA40 and EMA10 > SMA40; daily close > SMA40
+            if ($close_w <= $sma40_w || !$ema10_w || $ema10_w <= $sma40_w || !$dBullish) continue;
+
+            $gap_w = ($close_w - $sma40_w) / $sma40_w * 100;
+            $atr_dist = ($close_h - $atr_stop) / $close_h * 100;
+
+            // Freshness: days since weekly cross
+            $crossDate = $crossDateById[$tid] ?? null;
+            $daysSince = 999;
+            if ($crossDate) {
+                $daysSince = (new \DateTime($crossDate))->diff(new \DateTime())->days;
+            }
+
+            $gap_pts = min($gap_w / 20, 3);
+            $atr_pts = min($atr_dist / 1.5, 3);
+            $fresh_pts = max(0, 2 - $daysSince / 60);
+            $score = round($gap_pts + $atr_pts + $fresh_pts, 1);
+
+            // CHAND: close > ATR stop on hourly = bullish
+            $chand = $close_h > $atr_stop ? 'bull' : 'bear';
+            // EMAC: daily EMA10 > SMA40 = bullish (SMA10 proxy for EMA10)
+            $emac = ($d && $d->ema10 !== null && $d->sma40 !== null && (float)$d->ema10 > (float)$d->sma40)
+                ? 'bull' : 'bear';
+            // Daily Signal: fresh weekly SMA40 cross within 60 days (infancy)
+            $daily_signal = ($daysSince < 60) ? 'bull' : 'bear';
+            // Combined: mtf score +2 per bullish daily signal +1 per bullish emac/chand
+            $combined = round($score + ($daily_signal === 'bull' ? 2 : 0)
+                + ($emac === 'bull' ? 1 : 0) + ($chand === 'bull' ? 1 : 0), 1);
+            // Early Score: favors fresh all-green stocks that haven't run up yet
+            // = signal count (3 max) + fresh_pts - gap_pts
+            $signal_count = ($daily_signal === 'bull' ? 1 : 0) + ($emac === 'bull' ? 1 : 0) + ($chand === 'bull' ? 1 : 0);
+            $early = round($signal_count + $fresh_pts - $gap_pts, 1);
+
+            $results[] = [
+                'symbol' => $info->symbol,
+                'name' => $info->company_name,
+                'close' => round($close_w, 2),
+                'mtf_score' => $score,
+                'daily_signal' => $daily_signal,
+                'emac' => $emac,
+                'chand' => $chand,
+                'mtcs' => null,
+                'combined' => $combined,
+                'early' => $early,
+            ];
+        }
+
+        usort($results, fn($a, $b) => $b['combined'] <=> $a['combined']);
+
+        $payload = [
+            'picks' => array_slice($results, 0, 50),
+            'total' => count($results),
+            'breadth' => $breadthPct,
+            'mode' => $mode,
+            'date' => $wkDate,
+        ];
+
+        file_put_contents($cacheFile, json_encode($payload), LOCK_EX);
+
+        return response()->json($payload);
+    }
+
     public function chart($symbol, Request $request)
     {
         $symbol = strtoupper($symbol);

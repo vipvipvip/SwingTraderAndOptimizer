@@ -22,12 +22,12 @@ EMA = 10
 SMA = 40
 
 
-def load_bars(conn, table, date_col):
+def load_bars(conn, table, date_col, is_etf=False):
     """Load OHLC data from a table for all tickers."""
     with conn.cursor() as cur:
-        cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true ORDER BY symbol')
+        cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=%s ORDER BY symbol', (is_etf,))
         tickers = cur.fetchall()
-    print(f'  Loading {table}...')
+    print(f'  Loading {table} ({len(tickers)} tickers)...')
 
     data = {}
     for tid, sym in tickers:
@@ -79,15 +79,29 @@ def main():
     parser.add_argument('--top-n', type=int, default=10)
     parser.add_argument('--rebalance', choices=['daily', 'weekly'], default='daily')
     parser.add_argument('--detail', action='store_true')
+    parser.add_argument('--etf', action='store_true', help='Run on ETF universe (is_etf=true)')
+    parser.add_argument('--score', choices=['mtf', 'early'], default='mtf',
+                        help='Sorting score: mtf=gap+atr+fresh, early=signals+fresh-gap')
+    parser.add_argument('--min-score', type=float, default=None,
+                        help='Minimum MTF score to consider (e.g. 5.0 = only stocks with score >= 5)')
+    parser.add_argument('--infancy', action='store_true',
+                        help='Only consider tickers with days_since_weekly_cross < 60')
+    parser.add_argument('--stop-loss', type=float, default=None,
+                        help='Stop-loss exit: sell if position drops >N%% from entry (e.g. 5.0)')
+    parser.add_argument('--top-trades', type=int, default=0,
+                        help='Print top N winning/losing trades by return %%')
     args = parser.parse_args()
 
     db_module.init_db()
     conn = db_module.get_conn()
     try:
+        is_etf = args.etf
+        label = 'ETF' if is_etf else 'Stock'
+        print(f'\n  Mode: {label} universe\n')
         # Load three timeframes
-        _, weekly = load_bars(conn, 'tbl_scanner_tickers', 'date')
-        _, daily = load_bars(conn, 'tbl_scanner_tickers_daily', 'date')
-        _, hourly = load_bars(conn, 'tbl_scanner_tickers_1hour', None)
+        _, weekly = load_bars(conn, 'tbl_scanner_tickers', 'date', is_etf)
+        _, daily = load_bars(conn, 'tbl_scanner_tickers_daily', 'date', is_etf)
+        _, hourly = load_bars(conn, 'tbl_scanner_tickers_1hour', None, is_etf)
 
         # Only keep tickers present in all datasets
         common = set(weekly) & set(daily) & set(hourly)
@@ -123,12 +137,14 @@ def main():
         for tid in hourly:
             hourly_idx[tid] = {dt: i for i, dt in enumerate(hourly[tid]['dates'])}
 
+        MIN_TICKERS = 10 if is_etf else 400
         # All trading dates from daily table (union across all tickers)
         all_dates = sorted(set().union(*[set(d['dates']) for d in daily.values()]))
+        # Exclude dates where fewer than MIN_TICKERS tickers have data (partial days)
+        all_dates = [d for d in all_dates if sum(1 for td in daily.values() if d in td['dates']) >= MIN_TICKERS]
         print(f'  Daily date range: {all_dates[0]} to {all_dates[-1]} ({len(all_dates)} days)')
 
         # Start when enough tickers have data
-        MIN_TICKERS = 400
         skip = 0
         for ri, d in enumerate(all_dates):
             cnt = sum(1 for td in daily.values() if d in td['dates'])
@@ -136,11 +152,8 @@ def main():
                 skip = ri
                 break
         all_dates = all_dates[skip:]
-        # Also need warmup for SMA computation
-        print(f'  Coverage: {MIN_TICKERS}+ tickers from {all_dates[0]}')
 
         # Further filter: need at least WARMUP bars for SMA
-        # Find date where at least MIN_TICKERS have WARMUP bars of weekly data
         start_idx = 0
         for ri, d in enumerate(all_dates):
             cnt = 0
@@ -152,7 +165,7 @@ def main():
                 start_idx = ri
                 break
         all_dates = all_dates[start_idx:]
-        print(f'  Warmup complete from {all_dates[0]}')
+        print(f'  Universe: {len(common)} tickers, warmup from {all_dates[0]}')
 
         step = 5 if args.rebalance == 'weekly' else 1
         period_label = f'{args.rebalance} (every {step} trading day{"s" if step > 1 else ""})'
@@ -217,9 +230,20 @@ def main():
                 gap_pts = min(gap_w / 20, 3)
                 atr_pts = min(atr_dist / 1.5, 3)
                 fresh_pts = max(0, 2 - days_since / 60)
-                score = round(gap_pts + atr_pts + fresh_pts, 1)
+                mtf_score = round(gap_pts + atr_pts + fresh_pts, 1)
 
-                candidates.append((tid, score))
+                # Early score: signal count + fresh_pts - gap_pts
+                # Signal count: daily_signal (days_since<60) + emac (daily EMA>SMA) + chand (close>atr_stop)
+                # EMAC and CHAND are already required by the filter, so base is 2
+                signal_cnt = 2 + (1 if days_since < 60 else 0)
+                early_score = round(signal_cnt + fresh_pts - gap_pts, 1)
+
+                decision_score = early_score if args.score == 'early' else mtf_score
+                if args.min_score is not None and mtf_score < args.min_score:
+                    continue
+                if args.infancy and days_since >= 60:
+                    continue
+                candidates.append((tid, decision_score))
 
             if not candidates:
                 # MTM
@@ -239,6 +263,31 @@ def main():
             if exec_idx >= len(all_dates):
                 break
             exec_date = all_dates[exec_idx]
+
+            # STOP-LOSS: sell positions that dropped >stop-loss% from entry
+            if args.stop_loss is not None:
+                for tid in list(positions):
+                    d = daily.get(tid)
+                    if d is None:
+                        continue
+                    si = daily_idx[tid].get(sig_date)
+                    if si is None:
+                        continue
+                    current_close = float(d['close'][si])
+                    pos = positions[tid]
+                    drop_pct = (pos['entry_price'] - current_close) / pos['entry_price'] * 100
+                    if drop_pct >= args.stop_loss:
+                        xi = daily_idx[tid].get(exec_date)
+                        if xi is None or xi >= len(d['open']):
+                            continue
+                        sp = float(d['open'][xi])
+                        proceeds = pos['shares'] * sp * (1 - COST)
+                        ret = (sp - pos['entry_price']) / pos['entry_price'] - COST
+                        cash += proceeds
+                        trade_log.append((exec_date, pos['symbol'], 'SELL-STOP', pos['shares'], sp, ret))
+                        if args.detail:
+                            print(f'  {exec_date} STOP  {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f} ({drop_pct:.1f}% drop)')
+                        del positions[tid]
 
             # SELL: liquidate positions not in selected
             for tid in list(positions):
@@ -300,7 +349,8 @@ def main():
         peak = np.maximum.accumulate(eq_arr)
         dd = np.max((peak - eq_arr) / peak)
 
-        all_sells = [t for t in trade_log if t[2] == 'SELL']
+        all_sells = [t for t in trade_log if t[2] in ('SELL', 'SELL-STOP')]
+        stop_sells = [t for t in trade_log if t[2] == 'SELL-STOP']
         all_buys = [t for t in trade_log if t[2] == 'BUY']
         winners = [t for t in all_sells if t[5] is not None and t[5] > 0]
         losers = [t for t in all_sells if t[5] is not None and t[5] <= 0]
@@ -320,7 +370,7 @@ def main():
         print(f'  Final:   ${equity_curve[-1]:,.0f}')
         print(f'  Return:  {total_ret*100:+.2f}%')
         print(f'  Max DD:  {dd*100:.1f}%')
-        print(f'  Trades:  {sells} sells / {buys} buys')
+        print(f'  Trades:  {sells} sells ({len(stop_sells)} stop-loss) / {buys} buys')
         print(f'  Win:     {len(winners)} ({wr:.0f}%)  avg +{avg_win:+.2f}%')
         print(f'  Loss:    {len(losers)} ({lr:.0f}%)  avg {avg_loss:+.2f}%')
         print(f'  Hold:    {len(all_dates) // max(1, sells) * step:.0f} days')
@@ -341,8 +391,64 @@ def main():
             for mk in sorted(monthly):
                 vals = monthly[mk]
                 mret = (vals[-1] - prev) / prev
-                print(f'  {mk}: {mret*100:+7.2f}%  (${prev:,.0f} → ${vals[-1]:,.0f})')
+                print(f'  {mk}: {mret*100:+7.2f}%  (${prev:,.0f} -> ${vals[-1]:,.0f})')
                 prev = vals[-1]
+
+        # --- Top trades ---
+        if args.top_trades > 0 and trade_log:
+            buys_map = {}
+            completed = []
+            for t in trade_log:
+                tdate, tsym, taction, tshares, tprice, tret = t
+                if taction == 'BUY':
+                    buys_map[tsym] = {'date': tdate, 'price': tprice, 'shares': tshares}
+                elif taction in ('SELL', 'SELL-STOP'):
+                    if tsym in buys_map:
+                        b = buys_map.pop(tsym)
+                        pnl_pct = (tprice - b['price']) / b['price'] * 100
+                        dollar_pnl = (tprice - b['price']) * b['shares']
+                        completed.append({
+                            'symbol': tsym,
+                            'entry_date': b['date'],
+                            'entry_price': b['price'],
+                            'exit_date': tdate,
+                            'exit_price': tprice,
+                            'return_pct': pnl_pct,
+                            'dollar_pnl': dollar_pnl,
+                            'exit_type': taction
+                        })
+
+            if completed:
+                completed.sort(key=lambda x: x['return_pct'], reverse=True)
+                n = min(args.top_trades, len(completed))
+                hdr = f'  {"#":<4} {"Ticker":<7} {"Entry Date":<13} {"Entry $":<11} {"Exit Date":<13} {"Exit $":<11} {"Return":>9} {"P&L $":>12} {"Exit":>9}'
+                sep = '-' * 92
+
+                print(f'\n  TOP {n} WINNING TRADES')
+                print(sep)
+                print(hdr)
+                print(sep)
+                for i, t in enumerate(completed[:n], 1):
+                    ed = str(t["entry_date"]) if not hasattr(t["entry_date"], 'date') else str(t["entry_date"].date())
+                    xd = str(t["exit_date"]) if not hasattr(t["exit_date"], 'date') else str(t["exit_date"].date())
+                    print(f'  {i:<4} {t["symbol"]:<7} {ed:<13} ${t["entry_price"]:<10.2f} {xd:<13} ${t["exit_price"]:<10.2f} {t["return_pct"]:>+8.2f}% ${t["dollar_pnl"]:>+11,.2f} {t["exit_type"]:>9}')
+
+                print(f'\n  BOTTOM {n} LOSING TRADES')
+                print(sep)
+                print(hdr)
+                print(sep)
+                for i, t in enumerate(completed[-n:], 1):
+                    ed = str(t["entry_date"]) if not hasattr(t["entry_date"], 'date') else str(t["entry_date"].date())
+                    xd = str(t["exit_date"]) if not hasattr(t["exit_date"], 'date') else str(t["exit_date"].date())
+                    print(f'  {i:<4} {t["symbol"]:<7} {ed:<13} ${t["entry_price"]:<10.2f} {xd:<13} ${t["exit_price"]:<10.2f} {t["return_pct"]:>+8.2f}% ${t["dollar_pnl"]:>+11,.2f} {t["exit_type"]:>9}')
+
+                wins = [t for t in completed if t['return_pct'] > 0]
+                losses = [t for t in completed if t['return_pct'] <= 0]
+                print(f'\n  Total: {len(completed)} trades  |  Winners: {len(wins)} ({len(wins)/len(completed)*100:.0f}%)  |  Losers: {len(losses)} ({len(losses)/len(completed)*100:.0f}%)')
+                if wins:
+                    print(f'  Avg win:  +{np.mean([t["return_pct"] for t in wins]):.2f}%  (${np.mean([t["dollar_pnl"] for t in wins]):+,.0f})')
+                if losses:
+                    print(f'  Avg loss: {np.mean([t["return_pct"] for t in losses]):.2f}%  (${np.mean([t["dollar_pnl"] for t in losses]):+,.0f})')
         print()
 
     finally:

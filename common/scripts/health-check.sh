@@ -21,6 +21,7 @@ fail() { FAIL=$((FAIL+1)); echo -e "  ${RED}✗${NC} $1"; }
 warn() { WARN=$((WARN+1)); echo -e "  ${YELLOW}⚠${NC} $1"; }
 
 PROJECT_DIR="/home/dikesh/data/dev/SwingTraderAndOptimizer"
+CORE_ETFS="QQQ VTI VTV"
 
 echo "=========================================="
 echo "  SwingTrader Health Check"
@@ -150,10 +151,10 @@ else
     fail "Scanner .env file missing at scanner/backend/.env"
 fi
 
-# Check scanner timer
+# Check scanner timer (system-level)
 SCANNER_TIMER_OK=false
-if systemctl --user is-enabled scanner-update.timer >/dev/null 2>&1; then
-    SCAN_NEXT=$(systemctl --user show scanner-update.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
+if systemctl is-enabled scanner-update.timer >/dev/null 2>&1; then
+    SCAN_NEXT=$(systemctl show scanner-update.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
     pass "scanner-update.timer is enabled (next: $SCAN_NEXT)"
     SCANNER_TIMER_OK=true
 else
@@ -162,10 +163,10 @@ fi
 
 # Check for recent scanner service failures
 for sfx in update hourly; do
-    if systemctl --user is-failed "scanner-${sfx}.service" >/dev/null 2>&1; then
+    if systemctl is-failed "scanner-${sfx}.service" >/dev/null 2>&1; then
         warn "scanner-${sfx}.service is in failed state"
     fi
-    RECENT_FAIL=$(journalctl --user -u "scanner-${sfx}.service" --since "3 days ago" --no-pager 2>/dev/null | grep "Failed with result\|Main process exited, code=exited, status=1" || true)
+    RECENT_FAIL=$(journalctl -u "scanner-${sfx}.service" --since "3 days ago" --no-pager 2>/dev/null | grep "Failed with result\|Main process exited, code=exited, status=1" || true)
     if [ -n "$RECENT_FAIL" ]; then
         warn "scanner-${sfx}.service had failures in last 3 days:"
         echo "$RECENT_FAIL" | sed 's/^/    /'
@@ -176,20 +177,20 @@ done
 echo ""
 echo "--- Strategy Parameters ---"
 
-PARAM_ROWS=$(PSQL "SELECT COUNT(*) FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';")
-TICKER_COUNT=$(echo "$ENABLED_ETF" | wc -l)
-if [ "$PARAM_ROWS" -ge "$TICKER_COUNT" ] 2>/dev/null; then
-    pass "All $TICKER_COUNT enabled tickers have base_case=true parameters"
+PARAM_ROWS=$(PSQL "SELECT COUNT(*) FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.symbol IN ('QQQ','VTI','VTV') AND sp.base_case=true;")
+CORE_COUNT=$(echo "$CORE_ETFS" | wc -w)
+if [ "$PARAM_ROWS" -ge "$CORE_COUNT" ] 2>/dev/null; then
+    pass "All $CORE_COUNT core ETFs (QQQ/VTI/VTV) have base_case=true parameters"
 else
-    fail "Expected $TICKER_COUNT tickers with base_case=true, found $PARAM_ROWS"
+    fail "Expected $CORE_COUNT core ETFs with base_case=true, found $PARAM_ROWS"
 fi
 
 LAST_PARAM_UPDATE=$(PSQL "SELECT MAX(sp.updated_at)::date FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';")
 PARAM_DAYS=$(( ($(date +%s) - $(date -d "$LAST_PARAM_UPDATE" +%s 2>/dev/null || echo 0)) / 86400 ))
 echo "  Parameters last updated: $LAST_PARAM_UPDATE ($PARAM_DAYS days ago)"
 
-# Per-ticker active params
-for sym in $ENABLED_ETF; do
+# Per-ticker active params (core ETFs only)
+for sym in $CORE_ETFS; do
     PARAM_LINE=$(PSQL "
         SELECT CONCAT('period=', sp.chandelier_period, ' mult=', sp.chandelier_mult,
             CASE WHEN sp.chandelier_entry_mult IS NOT NULL THEN CONCAT(' entry=', sp.chandelier_entry_mult) ELSE '' END,
@@ -218,8 +219,8 @@ LAST_OPT_GLOBAL=$(PSQL "SELECT MAX(run_date)::date FROM optimization_history;")
 OPT_GLOBAL_DAYS=$(( ($(date +%s) - $(date -d "$LAST_OPT_GLOBAL" +%s 2>/dev/null || echo 0)) / 86400 ))
 echo "  Last optimizer run (any ticker): $LAST_OPT_GLOBAL ($OPT_GLOBAL_DAYS days ago)"
 
-# Per-ticker latest optimizer run details
-for sym in BLENDED $ENABLED_ETF; do
+# Per-ticker latest optimizer run details (core ETFs only)
+for sym in BLENDED $CORE_ETFS; do
     OPT_LINE=$(PSQL "
         SELECT CONCAT(oh.run_date::date, ' sharpe=', ROUND(oh.best_sharpe::numeric, 2),
             ' return=', ROUND(oh.best_return::numeric, 2),
@@ -258,13 +259,13 @@ for timer in swingtrader-optimizer swingtrader-backup; do
     fi
 done
 
-# User timers (scanner)
+# System-level trading timers
 for timer in scanner-update scanner-hourly; do
-    if systemctl --user is-enabled "$timer.timer" >/dev/null 2>&1; then
-        NEXT=$(systemctl --user show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
-        pass "$timer.timer (user) is enabled (next: $NEXT)"
+    if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
+        NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
+        pass "$timer.timer is enabled (next: $NEXT)"
     else
-        warn "$timer.timer (user) is not enabled"
+        warn "$timer.timer is not enabled"
     fi
 done
 
@@ -320,8 +321,8 @@ else
     warn "daily-signal.timer is not active"
 fi
 
-# Check daily candle freshness for each ETF
-for sym in $ENABLED_ETF; do
+# Check daily candle freshness for core ETFs only (emac_daily_candles table)
+for sym in $CORE_ETFS; do
     DAILY_LATEST=$(PSQL "SELECT MAX(ts)::date FROM emac_daily_candles dc JOIN tbl_etf_tickers t ON dc.ticker_id = t.id WHERE t.symbol='$sym';")
     if [ -n "$DAILY_LATEST" ] && [ "$DAILY_LATEST" != " " ]; then
         DAILY_DAYS=$(( ($(date +%s) - $(date -d "$DAILY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))

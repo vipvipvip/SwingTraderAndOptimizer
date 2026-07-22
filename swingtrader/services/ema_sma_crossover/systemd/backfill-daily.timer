@@ -1,0 +1,12 @@
+[Unit]
+Description=EMAC Daily Candle Backfill (Mon–Fri 16:15 ET)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=swingtrader-db.service
+
+[Timer]
+OnCalendar=Mon..Fri 16:15:00 America/New_York
+RandomizedDelaySec=120
+Persistent=false
+
+[Install]
+WantedBy=timers.target
