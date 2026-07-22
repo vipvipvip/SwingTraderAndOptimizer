@@ -393,11 +393,6 @@ def _run_single_mode(mode, now, today, min_score=None):
 
     portfolio['cash'] = cash
     portfolio['last_value'] = round(mtm_value, 2)
-    state['last_date'] = str(sig_date)
-    state['last_picks'] = top_symbols
-    state['last_scores'] = score_detail
-    state['portfolio'] = portfolio
-    _save_state(state, mode, min_score)
 
     _ensure_csv()
     picks_csv = _csv_path('picks', mode, min_score)
@@ -472,6 +467,14 @@ def _run_single_mode(mode, now, today, min_score=None):
         lines.append(f'Portfolio: ${mtm_value:,.0f}  ({total_ret:+.1f}%)')
 
     lines.append(f'Positions: {len(positions)}  Cash: ${cash:,.0f}')
+
+    # Save state AFTER message is built (so prev_date is available for NEW/OUT)
+    state['last_date'] = str(sig_date)
+    state['last_picks'] = top_symbols
+    state['last_scores'] = score_detail
+    state['portfolio'] = portfolio
+    _save_state(state, mode, min_score)
+
     conn.close()
     return True, lines, sig_date
 
