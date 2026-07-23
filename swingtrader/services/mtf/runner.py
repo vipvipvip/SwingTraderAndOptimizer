@@ -446,14 +446,13 @@ def _run_single_mode(mode, now, today, min_score=None):
             f'gap {t["gap_w"]:+.1f}%  atr {t["atr_dist"]:.2f}%  {fresh_str}'
         )
 
-    if prev_date and str(prev_date) != str(sig_date):
+    if prev_date and (new_entries or dropped):
         lines.append('')
-        if new_entries or dropped:
-            if new_entries:
-                details = [f'{s} ({score_detail.get(s, {}).get("score", 0):.1f})' for s in new_entries]
-                lines.append(f'  NEW: {", ".join(details)}')
-            if dropped:
-                lines.append(f'  OUT: {", ".join(dropped)}')
+        if new_entries:
+            details = [f'{s} ({score_detail.get(s, {}).get("score", 0):.1f})' for s in new_entries]
+            lines.append(f'  NEW: {", ".join(details)}')
+        if dropped:
+            lines.append(f'  OUT: {", ".join(dropped)}')
 
     lines.append('')
     if prev_date and str(prev_date) != str(sig_date):
