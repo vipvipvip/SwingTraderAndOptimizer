@@ -9,7 +9,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 | 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/VTV | Optimized trailing stop | ✅ Live (Laravel) |
 | 2 | **EMAC** (EMA/SMA 30-min) | QQQ/VTI/VTV | EMA10 > SMA40 cross | ✅ Live (systemd) |
 | 3 | **MTCS** (Hilbert sine/lead) | QQQ/VTI/VTV | Sine wave crossover | ✅ Live — **slated for replacement** |
-| 4 | **MTF Top-N** (Multi-TF rotation) | S&P 500 (503 stocks) | gap_w + atr_dist + freshness → top 10 daily | 🚧 Phase 1 (paper) |
+| 4 | **MTF Top-N** (Multi-TF rotation) | S&P 500 (503 stocks) + 22 ETFs | gap_w + atr_dist + freshness → top 10 daily | 🚧 Phase 1 (paper) |
 | 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 4:30 PM |
 
 ## Constraints & Preferences
@@ -22,9 +22,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - MTCS uses optimizer venv for Python execution; Hilbert chart script (`chart.py`) auto-detects this venv via `os.execv`
 - Three Alpaca paper accounts: CHAND (#PA31Z71315NM), EMAC (#PA3EHVX93SJT), MTCS (#PA3NCXU4O2CN)
 - Keep same Slack channel for all services — differentiate via prefix tags
-- One combined Slack message per day for MTF (stocks + ETFs together) via `--mode all`
+- One combined Slack message per day for MTF (stocks + ETFs + sector info) via `--mode all`
 - `--min-score 5` variant tracked separately with isolated state files / CSVs
-- ETFs and stocks live in same scanner tables with `is_etf` flag; `tbl_etf_tickers` is display-only registry
 - Laravel cache must be cleared in `swingtrader/backend/storage/framework/` (not `scanner/backend/`) — both data cache (`cache/explorer_*.json`) and compiled views (`views/*.php`) must be cleared after blade changes
 
 ## Progress
@@ -79,6 +78,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Infancy is better as a score component (0-2 pts) than a hard filter** — keeps explosive stocks in play while giving priority to fresh weekly crosses. The daily signal service already implements this correctly.
 - **Multi-TF score crushes Long scanner for rotation** — Multi-TF weekly+daily bullish filter eliminates weak stocks; Long scanner's MACD/PPO zero-line crosses are noise (50% win rate = coin flip).
 - **Multi-TF daily rebalance beats weekly** (+5,299% vs +698%) — scores are stable so daily doesn't churn (0.44 buys/day vs Long scanner's 8.3 buys/day).
+- **Sector ETF MTF underperforms B&H** — MTF rotation on 11 sector ETFs (TOP_N=5) returned +46.9% vs equal-weight B&H +127.9% over Jul 2023–Jul 2026. Scoring system designed for individual stock breakouts doesn't work on diversified ETF baskets. SPY/QQQ MTF = 0 trades (single ticker = buy-and-hold).
 
 ## Key Decisions
 - **Daily EMA exit is the best exit mode for explosive stocks** — 1-hour exit whipsaws, ATR trailing is worse, daily cross below captures multi-week/month trends
@@ -112,7 +112,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - PostgreSQL `swingtrader-db` on `127.0.0.1:5432`, docker container healthy
 - Scanner tables: 503 stocks + 22 ETFs with `is_etf` flag; `tbl_etf_tickers` has company names
 - EMA=10, SMA=40, COST=0.0005, CAPITAL=100000
-- MTF Top-N Phase 1: separate paper portfolios per mode (stock + ETF) + min-score variant, state in `.mtf_state_*.json`
+- MTF Top-N Phase 1: separate paper portfolios per mode (stock + ETF) + min-score variant, state in `.mtf_state_*.json`; sector ETFs shown in Slack as info-only scoring
 - `mtf-daily-runner.timer` active at 5:30 PM ET weekdays — runs `--mode all` via systemd (single ExecStart)
 - `ema10_sma40_crossover` and `sma_crossover` columns in scanner tables are never populated by the pipeline (all false) — must compute inline via window functions
 - Laravel backend runs on port 9000 with `artisan serve` via systemd
@@ -125,7 +125,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **MTCS Alpaca** (key `PKQK45DA2ERAXX6XKPUDORIWSH`, acct #PA3NCXU4O2CN): $1M paper, active, 0 positions
 
 ## Relevant Files
-- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 1 — `--mode stock|etf|all` flag, `--min-score` (CLI arg + filtered candidates), separate CSVs/state per variant, crash alerting, stale data check, atomic writes, DB retry
+- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 1 — `--mode stock|etf|all` flag, `--min-score` (CLI arg + filtered candidates), separate CSVs/state per variant, crash alerting, stale data check, atomic writes, DB retry, sector info (info-only scoring in combined Slack)
 - `swingtrader/services/mtf/db.py`: Market breadth queries — compute close>SMA40 inline, fixed `both`→`bt` CTE name
 - `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy` flags, partial-date exclusion fix
 - `swingtrader/services/mtf/config.py`: DB config, TOP_N=10, COST=0.0005, CAPITAL=100000

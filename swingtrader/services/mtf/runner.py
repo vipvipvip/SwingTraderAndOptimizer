@@ -478,6 +478,94 @@ def _run_single_mode(mode, now, today, min_score=None):
     return True, lines, sig_date
 
 
+def _run_sector_info(conn, now, today):
+    """Score sector ETFs for informational Slack only. No portfolio/state/CSV."""
+    print('[MTF] Scoring sector ETFs (info only)...')
+
+    tickers = db_module.get_sector_tickers(conn)
+    if not tickers:
+        return ['  No sector ETFs found']
+
+    weekly_data = {}
+    daily_data = {}
+    hourly_data = {}
+    ticker_names = {}
+    for tid, sym in tickers:
+        ticker_names[tid] = sym
+        w = db_module.load_weekly(conn, tid)
+        d = db_module.load_daily(conn, tid)
+        h = db_module.load_hourly(conn, tid)
+        if w and d and h:
+            weekly_data[tid] = w
+            daily_data[tid] = d
+            hourly_data[tid] = h
+
+    if not weekly_data:
+        return ['  No sector ETFs with all 3 timeframes']
+
+    daily_idx = {}
+    for tid in daily_data:
+        daily_idx[tid] = {dt: i for i, dt in enumerate(daily_data[tid]['dates'])}
+    weekly_idx = {}
+    for tid in weekly_data:
+        weekly_idx[tid] = {dt: i for i, dt in enumerate(weekly_data[tid]['dates'])}
+    hourly_idx = {}
+    for tid in hourly_data:
+        hourly_idx[tid] = {dt: i for i, dt in enumerate(hourly_data[tid]['dates'])}
+
+    def _nearest(date_map, dates, target):
+        if target in date_map:
+            return date_map[target]
+        for d in reversed(dates):
+            if d <= target:
+                return date_map.get(d)
+        return None
+
+    latest_date = db_module.get_latest_daily_bar_date(conn)
+    if latest_date is None:
+        return ['  No daily data']
+
+    sig_date = latest_date
+    if now.weekday() == 0 and (now.hour < 9 or (now.hour == 9 and now.minute < 30)):
+        last_trading = today - timedelta(days=3)
+        with conn.cursor() as cur:
+            cur.execute('SELECT 1 FROM tbl_scanner_tickers_daily WHERE date::date = %s LIMIT 1', (last_trading,))
+            if cur.fetchone():
+                sig_date = last_trading
+
+    candidates = []
+    for tid in weekly_data:
+        di = _nearest(daily_idx[tid], daily_data[tid]['dates'], sig_date)
+        wi = _nearest(weekly_idx[tid], weekly_data[tid]['dates'], sig_date)
+        hi = _nearest(hourly_idx[tid], hourly_data[tid]['dates'], sig_date)
+        if di is None or wi is None or hi is None:
+            continue
+        result = _compute_score(weekly_data[tid], daily_data[tid], hourly_data[tid],
+                                wi, di, hi, sig_date)
+        if result is None:
+            continue
+        result['symbol'] = ticker_names[tid]
+        candidates.append(result)
+
+    lines = []
+    lines.append(f'Sector ETFs — {sig_date}')
+    lines.append('\u2501' * 32)
+
+    if not candidates:
+        lines.append('  No qualifying sector ETFs')
+        return lines
+
+    candidates.sort(key=lambda x: -x['score'])
+    for i, t in enumerate(candidates, 1):
+        fresh_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
+        lines.append(
+            f'{i:2d}. {t["symbol"]:5s}  {t["score"]:.1f}  '
+            f'gap {t["gap_w"]:+.1f}%  atr {t["atr_dist"]:.2f}%  {fresh_str}'
+        )
+
+    return lines
+
+
 def run(mode='stock', min_score=None):
     now = datetime.now(NY)
     today = now.date()
@@ -492,7 +580,7 @@ def run(mode='stock', min_score=None):
 
 
 def run_all():
-    """Run both stock and ETF modes (default + min-score), send ONE combined Slack message."""
+    """Run stock and ETF modes (default + min-score) + sector info, send ONE combined Slack message."""
     now = datetime.now(NY)
     today = now.date()
 
@@ -512,6 +600,17 @@ def run_all():
             all_lines.append(f'```{tb[-1500:]}```')
             print(f'[MTF] {mode} crashed: {exc}')
 
+    # Sector ETFs (informational only)
+    all_lines.append('')
+    try:
+        conn = _get_db_conn()
+        sector_lines = _run_sector_info(conn, now, today)
+        all_lines.extend(sector_lines)
+        conn.close()
+    except Exception as exc:
+        all_lines.append(f'❌ sector info crashed: {exc}')
+        print(f'[MTF] sector info crashed: {exc}')
+
     # Also run min-score 5 variant
     for mode in ('stock', 'etf'):
         all_lines.append('')
@@ -529,7 +628,7 @@ def run_all():
     if not sig_date:
         sig_date = str(today)
 
-    header = f'Multi-TF Top {config.TOP_N} \u2014 {sig_date} (stocks + ETFs)'
+    header = f'Multi-TF Top {config.TOP_N} \u2014 {sig_date} (stocks + ETFs + sectors)'
     full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
     print(f'\n{full_msg}\n')
     _send_slack(full_msg, 'stock')
@@ -538,7 +637,7 @@ def run_all():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MTF Top-N Daily Runner')
     parser.add_argument('--mode', choices=['stock', 'etf', 'all'], default='stock',
-                        help='Ticker universe to score (default: stock, use "all" for both)')
+                        help='Ticker universe to score (default: stock, use "all" for stocks+ETFs)')
     parser.add_argument('--min-score', type=float, default=None,
                         help='Minimum MTF score filter (default: no filter)')
     args = parser.parse_args()

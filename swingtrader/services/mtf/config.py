@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOP_N = 10
+SECTOR_ETFS = ['XLB', 'XLE', 'XLF', 'XLRE', 'XLV', 'XLI', 'XLK', 'XLP', 'XLU', 'XLY', 'XLC']
 EMA_PERIOD = 10
 SMA_PERIOD = 40
 COST_PER_TRADE = 0.0005

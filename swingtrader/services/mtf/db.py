@@ -2,7 +2,7 @@ import psycopg2
 import numpy as np
 import pandas as pd
 from datetime import date
-from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS, EMA_PERIOD, SMA_PERIOD, WARMUP_BARS, TS_START
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS, EMA_PERIOD, SMA_PERIOD, WARMUP_BARS, TS_START, SECTOR_ETFS
 
 
 def get_conn():
@@ -20,6 +20,14 @@ def get_all_tickers(conn, is_etf=False):
         cur.execute(
             'SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=%s ORDER BY symbol',
             (is_etf,))
+        return cur.fetchall()
+
+
+def get_sector_tickers(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND symbol = ANY(%s) ORDER BY symbol',
+            (SECTOR_ETFS,))
         return cur.fetchall()
 
 

@@ -108,7 +108,10 @@ def main():
     conn = db_module.get_conn()
     try:
         is_etf = args.etf
-        label = 'ETF' if is_etf else 'Stock'
+        if is_etf:
+            label = 'ETF'
+        else:
+            label = 'Stock'
         print(f'\n  Mode: {label} universe\n')
         # Load three timeframes
         _, weekly = load_bars(conn, 'tbl_scanner_tickers', 'date', is_etf)
