@@ -65,6 +65,9 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Reset fallout** — Full DB transaction reset required `backfill.py` + `backfill_daily.py` to restore candle data for signal computation
 - **Weekend stale-bar false alarms** — MTCS health check and unified health-check.sh both flagged Friday bars as stale on Monday; fixed both to count trading days (Mon-Fri) instead of raw calendar/hours
 - **MTF runner zero candidates with incomplete daily data** — daily index lookup used exact `.get(sig_date)`, failed when scanner daily table had only 1 row for today; fixed to use `_nearest_date_idx` fallback like weekly/hourly already did
+- **MTF runner entry date column** — added `entry YYYY-MM-DD (Nxd)` to terminal + Slack output for all lists (stocks, ETFs, sectors, min-score variants)
+- **MTCS/EMAC journald pipe stall** — long-running processes with `StandardOutput=journal` go silent when journald pipe buffer fills; fixed by redirecting to `/var/log/emac-runner.log` and `/var/log/mtcs-runner.log`
+- **compute_indicators.py lock contention** — 10 workers × 5,260 individual UPDATEs per ticker causes row-level lock contention (1h 47min runtime). Root cause identified: need partition-aware workers + COPY bulk writes (planned for refactor)
 
 ### In Progress
 - Integrating `--min-score` into runner.py (`--min-score` CLI arg, filtered candidates, isolated state/CSV suffix)
@@ -79,6 +82,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Multi-TF score crushes Long scanner for rotation** — Multi-TF weekly+daily bullish filter eliminates weak stocks; Long scanner's MACD/PPO zero-line crosses are noise (50% win rate = coin flip).
 - **Multi-TF daily rebalance beats weekly** (+5,299% vs +698%) — scores are stable so daily doesn't churn (0.44 buys/day vs Long scanner's 8.3 buys/day).
 - **Sector ETF MTF underperforms B&H** — MTF rotation on 11 sector ETFs (TOP_N=5) returned +46.9% vs equal-weight B&H +127.9% over Jul 2023–Jul 2026. Scoring system designed for individual stock breakouts doesn't work on diversified ETF baskets. SPY/QQQ MTF = 0 trades (single ticker = buy-and-hold).
+- **S&P 500 is too late for explosive moves** — TSLA: +757% BEFORE S&P inclusion, only +35% AFTER; NVDA: +103% BEFORE inclusion. VTI (Total Market) catches stocks at ~$100M market cap, years before S&P 500. MTF's early-momentum signals work better on small/mid-cap growth stocks.
 
 ## Key Decisions
 - **Daily EMA exit is the best exit mode for explosive stocks** — 1-hour exit whipsaws, ATR trailing is worse, daily cross below captures multi-week/month trends
@@ -87,6 +91,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Daily Signal Service now uses freshness-based scoring** over plain crossover count — entry signals sorted by momentum score, infancy entries highlighted separately
 - **Chart data limited to last N bars** — 500 for 1-hour/daily, 300 for weekly; page-timeframe switch is AJAX-only when a chart is loaded
 - **Market breadth thresholds** — risk-off < 35%, neutral 35-54%, risk-on > 54% (based on historical quartiles from 9-71% range)
+- **VTI over S&P 500 for MTF universe** — S&P 500 is a lagging indicator (adds stocks after explosive growth); VTI (CRSP US Total Market) includes stocks from ~$100M market cap, years earlier. MTF's early-momentum signals need small/mid-cap growth stocks.
 - **Active row highlight** uses manual container scroll calculation (not `scrollIntoView`) because the `.table-wrap` overflow container isn't the nearest scrollable ancestor
 - **Colgroups removed from all table modes** — all 6 scanner tables now auto-size columns consistently
 - **Infancy as score beat infancy as filter** — hard filter removes too many explosive entries (APP, SNDK, HWM zero trades); using freshness as a 0-2 pt bonus preserves them while still favoring fresh entries
@@ -105,8 +110,9 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 2. ✅ Multi-TF daily beats weekly + crushes Long scanner — **shift strategy: MTF Top-N replaces MTCS**
 3. 🚧 **Phase 1** — Finish `--min-score` integration in runner.py (CLI arg, filtered candidates, isolated suffix)
 4. 🚧 Add health check for min-score state files
-5. ⏳ After 1-week validation: Phase 2 — stop MTCS runner, wire MTF picks into real Alpaca executor (`--top-n 5`)
-6. ⏳ Phase 3 — Optimize top-N size, add exit rules (stop-loss, trailing)
+5. ⏳ **MTF Infrastructure Refactor** — Expand universe from 503 S&P 500 to ~2,000 VTI constituents (Price > $10, Avg $ vol > $10M), partition `tbl_scanner_tickers_1hour` (16 hash buckets), rewrite `compute_indicators.py` with partition-aware workers + COPY bulk writes. **Plan saved: `common/docs/mtf-infra-refactor-plan.md`**
+6. ⏳ After 1-week validation: Phase 2 — stop MTCS runner, wire MTF picks into real Alpaca executor (`--top-n 5`)
+7. ⏳ Phase 3 — Optimize top-N size, add exit rules (stop-loss, trailing)
 
 ## Critical Context
 - PostgreSQL `swingtrader-db` on `127.0.0.1:5432`, docker container healthy
@@ -125,7 +131,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **MTCS Alpaca** (key `PKQK45DA2ERAXX6XKPUDORIWSH`, acct #PA3NCXU4O2CN): $1M paper, active, 0 positions
 
 ## Relevant Files
-- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 1 — `--mode stock|etf|all` flag, `--min-score` (CLI arg + filtered candidates), separate CSVs/state per variant, crash alerting, stale data check, atomic writes, DB retry, sector info (info-only scoring in combined Slack)
+- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 1 — `--mode stock|etf|all` flag, `--min-score` (CLI arg + filtered candidates), separate CSVs/state per variant, crash alerting, stale data check, atomic writes, DB retry, sector info (info-only scoring in combined Slack), **entry date column in terminal + Slack**
 - `swingtrader/services/mtf/db.py`: Market breadth queries — compute close>SMA40 inline, fixed `both`→`bt` CTE name
 - `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy` flags, partial-date exclusion fix
 - `swingtrader/services/mtf/config.py`: DB config, TOP_N=10, COST=0.0005, CAPITAL=100000
@@ -138,3 +144,4 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - `scanner/backend/views/scanner/explorer.blade.php`: Explorer Dashboard — 3-panel charts, all-strategy signal columns, sortable
 - `swingtrader/services/ema_sma_crossover/daily_signal_service.py`: Multi-TF scanner with scoring + infancy + market breadth → Slack
 - `swingtrader/services/ema_sma_crossover/backtest_multitf.py`: Multi-timeframe backtest with `--exit daily-ema` mode
+- `common/docs/mtf-infra-refactor-plan.md`: **MTF Infrastructure Refactor Plan** — VTI universe, partitioning, worker scheduler, implementation tasks
