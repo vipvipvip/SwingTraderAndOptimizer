@@ -65,17 +65,19 @@ def main():
         if uptime:
             print(f'    Started: {uptime}')
 
-    # ── Recent journal errors ──
-    errors = os.popen(
-        'journalctl -u emac-runner --since "1 hour ago" -p err -q --no-pager 2>/dev/null '
-        '| tail -5'
-    ).read().strip()
+    # ── Recent errors from log file ──
+    log_path = '/var/log/emac-runner.log'
+    errors = ''
+    if os.path.isfile(log_path):
+        errors = os.popen(
+            f'tail -200 {log_path} | grep -iE "error|exception|traceback|fail" | tail -5'
+        ).read().strip()
     if errors:
-        warn(f'Recent errors in journal:')
+        warn(f'Recent errors in log:')
         for line in errors.split('\n'):
             print(f'    {line}')
     else:
-        ok('No errors in last hour of journal')
+        ok('No errors in log')
 
     # ── Candle freshness & signal state per ticker ──
     print()

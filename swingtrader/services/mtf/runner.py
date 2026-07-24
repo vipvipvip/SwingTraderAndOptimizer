@@ -400,10 +400,14 @@ def _run_single_mode(mode, now, today, min_score=None):
     with open(picks_csv, 'a', newline='') as f:
         w = csv.writer(f)
         if picks_header:
-            w.writerow(['date', 'rank', 'symbol', 'score', 'gap_w', 'atr_dist', 'freshness', 'close'])
+            w.writerow(['date', 'rank', 'symbol', 'score', 'gap_w', 'atr_dist', 'freshness', 'entry_date', 'close'])
         for i, t in enumerate(top_n, 1):
+            if t['freshness'] < 999:
+                entry_date = str(sig_date - timedelta(days=t['freshness']))
+            else:
+                entry_date = ''
             w.writerow([str(sig_date), i, t['symbol'], t['score'],
-                        t['gap_w'], t['atr_dist'], t['freshness'], t['close']])
+                        t['gap_w'], t['atr_dist'], t['freshness'], entry_date, t['close']])
 
     port_csv = _csv_path('portfolio', mode, min_score)
     port_header = not os.path.exists(port_csv)
@@ -440,10 +444,14 @@ def _run_single_mode(mode, now, today, min_score=None):
         pass
 
     for i, t in enumerate(top_n, 1):
-        fresh_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
+        if t['freshness'] < 999:
+            entry_date = sig_date - timedelta(days=t['freshness'])
+            entry_str = f'{entry_date} ({t["freshness"]}d)'
+        else:
+            entry_str = 'old'
         lines.append(
             f'{i:2d}. {t["symbol"]:6s}  {t["score"]:.1f}  '
-            f'gap {t["gap_w"]:+.1f}%  atr {t["atr_dist"]:.2f}%  {fresh_str}'
+            f'gap {t["gap_w"]:+.1f}%  atr {t["atr_dist"]:.2f}%  entry {entry_str}'
         )
 
     if prev_date and (new_entries or dropped):
@@ -557,10 +565,14 @@ def _run_sector_info(conn, now, today):
 
     candidates.sort(key=lambda x: -x['score'])
     for i, t in enumerate(candidates, 1):
-        fresh_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
+        if t['freshness'] < 999:
+            entry_date = sig_date - timedelta(days=t['freshness'])
+            entry_str = f'{entry_date} ({t["freshness"]}d)'
+        else:
+            entry_str = 'old'
         lines.append(
             f'{i:2d}. {t["symbol"]:5s}  {t["score"]:.1f}  '
-            f'gap {t["gap_w"]:+.1f}%  atr {t["atr_dist"]:.2f}%  {fresh_str}'
+            f'gap {t["gap_w"]:+.1f}%  atr {t["atr_dist"]:.2f}%  entry {entry_str}'
         )
 
     return lines
