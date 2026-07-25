@@ -443,9 +443,9 @@ def _run_single_mode(mode, now, today, min_score=None):
     except Exception:
         pass
 
-    # Tabular header
-    lines.append(f'{"#":>2} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"ATR":>7} {"Entry":<20}')
-    lines.append(f'{"-"*2} {"-"*8} {"-"*5} {"-"*7} {"-"*7} {"-"*20}')
+    # Tabular header - matching earnings screener format
+    lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"ATR":>7} {"Entry":<20}')
+    lines.append(f'{"-"*3} {"-"*8} {"-"*5} {"-"*7} {"-"*7} {"-"*20}')
 
     for i, t in enumerate(top_n, 1):
         if t['freshness'] < 999:
@@ -454,7 +454,7 @@ def _run_single_mode(mode, now, today, min_score=None):
         else:
             entry_str = 'old'
         lines.append(
-            f'{i:2d} {t["symbol"]:<8} {t["score"]:>5.1f} '
+            f'{i:<3} {t["symbol"]:<8} {t["score"]:>5.1f} '
             f'{t["gap_w"]:>+6.1f}% {t["atr_dist"]:>6.2f}% {entry_str:<20}'
         )
 
@@ -574,9 +574,9 @@ def _run_sector_info(conn, now, today):
         lines.append('  No qualifying sector ETFs')
         return lines
 
-    # Tabular header
-    lines.append(f'{"#":>2} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"ATR":>7} {"Entry":<20}')
-    lines.append(f'{"-"*2} {"-"*8} {"-"*5} {"-"*7} {"-"*7} {"-"*20}')
+    # Tabular header - matching earnings screener format
+    lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"ATR":>7} {"Entry":<20}')
+    lines.append(f'{"-"*3} {"-"*8} {"-"*5} {"-"*7} {"-"*7} {"-"*20}')
 
     candidates.sort(key=lambda x: -x['score'])
     for i, t in enumerate(candidates, 1):
@@ -586,7 +586,7 @@ def _run_sector_info(conn, now, today):
         else:
             entry_str = 'old'
         lines.append(
-            f'{i:2d} {t["symbol"]:<8} {t["score"]:>5.1f} '
+            f'{i:<3} {t["symbol"]:<8} {t["score"]:>5.1f} '
             f'{t["gap_w"]:>+6.1f}% {t["atr_dist"]:>6.2f}% {entry_str:<20}'
         )
 
