@@ -445,7 +445,7 @@ def _run_single_mode(mode, now, today, min_score=None):
 
     # Tabular header
     lines.append(f'{"#":>2} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"ATR":>7} {"Entry":<20}')
-    lines.append(f'{"":>2} {"------":<8} {"-----":>5} {"---":>7} {"---":>7} {"-----":<20}')
+    lines.append(f'{"-"*2} {"-"*8} {"-"*5} {"-"*7} {"-"*7} {"-"*20}')
 
     for i, t in enumerate(top_n, 1):
         if t['freshness'] < 999:
@@ -576,7 +576,7 @@ def _run_sector_info(conn, now, today):
 
     # Tabular header
     lines.append(f'{"#":>2} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"ATR":>7} {"Entry":<20}')
-    lines.append(f'{"":>2} {"------":<8} {"-----":>5} {"---":>7} {"---":>7} {"-----":<20}')
+    lines.append(f'{"-"*2} {"-"*8} {"-"*5} {"-"*7} {"-"*7} {"-"*20}')
 
     candidates.sort(key=lambda x: -x['score'])
     for i, t in enumerate(candidates, 1):
