@@ -443,6 +443,10 @@ def _run_single_mode(mode, now, today, min_score=None):
     except Exception:
         pass
 
+    # Tabular header
+    lines.append(f'{"#":>2} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"ATR":>7} {"Entry":<20}')
+    lines.append(f'{"":>2} {"------":<8} {"-----":>5} {"---":>7} {"---":>7} {"-----":<20}')
+
     for i, t in enumerate(top_n, 1):
         if t['freshness'] < 999:
             entry_date = sig_date - timedelta(days=t['freshness'])
@@ -450,17 +454,20 @@ def _run_single_mode(mode, now, today, min_score=None):
         else:
             entry_str = 'old'
         lines.append(
-            f'{i:2d}. {t["symbol"]:6s}  {t["score"]:.1f}  '
-            f'gap {t["gap_w"]:+.1f}%  atr {t["atr_dist"]:.2f}%  entry {entry_str}'
+            f'{i:2d} {t["symbol"]:<8} {t["score"]:>5.1f} '
+            f'{t["gap_w"]:>+6.1f}% {t["atr_dist"]:>6.2f}% {entry_str:<20}'
         )
 
     if prev_date and (new_entries or dropped):
         lines.append('')
         if new_entries:
             details = [f'{s} ({score_detail.get(s, {}).get("score", 0):.1f})' for s in new_entries]
-            lines.append(f'  NEW: {", ".join(details)}')
+            lines.append(f'NEW: {", ".join(details)}')
         if dropped:
-            lines.append(f'  OUT: {", ".join(dropped)}')
+            lines.append(f'OUT: {", ".join(dropped)}')
+    elif prev_date:
+        lines.append('')
+        lines.append('No changes since last run')
 
     lines.append('')
     if prev_date and str(prev_date) != str(sig_date):
@@ -474,6 +481,10 @@ def _run_single_mode(mode, now, today, min_score=None):
         lines.append(f'Portfolio: ${mtm_value:,.0f}  ({total_ret:+.1f}%)')
 
     lines.append(f'Positions: {len(positions)}  Cash: ${cash:,.0f}')
+
+    # Comma-delimited ticker list
+    lines.append('')
+    lines.append(','.join(top_symbols))
 
     # Save state AFTER message is built (so prev_date is available for NEW/OUT)
     state['last_date'] = str(sig_date)
@@ -563,6 +574,10 @@ def _run_sector_info(conn, now, today):
         lines.append('  No qualifying sector ETFs')
         return lines
 
+    # Tabular header
+    lines.append(f'{"#":>2} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"ATR":>7} {"Entry":<20}')
+    lines.append(f'{"":>2} {"------":<8} {"-----":>5} {"---":>7} {"---":>7} {"-----":<20}')
+
     candidates.sort(key=lambda x: -x['score'])
     for i, t in enumerate(candidates, 1):
         if t['freshness'] < 999:
@@ -571,9 +586,14 @@ def _run_sector_info(conn, now, today):
         else:
             entry_str = 'old'
         lines.append(
-            f'{i:2d}. {t["symbol"]:5s}  {t["score"]:.1f}  '
-            f'gap {t["gap_w"]:+.1f}%  atr {t["atr_dist"]:.2f}%  entry {entry_str}'
+            f'{i:2d} {t["symbol"]:<8} {t["score"]:>5.1f} '
+            f'{t["gap_w"]:>+6.1f}% {t["atr_dist"]:>6.2f}% {entry_str:<20}'
         )
+
+    # Comma-delimited ticker list
+    sector_symbols = [t['symbol'] for t in candidates]
+    lines.append('')
+    lines.append(','.join(sector_symbols))
 
     return lines
 
