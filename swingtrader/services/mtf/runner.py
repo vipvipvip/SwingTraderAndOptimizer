@@ -432,8 +432,8 @@ def _run_single_mode(mode, now, today, min_score=None):
     label = MODE_LABEL[mode]
     if min_score is not None:
         label = f'{label} (score \u2265 {min_score})'
-    lines.append(f'Multi-TF Top {config.TOP_N} \u2014 {sig_date} ({label})')
-    lines.append('\u2501' * 32)
+    lines.append(f'*Multi-TF Top {config.TOP_N} — {sig_date} ({label})*')
+    lines.append('```')
 
     try:
         pct = db_module.get_market_breadth(conn, is_etf=is_etf)
@@ -485,6 +485,8 @@ def _run_single_mode(mode, now, today, min_score=None):
     # Comma-delimited ticker list
     lines.append('')
     lines.append(','.join(top_symbols))
+
+    lines.append('```')
 
     # Save state AFTER message is built (so prev_date is available for NEW/OUT)
     state['last_date'] = str(sig_date)
@@ -567,11 +569,12 @@ def _run_sector_info(conn, now, today):
         candidates.append(result)
 
     lines = []
-    lines.append(f'Sector ETFs — {sig_date}')
-    lines.append('\u2501' * 32)
+    lines.append(f'*Sector ETFs — {sig_date}*')
+    lines.append('```')
 
     if not candidates:
         lines.append('  No qualifying sector ETFs')
+        lines.append('```')
         return lines
 
     # Tabular header - matching earnings screener format
@@ -594,6 +597,7 @@ def _run_sector_info(conn, now, today):
     sector_symbols = [t['symbol'] for t in candidates]
     lines.append('')
     lines.append(','.join(sector_symbols))
+    lines.append('```')
 
     return lines
 
