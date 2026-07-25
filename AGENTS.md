@@ -69,11 +69,25 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **MTCS/EMAC journald pipe stall** — long-running processes with `StandardOutput=journal` go silent when journald pipe buffer fills; fixed by redirecting to `/var/log/emac-runner.log` and `/var/log/mtcs-runner.log`
 - **compute_indicators.py lock contention** — 10 workers × 5,260 individual UPDATEs per ticker causes row-level lock contention (1h 47min runtime). Root cause identified: need partition-aware workers + COPY bulk writes (planned for refactor)
 
+### MTF Infrastructure Refactor (Done)
+- **Partitioned `tbl_scanner_tickers_1hour`** into 16 hash buckets (`ticker_id % 16`), migrated 2.8M rows, dropped 3 redundant indexes (saved 347 MB), old table backed up and dropped
+- **Rewrote `compute_indicators.py`**: partition-aware workers (1 per partition = zero lock contention), COPY bulk UPDATEs instead of individual UPDATEs. Runtime: 1h 47min → **8.5 min** (12x speedup)
+- **VTI universe**: 1,462 tickers fetched from Alpaca (Price > $50, non-OTC, non-ETF), added to `tbl_stock_tickers` → **1,534 enabled stocks** total
+- **Created `get_vti_universe.py`**: fetches all active US equities from Alpaca, filters by price/exchange/ETF, inserts into DB
+- **No changes needed** to `populate_tickers.py`, `runner.py`, `db.py` — PostgreSQL handles partition routing/pruning transparently
+
 ### In Progress
 - Integrating `--min-score` into runner.py (`--min-score` CLI arg, filtered candidates, isolated state/CSV suffix)
 
 ### Blocked
 - (none)
+
+### MTF Infrastructure Refactor (Done)
+- **Partitioned `tbl_scanner_tickers_1hour`** into 16 hash buckets (`ticker_id % 16`), migrated 2.8M rows, dropped 3 redundant indexes (saved 347 MB), old table backed up and dropped
+- **Rewrote `compute_indicators.py`**: partition-aware workers (1 per partition = zero lock contention), COPY bulk UPDATEs instead of individual UPDATEs. Runtime: 1h 47min → **8.5 min** (12x speedup)
+- **VTI universe**: 1,462 tickers fetched from Alpaca (Price > $50, non-OTC, non-ETF), added to `tbl_stock_tickers` → **1,534 enabled stocks** total
+- **Created `get_vti_universe.py`**: fetches all active US equities from Alpaca, filters by price/exchange/ETF, inserts into DB
+- **No changes needed** to `populate_tickers.py`, `runner.py`, `db.py` — PostgreSQL handles partition routing/pruning transparently
 
 ### Findings
 - **Infancy as a hard filter degrades returns** — `--infancy` backtest with `--exit daily-ema`: top 25 avg +101% (vs unfiltered +356%); bottom 25 avg -11.2% (vs unfiltered -13.5%). 18 of 50 stocks had zero trades because their weekly cross predates the hourly data window (Jul 2023).
@@ -110,13 +124,13 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 2. ✅ Multi-TF daily beats weekly + crushes Long scanner — **shift strategy: MTF Top-N replaces MTCS**
 3. 🚧 **Phase 1** — Finish `--min-score` integration in runner.py (CLI arg, filtered candidates, isolated suffix)
 4. 🚧 Add health check for min-score state files
-5. ⏳ **MTF Infrastructure Refactor** — Expand universe from 503 S&P 500 to ~2,000 VTI constituents (Price > $10, Avg $ vol > $10M), partition `tbl_scanner_tickers_1hour` (16 hash buckets), rewrite `compute_indicators.py` with partition-aware workers + COPY bulk writes. **Plan saved: `common/docs/mtf-infra-refactor-plan.md`**
+5. ✅ **MTF Infrastructure Refactor** — Expand universe from 503 S&P 500 to ~1,534 VTI constituents (Price > $50), partition `tbl_scanner_tickers_1hour` (16 hash buckets), rewrite `compute_indicators.py` with partition-aware workers + COPY bulk writes. **Plan saved: `common/docs/mtf-infra-refactor-plan.md`**
 6. ⏳ After 1-week validation: Phase 2 — stop MTCS runner, wire MTF picks into real Alpaca executor (`--top-n 5`)
 7. ⏳ Phase 3 — Optimize top-N size, add exit rules (stop-loss, trailing)
 
 ## Critical Context
 - PostgreSQL `swingtrader-db` on `127.0.0.1:5432`, docker container healthy
-- Scanner tables: 503 stocks + 22 ETFs with `is_etf` flag; `tbl_etf_tickers` has company names
+- Scanner tables: 1,534 stocks + 22 ETFs with `is_etf` flag; `tbl_etf_tickers` has company names
 - EMA=10, SMA=40, COST=0.0005, CAPITAL=100000
 - MTF Top-N Phase 1: separate paper portfolios per mode (stock + ETF) + min-score variant, state in `.mtf_state_*.json`; sector ETFs shown in Slack as info-only scoring
 - `mtf-daily-runner.timer` active at 5:30 PM ET weekdays — runs `--mode all` via systemd (single ExecStart)
@@ -145,3 +159,5 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - `swingtrader/services/ema_sma_crossover/daily_signal_service.py`: Multi-TF scanner with scoring + infancy + market breadth → Slack
 - `swingtrader/services/ema_sma_crossover/backtest_multitf.py`: Multi-timeframe backtest with `--exit daily-ema` mode
 - `common/docs/mtf-infra-refactor-plan.md`: **MTF Infrastructure Refactor Plan** — VTI universe, partitioning, worker scheduler, implementation tasks
+- `scanner/services/scripts/compute_indicators.py`: **Rewritten** — partition-aware workers (1 per hash partition), COPY bulk UPDATEs, 12x speedup (1h 47min → 8.5min)
+- `scanner/services/scripts/get_vti_universe.py`: **New** — fetches all active US equities from Alpaca, filters by price/exchange/ETF, inserts into `tbl_stock_tickers`

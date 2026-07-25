@@ -1,11 +1,17 @@
 """Phase 2: Compute MACD and PPO indicators, detect crossovers.
 
-Supports weekly, daily, and 1-hour timeframe tables.
+Partition-aware rewrite: 16 workers (1 per hash partition on tbl_scanner_tickers_1hour),
+COPY bulk writes instead of individual UPDATEs. Targets ~5-8 min on 1.5K+ tickers.
+
+Supports weekly, daily (non-partitioned), and 1-hour (hash-partitioned) tables.
 """
 
 import argparse
 import os
 import sys
+import time
+from io import StringIO
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
@@ -25,27 +31,16 @@ TABLES = {
     'hour': 'tbl_scanner_tickers_1hour',
 }
 
+PARTITION_COUNT = 16
 
-def load_ticker_data(ticker_id, table):
-    conn = get_db_conn()
-    try:
-        df = pd.read_sql(
-            f"""
-            SELECT date, open, high, low, close, volume
-            FROM {table}
-            WHERE ticker_id = %s
-            ORDER BY date ASC
-            """,
-            conn,
-            params=(ticker_id,),
-            parse_dates=['date'],
-        )
-    finally:
-        conn.close()
-
-    if df.empty:
-        return None
-    return df
+INDICATOR_COLUMNS = [
+    'macd_line', 'macd_signal', 'macd_histogram',
+    'macd_crossover', 'macd_cross_bearish',
+    'ppo_line', 'ppo_signal', 'ppo_histogram',
+    'ppo_crossover', 'ppo_cross_bearish',
+    'sma_crossover', 'sma_cross_bearish',
+    'atr_stop',
+]
 
 
 def compute_indicators(df, ema_fast_period, ema_slow_period, macd_signal_period, ppo_fast_period, ppo_slow_period):
@@ -66,17 +61,14 @@ def compute_indicators(df, ema_fast_period, ema_slow_period, macd_signal_period,
         (macd_line > macd_signal) & (macd_line.shift(1) <= macd_signal.shift(1)),
         True, False,
     )
-
     macd_cross_bearish = np.where(
         (macd_line < macd_signal) & (macd_line.shift(1) >= macd_signal.shift(1)),
         True, False,
     )
-
     ppo_crossover = np.where(
         (ppo_line > 0) & (ppo_line.shift(1) <= 0),
         True, False,
     )
-
     ppo_cross_bearish = np.where(
         (ppo_line < 0) & (ppo_line.shift(1) >= 0),
         True, False,
@@ -87,7 +79,6 @@ def compute_indicators(df, ema_fast_period, ema_slow_period, macd_signal_period,
         (ema_fast > sma_slow) & (ema_fast.shift(1) <= sma_slow.shift(1)),
         True, False,
     )
-
     sma_cross_bearish = np.where(
         (ema_fast < sma_slow) & (ema_fast.shift(1) >= sma_slow.shift(1)),
         True, False,
@@ -102,97 +93,141 @@ def compute_indicators(df, ema_fast_period, ema_slow_period, macd_signal_period,
 
     return pd.DataFrame({
         'date': df['date'],
-        'macd_line': macd_line,
-        'macd_signal': macd_signal,
-        'macd_histogram': macd_histogram,
-        'macd_crossover': macd_crossover,
-        'ppo_line': ppo_line,
-        'ppo_signal': ppo_signal,
-        'ppo_histogram': ppo_histogram,
-        'ppo_crossover': ppo_crossover,
-        'sma_crossover': sma_crossover,
-        'macd_cross_bearish': macd_cross_bearish,
-        'ppo_cross_bearish': ppo_cross_bearish,
-        'sma_cross_bearish': sma_cross_bearish,
-        'atr_stop': atr_stop,
+        'ticker_id': df['ticker_id'],
+        'macd_line': [None if pd.isna(v) else float(v) for v in macd_line],
+        'macd_signal': [None if pd.isna(v) else float(v) for v in macd_signal],
+        'macd_histogram': [None if pd.isna(v) else float(v) for v in macd_histogram],
+        'macd_crossover': [bool(v) for v in macd_crossover],
+        'macd_cross_bearish': [bool(v) for v in macd_cross_bearish],
+        'ppo_line': [None if pd.isna(v) else float(v) for v in ppo_line],
+        'ppo_signal': [None if pd.isna(v) else float(v) for v in ppo_signal],
+        'ppo_histogram': [None if pd.isna(v) else float(v) for v in ppo_histogram],
+        'ppo_crossover': [bool(v) for v in ppo_crossover],
+        'ppo_cross_bearish': [bool(v) for v in ppo_cross_bearish],
+        'sma_crossover': [bool(v) for v in sma_crossover],
+        'sma_cross_bearish': [bool(v) for v in sma_cross_bearish],
+        'atr_stop': [None if pd.isna(v) else float(v) for v in atr_stop],
     })
 
 
-def get_ticker_id(symbol):
+def _bulk_update_from_temp(cur, table, tmp_name):
+    """UPDATE target table FROM temp table using COPY'd data."""
+    set_clause = ', '.join(f'{col} = {tmp_name}.{col}' for col in INDICATOR_COLUMNS)
+    cur.execute(f'''
+        UPDATE {table}
+        SET {set_clause}
+        FROM {tmp_name}
+        WHERE {table}.ticker_id = {tmp_name}.ticker_id
+          AND {table}.date = {tmp_name}.date
+    ''')
+
+
+def _copy_to_temp(cur, rows, tmp_name):
+    """COPY rows to a temp table for bulk update."""
+    buf = StringIO()
+    for row in rows:
+        vals = []
+        for v in row:
+            if v is None:
+                vals.append('\\N')
+            elif isinstance(v, bool):
+                vals.append('t' if v else 'f')
+            else:
+                vals.append(str(v))
+        buf.write('\t'.join(vals) + '\n')
+    buf.seek(0)
+    cur.execute(f'DROP TABLE IF EXISTS {tmp_name}')
+    cur.execute(
+        f'CREATE TEMP TABLE {tmp_name} ('
+        'ticker_id bigint, date date, '
+        'macd_line float8, macd_signal float8, macd_histogram float8, '
+        'macd_crossover boolean, macd_cross_bearish boolean, '
+        'ppo_line float8, ppo_signal float8, ppo_histogram float8, '
+        'ppo_crossover boolean, ppo_cross_bearish boolean, '
+        'sma_crossover boolean, sma_cross_bearish boolean, '
+        'atr_stop float8'
+        ') ON COMMIT DROP'
+    )
+    col_list = 'ticker_id, date, ' + ', '.join(INDICATOR_COLUMNS)
+    cur.copy_expert(
+        f'COPY {tmp_name} ({col_list}) FROM STDIN WITH (FORMAT text)',
+        buf,
+    )
+
+
+def load_ticker_data_bulk(conn, ticker_ids, table):
+    """Load data for multiple tickers in a single query."""
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT ticker_id, date, open, high, low, close, volume "
+        f"FROM {table} WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date ASC",
+        (ticker_ids,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    if not rows:
+        return {}
+    df = pd.DataFrame(rows, columns=['ticker_id', 'date', 'open', 'high', 'low', 'close', 'volume'])
+    return {tid: group.reset_index(drop=True) for tid, group in df.groupby('ticker_id')}
+
+
+def worker_process(worker_id, ticker_ids, table,
+                   ema_fast, ema_slow, macd_signal_period, ppo_fast, ppo_slow):
+    """Process a batch of tickers in a single DB connection. Returns (count, crossovers)."""
     conn = get_db_conn()
     try:
-        with conn.cursor() as cur:
-            cur.execute('SELECT id FROM tbl_stock_tickers WHERE symbol = %s', (symbol,))
-            row = cur.fetchone()
-            return row[0] if row else None
+        conn.autocommit = False
+        data_map = load_ticker_data_bulk(conn, ticker_ids, table)
+        min_rows = max(ema_slow, ppo_slow) + 1
+
+        all_rows = []
+        total_crossovers = 0
+        processed = 0
+
+        for tid in ticker_ids:
+            df = data_map.get(tid)
+            if df is None or len(df) < min_rows:
+                continue
+
+            indicators = compute_indicators(df, ema_fast, ema_slow, macd_signal_period, ppo_fast, ppo_slow)
+            for _, row in indicators.iterrows():
+                date_val = row['date']
+                if hasattr(date_val, 'to_pydatetime'):
+                    date_val = date_val.to_pydatetime()
+                if hasattr(date_val, 'date'):
+                    date_val = date_val.date()
+                all_rows.append((
+                    int(row['ticker_id']), date_val,
+                    row['macd_line'], row['macd_signal'], row['macd_histogram'],
+                    row['macd_crossover'], row['macd_cross_bearish'],
+                    row['ppo_line'], row['ppo_signal'], row['ppo_histogram'],
+                    row['ppo_crossover'], row['ppo_cross_bearish'],
+                    row['sma_crossover'], row['sma_cross_bearish'],
+                    row['atr_stop'],
+                ))
+            total_crossovers += int(
+                indicators['macd_crossover'].sum() + indicators['ppo_crossover'].sum()
+                + indicators['sma_crossover'].sum()
+                + indicators['macd_cross_bearish'].sum() + indicators['ppo_cross_bearish'].sum()
+                + indicators['sma_cross_bearish'].sum()
+            )
+            processed += 1
+
+        # Bulk update via COPY + UPDATE FROM
+        if all_rows:
+            cur = conn.cursor()
+            tmp_name = f'_ind_w{worker_id}'
+            _copy_to_temp(cur, all_rows, tmp_name)
+            _bulk_update_from_temp(cur, table, tmp_name)
+            conn.commit()
+            cur.close()
+
+        return worker_id, processed, total_crossovers, 'ok'
+    except Exception as e:
+        conn.rollback()
+        return worker_id, 0, 0, str(e)
     finally:
         conn.close()
-
-
-def process_ticker(ticker, table, ema_fast_period, ema_slow_period, macd_signal_period, ppo_fast_period, ppo_slow_period):
-    try:
-        ticker_id = get_ticker_id(ticker)
-        if ticker_id is None:
-            return ticker, 0, f'ticker not found in tbl_stock_tickers'
-
-        df = load_ticker_data(ticker_id, table)
-        if df is None or len(df) < max(ema_slow_period, ppo_slow_period) + 1:
-            return ticker, 0, f'insufficient data ({len(df) if df is not None else 0} rows)'
-
-        indicators = compute_indicators(
-            df, ema_fast_period, ema_slow_period, macd_signal_period, ppo_fast_period, ppo_slow_period
-        )
-
-        conn = get_db_conn()
-        try:
-            with conn.cursor() as cur:
-                for _, row in indicators.iterrows():
-                    date_val = row['date']
-                    if hasattr(date_val, 'to_pydatetime'):
-                        date_param = date_val.to_pydatetime()
-                    else:
-                        date_param = date_val
-                    cur.execute(
-                        f"""
-                        UPDATE {table}
-                        SET macd_line = %s, macd_signal = %s, macd_histogram = %s,
-                            macd_crossover = %s, macd_cross_bearish = %s,
-                            ppo_line = %s, ppo_signal = %s, ppo_histogram = %s,
-                            ppo_crossover = %s, ppo_cross_bearish = %s,
-                            sma_crossover = %s, sma_cross_bearish = %s,
-                            atr_stop = %s
-                        WHERE ticker_id = %s AND date = %s
-                        """,
-                        (
-                            None if pd.isna(row['macd_line']) else float(row['macd_line']),
-                            None if pd.isna(row['macd_signal']) else float(row['macd_signal']),
-                            None if pd.isna(row['macd_histogram']) else float(row['macd_histogram']),
-                            bool(row['macd_crossover']),
-                            bool(row['macd_cross_bearish']),
-                            None if pd.isna(row['ppo_line']) else float(row['ppo_line']),
-                            None if pd.isna(row['ppo_signal']) else float(row['ppo_signal']),
-                            None if pd.isna(row['ppo_histogram']) else float(row['ppo_histogram']),
-                            bool(row['ppo_crossover']),
-                            bool(row['ppo_cross_bearish']),
-                            bool(row['sma_crossover']),
-                            bool(row['sma_cross_bearish']),
-                            None if pd.isna(row['atr_stop']) else float(row['atr_stop']),
-                            ticker_id,
-                            date_param,
-                        ),
-                    )
-            conn.commit()
-        finally:
-            conn.close()
-
-        crossovers = (indicators['macd_crossover'].sum() + indicators['ppo_crossover'].sum()
-                      + indicators['sma_crossover'].sum()
-                      + indicators['macd_cross_bearish'].sum()
-                      + indicators['ppo_cross_bearish'].sum()
-                      + indicators['sma_cross_bearish'].sum())
-        return ticker, crossovers, 'ok'
-    except Exception as e:
-        return ticker, 0, str(e)
 
 
 def main():
@@ -204,49 +239,78 @@ def main():
     parser.add_argument('--macd-signal-period', type=int, default=MACD_SIGNAL_PERIOD)
     parser.add_argument('--ppo-fast', type=int, default=PPO_FAST)
     parser.add_argument('--ppo-slow', type=int, default=PPO_SLOW)
-    parser.add_argument('--workers', type=int, default=10)
+    parser.add_argument('--workers', type=int, default=16,
+                        help='Number of parallel workers (default: 16 = 1 per hash partition)')
     args = parser.parse_args()
 
     table = TABLES[args.timeframe]
+    is_hourly = args.timeframe == 'hour'
 
+    # Load all ticker_ids that have data in this table
     conn = get_db_conn()
     try:
-        tickers = pd.read_sql(
-            f"""SELECT DISTINCT e.symbol
-                FROM {table} s
-                JOIN tbl_stock_tickers e ON e.id = s.ticker_id
-                ORDER BY e.symbol""", conn
-        )['symbol'].tolist()
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT DISTINCT ticker_id FROM {table} ORDER BY ticker_id"
+            )
+            ticker_ids = [row[0] for row in cur.fetchall()]
     finally:
         conn.close()
 
-    print(f"Computing indicators for {len(tickers)} tickers on {table} "
+    if not ticker_ids:
+        print(f"No tickers found in {table}")
+        return
+
+    # Partition tickers into worker groups
+    num_workers = min(args.workers, len(ticker_ids))
+    if is_hourly:
+        partitions = defaultdict(list)
+        for tid in ticker_ids:
+            partitions[tid % PARTITION_COUNT].append(tid)
+        worker_groups = [[] for _ in range(num_workers)]
+        for part_id, pids in partitions.items():
+            worker_groups[part_id % num_workers].extend(pids)
+    else:
+        worker_groups = [[] for _ in range(num_workers)]
+        for i, tid in enumerate(ticker_ids):
+            worker_groups[i % num_workers].append(tid)
+
+    total_tickers = len(ticker_ids)
+    print(f"Computing indicators for {total_tickers} tickers on {table} "
           f"(EMA {args.ema_fast}/{args.ema_slow}, "
-          f"PPO {args.ppo_fast}/{args.ppo_slow})...")
+          f"PPO {args.ppo_fast}/{args.ppo_slow}), "
+          f"{num_workers} workers...")
 
-    total = len(tickers)
-    done = 0
+    t0 = time.time()
+    total_processed = 0
     total_crossovers = 0
+    errors = []
 
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = {
-            executor.submit(
-                process_ticker, t, table, args.ema_fast, args.ema_slow,
-                args.macd_signal_period, args.ppo_fast, args.ppo_slow,
-            ): t for t in tickers
-        }
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = {}
+        for w_id in range(num_workers):
+            if worker_groups[w_id]:
+                futures[executor.submit(
+                    worker_process, w_id, worker_groups[w_id], table,
+                    args.ema_fast, args.ema_slow, args.macd_signal_period,
+                    args.ppo_fast, args.ppo_slow,
+                )] = w_id
 
         for future in as_completed(futures):
-            ticker, crossovers, status = future.result()
-            done += 1
+            w_id, count, crossovers, status = future.result()
+            total_processed += count
             total_crossovers += crossovers
+            if status != 'ok':
+                errors.append(f'Worker {w_id}: {status}')
+            print(f"  Worker {w_id}: {count} tickers, {crossovers} crossovers {'OK' if status == 'ok' else 'ERROR: ' + status}")
 
-            if status == 'ok':
-                print(f"  [{done}/{total}] {ticker}: {crossovers} crossovers found")
-            else:
-                print(f"  [{done}/{total}] {ticker}: skipped ({status})")
-
-    print(f"\nDone. {done} tickers processed, {total_crossovers} total crossover signals detected.")
+    elapsed = time.time() - t0
+    print(f"\nDone in {elapsed:.1f}s. {total_processed}/{total_tickers} tickers processed, "
+          f"{total_crossovers} total crossovers.")
+    if errors:
+        print(f"Errors: {len(errors)}")
+        for e in errors[:5]:
+            print(f"  {e}")
 
 
 if __name__ == '__main__':
