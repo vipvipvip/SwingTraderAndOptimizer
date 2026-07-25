@@ -1,0 +1,13 @@
+[Unit]
+Description=Earnings Crossover Screener — Find stocks with upcoming earnings + bullish hourly MACD
+After=network-online.target swingtrader-db.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python3 services/earnings_screener.py --days 14 --slack
+
+[Install]
+WantedBy=multi-user.target

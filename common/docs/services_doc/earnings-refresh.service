@@ -1,0 +1,13 @@
+[Unit]
+Description=Earnings Calendar Refresh — Fetch next 4 weeks of earnings dates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python3 services/earnings_screener.py --refresh
+
+[Install]
+WantedBy=multi-user.target
