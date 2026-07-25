@@ -9,7 +9,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 | 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/VTV | Optimized trailing stop | ✅ Live (Laravel) |
 | 2 | **EMAC** (EMA/SMA 30-min) | QQQ/VTI/VTV | EMA10 > SMA40 cross | ✅ Live (systemd) |
 | 3 | **MTCS** (Hilbert sine/lead) | QQQ/VTI/VTV | Sine wave crossover | ✅ Live — **slated for replacement** |
-| 4 | **MTF Top-N** (Multi-TF rotation) | S&P 500 (503 stocks) + 22 ETFs | gap_w + atr_dist + freshness → top 10 daily | 🚧 Phase 1 (paper) |
+| 4 | **MTF Top-N** (Multi-TF rotation) | VTI (1,534 stocks) + 22 ETFs | gap_w + atr_dist + freshness → top 10 daily | 🚧 Phase 1 (paper) |
 | 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 4:30 PM |
 
 ## Constraints & Preferences
@@ -56,6 +56,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Backtest fixed**: partial-date bug — excludes dates with <400 tickers so incomplete last trading day doesn't artifact -100% loss
 - **Backtest `--min-score` + `--infancy` flags added** and confirmed: `--min-score 5` alone returns **+9,061%** (33.2% DD, 280 buys) vs unfiltered +5,469% (22.2% DD, 526 buys); adding infancy drops to +688% (59.2% DD, 93 buys) — infancy is the drag, not min-score
 - **Adding `--min-score 5` variant to runner.py**: separate state files (`.mtf_state_min5_stock.json`), separate CSVs (`mtf_picks_min5_stock.csv`), isolated from default pipeline
+- **Updated MTF health_check.py**: now checks all state/CSV variants (stock/etf/min5) instead of old `.mtf_state.json` naming
+- **LinkedIn posts for infra work**: created `LinkedIn-Posts/LINKEDIN_POSTS_INFRA.md` — 3 posts framing the infra refactor as "Vibe coding" (no Claude references, PGSQL instead of SQLite)
 
 ### Fixed Bugs
 - **Duplicate live_trades entries** — `syncLiveTradesFromAlpaca()` Step 1 in EquityService.php re-opened closed trades via `status => 'open'` (fixed: skip if `status !== 'open'`)
@@ -77,17 +79,10 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **No changes needed** to `populate_tickers.py`, `runner.py`, `db.py` — PostgreSQL handles partition routing/pruning transparently
 
 ### In Progress
-- Integrating `--min-score` into runner.py (`--min-score` CLI arg, filtered candidates, isolated state/CSV suffix)
+- (none)
 
 ### Blocked
 - (none)
-
-### MTF Infrastructure Refactor (Done)
-- **Partitioned `tbl_scanner_tickers_1hour`** into 16 hash buckets (`ticker_id % 16`), migrated 2.8M rows, dropped 3 redundant indexes (saved 347 MB), old table backed up and dropped
-- **Rewrote `compute_indicators.py`**: partition-aware workers (1 per partition = zero lock contention), COPY bulk UPDATEs instead of individual UPDATEs. Runtime: 1h 47min → **8.5 min** (12x speedup)
-- **VTI universe**: 1,462 tickers fetched from Alpaca (Price > $50, non-OTC, non-ETF), added to `tbl_stock_tickers` → **1,534 enabled stocks** total
-- **Created `get_vti_universe.py`**: fetches all active US equities from Alpaca, filters by price/exchange/ETF, inserts into DB
-- **No changes needed** to `populate_tickers.py`, `runner.py`, `db.py` — PostgreSQL handles partition routing/pruning transparently
 
 ### Findings
 - **Infancy as a hard filter degrades returns** — `--infancy` backtest with `--exit daily-ema`: top 25 avg +101% (vs unfiltered +356%); bottom 25 avg -11.2% (vs unfiltered -13.5%). 18 of 50 stocks had zero trades because their weekly cross predates the hourly data window (Jul 2023).
@@ -122,8 +117,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 ## Next Steps
 1. ✅ Test infancy-filtered variant of the strategy — **done: infancy as hard filter degrades returns** (top 25 avg +101% vs unfiltered +356%)
 2. ✅ Multi-TF daily beats weekly + crushes Long scanner — **shift strategy: MTF Top-N replaces MTCS**
-3. 🚧 **Phase 1** — Finish `--min-score` integration in runner.py (CLI arg, filtered candidates, isolated suffix)
-4. 🚧 Add health check for min-score state files
+3. ✅ **Phase 1** — Finish `--min-score` integration in runner.py (CLI arg, filtered candidates, isolated suffix)
+4. ✅ Add health check for min-score state files
 5. ✅ **MTF Infrastructure Refactor** — Expand universe from 503 S&P 500 to ~1,534 VTI constituents (Price > $50), partition `tbl_scanner_tickers_1hour` (16 hash buckets), rewrite `compute_indicators.py` with partition-aware workers + COPY bulk writes. **Plan saved: `common/docs/mtf-infra-refactor-plan.md`**
 6. ⏳ After 1-week validation: Phase 2 — stop MTCS runner, wire MTF picks into real Alpaca executor (`--top-n 5`)
 7. ⏳ Phase 3 — Optimize top-N size, add exit rules (stop-loss, trailing)

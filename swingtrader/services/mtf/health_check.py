@@ -99,28 +99,42 @@ def main():
         else:
             warn('Could not compute market breadth')
 
-        # ── State file ──
-        state_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.mtf_state.json')
-        if os.path.exists(state_path):
-            age = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(state_path))).total_seconds()
-            if age < 86400:
-                ok(f'State file updated {age/3600:.1f}h ago')
-            elif age < 172800:
-                warn(f'State file stale ({age/3600:.1f}h ago)')
-            else:
-                msg = f'State file not updated for {age/3600:.1f}h — runner may be failing silently'
-                fail(msg)
-        else:
-            warn('No state file (not yet run)')
+        # ── State files (per mode + min-score variants) ──
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        state_variants = [
+            ('.mtf_state_stock.json', 'default stocks'),
+            ('.mtf_state_etf.json', 'default ETFs'),
+            ('.mtf_state_min5_stock.json', 'min-score 5 stocks'),
+            ('.mtf_state_min5_etf.json', 'min-score 5 ETFs'),
+        ]
+        for fname, label in state_variants:
+            sp = os.path.join(base_dir, fname)
+            if os.path.exists(sp):
+                age = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(sp))).total_seconds()
+                if age < 86400:
+                    ok(f'State [{label}] updated {age/3600:.1f}h ago')
+                elif age < 172800:
+                    warn(f'State [{label}] stale ({age/3600:.1f}h ago)')
+                else:
+                    fail(f'State [{label}] not updated for {age/3600:.1f}h — may be failing silently')
 
-        # ── Data files ──
-        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+        # ── Data files (per mode + min-score variants) ──
+        data_dir = os.path.join(base_dir, 'data')
+        csv_variants = [
+            ('mtf_picks_stock.csv', 'picks stocks'),
+            ('mtf_picks_etf.csv', 'picks ETFs'),
+            ('mtf_picks_min5_stock.csv', 'picks min5 stocks'),
+            ('mtf_picks_min5_etf.csv', 'picks min5 ETFs'),
+        ]
         if os.path.exists(data_dir):
-            picks = os.path.join(data_dir, 'mtf_picks.csv')
-            if os.path.exists(picks):
-                ok(f'Picks CSV exists')
-            else:
-                warn('No picks CSV yet')
+            any_picks = False
+            for fname, label in csv_variants:
+                fp = os.path.join(data_dir, fname)
+                if os.path.exists(fp):
+                    any_picks = True
+                    ok(f'CSV [{label}] exists')
+            if not any_picks:
+                warn('No picks CSVs yet')
         else:
             warn('No data directory (not yet run)')
 
