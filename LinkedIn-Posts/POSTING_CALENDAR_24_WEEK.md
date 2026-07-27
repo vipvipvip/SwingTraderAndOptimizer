@@ -12,6 +12,14 @@ This prevents "engineer who codes" perception and establishes "strategic operato
 
 ## Posting Schedule
 
+### PRE-WEEK 1 (Day 0):
+
+- Headline → "Board-Ready Operational Strategist | Founded Censeo (Mercer exit) | Scaled 4 Startups"
+- About section → BOARD_MEMBER_POSITIONING_FINAL.md version (eyes in, hands out)
+- Activate LinkedIn Writer program
+- Pin Founder Story #1 to profile
+- Set "Open to" messaging
+
 ### **WEEKS 1-4: Foundation & Credibility**
 
 **Week 1: R&D Adoption #1**
