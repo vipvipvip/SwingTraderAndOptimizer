@@ -293,7 +293,7 @@ def _run_single_mode(mode, now, today, min_score=None):
 
     sig_date = latest_date
 
-    # Monday: if today's daily data is incomplete (fewer tickers than yesterday),
+    # Monday: if today's daily data is incomplete (fewer tickers than expected),
     # force sig_date to Friday so picks are consistent all day.
     # After 16:45 when scanner-hourly + compute finish, today's data is complete.
     if now.weekday() == 0 and latest_date == today:
@@ -301,14 +301,11 @@ def _run_single_mode(mode, now, today, min_score=None):
             cur.execute('''SELECT COUNT(DISTINCT ticker_id) FROM tbl_scanner_tickers_daily
                            WHERE date::date = %s''', (today,))
             today_count = cur.fetchone()[0]
-            cur.execute('''SELECT date::date, COUNT(DISTINCT ticker_id) FROM tbl_scanner_tickers_daily
-                           WHERE date::date < %s GROUP BY date::date ORDER BY date DESC LIMIT 1''', (today,))
-            row = cur.fetchone()
-            prev_count = row[1] if row else 0
-        if prev_count and today_count < prev_count * 0.95:
+        expected = len(enabled_tids)
+        if today_count < expected:
             last_trading = today - timedelta(days=3)
             sig_date = last_trading
-            print(f'[MTF] Monday catch-up: today has {today_count}/{prev_count} tickers, using {sig_date}')
+            print(f'[MTF] Monday catch-up: today has {today_count}/{expected} tickers, using {sig_date}')
 
     print(f'[MTF] Signal date: {sig_date}')
 
