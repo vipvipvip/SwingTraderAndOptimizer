@@ -294,15 +294,15 @@ By Year 4, when I knew enterprise customers were the play, we should have recrui
 
 Instead, our enterprise clients came mostly through inbound and referrals. We left revenue on the table by not having someone whose full-time job was enterprise business development and relationship building.
 
-**Mistake 5: Holding on too long.**
+**Mistake 5: Didn't build strategic partnerships and integrations with platforms our customers used.**
 
-By year 9-10, I was asking: Is this still exciting? Do I want to do this for 5 more years?
+We dealt with employees and HR processes. Our customers were already using Paychex, Intuit, Workday for payroll, accounting, and HR management.
 
-The answer was: Probably not.
+We should have built integrations with those platforms. Make it easy for HR teams to sync employee data, avoid manual entry, embed Censeo into their existing workflow.
 
-But I held on because the company was stable and profitable. I didn't want to fail. But I also didn't want to grow it anymore.
+Instead, we stayed a standalone tool. Customers had to manually manage data across multiple systems. Smaller HR software companies that integrated with Workday and Paychex became far more valuable and sticky.
 
-Better approach: By year 8, have a real conversation with co-founders about the future. If the answer is "we want different things," plan the exit. Don't let inertia keep you building something you're not excited about.
+By Year 4-5, when we knew enterprise was the play, we should have prioritized ecosystem integrations. That would have accelerated adoption, reduced friction, and made us harder to replace.
 
 **The Meta-Lesson:**
 
