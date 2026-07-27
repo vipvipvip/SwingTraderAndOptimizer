@@ -151,7 +151,9 @@ def _compute_score(weekly, daily, hourly, wi, di, hi, sig_date):
     hc = hourly['close'][hi]
     ha = hourly['atr_stop'][hi]
 
-    if any(np.isnan(x) for x in (wc, we, ws, dc, de, ds, hc, ha)):
+    # Use math.isnan (fast scalar) instead of np.isnan (slow array alloc)
+    import math
+    if any(math.isnan(x) for x in (wc, we, ws, dc, de, ds, hc, ha)):
         return None
     if we <= ws or de <= ds:
         return None
@@ -161,16 +163,19 @@ def _compute_score(weekly, daily, hourly, wi, di, hi, sig_date):
     gap_w = (wc - ws) / ws * 100
     atr_dist = (hc - ha) / hc * 100 if ha > 0 else 0
 
+    # Find freshness: walk backward through weekly data to find last EMA/SMA crossover
     days_since = 999
+    w_ema = weekly['ema']
+    w_sma = weekly['sma']
+    w_dates = weekly['dates']
     for j in range(wi, 0, -1):
-        wj_ema = weekly['ema'][j]
-        wj_sma = weekly['sma'][j]
-        wj_ema_prev = weekly['ema'][j - 1]
-        wj_sma_prev = weekly['sma'][j - 1]
-        if (not np.isnan(wj_ema) and not np.isnan(wj_sma)
-                and not np.isnan(wj_ema_prev) and not np.isnan(wj_sma_prev)):
+        wj_ema = w_ema[j]
+        wj_sma = w_sma[j]
+        wj_ema_prev = w_ema[j - 1]
+        wj_sma_prev = w_sma[j - 1]
+        if not (math.isnan(wj_ema) or math.isnan(wj_sma) or math.isnan(wj_ema_prev) or math.isnan(wj_sma_prev)):
             if wj_ema > wj_sma and wj_ema_prev <= wj_sma_prev:
-                days_since = (sig_date - weekly['dates'][j]).days
+                days_since = (sig_date - w_dates[j]).days
                 break
 
     gap_pts = min(gap_w / 20, 3)
@@ -222,22 +227,36 @@ def _run_single_mode(mode, now, today, min_score=None):
     tickers = db_module.get_all_tickers(conn, is_etf=is_etf)
     print(f'[MTF] Loaded {len(tickers)} {MODE_LABEL[mode]}')
 
-    weekly_data = {}
-    daily_data = {}
-    hourly_data = {}
     ticker_names = {}
     company_names = {}
     for tid, sym in tickers:
         ticker_names[tid] = sym
         if is_etf:
             company_names[tid] = db_module.get_etf_name(conn, tid) or sym
-        w = db_module.load_weekly(conn, tid)
-        d = db_module.load_daily(conn, tid)
-        h = db_module.load_hourly(conn, tid)
-        if w and d and h:
-            weekly_data[tid] = w
-            daily_data[tid] = d
-            hourly_data[tid] = h
+
+    # Bulk load all data (3 queries instead of 3 × N tickers)
+    enabled_tids = set(ticker_names.keys())
+    print(f'[MTF] Loading weekly data...', flush=True)
+    weekly_data = db_module.bulk_load_weekly(conn, enabled_tids)
+    print(f'[MTF] Loading daily data...', flush=True)
+    daily_data_raw = db_module.bulk_load_daily(conn, enabled_tids)
+    print(f'[MTF] Loading hourly data...', flush=True)
+    hourly_data_raw = db_module.bulk_load_hourly(conn, enabled_tids)
+
+    # Filter to enabled tickers with all 3 timeframes
+    weekly_data = {tid: d for tid, d in weekly_data.items()
+                   if tid in enabled_tids and len(d['dates']) >= config.WARMUP_BARS}
+    daily_data = {}
+    hourly_data = {}
+    for tid in weekly_data:
+        if tid in daily_data_raw and len(daily_data_raw[tid]['dates']) >= 2:
+            daily_data[tid] = daily_data_raw[tid]
+        if tid in hourly_data_raw and len(hourly_data_raw[tid]['dates']) >= 2:
+            hourly_data[tid] = hourly_data_raw[tid]
+    valid_tids = set(weekly_data) & set(daily_data) & set(hourly_data)
+    weekly_data = {tid: weekly_data[tid] for tid in valid_tids}
+    daily_data = {tid: daily_data[tid] for tid in valid_tids}
+    hourly_data = {tid: hourly_data[tid] for tid in valid_tids}
     print(f'[MTF] Tickers with all 3 timeframes: {len(weekly_data)}')
 
     daily_idx = {}
@@ -444,7 +463,7 @@ def _run_single_mode(mode, now, today, min_score=None):
     lines.append('```')
 
     try:
-        pct = db_module.get_market_breadth(conn, is_etf=is_etf)
+        pct = db_module.compute_market_breadth_from_data(weekly_data, daily_data, is_etf=is_etf)
         if pct is not None:
             lines.append(f'Breadth: {_format_regime(pct)}')
             lines.append('')

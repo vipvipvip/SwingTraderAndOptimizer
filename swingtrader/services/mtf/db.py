@@ -104,6 +104,85 @@ def get_latest_daily_bar_date(conn):
         return cur.fetchone()[0]
 
 
+def bulk_load_weekly(conn, ticker_ids=None):
+    """Load weekly data in one query. If ticker_ids provided, only load those."""
+    import pandas as pd
+    cur = conn.cursor()
+    if ticker_ids:
+        cur.execute('SELECT ticker_id, date, close FROM tbl_scanner_tickers WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date',
+                    (list(ticker_ids),))
+    else:
+        cur.execute('SELECT ticker_id, date, close FROM tbl_scanner_tickers ORDER BY ticker_id, date')
+    rows = cur.fetchall()
+    cur.close()
+    data = {}
+    for tid, dt, close in rows:
+        if tid not in data:
+            data[tid] = {'dates': [], 'close': []}
+        data[tid]['dates'].append(dt)
+        data[tid]['close'].append(float(close))
+    for tid in data:
+        s = pd.Series(data[tid]['close'])
+        data[tid]['ema'] = s.ewm(span=EMA_PERIOD, adjust=False).mean().to_numpy()
+        data[tid]['sma'] = s.rolling(window=SMA_PERIOD).mean().to_numpy()
+    return data
+
+
+def bulk_load_daily(conn, ticker_ids=None):
+    """Load daily data in one query. If ticker_ids provided, only load those."""
+    import pandas as pd
+    cur = conn.cursor()
+    if ticker_ids:
+        cur.execute('SELECT ticker_id, date, open, close FROM tbl_scanner_tickers_daily WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date',
+                    (list(ticker_ids),))
+    else:
+        cur.execute('SELECT ticker_id, date, open, close FROM tbl_scanner_tickers_daily ORDER BY ticker_id, date')
+    rows = cur.fetchall()
+    cur.close()
+    data = {}
+    for tid, dt, opn, close in rows:
+        if tid not in data:
+            data[tid] = {'dates': [], 'open': [], 'close': []}
+        data[tid]['dates'].append(dt)
+        data[tid]['open'].append(float(opn) if opn else 0)
+        data[tid]['close'].append(float(close) if close else 0)
+    for tid in data:
+        s = pd.Series(data[tid]['close'])
+        data[tid]['ema'] = s.ewm(span=EMA_PERIOD, adjust=False).mean().to_numpy()
+        data[tid]['sma'] = s.rolling(window=SMA_PERIOD).mean().to_numpy()
+    return data
+
+
+def bulk_load_hourly(conn, ticker_ids=None):
+    """Load hourly data in one query. If ticker_ids provided, only load those."""
+    cur = conn.cursor()
+    if ticker_ids:
+        cur.execute(
+            "SELECT ticker_id, date::date AS bar_date, close, atr_stop "
+            "FROM tbl_scanner_tickers_1hour WHERE ticker_id = ANY(%s) AND date >= %s ORDER BY ticker_id, date",
+            (list(ticker_ids), TS_START))
+    else:
+        cur.execute(
+            "SELECT ticker_id, date::date AS bar_date, close, atr_stop "
+            "FROM tbl_scanner_tickers_1hour WHERE date >= %s ORDER BY ticker_id, date",
+            (TS_START,))
+    rows = cur.fetchall()
+    cur.close()
+    data = {}
+    seen = {}
+    for tid, dt, close, atr_stop in rows:
+        key = (tid, dt)
+        if key not in seen:
+            seen[key] = (tid, dt, float(close) if close else 0.0, float(atr_stop) if atr_stop else 0.0)
+    for tid, dt, close, atr_stop in seen.values():
+        if tid not in data:
+            data[tid] = {'dates': [], 'close': [], 'atr_stop': []}
+        data[tid]['dates'].append(dt)
+        data[tid]['close'].append(close)
+        data[tid]['atr_stop'].append(atr_stop)
+    return data
+
+
 def get_market_breadth(conn, is_etf=False):
     with conn.cursor() as cur:
         cur.execute('''
@@ -129,4 +208,29 @@ def get_market_breadth(conn, is_etf=False):
         row = cur.fetchone()
     if row and row[1] > 0:
         return row[0] / row[1] * 100
+    return None
+
+
+def compute_market_breadth_from_data(weekly_data, daily_data, is_etf=False):
+    """Compute market breadth from already-loaded data (instant, no SQL)."""
+    uptrend = 0
+    total = 0
+    for tid in weekly_data:
+        w = weekly_data[tid]
+        d = daily_data.get(tid)
+        if not d or len(w['close']) < 40 or len(d['close']) < 40:
+            continue
+        # Check if this ticker matches the is_etf filter — we can't here,
+        # so caller should pre-filter the data
+        wc = w['close'][-1]
+        ws = w['sma'][-1]
+        dc = d['close'][-1]
+        ds = d['sma'][-1]
+        if np.isnan(wc) or np.isnan(ws) or np.isnan(dc) or np.isnan(ds):
+            continue
+        total += 1
+        if wc > ws and dc > ds:
+            uptrend += 1
+    if total > 0:
+        return uptrend / total * 100
     return None
