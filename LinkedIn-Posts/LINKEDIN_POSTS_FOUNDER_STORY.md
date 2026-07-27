@@ -276,13 +276,15 @@ The mistake wasn't tracking CAC/LTV obsessively from day one — we were profita
 
 Instead, I hedged for 2-3 more years. That cost us time and focus, even if revenue kept growing.
 
-**Mistake 3: Staying too hands-on in engineering.**
+**Mistake 3: Not grooming someone to understand the architecture.**
 
-I was the architect until year 7. That made sense at 5 engineers. By year 7, I should've fully transitioned to strategy, leaving architecture to someone else.
+I stayed hands-on in architecture all 11 years—that was right. It's why we beat competitors who couldn't scale their code. My COO shielded me from operations so I could focus on it.
 
-I was bottleneck. Every hard technical decision had to come through me. Senior engineers got frustrated. Junior engineers couldn't level up because I wasn't delegating.
+But I never brought someone in to *learn* the architecture: the foundation, how features evolved, why decisions were made, how the architecture informed design.
 
-Better approach: By year 3-4, start building someone up to be the next architect. By year 5, they own it. You're advisor, not decision-maker.
+The "why" behind how we built things lived only in my head. By Year 4-5, I should have invested time in grooming someone—not to replace me, but to understand the principles. After the exit to Mercer, they inherited the code but not the reasoning.
+
+That knowledge walked out the door with me, and the architecture moat degraded over time.
 
 **Mistake 4: Not investing in sales and marketing infrastructure.**
 
