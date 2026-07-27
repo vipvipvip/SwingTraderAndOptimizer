@@ -256,13 +256,15 @@ The exit was an ending and a beginning.
 
 If I could go back to 2000 with what I know now, I'd make different calls. Most would've accelerated the company. Some would've prevented real pain.
 
-**Mistake 1: Hiring slow, then too fast.**
+**Mistake 1: Hiring for strategy I hadn't committed to.**
 
-Years 1-3: I was too cautious about hiring. We were profitable so I thought we had to stay lean. We should've hired a VP Sales in year 2 (we hired in year 4). That 2-year delay probably cost us $10M in lost revenue.
+Years 1-3: Staying lean made sense. We were profitable and bootstrapped. No need to hire just to hire.
 
-Years 4-5: I over-corrected. Hired 8 people in 6 months without infrastructure. Chaos for 3 months.
+But by Year 4, when the data clearly showed enterprise customers were more profitable, I should've hired enterprise-focused talent: reps trained on long sales cycles, relationship building, C-level conversations. Instead, I kept hiring generalists.
 
-Better approach: Scale hiring intentionally with infrastructure. Don't wait for crisis. Plan 18 months ahead.
+For years, I had sales reps trained to close SMBs mixed with enterprise ambitions. That mismatch cost us. By the time I finally prioritized enterprise hiring (years 5-6), I'd already spent years with the wrong team for the strategy.
+
+Better approach: Once you know your strategy (enterprise in our case), hire specifically for it. Don't hire "anyone who can sell." Hire people calibrated to the segment you're actually pursuing.
 
 **Mistake 2: Hedging instead of focusing — even when the data was clear.**
 
