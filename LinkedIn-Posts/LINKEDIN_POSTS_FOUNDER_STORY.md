@@ -314,69 +314,34 @@ For founders: Track your mistakes. Share them with other founders. Don't pretend
 
 ---
 
-## Post 6: From Founder to CTO—A Different Kind of Leadership
-**Category: Leadership Transition | Word count: 360**
+## Post 6: The CTO Who Built It vs. The CTO Inside the Machine
+**Category: Leadership & Organizational Dynamics | Word count: 360**
 
 ---
 
-After Censeo sold in 2011, it was a requirement: I had to stay for 3 years as part of the acquisition agreement.
+From 2008-2011, I was CTO of Censeo. I owned architecture, product vision, hiring decisions, culture. The classic founder-led tech leader.
 
-I became CTO of the Censeo business unit within Mercer, then advisor roles, then CTO at other companies.
+After the 2011 acquisition, I became CTO of the Censeo business unit inside Mercer (2011-2014). Same role title, completely different operating environment.
 
-The transition from founder to CTO was disorienting in ways I didn't expect.
+**The difference wasn't being a CTO. It was who I answered to.**
 
-**The Difference:**
+**As CTO of Censeo:**
+- Architecture decisions were mine. If I said "we're building for enterprise scale," we built for enterprise scale.
+- Revenue model was mine. If profitability meant staying lean, we stayed lean.
+- Hiring was mine. If someone didn't fit the culture, they were gone.
+- Product vision was mine. If a customer requested something misaligned with our strategy, we said no.
 
-As a founder, your success metric is: does the company survive and grow? You're responsible for everything.
+**As CTO of Censeo inside Mercer:**
+- Architecture decisions went through layers. Mercer's infrastructure team. Mercer's security. Mercer's platform strategy. My job was making the case, not making the call.
+- Revenue model was set by Mercer. We optimized for what Mercer cared about, not what Censeo needed.
+- Hiring came from Mercer's talent pool and HR policy. Culture assimilation was mandatory.
+- Product vision was negotiated. What customers wanted, Mercer weighed against broader platform strategy.
 
-As a CTO, your success metric is much narrower: is technology enabling the business? Are we scalable? Are we reliable? That's it.
+**The Real Lesson:**
 
-This sounds simpler. It's actually harder because you have less control. You don't own sales. You don't own product vision. You don't own capital allocation.
+Being a strong CTO inside a company is fundamentally different from being a CTO who built the company. In an enterprise, you influence through credibility, data, and relationships—not authority.
 
-**What I Had to Learn:**
+This taught me why founder-led companies and acquired companies operate so differently. And why some CTOs thrive in one environment and struggle in the other.
 
-1. **Influence without authority.** As a founder, I could make decisions unilaterally. As a CTO, I had to influence the CEO, CFO, board. I couldn't order them to prioritize technology; I had to convince them.
-
-2. **Operating in someone else's vision.** At Censeo, it was my vision. At Mercer/Quaeris/EDA, it was the CEO's vision and my job was making technology serve that vision.
-
-3. **Navigating existing culture.** As a founder, you build the culture. As a CTO joining an existing company, you have to work within it (or slowly change it).
-
-4. **Different pressure.** As a founder, the pressure is existential (will the company survive?). As a CTO, the pressure is operational (can we ship on time? are we secure? are we scalable?). Different in kind.
-
-**Why This Matters:**
-
-Founders make great CTOs but they need to unlearn some habits.
-
-- Founders want to optimize for profitability. CTOs need to optimize for business outcomes (which sometimes means spending money).
-- Founders want to control everything. CTOs need to delegate and trust.
-- Founders are impatient about slow decisions. CTOs need to navigate corporate decision-making.
-
-**The Inverse:**
-
-Some CTOs become founders and struggle because they're not used to:
-- Making decisions alone (as CTO, you had consensus)
-- Taking personal financial risk
-- Doing work that's not technology
-
-**My Advantage:**
-
-Having been a founder first, when I became a CTO, I understood:
-- Why the CEO made certain decisions
-- What the board cared about
-- How capital worked
-- Why profit margins matter
-
-I could speak the language of founders and boards, not just engineers. That credibility is why I had influence as a CTO.
-
-**For Technologists Considering the CTO Path:**
-
-If you've been an engineer-IC, becoming a CTO is a step function in responsibility. If you've been a founder, becoming a CTO is actually slightly simpler (you have more constraints, less risk).
-
-Both paths work. But they're different enough that your experience shapes how effective you'll be in the role.
-
-The best CTOs have been both: hands-on builders (so they understand engineering) and decision-makers (so they understand business).
-
----
-
-*Follow for more on building companies, scaling teams, and the long journey from startup to enterprise technology. Open to mentoring founders and advising boards on technology strategy.*
+The best operators understand both: the autonomy and burden of building it yourself, and the constraint and leverage of operating within a larger system. You need both mental models to navigate.
 
