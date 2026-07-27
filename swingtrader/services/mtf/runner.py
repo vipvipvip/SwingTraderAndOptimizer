@@ -81,7 +81,7 @@ def _get_db_conn():
 
 
 def _check_data_freshness(conn, mode='stock'):
-    """Verify daily scanner data is fresh enough to generate reliable signals."""
+    """Verify daily + hourly scanner data is fresh enough to generate reliable signals."""
     latest = db_module.get_latest_daily_bar_date(conn)
     if latest is None:
         _send_slack('❌ No daily bar data found in scanner tables — aborting', mode)
@@ -96,6 +96,23 @@ def _check_data_freshness(conn, mode='stock'):
         _send_slack(
             f'⚠️  Daily bar data is {age}d old (latest: {latest}) — picks may be based on stale prices',
             mode)
+
+    # Check hourly ATR data freshness — critical for accurate scoring
+    with conn.cursor() as cur:
+        cur.execute('SELECT MAX(date) FROM tbl_scanner_tickers_1hour')
+        latest_hourly = cur.fetchone()[0]
+    if latest_hourly is None:
+        _send_slack('❌ No hourly bar data found — aborting', mode)
+        return False
+    # hourly date is a datetime; compare as date
+    hourly_date = latest_hourly.date() if hasattr(latest_hourly, 'date') else latest_hourly
+    h_age = (dt_date.today() - hourly_date).days
+    if h_age > 1:
+        _send_slack(
+            f'❌ Stale hourly data: latest bar {latest_hourly} ({h_age}d old) — ATR stops not computed, aborting',
+            mode)
+        return False
+
     return True
 
 
@@ -643,6 +660,17 @@ def run_all():
     """Run stock and ETF modes (default + min-score) + sector info, send ONE combined Slack message."""
     now = datetime.now(NY)
     today = now.date()
+
+    # Duplicate guard: check if we already ran for today's signal date
+    state = _load_state('stock', None)
+    last_run_date = state.get('last_date')
+    # Get expected sig_date quickly to check
+    conn = _get_db_conn()
+    latest_date = db_module.get_latest_daily_bar_date(conn)
+    conn.close()
+    if latest_date and last_run_date and str(last_run_date) == str(latest_date):
+        print(f'[MTF] Already ran for sig_date {latest_date} — skipping duplicate')
+        return
 
     all_lines = []
     sig_date = None
