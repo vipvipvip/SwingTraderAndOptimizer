@@ -264,13 +264,15 @@ Years 4-5: I over-corrected. Hired 8 people in 6 months without infrastructure. 
 
 Better approach: Scale hiring intentionally with infrastructure. Don't wait for crisis. Plan 18 months ahead.
 
-**Mistake 2: Not focusing on unit economics early.**
+**Mistake 2: Hedging instead of focusing — even when the data was clear.**
 
-For the first 4 years, I cared about revenue. Are we $1M? Are we $5M? Wrong metrics.
+By Year 3-4, I had enough customer data to see the pattern: Enterprise customers were more profitable than SMBs. Longer contracts, higher ACV, better retention, no hand-holding. The economics were obvious.
 
-I should've asked: What's our CAC (customer acquisition cost)? What's our LTV (lifetime value)? Are we selling to the right customers?
+But I didn't act on it decisively. I kept saying "we'll serve both." Kept hiring sales reps who could close SMBs. Kept building features for low-value customers.
 
-We eventually figured this out, but we wasted time and money on low-margin customers we should've never pursued.
+The mistake wasn't tracking CAC/LTV obsessively from day one — we were profitable anyway. The mistake was seeing the signal and not acting. By Year 4, I should've said: "Enterprise only. Everything else is distraction."
+
+Instead, I hedged for 2-3 more years. That cost us time and focus, even if revenue kept growing.
 
 **Mistake 3: Staying too hands-on in engineering.**
 
