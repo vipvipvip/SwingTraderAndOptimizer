@@ -286,13 +286,13 @@ The "why" behind how we built things lived only in my head. By Year 4-5, I shoul
 
 That knowledge walked out the door with me, and the architecture moat degraded over time.
 
-**Mistake 4: Not investing in sales and marketing infrastructure.**
+**Mistake 4: Didn't have a client-facing business development leader.**
 
-Early wins came from me doing customer presentations. That doesn't scale past 10 customers.
+I was the architect, heads-down on technology. One co-founder led transactional sales (Google Ads, mailing lists). But we never had someone whose job was enterprise relationship building—shaking hands, networking with C-suite, opening doors at Fortune 500 companies.
 
-We should've built a repeatable sales process much earlier. Templates. Playbooks. Training materials. Instead, every deal was unique because we relied on relationships.
+By Year 4, when I knew enterprise customers were the play, we should have recruited a business development CEO or VP who lived in that world. Someone who could walk into UPS, Sanofi, Deloitte and build real relationships at the executive level.
 
-By year 6, we finally built a real sales organization. That 4-year delay cost us a lot.
+Instead, our enterprise clients came mostly through inbound and referrals. We left revenue on the table by not having someone whose full-time job was enterprise business development and relationship building.
 
 **Mistake 5: Holding on too long.**
 
