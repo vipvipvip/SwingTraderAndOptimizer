@@ -345,3 +345,13 @@ This taught me why founder-led companies and acquired companies operate so diffe
 
 The best operators understand both: the autonomy and burden of building it yourself, and the constraint and leverage of operating within a larger system. You need both mental models to navigate.
 
+**What Came Next:**
+
+After three years at Mercer, I stepped back. Seventeen years running the company, then operating inside Mercer's machine—it was time to breathe and think about what came next.
+
+What I learned: I'm strongest when I'm the strategic operator—embedded as CTO or advisor in a company, working with the CEO on what matters, then moving on. Not running everything. Not sitting on the sidelines. The middle ground.
+
+That's the model I've been executing for the last decade across Quaeris, EDA, and Halestreet portfolio companies. And it's why I'm board-ready now: I've proven the model works at scale, in different industries, with different teams.
+
+The Censeo story taught me what to build. The Mercer years taught me how to operate inside structure. The decade after taught me the operating model that actually works for me—and for the companies that need a strategic operator on the inside.
+
