@@ -39,61 +39,7 @@ def db_close(symbol):
     return None
 
 
-def _parse_entry_dates(csv_path, picks):
-    """Scan portfolio CSV to find entry date + price for each currently held pick."""
-    entry_dates = {}
-    entry_prices = {}
-    try:
-        with open(csv_path) as f:
-            rows = [l for l in f.read().strip().split('\n') if l]
-    except (FileNotFoundError, OSError):
-        return entry_dates, entry_prices
-
-    if len(rows) < 2:
-        return entry_dates, entry_prices
-
-    first_date = rows[1].split(',')[0]
-    active = {}    # symbol -> entry_date
-    prices = {}    # symbol -> entry_price
-    for line in rows:
-        parts = line.split(',')
-        if len(parts) < 7:
-            continue
-        date = parts[0]
-        buys = parts[5].strip()
-        sells = parts[6].strip()
-
-        if sells:
-            for seg in sells.split('|'):
-                seg = seg.strip()
-                if seg:
-                    sym_sold = seg.split()[0] if ' ' in seg else seg
-                    active.pop(sym_sold, None)
-                    prices.pop(sym_sold, None)
-
-        if buys and '@' in buys:
-            for seg in buys.split('|'):
-                seg = seg.strip()
-                if '@' in seg:
-                    parts_b = seg.split(' @ $')
-                    sym_bought = parts_b[0].strip()
-                    active[sym_bought] = date
-                    try:
-                        prices[sym_bought] = float(parts_b[1])
-                    except (IndexError, ValueError):
-                        pass
-
-    for sym in picks:
-        if sym in active:
-            entry_dates[sym] = active[sym]
-            if sym in prices:
-                entry_prices[sym] = prices[sym]
-        else:
-            entry_dates[sym] = first_date
-    return entry_dates, entry_prices
-
-
-def show_mtf(label, state_file, csv_file, capital):
+def show_mtf(label, state_file):
     path = os.path.join(os.path.dirname(MTF_DATA), state_file)
     try:
         state = json.load(open(path))
@@ -102,33 +48,30 @@ def show_mtf(label, state_file, csv_file, capital):
 
     picks = state.get('last_picks', [])
     scores = state.get('last_scores', {})
-    positions = state.get('portfolio', {}).get('positions', {})
+    entry_prices = state.get('entry_prices', {})
     date = state.get('last_date', '?')
     if not picks:
         return
 
-    entry_dates, csv_prices = _parse_entry_dates(os.path.join(MTF_DATA, csv_file), set(picks))
-
-    print(f"\n{'─' * 80}")
+    print(f"\n{'─' * 88}")
     print(f"  {label}  —  {len(picks)} positions  |  {date}")
-    print(f"{'─' * 80}")
-    print(f"  {'Ticker':8s}  {'Entry $':>8s}  {'Now $':>8s}  {'P&L $':>9s}  {'P&L %':>7s}  {'Score':>5s}  {'Entry':>10s}")
-    print(f"  {'─' * 66}")
+    print(f"{'─' * 88}")
+    print(f"  {'Ticker':8s}  {'Entry $':>8s}  {'Now $':>8s}  {'P&L $':>9s}  {'P&L %':>7s}  {'Fresh':>5s}  {'Score':>5s}  {'Date':>10s}")
+    print(f"  {'─' * 74}")
     for sym in picks:
         info = scores.get(sym, {})
         score = info.get('score', 0)
-        entry = (
-            csv_prices.get(sym)                         # 1. CSV buy price (most accurate)
-            or positions.get(sym, {}).get('entry_price') # 2. State portfolio entry_price (carries)
-            or float(info.get('close', 0))               # 3. State last_scores close (fallback)
-        )
+        ep = entry_prices.get(sym, {})
+        entry = ep.get('price', 0)
         now = db_close(sym)
-        ed = entry_dates.get(sym, '?')
+        ed = ep.get('date', '?')
+        freshness = info.get('freshness', 999)
+        days = f'{freshness}d' if freshness < 999 else 'old'
         if now and entry:
             pl = now - entry
-            print(f"  {sym:8s}  ${entry:<6.2f}  ${now:<6.2f}  ${pl:>+8.2f}  {(pl/entry)*100:>+6.2f}%  {score:>4.1f}  {ed:>10s}")
+            print(f"  {sym:8s}  ${entry:<6.2f}  ${now:<6.2f}  ${pl:>+8.2f}  {(pl/entry)*100:>+6.2f}%  {days:>5s}  {score:>4.1f}  {ed:>10s}")
         else:
-            print(f"  {sym:8s}  ${entry:<6.2f}  {'N/A':>8s}  {'N/A':>9s}  {'N/A':>7s}  {score:>4.1f}  {ed:>10s}")
+            print(f"  {sym:8s}  ${entry:<6.2f}  {'N/A':>8s}  {'N/A':>9s}  {'N/A':>7s}  {days:>5s}  {score:>4.1f}  {ed:>10s}")
 
 
 def show_daily():
@@ -210,9 +153,9 @@ def show_summary():
 
 
 def main():
-    show_mtf('MTF Stock (default)', '../mtf/.mtf_state_stock.json', 'mtf_portfolio_stock.csv', 100000)
-    show_mtf('MTF Stock (min-score 5)', '../mtf/.mtf_state_min5_stock.json', 'mtf_portfolio_min5_stock.csv', 100000)
-    show_mtf('MTF ETF', '../mtf/.mtf_state_etf.json', 'mtf_portfolio_etf.csv', 100000)
+    show_mtf('MTF Stock (default)', '../mtf/.mtf_state_stock.json')
+    show_mtf('MTF Stock (min-score 5)', '../mtf/.mtf_state_min5_stock.json')
+    show_mtf('MTF ETF', '../mtf/.mtf_state_etf.json')
     show_daily()
     show_summary()
 

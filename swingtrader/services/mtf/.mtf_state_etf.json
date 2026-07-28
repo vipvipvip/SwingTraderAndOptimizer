@@ -1,176 +1,194 @@
 {
-  "last_date": "2026-07-13",
+  "last_date": "2026-07-28",
   "last_picks": [
-    "SMH",
     "XLF",
-    "IWM",
+    "XLV",
+    "XLE",
     "IJR",
-    "IJH",
     "SCHD",
-    "RSP",
-    "SPY",
     "VTV",
+    "XLI",
+    "IWM",
+    "XLRE",
     "DIA"
   ],
   "last_scores": {
-    "SMH": {
-      "score": 3.1,
-      "gap_w": 31.4,
-      "atr_dist": 2.33,
-      "freshness": 392,
-      "close": 586.33,
-      "name": "VanEck Semiconductor ETF"
-    },
     "XLF": {
-      "score": 2.5,
-      "gap_w": 7.0,
-      "atr_dist": 0.78,
-      "freshness": 21,
-      "close": 55.96,
+      "score": 1.8,
+      "gap_w": 8.7,
+      "atr_dist": 0,
+      "freshness": 36,
+      "close": 56.9,
       "name": "Financial Select Sector SPDR Fund"
     },
-    "IWM": {
-      "score": 1.2,
-      "gap_w": 11.3,
-      "atr_dist": 0.88,
-      "freshness": 357,
-      "close": 293.33,
-      "name": "iShares Russell 2000 ETF"
+    "XLV": {
+      "score": 1.4,
+      "gap_w": 7.6,
+      "atr_dist": 0,
+      "freshness": 57,
+      "close": 164.27,
+      "name": "Health Care Select Sector SPDR Fund"
+    },
+    "XLE": {
+      "score": 0.6,
+      "gap_w": 12.6,
+      "atr_dist": 0,
+      "freshness": 337,
+      "close": 58.67,
+      "name": "Energy Select Sector SPDR Fund"
     },
     "IJR": {
-      "score": 1.0,
+      "score": 0.6,
       "gap_w": 12.2,
-      "atr_dist": 0.64,
-      "freshness": 336,
-      "close": 144.88,
+      "atr_dist": 0,
+      "freshness": 351,
+      "close": 144.93,
       "name": "iShares Core S&P Small-Cap ETF"
     },
-    "IJH": {
-      "score": 0.9,
-      "gap_w": 7.9,
-      "atr_dist": 0.69,
-      "freshness": 364,
-      "close": 75.21,
-      "name": "iShares Core S&P Mid-Cap ETF"
-    },
     "SCHD": {
-      "score": 0.9,
-      "gap_w": 9.8,
-      "atr_dist": 0.61,
-      "freshness": 329,
-      "close": 32.55,
+      "score": 0.5,
+      "gap_w": 9.9,
+      "atr_dist": 0,
+      "freshness": 344,
+      "close": 33.58,
       "name": "Schwab U.S. Dividend Equity ETF"
     },
-    "RSP": {
-      "score": 0.8,
-      "gap_w": 8.3,
-      "atr_dist": 0.55,
-      "freshness": 385,
-      "close": 214.13,
-      "name": "Invesco S&P 500 Equal Weight ETF"
-    },
-    "SPY": {
-      "score": 0.8,
-      "gap_w": 7.9,
-      "atr_dist": 0.54,
-      "freshness": 399,
-      "close": 749.66,
-      "name": "SPDR S&P 500 ETF Trust"
-    },
     "VTV": {
-      "score": 0.8,
-      "gap_w": 9.9,
-      "atr_dist": 0.44,
-      "freshness": 385,
-      "close": 219.18,
+      "score": 0.5,
+      "gap_w": 10.6,
+      "atr_dist": 0,
+      "freshness": 400,
+      "close": 221.46,
       "name": "Vanguard Value ETF"
     },
+    "XLI": {
+      "score": 0.5,
+      "gap_w": 10.0,
+      "atr_dist": 0,
+      "freshness": 435,
+      "close": 181.73,
+      "name": "Industrial Select Sector SPDR Fund"
+    },
+    "IWM": {
+      "score": 0.5,
+      "gap_w": 10.8,
+      "atr_dist": 0,
+      "freshness": 372,
+      "close": 291.5,
+      "name": "iShares Russell 2000 ETF"
+    },
+    "XLRE": {
+      "score": 0.4,
+      "gap_w": 8.9,
+      "atr_dist": 0,
+      "freshness": 197,
+      "close": 46.03,
+      "name": "Real Estate Select Sector SPDR Fund"
+    },
     "DIA": {
-      "score": 0.7,
-      "gap_w": 7.7,
-      "atr_dist": 0.5,
-      "freshness": 378,
-      "close": 524.16,
+      "score": 0.4,
+      "gap_w": 7.2,
+      "atr_dist": 0,
+      "freshness": 393,
+      "close": 521.43,
       "name": "SPDR Dow Jones Industrial Average ETF"
     },
+    "IJH": {
+      "score": 0.4,
+      "gap_w": 8.9,
+      "atr_dist": 0,
+      "freshness": 379,
+      "close": 75.64,
+      "name": "iShares Core S&P Mid-Cap ETF"
+    },
+    "RSP": {
+      "score": 0.4,
+      "gap_w": 8.3,
+      "atr_dist": 0,
+      "freshness": 400,
+      "close": 214.91,
+      "name": "Invesco S&P 500 Equal Weight ETF"
+    },
     "EFA": {
-      "score": 0.7,
-      "gap_w": 5.3,
-      "atr_dist": 0.64,
-      "freshness": 518,
-      "close": 103.24,
+      "score": 0.3,
+      "gap_w": 5.7,
+      "atr_dist": 0,
+      "freshness": 533,
+      "close": 103.84,
       "name": "iShares MSCI EAFE ETF"
     },
-    "SCHB": {
-      "score": 0.7,
-      "gap_w": 8.0,
-      "atr_dist": 0.46,
-      "freshness": 392,
-      "close": 28.97,
-      "name": "Schwab U.S. Broad Market ETF"
-    },
-    "VTI": {
-      "score": 0.7,
-      "gap_w": 8.0,
-      "atr_dist": 0.5,
-      "freshness": 392,
-      "close": 370.07,
-      "name": "Vanguard Total Stock Market ETF"
-    },
     "XLU": {
-      "score": 0.7,
-      "gap_w": 3.0,
-      "atr_dist": 0.86,
-      "freshness": 854,
-      "close": 45.76,
+      "score": 0.2,
+      "gap_w": 3.9,
+      "atr_dist": 0,
+      "freshness": 869,
+      "close": 46.17,
       "name": "Utilities Select Sector SPDR Fund"
+    },
+    "XLP": {
+      "score": 0.2,
+      "gap_w": 3.6,
+      "atr_dist": 0,
+      "freshness": 190,
+      "close": 85.56,
+      "name": "Consumer Staples Select Sector SPDR Fund"
     }
   },
   "portfolio": {
-    "cash": 49.97501610917425,
+    "cash": 49.975007889304834,
     "positions": {
-      "SMH": {
-        "shares": 17.0382,
-        "entry_price": 586.33
-      },
-      "XLF": {
-        "shares": 178.5205,
-        "entry_price": 55.96
-      },
-      "IWM": {
-        "shares": 34.0572,
-        "entry_price": 293.33
-      },
-      "IJR": {
-        "shares": 68.9537,
-        "entry_price": 144.88
-      },
-      "IJH": {
-        "shares": 132.8282,
-        "entry_price": 75.21
-      },
-      "SCHD": {
-        "shares": 306.9126,
-        "entry_price": 32.55
-      },
-      "RSP": {
-        "shares": 46.6539,
-        "entry_price": 214.13
-      },
-      "SPY": {
-        "shares": 13.326,
-        "entry_price": 749.66
-      },
       "VTV": {
-        "shares": 45.579,
-        "entry_price": 219.18
+        "shares": 225.5487,
+        "entry_price": 221.46
       },
       "DIA": {
-        "shares": 19.0591,
-        "entry_price": 524.16
+        "shares": 95.7943,
+        "entry_price": 521.43
       }
     },
     "last_value": 99900.06,
-    "inception": "2026-07-13"
+    "inception": "2026-07-27"
+  },
+  "entry_prices": {
+    "XLF": {
+      "price": 56.9,
+      "date": "2026-07-28"
+    },
+    "XLV": {
+      "price": 164.27,
+      "date": "2026-07-28"
+    },
+    "XLE": {
+      "price": 58.67,
+      "date": "2026-07-28"
+    },
+    "IJR": {
+      "price": 144.93,
+      "date": "2026-07-28"
+    },
+    "SCHD": {
+      "price": 33.58,
+      "date": "2026-07-28"
+    },
+    "VTV": {
+      "price": 221.46,
+      "date": "2026-07-28"
+    },
+    "XLI": {
+      "price": 181.73,
+      "date": "2026-07-28"
+    },
+    "IWM": {
+      "price": 291.5,
+      "date": "2026-07-28"
+    },
+    "XLRE": {
+      "price": 46.03,
+      "date": "2026-07-28"
+    },
+    "DIA": {
+      "price": 521.43,
+      "date": "2026-07-28"
+    }
   }
 }
