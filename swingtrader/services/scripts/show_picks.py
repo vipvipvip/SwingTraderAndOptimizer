@@ -76,6 +76,7 @@ def show_mtf(label, state_file, tsv=False):
             })
         for line in etf_table_lines(top_n, score_detail, entry_prices, tsv=True):
             print(line)
+        print(','.join(picks))
         return
 
     print(f"\n{'─' * 88}")
@@ -97,6 +98,8 @@ def show_mtf(label, state_file, tsv=False):
             print(f"  {sym:8s}  ${entry:<6.2f}  ${now:<6.2f}  ${pl:>+8.2f}  {(pl/entry)*100:>+6.2f}%  {days:>5s}  {score:>4.1f}  {ed:>10s}")
         else:
             print(f"  {sym:8s}  ${entry:<6.2f}  {'N/A':>8s}  {'N/A':>9s}  {'N/A':>7s}  {days:>5s}  {score:>4.1f}  {ed:>10s}")
+
+    print(','.join(picks))
 
 
 def show_daily():
