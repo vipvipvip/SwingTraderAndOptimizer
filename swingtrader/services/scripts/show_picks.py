@@ -39,7 +39,7 @@ def db_close(symbol):
     return None
 
 
-def show_mtf(label, state_file):
+def show_mtf(label, state_file, tsv=False):
     path = os.path.join(os.path.dirname(MTF_DATA), state_file)
     try:
         state = json.load(open(path))
@@ -51,6 +51,25 @@ def show_mtf(label, state_file):
     entry_prices = state.get('entry_prices', {})
     date = state.get('last_date', '?')
     if not picks:
+        return
+
+    if tsv:
+        print(f"\n{label}  |  {date}")
+        print('\t'.join(['Ticker', 'Entry $', 'Now $', 'P&L $', 'P&L %', 'Fresh', 'Score', 'Date']))
+        for sym in picks:
+            info = scores.get(sym, {})
+            score = info.get('score', 0)
+            ep = entry_prices.get(sym, {})
+            entry = ep.get('price', 0)
+            now = db_close(sym)
+            ed = ep.get('date', '?')
+            freshness = info.get('freshness', 999)
+            days = f'{freshness}d' if freshness < 999 else 'old'
+            if now and entry:
+                pl = now - entry
+                print('\t'.join([sym, f'{entry:.2f}', f'{now:.2f}', f'{pl:.2f}', f'{(pl/entry)*100:.2f}%', days, f'{score:.1f}', ed]))
+            else:
+                print('\t'.join([sym, f'{entry:.2f}', 'N/A', 'N/A', 'N/A', days, f'{score:.1f}', ed]))
         return
 
     print(f"\n{'─' * 88}")
@@ -155,7 +174,7 @@ def show_summary():
 def main():
     show_mtf('MTF Stock (default)', '../mtf/.mtf_state_stock.json')
     show_mtf('MTF Stock (min-score 5)', '../mtf/.mtf_state_min5_stock.json')
-    show_mtf('MTF ETF', '../mtf/.mtf_state_etf.json')
+    show_mtf('MTF ETF', '../mtf/.mtf_state_etf.json', tsv=True)
     show_daily()
     show_summary()
 
