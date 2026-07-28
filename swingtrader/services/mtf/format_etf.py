@@ -1,13 +1,34 @@
 """Shared ETF P&L table formatting for Slack (runner.py) and terminal (show_picks.py)."""
 
 
-def etf_table_lines(top_n, score_detail, entry_prices):
+def etf_table_lines(top_n, score_detail, entry_prices, tsv=False):
     """Return list of formatted ETF P&L table lines.
+
+    tsv=True: tab-separated (no headers, no $), for Excel paste.
+    tsv=False: monospace right-aligned columns, for Slack.
 
     top_n: list of dicts with 'symbol', 'score', 'freshness', 'gap_w'
     score_detail: dict[symbol] -> {'close': float, ...}
     entry_prices: dict[symbol] -> {'price': float, 'date': str}
     """
+    if tsv:
+        lines = ['\t'.join(['Ticker', 'Entry $', 'Now $', 'P&L $', 'P&L %', 'Fresh', 'Score', 'Date'])]
+        for t in top_n:
+            sym = t['symbol']
+            close = score_detail.get(sym, {}).get('close', 0)
+            ep = entry_prices.get(sym, {}).get('price', 0)
+            ed = entry_prices.get(sym, {}).get('date', '?')
+            score = t['score']
+            freshness = t['freshness']
+            days = f'{freshness}d' if freshness < 999 else 'old'
+            if ep and close:
+                pl = close - ep
+                pct = (pl / ep) * 100
+                lines.append('\t'.join([sym, f'{ep:.2f}', f'{close:.2f}', f'{pl:.2f}', f'{pct:.2f}%', days, f'{score:.1f}', ed]))
+            else:
+                lines.append('\t'.join([sym, f'{ep:.2f}' if ep else 'N/A', f'{close:.2f}' if close else 'N/A', 'N/A', 'N/A', days, f'{score:.1f}', ed]))
+        return lines
+
     lines = [
         f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Entry $":>8} {"Now $":>8} {"P&L %":>7} {"Fresh":>7}',
         f'{"-"*3} {"-"*8} {"-"*5} {"-"*8} {"-"*8} {"-"*7} {"-"*7}',

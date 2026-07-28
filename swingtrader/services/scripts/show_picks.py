@@ -74,7 +74,7 @@ def show_mtf(label, state_file, tsv=False):
                 'freshness': info.get('freshness', 999),
                 'gap_w': info.get('gap_w', 0),
             })
-        for line in etf_table_lines(top_n, score_detail, entry_prices):
+        for line in etf_table_lines(top_n, score_detail, entry_prices, tsv=True):
             print(line)
         return
 
