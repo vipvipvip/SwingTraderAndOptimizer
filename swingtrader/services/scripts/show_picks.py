@@ -11,6 +11,8 @@ import sys
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MTF_DATA = os.path.join(BASE, 'mtf', 'data')
 DS_CSV = os.path.join(BASE, 'ema_sma_crossover', 'data', 'daily_signals.csv')
+sys.path.insert(0, os.path.join(BASE, 'mtf'))
+from format_etf import etf_table_lines
 
 
 def db_close(symbol):
@@ -55,21 +57,25 @@ def show_mtf(label, state_file, tsv=False):
 
     if tsv:
         print(f"\n{label}  |  {date}")
-        print('\t'.join(['Ticker', 'Entry $', 'Now $', 'P&L $', 'P&L %', 'Fresh', 'Score', 'Date']))
+        # Build score_detail with current prices via db_close
+        score_detail = {}
         for sym in picks:
             info = scores.get(sym, {})
-            score = info.get('score', 0)
-            ep = entry_prices.get(sym, {})
-            entry = ep.get('price', 0)
             now = db_close(sym)
-            ed = ep.get('date', '?')
-            freshness = info.get('freshness', 999)
-            days = f'{freshness}d' if freshness < 999 else 'old'
-            if now and entry:
-                pl = now - entry
-                print('\t'.join([sym, f'{entry:.2f}', f'{now:.2f}', f'{pl:.2f}', f'{(pl/entry)*100:.2f}%', days, f'{score:.1f}', ed]))
-            else:
-                print('\t'.join([sym, f'{entry:.2f}', 'N/A', 'N/A', 'N/A', days, f'{score:.1f}', ed]))
+            d = dict(info)
+            d['close'] = now or 0
+            score_detail[sym] = d
+        top_n = []
+        for sym in picks:
+            info = scores.get(sym, {})
+            top_n.append({
+                'symbol': sym,
+                'score': info.get('score', 0),
+                'freshness': info.get('freshness', 999),
+                'gap_w': info.get('gap_w', 0),
+            })
+        for line in etf_table_lines(top_n, score_detail, entry_prices):
+            print(line)
         return
 
     print(f"\n{'─' * 88}")

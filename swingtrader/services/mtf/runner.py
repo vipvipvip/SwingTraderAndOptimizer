@@ -13,6 +13,8 @@ import csv
 import sys
 import time
 import tempfile
+
+from format_etf import etf_table_lines
 import argparse
 import traceback
 import numpy as np
@@ -484,16 +486,28 @@ def _run_single_mode(mode, now, today, min_score=None):
     except Exception:
         pass
 
-    # Tabular header
-    lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"Fresh":>7}')
-    lines.append(f'{"-"*3} {"-"*8} {"-"*5} {"-"*7} {"-"*7}')
+    # Track entry prices for all picks (used for Slack P&L and show_picks.py)
+    entry_prices = state.get('entry_prices', {})
+    for sym in dropped:
+        entry_prices.pop(sym, None)
+    for sym in new_entries:
+        sd = score_detail.get(sym, {})
+        sd_close = sd.get('close', 0)
+        if sd_close > 0:
+            entry_prices[sym] = {'price': sd_close, 'date': str(sig_date)}
+    state['entry_prices'] = entry_prices
 
-    for i, t in enumerate(top_n, 1):
-        days_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
-        lines.append(
-            f'{i:<3} {t["symbol"]:<8} {t["score"]:>5.1f} '
-            f'{t["gap_w"]:>+6.1f}% {days_str:>7}'
-        )
+    if is_etf:
+        lines.extend(etf_table_lines(top_n, score_detail, entry_prices))
+    else:
+        lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"Fresh":>7}')
+        lines.append(f'{"-"*3} {"-"*8} {"-"*5} {"-"*7} {"-"*7}')
+        for i, t in enumerate(top_n, 1):
+            days_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
+            lines.append(
+                f'{i:<3} {t["symbol"]:<8} {t["score"]:>5.1f} '
+                f'{t["gap_w"]:>+6.1f}% {days_str:>7}'
+            )
 
     if prev_date and (new_entries or dropped):
         lines.append('')
@@ -524,17 +538,6 @@ def _run_single_mode(mode, now, today, min_score=None):
     lines.append(','.join(top_symbols))
 
     lines.append('```')
-
-    # Track entry prices for all picks (used by show_picks.py for P&L)
-    entry_prices = state.get('entry_prices', {})
-    for sym in dropped:
-        entry_prices.pop(sym, None)
-    for sym in new_entries:
-        sd = score_detail.get(sym, {})
-        sd_close = sd.get('close', 0)
-        if sd_close > 0:
-            entry_prices[sym] = {'price': sd_close, 'date': str(sig_date)}
-    state['entry_prices'] = entry_prices
 
     # Save state AFTER message is built (so prev_date is available for NEW/OUT)
     state['last_date'] = str(sig_date)
