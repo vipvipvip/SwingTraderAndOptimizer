@@ -5,7 +5,7 @@
 
 ---
 
-I co-founded Censeo Corporation in 2000 with a simple idea: automate 360-degree multirater surveys and make leadership assessments scalable.
+I co-founded Censeo Corporation in 2000 with a simple idea: build knowledge testing platform, automate 360-degree multirater surveys and make leadership assessments scalable.
 
 For 11 years, we built. We hired. We optimized. We scaled. Then in 2011, we sold to Mercer.
 
@@ -13,7 +13,7 @@ That journey taught me more about business, technology, and human judgment than 
 
 **The Early Days (2000-2003):**
 
-Five of us. .NET and SQL Server. Building survey software in a market where HR executives still used Excel and email.
+Five co-founders: I focussed on technology; the others handled marketing, consulting, finance, and customer operations. Started with Classic ASP and C++, then migrated to VB.NET and ASP.NET as the platform matured. SQL Server backend. Building survey software in a market where HR executives still used Excel and email.
 
 The first hard lesson: **building a product is 10% of the work. Selling it is 90%.**
 
@@ -45,16 +45,6 @@ The fourth hard lesson: **exits are emotionally complicated, even when they're f
 
 You spend 11 years building something. You know every line of code. Every customer relationship. Every team member. Then you hand it off. The product lives on, but it's not yours anymore. That's weird.
 
-**What I'd Do Differently:**
-
-1. **Hire more senior people earlier.** I hired bright junior people and trained them up. That worked but cost time. Hiring experienced people from day one accelerates everything.
-
-2. **Build unit economics discipline earlier.** By 2008, we had it. By 2004, we should've had it.
-
-3. **Delegate faster.** I was involved in everything early on. That's necessary. But I held on too long. By 2008, I should've been fully out of engineering and focused on strategy.
-
-4. **Be more intentional about exit planning.** We exited well, but we could've extracted more value with better planning 2-3 years in advance.
-
 **What Stayed True for 11 Years:**
 
 - Build products people actually need (took us 18 months to figure out what we were selling, but once we did, the mission was clear)
@@ -82,9 +72,9 @@ For me, that 11-year journey at Censeo is why I can be effective as a CTO at EDA
 
 ---
 
-Censeo's first paying customer was a large bank who wanted us to build a 360 platform.
+At Censeo—the survey software platform I co-founded in 2000—our first paying customer was a large bank who wanted us to build a 360 multirater assessment platform.
 
-They paid us $88K for a consulting gig and we started development of the 360 platform. We customized our product heavily. We responded to every question even at 9 PM on Sundays.
+They paid us $88K for a consulting gig and we started development. We customized our product heavily. We responded to every question even at 9 PM on Sundays.
 
 Financially, we probably lost money on that customer. Operationally, we gained everything.
 
@@ -137,7 +127,7 @@ That 18-month delay saved us from 5+ years of building the wrong thing.
 
 ---
 
-At Censeo, we had 3 developers and 20 total employees. Our competitors had 50+ engineers across multiple companies. Yet every single competitor eventually closed shop. We didn't.
+At Censeo—the 360 survey and talent assessment platform I co-founded in 2000—we had 3 developers and 20 total employees. Our competitors had 50+ engineers across multiple companies. Yet every single competitor eventually closed shop. We didn't.
 
 The difference was architecture thinking.
 
@@ -186,7 +176,7 @@ Think like an architect, not a coder. "What if there were a million?" isn't abou
 
 ---
 
-In 2011, we sold Censeo to Mercer. On the surface, it was a great outcome: we'd built something valuable, customers were happy, it sold.
+In 2011, after 11 years building Censeo—a 360 survey and talent assessment platform—we sold it to Mercer. On the surface, it was a great outcome: we'd built something valuable, customers were happy, it sold.
 
 The emotional and practical reality was more complicated.
 
@@ -254,7 +244,7 @@ The exit was an ending and a beginning.
 
 ---
 
-If I could go back to 2000 with what I know now, I'd make different calls. Most would've accelerated the company. Some would've prevented real pain.
+If I could go back to 2000 when I co-founded Censeo—the 360 survey and talent assessment platform—with what I know now, I'd make different calls. Most would've accelerated the company. Some would've prevented real pain.
 
 **Mistake 1: Hiring for strategy I hadn't committed to.**
 
@@ -319,7 +309,7 @@ For founders: Track your mistakes. Share them with other founders. Don't pretend
 
 ---
 
-From 2008-2011, I was CTO of Censeo. I owned architecture, product vision, hiring decisions, culture. The classic founder-led tech leader.
+From 2008-2011, I was CTO of Censeo Corporation—the 360 survey and talent assessment platform I'd co-founded in 2000. I owned architecture, product vision, hiring decisions, culture. The classic founder-led tech leader.
 
 After the 2011 acquisition, I became CTO of the Censeo business unit inside Mercer (2011-2014). Same role title, completely different operating environment.
 
@@ -347,7 +337,7 @@ The best operators understand both: the autonomy and burden of building it yours
 
 **What Came Next:**
 
-After three years at Mercer, I stepped back. Seventeen years running the company, then operating inside Mercer's machine—it was time to breathe and think about what came next.
+After three years at Mercer, I stepped back. Fourteen years running the company, then operating inside Mercer's machine—it was time to breathe and think about what came next.
 
 What I learned: I'm strongest when I'm the strategic operator—embedded as CTO or advisor in a company, working with the CEO on what matters, then moving on. Not running everything. Not sitting on the sidelines. The middle ground.
 
