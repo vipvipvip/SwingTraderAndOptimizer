@@ -81,14 +81,19 @@ def main():
         tickers = db_module.get_all_tickers(conn)
         ok(f'{len(tickers)} tickers enabled')
 
-        # Count qualifying tickers (all 3 timeframes present)
-        qual = 0
-        for tid, sym in tickers:
-            w = db_module.load_weekly(conn, tid)
-            d = db_module.load_daily(conn, tid)
-            h = db_module.load_hourly(conn, tid)
-            if w and d and h:
-                qual += 1
+        # Count qualifying tickers (all 3 timeframes present) — single query
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT st.id
+                FROM tbl_stock_tickers st
+                WHERE st.enabled = true
+                  AND EXISTS (SELECT 1 FROM tbl_scanner_tickers w WHERE w.ticker_id = st.id)
+                  AND EXISTS (SELECT 1 FROM tbl_scanner_tickers_daily d WHERE d.ticker_id = st.id)
+                  AND EXISTS (SELECT 1 FROM tbl_scanner_tickers_1hour h WHERE h.ticker_id = st.id)
+            ) sub
+        """)
+        qual = cur.fetchone()[0]
         ok(f'{qual}/{len(tickers)} tickers have all 3 timeframes')
 
         # Market breadth

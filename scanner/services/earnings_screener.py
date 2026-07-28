@@ -247,6 +247,9 @@ def check_hourly_macd(ticker: str) -> dict:
     curr_hist = rows[0][3]
     curr_close = rows[0][4]
 
+    if curr_macd is None or curr_close is None:
+        return None
+
     # Freshness = number of bars since last crossover
     freshness = last_cross_idx
 

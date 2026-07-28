@@ -151,16 +151,6 @@ else
     fail "Scanner .env file missing at scanner/backend/.env"
 fi
 
-# Check scanner timer (system-level)
-SCANNER_TIMER_OK=false
-if systemctl is-enabled scanner-update.timer >/dev/null 2>&1; then
-    SCAN_NEXT=$(systemctl show scanner-update.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
-    pass "scanner-update.timer is enabled (next: $SCAN_NEXT)"
-    SCANNER_TIMER_OK=true
-else
-    warn "scanner-update.timer is not enabled"
-fi
-
 # Check for recent scanner service failures
 for sfx in update hourly; do
     if systemctl is-failed "scanner-${sfx}.service" >/dev/null 2>&1; then
@@ -250,22 +240,54 @@ fi
 echo ""
 echo "--- System Timers ---"
 
-for timer in swingtrader-optimizer swingtrader-backup; do
+# Strategy timers with next run time
+for timer in scanner-update scanner-hourly mtf-daily-runner daily-signal backfill-daily; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
-        pass "$timer.timer is enabled (next: $NEXT)"
+        TRIGGER=$(systemctl show "$timer.timer" -p TriggerOnCalendar --value 2>/dev/null || echo "?")
+        pass "$timer.timer enabled — next: $NEXT (schedule: $TRIGGER)"
     else
         warn "$timer.timer is not enabled"
     fi
 done
 
-# System-level trading timers
-for timer in scanner-update scanner-hourly; do
+# Earnings timers
+for timer in earnings-refresh earnings-screener; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
-        pass "$timer.timer is enabled (next: $NEXT)"
+        TRIGGER=$(systemctl show "$timer.timer" -p TriggerOnCalendar --value 2>/dev/null || echo "?")
+        pass "$timer.timer enabled — next: $NEXT (schedule: $TRIGGER)"
     else
         warn "$timer.timer is not enabled"
+    fi
+done
+
+# Infrastructure timers
+for timer in swingtrader-optimizer swingtrader-backup; do
+    if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
+        NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
+        pass "$timer.timer enabled (next: $NEXT)"
+    else
+        warn "$timer.timer is not enabled"
+    fi
+done
+
+# Check for recent failures in oneshot services triggered by timers
+echo ""
+echo "--- Recent Timer Service Runs ---"
+
+for svc in scanner-update scanner-hourly mtf-daily-runner daily-signal backfill-daily earnings-screener earnings-refresh; do
+    STATUS=$(systemctl is-active "$svc" 2>/dev/null || echo "not-found")
+    if [ "$STATUS" = "failed" ]; then
+        fail "$svc.service FAILED — last run errored"
+        LAST_ERR=$(journalctl -u "$svc.service" --since "3 days ago" --no-pager 2>/dev/null | grep -E "error|Error|traceback|Traceback|FAIL" | tail -2 || true)
+        if [ -n "$LAST_ERR" ]; then
+            echo "$LAST_ERR" | sed 's/^/    /'
+        fi
+    elif [ "$STATUS" = "success" ] || [ "$STATUS" = "inactive" ]; then
+        pass "$svc.service last run: $STATUS"
+    elif [ "$STATUS" = "not-found" ]; then
+        warn "$svc.service not found"
     fi
 done
 
@@ -281,6 +303,31 @@ for svc in swingtrader-db swingtrader-backend swingtrader-fe-dev; do
         warn "$svc service not found"
     else
         fail "$svc is $STATUS"
+    fi
+done
+
+# ---- All Strategy Services (long-running) ----
+echo ""
+echo "--- Strategy Services ---"
+
+for svc in emac-runner mtcs-runner; do
+    STATUS=$(systemctl is-active "$svc" 2>/dev/null || echo "not-found")
+    if [ "$STATUS" = "active" ]; then
+        STARTED=$(systemctl show "$svc" -p ActiveEnterTimestamp --value 2>/dev/null || echo "?")
+        pass "$svc is running (since $STARTED)"
+    elif [ "$STATUS" = "not-found" ]; then
+        warn "$svc service not found"
+    else
+        fail "$svc is $STATUS"
+    fi
+    # Recent errors from log file
+    LOG_FILE="/var/log/${svc}.log"
+    if [ -f "$LOG_FILE" ]; then
+        RECENT_ERRS=$(tail -200 "$LOG_FILE" 2>/dev/null | grep -iE "error|exception|traceback|fail" | tail -3 || true)
+        if [ -n "$RECENT_ERRS" ]; then
+            warn "  $svc recent errors:"
+            echo "$RECENT_ERRS" | sed 's/^/    /'
+        fi
     fi
 done
 
