@@ -134,6 +134,8 @@ def show_daily():
         ret = f"{(now-entry)/entry*100:+.2f}%" if now else 'N/A'
         print(f"  {sym:8s} ${entry:<5.2f}  {now_s:>8s}  {ret:>7s}  {typ:8s}")
 
+    print(','.join(sym for sym, _, _, _ in latest))
+
 
 def _live_mtm(state_file):
     """Compute live MTM from state positions + db_close() prices."""
