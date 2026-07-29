@@ -65,7 +65,7 @@ All three live runners on $1M Alpaca paper accounts. MTF Phase 1 paper validatio
 
 
 === See results with this utility
-python3 home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/scripts/show_picks.py
+python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/scripts/show_picks.py
 
 Here's the schedule with actual runtimes:
 All 9 timer files confirmed with America/New_York timezone. Here's the full schedule:
