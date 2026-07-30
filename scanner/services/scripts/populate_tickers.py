@@ -118,6 +118,7 @@ def process_ticker(symbol, client, tf_name, global_start):
 
         # Determine start date: latest in DB or the global_start (if first run)
         latest = get_latest_date_for_ticker(ticker_id, table)
+        latest_date = None
         if latest is not None:
             if isinstance(latest, datetime):
                 latest_date = latest.date()
@@ -135,7 +136,7 @@ def process_ticker(symbol, client, tf_name, global_start):
             if start >= now:
                 return symbol, 0, 'up to date'
         else:
-            if start.date() >= now.date():
+            if latest_date is not None and latest_date >= now.date():
                 return symbol, 0, 'up to date'
 
         bars = fetch_bars(symbol, client, tf_name, start)
