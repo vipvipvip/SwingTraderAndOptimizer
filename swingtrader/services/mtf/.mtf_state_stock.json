@@ -1,488 +1,408 @@
 {
-  "last_date": "2026-07-28",
+  "last_date": "2026-07-30",
   "last_picks": [
     "CRNX",
     "FBRX",
     "MNPR",
     "MAN",
     "CBRL",
-    "SEZL",
-    "AGL",
     "CORT",
+    "SEZL",
+    "KFRC",
     "DAVE",
-    "SAFT"
+    "OKTA"
   ],
   "last_scores": {
     "CRNX": {
       "score": 4.6,
       "gap_w": 82.1,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 83.79,
+      "freshness": 24,
+      "close": 83.64,
       "name": null
     },
     "FBRX": {
       "score": 4.6,
       "gap_w": 179.3,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 76.44,
+      "freshness": 24,
+      "close": 76.94,
       "name": null
     },
     "MNPR": {
       "score": 4.3,
       "gap_w": 56.3,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 112.16,
+      "freshness": 31,
+      "close": 114.75,
       "name": null
     },
     "MAN": {
-      "score": 4.2,
+      "score": 4.1,
       "gap_w": 66.7,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 52.67,
+      "freshness": 52,
+      "close": 51.97,
       "name": null
     },
     "CBRL": {
       "score": 3.9,
       "gap_w": 54.3,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 51.3,
-      "name": null
-    },
-    "SEZL": {
-      "score": 3.6,
-      "gap_w": 72.9,
-      "atr_dist": 0,
-      "freshness": 85,
-      "close": 153.56,
-      "name": null
-    },
-    "AGL": {
-      "score": 3.6,
-      "gap_w": 120.4,
-      "atr_dist": 0,
-      "freshness": 85,
-      "close": 96.05,
+      "freshness": 52,
+      "close": 57.11,
       "name": null
     },
     "CORT": {
       "score": 3.6,
       "gap_w": 49.3,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 91.52,
+      "freshness": 52,
+      "close": 110.95,
+      "name": null
+    },
+    "SEZL": {
+      "score": 3.5,
+      "gap_w": 72.9,
+      "atr_dist": 0,
+      "freshness": 87,
+      "close": 155.63,
+      "name": null
+    },
+    "KFRC": {
+      "score": 3.4,
+      "gap_w": 61.0,
+      "atr_dist": 0,
+      "freshness": 94,
+      "close": 56.62,
       "name": null
     },
     "DAVE": {
-      "score": 3.4,
+      "score": 3.3,
       "gap_w": 64.0,
       "atr_dist": 0,
-      "freshness": 99,
-      "close": 411.0,
-      "name": null
-    },
-    "SAFT": {
-      "score": 3.4,
-      "gap_w": 37.2,
-      "atr_dist": 0,
-      "freshness": 29,
-      "close": 103.43,
-      "name": null
-    },
-    "PANW": {
-      "score": 3.3,
-      "gap_w": 51.5,
-      "atr_dist": 0,
-      "freshness": 78,
-      "close": 324.35,
+      "freshness": 101,
+      "close": 368.7,
       "name": null
     },
     "OKTA": {
       "score": 3.3,
       "gap_w": 48.1,
       "atr_dist": 0,
-      "freshness": 64,
-      "close": 137.72,
+      "freshness": 66,
+      "close": 140.39,
       "name": null
     },
-    "KFRC": {
-      "score": 3.2,
-      "gap_w": 54.7,
+    "SAFT": {
+      "score": 3.3,
+      "gap_w": 37.2,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 57.04,
+      "freshness": 31,
+      "close": 103.17,
+      "name": null
+    },
+    "PANW": {
+      "score": 3.2,
+      "gap_w": 51.5,
+      "atr_dist": 0,
+      "freshness": 80,
+      "close": 325.65,
       "name": null
     },
     "DDOG": {
       "score": 3.1,
       "gap_w": 50.4,
       "atr_dist": 0,
-      "freshness": 85,
-      "close": 250.99,
+      "freshness": 87,
+      "close": 268.71,
       "name": null
     },
     "HUM": {
       "score": 3.1,
       "gap_w": 45.5,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 381.43,
-      "name": null
-    },
-    "TNET": {
-      "score": 3.1,
-      "gap_w": 26.5,
-      "atr_dist": 0,
-      "freshness": 15,
-      "close": 64.05,
-      "name": null
-    },
-    "AMD": {
-      "score": 3.0,
-      "gap_w": 62.6,
-      "atr_dist": 0,
-      "freshness": 393,
-      "close": 482.91,
+      "freshness": 73,
+      "close": 366.69,
       "name": null
     },
     "DD": {
       "score": 3.0,
       "gap_w": 147.3,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 138.5,
-      "name": null
-    },
-    "DELL": {
-      "score": 3.0,
-      "gap_w": 98.8,
-      "atr_dist": 0,
-      "freshness": 148,
-      "close": 415.09,
+      "freshness": 339,
+      "close": 138.79,
       "name": null
     },
     "FTNT": {
       "score": 3.0,
       "gap_w": 50.6,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 153.7,
+      "freshness": 94,
+      "close": 154.21,
       "name": null
     },
     "SNOW": {
       "score": 3.0,
       "gap_w": 32.4,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 266.16,
+      "freshness": 38,
+      "close": 298.01,
       "name": null
     },
     "RVMD": {
       "score": 3.0,
       "gap_w": 62.3,
       "atr_dist": 0,
-      "freshness": 316,
-      "close": 187.5,
-      "name": null
-    },
-    "CVLT": {
-      "score": 3.0,
-      "gap_w": 31.8,
-      "atr_dist": 0,
-      "freshness": 36,
-      "close": 147.86,
+      "freshness": 318,
+      "close": 192.05,
       "name": null
     },
     "APGE": {
       "score": 3.0,
       "gap_w": 59.1,
       "atr_dist": 0,
-      "freshness": 295,
-      "close": 134.3,
+      "freshness": 297,
+      "close": 134.27,
       "name": null
     },
     "SYRE": {
       "score": 3.0,
       "gap_w": 92.7,
       "atr_dist": 0,
-      "freshness": 288,
-      "close": 99.25,
+      "freshness": 290,
+      "close": 101.45,
       "name": null
     },
     "ATEX": {
       "score": 3.0,
       "gap_w": 99.9,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 91.64,
+      "freshness": 178,
+      "close": 92.08,
       "name": null
     },
     "ORKA": {
       "score": 3.0,
       "gap_w": 83.5,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 90.56,
+      "freshness": 346,
+      "close": 98.05,
       "name": null
     },
     "TWST": {
       "score": 3.0,
       "gap_w": 72.1,
       "atr_dist": 0,
-      "freshness": 204,
-      "close": 89.81,
-      "name": null
-    },
-    "ICHR": {
-      "score": 3.0,
-      "gap_w": 69.8,
-      "atr_dist": 0,
-      "freshness": 204,
-      "close": 77.28,
+      "freshness": 206,
+      "close": 91.3,
       "name": null
     },
     "LQDA": {
       "score": 3.0,
       "gap_w": 86.4,
       "atr_dist": 0,
-      "freshness": 561,
-      "close": 86.94,
+      "freshness": 563,
+      "close": 86.81,
       "name": null
     },
     "HNGE": {
       "score": 3.0,
       "gap_w": 44.3,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 74.7,
+      "freshness": 73,
+      "close": 75.18,
       "name": null
     },
     "IWDL": {
       "score": 3.0,
       "gap_w": 92.8,
       "atr_dist": 0,
-      "freshness": 1184,
-      "close": 64.33,
+      "freshness": 1186,
+      "close": 66.53,
       "name": null
     },
     "KARO": {
       "score": 3.0,
       "gap_w": 32.8,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 63.73,
+      "freshness": 38,
+      "close": 63.98,
       "name": null
     },
     "MBX": {
       "score": 3.0,
       "gap_w": 68.7,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 62.09,
+      "freshness": 353,
+      "close": 66.58,
       "name": null
     },
-    "BAND": {
+    "TNET": {
       "score": 3.0,
-      "gap_w": 90.9,
+      "gap_w": 26.5,
       "atr_dist": 0,
-      "freshness": 127,
-      "close": 56.81,
-      "name": null
-    },
-    "KMX": {
-      "score": 3.0,
-      "gap_w": 36.3,
-      "atr_dist": 0,
-      "freshness": 50,
-      "close": 59.31,
+      "freshness": 17,
+      "close": 71.92,
       "name": null
     },
     "THC": {
       "score": 2.9,
       "gap_w": 18.7,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 245.22,
+      "freshness": 3,
+      "close": 252.92,
       "name": null
     },
     "BJRI": {
       "score": 2.9,
       "gap_w": 57.1,
       "atr_dist": 0,
-      "freshness": 225,
-      "close": 67.74,
+      "freshness": 227,
+      "close": 74.26,
+      "name": null
+    },
+    "KMX": {
+      "score": 2.9,
+      "gap_w": 36.3,
+      "atr_dist": 0,
+      "freshness": 52,
+      "close": 58.78,
       "name": null
     },
     "TGTX": {
       "score": 2.9,
       "gap_w": 54.0,
       "atr_dist": 0,
-      "freshness": 106,
-      "close": 55.9,
+      "freshness": 108,
+      "close": 53.5,
       "name": null
     },
     "PBF": {
       "score": 2.8,
       "gap_w": 55.3,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 60.63,
+      "freshness": 346,
+      "close": 73.11,
       "name": null
     },
     "ACIW": {
       "score": 2.8,
       "gap_w": 26.7,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 57.69,
+      "freshness": 31,
+      "close": 59.22,
       "name": null
     },
     "ELVN": {
       "score": 2.8,
       "gap_w": 56.7,
       "atr_dist": 0,
-      "freshness": 204,
-      "close": 54.78,
+      "freshness": 206,
+      "close": 53.96,
       "name": null
     },
     "OII": {
       "score": 2.8,
       "gap_w": 55.9,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 52.5,
+      "freshness": 339,
+      "close": 47.67,
       "name": null
     },
     "IP": {
       "score": 2.7,
       "gap_w": 14.5,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 42.62,
+      "freshness": 3,
+      "close": 43.15,
       "name": null
     },
     "NTAP": {
       "score": 2.7,
       "gap_w": 39.9,
       "atr_dist": 0,
-      "freshness": 78,
-      "close": 165.72,
+      "freshness": 80,
+      "close": 174.02,
       "name": null
     },
     "TECH": {
       "score": 2.7,
       "gap_w": 21.6,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 71.83,
-      "name": null
-    },
-    "MEDP": {
-      "score": 2.7,
-      "gap_w": 15.7,
-      "atr_dist": 0,
-      "freshness": 8,
-      "close": 597.45,
+      "freshness": 24,
+      "close": 72.03,
       "name": null
     },
     "NSIT": {
       "score": 2.7,
       "gap_w": 33.3,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 120.05,
+      "freshness": 59,
+      "close": 127.78,
       "name": null
     },
     "SAH": {
       "score": 2.7,
       "gap_w": 45.2,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 102.74,
+      "freshness": 94,
+      "close": 100.89,
       "name": null
     },
     "UHAL": {
       "score": 2.7,
       "gap_w": 32.8,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 72.36,
-      "name": null
-    },
-    "VCYT": {
-      "score": 2.7,
-      "gap_w": 37.2,
-      "atr_dist": 0,
-      "freshness": 71,
-      "close": 56.41,
+      "freshness": 59,
+      "close": 70.93,
       "name": null
     },
     "BBY": {
       "score": 2.6,
       "gap_w": 26.5,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 87.59,
+      "freshness": 45,
+      "close": 87.79,
       "name": null
     },
     "CTAS": {
       "score": 2.6,
       "gap_w": 12.9,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 210.13,
+      "freshness": 3,
+      "close": 206.88,
       "name": null
     },
     "GPN": {
       "score": 2.6,
       "gap_w": 12.1,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 82.5,
+      "freshness": 3,
+      "close": 86.87,
       "name": null
     },
-    "MMM": {
+    "MEDP": {
       "score": 2.6,
-      "gap_w": 11.7,
+      "gap_w": 15.7,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 176.62,
-      "name": null
-    },
-    "RH": {
-      "score": 2.6,
-      "gap_w": 11.4,
-      "atr_dist": 0,
-      "freshness": 1,
-      "close": 180.93,
+      "freshness": 10,
+      "close": 579.07,
       "name": null
     },
     "IPAR": {
       "score": 2.6,
       "gap_w": 30.7,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 124.46,
-      "name": null
-    },
-    "NVEC": {
-      "score": 2.6,
-      "gap_w": 52.8,
-      "atr_dist": 0,
-      "freshness": 190,
-      "close": 115.59,
+      "freshness": 59,
+      "close": 125.67,
       "name": null
     },
     "SKYW": {
       "score": 2.6,
       "gap_w": 12.5,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 107.49,
+      "freshness": 3,
+      "close": 108.24,
       "name": null
     },
     "BTSG": {
@@ -490,47 +410,55 @@
       "gap_w": 52.8,
       "atr_dist": 0,
       "freshness": 999,
-      "close": 71.62,
+      "close": 72.84,
       "name": null
     },
     "SKWD": {
       "score": 2.6,
       "gap_w": 26.4,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 61.51,
+      "freshness": 45,
+      "close": 59.89,
       "name": null
     },
-    "CXT": {
+    "VCYT": {
       "score": 2.6,
-      "gap_w": 11.8,
+      "gap_w": 37.2,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 53.49,
+      "freshness": 73,
+      "close": 59.83,
       "name": null
     },
     "CRL": {
       "score": 2.5,
       "gap_w": 19.6,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 226.65,
+      "freshness": 31,
+      "close": 234.9,
+      "name": null
+    },
+    "MMM": {
+      "score": 2.5,
+      "gap_w": 11.7,
+      "atr_dist": 0,
+      "freshness": 3,
+      "close": 176.09,
       "name": null
     },
     "PAYX": {
       "score": 2.5,
       "gap_w": 13.4,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 116.78,
+      "freshness": 10,
+      "close": 116.34,
       "name": null
     },
     "LAD": {
       "score": 2.5,
       "gap_w": 15.2,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 346.88,
+      "freshness": 17,
+      "close": 404.72,
       "name": null
     },
     "BTSGU": {
@@ -545,1255 +473,1231 @@
       "score": 2.5,
       "gap_w": 31.9,
       "atr_dist": 0,
-      "freshness": 64,
-      "close": 217.13,
+      "freshness": 66,
+      "close": 221.13,
       "name": null
     },
     "WEX": {
       "score": 2.5,
       "gap_w": 13.1,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 175.97,
+      "freshness": 10,
+      "close": 186.56,
+      "name": null
+    },
+    "RH": {
+      "score": 2.5,
+      "gap_w": 11.4,
+      "atr_dist": 0,
+      "freshness": 3,
+      "close": 166.13,
       "name": null
     },
     "QLYS": {
       "score": 2.5,
       "gap_w": 17.5,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 136.78,
+      "freshness": 24,
+      "close": 141.72,
+      "name": null
+    },
+    "NVEC": {
+      "score": 2.5,
+      "gap_w": 49.5,
+      "atr_dist": 0,
+      "freshness": 192,
+      "close": 114.78,
       "name": null
     },
     "ADUS": {
       "score": 2.5,
       "gap_w": 10.6,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 115.96,
+      "freshness": 3,
+      "close": 116.3,
       "name": null
     },
     "DNTH": {
       "score": 2.5,
       "gap_w": 50.8,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 104.36,
-      "name": null
-    },
-    "ATLC": {
-      "score": 2.5,
-      "gap_w": 42.2,
-      "atr_dist": 0,
-      "freshness": 99,
-      "close": 104.18,
-      "name": null
-    },
-    "ETSY": {
-      "score": 2.5,
-      "gap_w": 33.3,
-      "atr_dist": 0,
-      "freshness": 71,
-      "close": 82.84,
+      "freshness": 339,
+      "close": 112.76,
       "name": null
     },
     "FLXS": {
       "score": 2.5,
       "gap_w": 49.9,
       "atr_dist": 0,
-      "freshness": 323,
-      "close": 75.84,
+      "freshness": 325,
+      "close": 75.04,
       "name": null
     },
     "DK": {
       "score": 2.5,
       "gap_w": 50.0,
       "atr_dist": 0,
-      "freshness": 421,
-      "close": 62.89,
+      "freshness": 423,
+      "close": 67.86,
       "name": null
     },
     "TVTX": {
       "score": 2.5,
       "gap_w": 49.2,
       "atr_dist": 0,
-      "freshness": 323,
-      "close": 57.45,
+      "freshness": 325,
+      "close": 57.3,
       "name": null
     },
-    "NTNX": {
+    "CXT": {
       "score": 2.5,
-      "gap_w": 16.9,
+      "gap_w": 11.8,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 56.87,
-      "name": null
-    },
-    "SLG": {
-      "score": 2.5,
-      "gap_w": 23.9,
-      "atr_dist": 0,
-      "freshness": 43,
-      "close": 54.69,
+      "freshness": 3,
+      "close": 51.61,
       "name": null
     },
     "AMP": {
       "score": 2.4,
       "gap_w": 12.7,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 539.25,
+      "freshness": 17,
+      "close": 544.17,
       "name": null
     },
     "BAX": {
       "score": 2.4,
       "gap_w": 17.9,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 23.35,
+      "freshness": 31,
+      "close": 26.77,
       "name": null
     },
     "DVA": {
       "score": 2.4,
       "gap_w": 48.4,
       "atr_dist": 0,
-      "freshness": 155,
-      "close": 237.93,
+      "freshness": 157,
+      "close": 239.48,
       "name": null
     },
     "RTX": {
       "score": 2.4,
       "gap_w": 15.8,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 217.19,
-      "name": null
-    },
-    "MOG.B": {
-      "score": 2.4,
-      "gap_w": 49.0,
-      "atr_dist": 0,
-      "freshness": 999,
-      "close": 420.07,
+      "freshness": 24,
+      "close": 214.38,
       "name": null
     },
     "ENVA": {
       "score": 2.4,
       "gap_w": 47.3,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 245.22,
+      "freshness": 402,
+      "close": 255.1,
       "name": null
     },
-    "VRTS": {
+    "ATLC": {
       "score": 2.4,
-      "gap_w": 12.3,
+      "gap_w": 42.2,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 168.12,
+      "freshness": 101,
+      "close": 105.69,
       "name": null
     },
-    "OC": {
+    "ETSY": {
       "score": 2.4,
-      "gap_w": 21.6,
+      "gap_w": 33.3,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 144.22,
-      "name": null
-    },
-    "BBIO": {
-      "score": 2.4,
-      "gap_w": 17.1,
-      "atr_dist": 0,
-      "freshness": 29,
-      "close": 85.78,
+      "freshness": 73,
+      "close": 83.12,
       "name": null
     },
     "PARR": {
       "score": 2.4,
       "gap_w": 47.5,
       "atr_dist": 0,
-      "freshness": 435,
-      "close": 77.11,
-      "name": null
-    },
-    "RDVT": {
-      "score": 2.4,
-      "gap_w": 24.1,
-      "atr_dist": 0,
-      "freshness": 50,
-      "close": 63.0,
+      "freshness": 437,
+      "close": 86.19,
       "name": null
     },
     "LGIH": {
       "score": 2.4,
       "gap_w": 22.5,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 61.22,
+      "freshness": 45,
+      "close": 57.07,
+      "name": null
+    },
+    "NTNX": {
+      "score": 2.4,
+      "gap_w": 16.9,
+      "atr_dist": 0,
+      "freshness": 24,
+      "close": 59.24,
       "name": null
     },
     "SCSC": {
       "score": 2.4,
       "gap_w": 31.4,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 55.04,
+      "freshness": 73,
+      "close": 56.41,
+      "name": null
+    },
+    "SLG": {
+      "score": 2.4,
+      "gap_w": 23.9,
+      "atr_dist": 0,
+      "freshness": 45,
+      "close": 53.69,
       "name": null
     },
     "ALKS": {
       "score": 2.4,
       "gap_w": 47.7,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 53.38,
+      "freshness": 199,
+      "close": 50.05,
       "name": null
     },
     "FBIN": {
       "score": 2.4,
       "gap_w": 11.2,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 51.63,
+      "freshness": 10,
+      "close": 49.24,
       "name": null
     },
     "A": {
       "score": 2.3,
       "gap_w": 6.2,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 138.44,
+      "freshness": 3,
+      "close": 138.7,
       "name": null
     },
     "ABBV": {
       "score": 2.3,
       "gap_w": 16.3,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 261.02,
+      "freshness": 31,
+      "close": 257.5,
       "name": null
     },
     "ADP": {
       "score": 2.3,
       "gap_w": 8.7,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 256.3,
+      "freshness": 10,
+      "close": 263.81,
       "name": null
     },
     "AJG": {
       "score": 2.3,
       "gap_w": 7.3,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 253.61,
-      "name": null
-    },
-    "FDS": {
-      "score": 2.3,
-      "gap_w": 5.4,
-      "atr_dist": 0,
-      "freshness": 1,
-      "close": 265.26,
+      "freshness": 3,
+      "close": 256.83,
       "name": null
     },
     "SCHW": {
       "score": 2.3,
       "gap_w": 9.2,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 103.6,
-      "name": null
-    },
-    "CRS": {
-      "score": 2.3,
-      "gap_w": 46.4,
-      "atr_dist": 0,
-      "freshness": 1366,
-      "close": 579.93,
+      "freshness": 10,
+      "close": 104.33,
       "name": null
     },
     "CHE": {
       "score": 2.3,
-      "gap_w": 17.7,
+      "gap_w": 18.7,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 513.02,
+      "freshness": 38,
+      "close": 534.89,
       "name": null
     },
-    "BIO": {
+    "MOG.B": {
       "score": 2.3,
-      "gap_w": 8.0,
+      "gap_w": 46.1,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 319.17,
+      "freshness": 999,
+      "close": 420.07,
       "name": null
     },
     "EAT": {
       "score": 2.3,
       "gap_w": 28.1,
       "atr_dist": 0,
-      "freshness": 64,
-      "close": 195.26,
+      "freshness": 66,
+      "close": 209.97,
       "name": null
     },
     "PJT": {
       "score": 2.3,
       "gap_w": 9.1,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 172.59,
+      "freshness": 10,
+      "close": 167.68,
       "name": null
     },
     "ICLR": {
       "score": 2.3,
       "gap_w": 13.0,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 166.78,
+      "freshness": 24,
+      "close": 165.69,
+      "name": null
+    },
+    "VRTS": {
+      "score": 2.3,
+      "gap_w": 12.3,
+      "atr_dist": 0,
+      "freshness": 17,
+      "close": 164.0,
+      "name": null
+    },
+    "OC": {
+      "score": 2.3,
+      "gap_w": 21.6,
+      "atr_dist": 0,
+      "freshness": 45,
+      "close": 139.04,
+      "name": null
+    },
+    "BBIO": {
+      "score": 2.3,
+      "gap_w": 17.1,
+      "atr_dist": 0,
+      "freshness": 31,
+      "close": 80.37,
       "name": null
     },
     "VSXY": {
       "score": 2.3,
       "gap_w": 45.7,
       "atr_dist": 0,
-      "freshness": 302,
-      "close": 81.89,
+      "freshness": 304,
+      "close": 88.33,
+      "name": null
+    },
+    "SCI": {
+      "score": 2.3,
+      "gap_w": 7.5,
+      "atr_dist": 0,
+      "freshness": 3,
+      "close": 85.32,
       "name": null
     },
     "HALO": {
       "score": 2.3,
       "gap_w": 17.7,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 82.61,
-      "name": null
-    },
-    "EEFT": {
-      "score": 2.3,
-      "gap_w": 10.3,
-      "atr_dist": 0,
-      "freshness": 15,
-      "close": 79.19,
+      "freshness": 38,
+      "close": 83.32,
       "name": null
     },
     "DULL": {
       "score": 2.3,
       "gap_w": 9.2,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 72.74,
-      "name": null
-    },
-    "TBBK": {
-      "score": 2.3,
-      "gap_w": 10.5,
-      "atr_dist": 0,
-      "freshness": 15,
-      "close": 67.59,
+      "freshness": 10,
+      "close": 76.49,
       "name": null
     },
     "UHAL.B": {
       "score": 2.3,
       "gap_w": 25.2,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 63.79,
+      "freshness": 59,
+      "close": 62.9,
       "name": null
     },
-    "RLI": {
+    "RDVT": {
       "score": 2.3,
-      "gap_w": 10.3,
+      "gap_w": 24.1,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 63.95,
-      "name": null
-    },
-    "BRKR": {
-      "score": 2.3,
-      "gap_w": 28.9,
-      "atr_dist": 0,
-      "freshness": 71,
-      "close": 60.89,
+      "freshness": 52,
+      "close": 68.57,
       "name": null
     },
     "ALRM": {
       "score": 2.3,
       "gap_w": 11.3,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 53.3,
+      "freshness": 17,
+      "close": 54.21,
       "name": null
     },
     "AON": {
       "score": 2.2,
       "gap_w": 9.4,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 367.81,
+      "freshness": 17,
+      "close": 366.64,
       "name": null
     },
-    "BXP": {
+    "FDS": {
       "score": 2.2,
-      "gap_w": 10.7,
+      "gap_w": 5.4,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 69.65,
-      "name": null
-    },
-    "EXPE": {
-      "score": 2.2,
-      "gap_w": 8.4,
-      "atr_dist": 0,
-      "freshness": 15,
-      "close": 272.23,
+      "freshness": 3,
+      "close": 263.08,
       "name": null
     },
     "LH": {
       "score": 2.2,
       "gap_w": 12.2,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 297.86,
+      "freshness": 24,
+      "close": 315.7,
       "name": null
     },
     "RJF": {
       "score": 2.2,
       "gap_w": 9.9,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 172.95,
+      "freshness": 17,
+      "close": 175.09,
       "name": null
     },
     "SW": {
       "score": 2.2,
       "gap_w": 20.5,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 48.5,
+      "freshness": 52,
+      "close": 47.52,
       "name": null
     },
     "WRB": {
       "score": 2.2,
       "gap_w": 8.9,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 76.02,
+      "freshness": 17,
+      "close": 73.39,
       "name": null
     },
-    "JLL": {
+    "BIO": {
       "score": 2.2,
-      "gap_w": 3.7,
+      "gap_w": 8.0,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 333.08,
-      "name": null
-    },
-    "NET": {
-      "score": 2.2,
-      "gap_w": 27.3,
-      "atr_dist": 0,
-      "freshness": 71,
-      "close": 259.01,
-      "name": null
-    },
-    "MTN": {
-      "score": 2.2,
-      "gap_w": 11.0,
-      "atr_dist": 0,
-      "freshness": 22,
-      "close": 151.71,
+      "freshness": 10,
+      "close": 326.82,
       "name": null
     },
     "PLMR": {
       "score": 2.2,
       "gap_w": 12.3,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 139.14,
-      "name": null
-    },
-    "CPK": {
-      "score": 2.2,
-      "gap_w": 6.1,
-      "atr_dist": 0,
-      "freshness": 8,
-      "close": 135.96,
-      "name": null
-    },
-    "HOV": {
-      "score": 2.2,
-      "gap_w": 15.4,
-      "atr_dist": 0,
-      "freshness": 36,
-      "close": 135.75,
+      "freshness": 24,
+      "close": 136.28,
       "name": null
     },
     "ATR": {
       "score": 2.2,
       "gap_w": 7.1,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 133.34,
+      "freshness": 10,
+      "close": 135.97,
       "name": null
     },
     "MHK": {
       "score": 2.2,
       "gap_w": 5.3,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 116.0,
+      "freshness": 3,
+      "close": 119.58,
       "name": null
     },
     "EHC": {
       "score": 2.2,
       "gap_w": 7.5,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 114.92,
-      "name": null
-    },
-    "RYTM": {
-      "score": 2.2,
-      "gap_w": 10.6,
-      "atr_dist": 0,
-      "freshness": 22,
-      "close": 105.97,
-      "name": null
-    },
-    "AGYS": {
-      "score": 2.2,
-      "gap_w": 8.3,
-      "atr_dist": 0,
-      "freshness": 15,
-      "close": 103.99,
+      "freshness": 10,
+      "close": 110.71,
       "name": null
     },
     "VAC": {
       "score": 2.2,
       "gap_w": 41.7,
       "atr_dist": 0,
-      "freshness": 113,
-      "close": 96.51,
+      "freshness": 115,
+      "close": 97.47,
       "name": null
     },
     "UYG": {
       "score": 2.2,
       "gap_w": 13.5,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 95.44,
+      "freshness": 31,
+      "close": 96.11,
       "name": null
     },
     "CALM": {
       "score": 2.2,
       "gap_w": 8.9,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 88.03,
+      "freshness": 17,
+      "close": 87.12,
       "name": null
     },
     "DINO": {
       "score": 2.2,
       "gap_w": 44.7,
       "atr_dist": 0,
-      "freshness": 407,
-      "close": 87.69,
+      "freshness": 409,
+      "close": 92.42,
       "name": null
     },
-    "XMTR": {
+    "EEFT": {
       "score": 2.2,
-      "gap_w": 31.6,
+      "gap_w": 10.3,
       "atr_dist": 0,
-      "freshness": 85,
-      "close": 84.92,
+      "freshness": 17,
+      "close": 76.71,
+      "name": null
+    },
+    "KFY": {
+      "score": 2.2,
+      "gap_w": 25.4,
+      "atr_dist": 0,
+      "freshness": 66,
+      "close": 82.22,
       "name": null
     },
     "CCS": {
       "score": 2.2,
       "gap_w": 14.5,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 69.96,
+      "freshness": 31,
+      "close": 68.85,
+      "name": null
+    },
+    "TBBK": {
+      "score": 2.2,
+      "gap_w": 10.5,
+      "atr_dist": 0,
+      "freshness": 17,
+      "close": 64.85,
+      "name": null
+    },
+    "RLI": {
+      "score": 2.2,
+      "gap_w": 10.3,
+      "atr_dist": 0,
+      "freshness": 17,
+      "close": 61.22,
+      "name": null
+    },
+    "BRKR": {
+      "score": 2.2,
+      "gap_w": 28.9,
+      "atr_dist": 0,
+      "freshness": 73,
+      "close": 62.35,
       "name": null
     },
     "CBL": {
       "score": 2.2,
       "gap_w": 43.3,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 58.04,
+      "freshness": 353,
+      "close": 58.44,
       "name": null
     },
-    "ACGL": {
+    "ARE": {
       "score": 2.1,
-      "gap_w": 8.8,
+      "gap_w": 3.2,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 104.28,
+      "freshness": 3,
+      "close": 52.55,
       "name": null
     },
-    "AMCR": {
+    "BXP": {
       "score": 2.1,
-      "gap_w": 8.8,
+      "gap_w": 10.7,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 44.87,
+      "freshness": 24,
+      "close": 71.68,
+      "name": null
+    },
+    "EXPE": {
+      "score": 2.1,
+      "gap_w": 8.4,
+      "atr_dist": 0,
+      "freshness": 17,
+      "close": 293.23,
       "name": null
     },
     "GEN": {
       "score": 2.1,
       "gap_w": 9.8,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 26.66,
+      "freshness": 24,
+      "close": 27.29,
       "name": null
     },
     "KHC": {
       "score": 2.1,
       "gap_w": 9.8,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 26.3,
-      "name": null
-    },
-    "KMB": {
-      "score": 2.1,
-      "gap_w": 9.0,
-      "atr_dist": 0,
-      "freshness": 22,
-      "close": 112.18,
-      "name": null
-    },
-    "OMC": {
-      "score": 2.1,
-      "gap_w": 6.4,
-      "atr_dist": 0,
-      "freshness": 15,
-      "close": 82.59,
+      "freshness": 24,
+      "close": 26.38,
       "name": null
     },
     "PRU": {
       "score": 2.1,
       "gap_w": 16.5,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 122.27,
+      "freshness": 45,
+      "close": 122.83,
       "name": null
     },
-    "RSG": {
+    "WSM": {
       "score": 2.1,
-      "gap_w": 1.7,
+      "gap_w": 19.0,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 219.52,
+      "freshness": 52,
+      "close": 233.34,
       "name": null
     },
-    "WFC": {
+    "JLL": {
       "score": 2.1,
-      "gap_w": 4.0,
+      "gap_w": 3.7,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 87.67,
-      "name": null
-    },
-    "ZBRA": {
-      "score": 2.1,
-      "gap_w": 8.7,
-      "atr_dist": 0,
-      "freshness": 22,
-      "close": 263.88,
+      "freshness": 3,
+      "close": 362.43,
       "name": null
     },
     "ITIC": {
       "score": 2.1,
       "gap_w": 14.1,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 285.38,
+      "freshness": 38,
+      "close": 294.57,
+      "name": null
+    },
+    "NET": {
+      "score": 2.1,
+      "gap_w": 27.3,
+      "atr_dist": 0,
+      "freshness": 73,
+      "close": 283.29,
       "name": null
     },
     "CR": {
       "score": 2.1,
       "gap_w": 18.5,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 225.94,
+      "freshness": 52,
+      "close": 214.3,
       "name": null
     },
     "WRLD": {
       "score": 2.1,
       "gap_w": 25.7,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 200.93,
-      "name": null
-    },
-    "HCI": {
-      "score": 2.1,
-      "gap_w": 6.6,
-      "atr_dist": 0,
-      "freshness": 15,
-      "close": 177.96,
+      "freshness": 73,
+      "close": 183.91,
       "name": null
     },
     "MSA": {
       "score": 2.1,
       "gap_w": 3.0,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 175.69,
+      "freshness": 3,
+      "close": 174.12,
       "name": null
     },
     "WCN": {
       "score": 2.1,
       "gap_w": 2.5,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 171.32,
+      "freshness": 3,
+      "close": 166.31,
       "name": null
     },
-    "HRI": {
+    "MTN": {
       "score": 2.1,
-      "gap_w": 15.6,
+      "gap_w": 11.0,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 160.25,
+      "freshness": 24,
+      "close": 152.86,
       "name": null
     },
-    "ICUI": {
+    "CPK": {
       "score": 2.1,
-      "gap_w": 13.1,
+      "gap_w": 6.1,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 160.98,
+      "freshness": 10,
+      "close": 133.0,
       "name": null
     },
-    "OSK": {
+    "HOV": {
       "score": 2.1,
-      "gap_w": 10.8,
+      "gap_w": 15.4,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 154.71,
+      "freshness": 38,
+      "close": 129.44,
       "name": null
     },
     "CCK": {
       "score": 2.1,
       "gap_w": 14.3,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 119.33,
+      "freshness": 38,
+      "close": 118.36,
       "name": null
     },
     "AXS": {
       "score": 2.1,
       "gap_w": 14.1,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 116.94,
+      "freshness": 38,
+      "close": 105.52,
+      "name": null
+    },
+    "PFGC": {
+      "score": 2.1,
+      "gap_w": 19.9,
+      "atr_dist": 0,
+      "freshness": 52,
+      "close": 114.71,
+      "name": null
+    },
+    "RYTM": {
+      "score": 2.1,
+      "gap_w": 10.6,
+      "atr_dist": 0,
+      "freshness": 24,
+      "close": 105.75,
+      "name": null
+    },
+    "AGYS": {
+      "score": 2.1,
+      "gap_w": 8.3,
+      "atr_dist": 0,
+      "freshness": 17,
+      "close": 107.79,
       "name": null
     },
     "ODC": {
       "score": 2.1,
       "gap_w": 41.0,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 99.25,
-      "name": null
-    },
-    "HQY": {
-      "score": 2.1,
-      "gap_w": 8.6,
-      "atr_dist": 0,
-      "freshness": 22,
-      "close": 98.14,
+      "freshness": 178,
+      "close": 97.97,
       "name": null
     },
     "KTB": {
       "score": 2.1,
       "gap_w": 19.4,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 84.19,
+      "freshness": 52,
+      "close": 83.8,
       "name": null
     },
     "BCC": {
       "score": 2.1,
       "gap_w": 3.1,
       "atr_dist": 0,
-      "freshness": 1,
-      "close": 78.62,
-      "name": null
-    },
-    "JOYY": {
-      "score": 2.1,
-      "gap_w": 22.3,
-      "atr_dist": 0,
-      "freshness": 64,
-      "close": 74.15,
+      "freshness": 3,
+      "close": 75.39,
       "name": null
     },
     "MRX": {
       "score": 2.1,
       "gap_w": 41.7,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 63.41,
+      "freshness": 199,
+      "close": 66.0,
       "name": null
     },
     "IDT": {
       "score": 2.1,
       "gap_w": 23.7,
       "atr_dist": 0,
-      "freshness": 64,
-      "close": 65.22,
+      "freshness": 66,
+      "close": 66.0,
       "name": null
     },
-    "FBK": {
-      "score": 2.1,
-      "gap_w": 6.5,
+    "ACGL": {
+      "score": 2.0,
+      "gap_w": 8.8,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 59.06,
+      "freshness": 24,
+      "close": 101.19,
       "name": null
     },
     "AIG": {
       "score": 2.0,
       "gap_w": 2.5,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 79.96,
+      "freshness": 10,
+      "close": 78.89,
+      "name": null
+    },
+    "AMCR": {
+      "score": 2.0,
+      "gap_w": 8.8,
+      "atr_dist": 0,
+      "freshness": 24,
+      "close": 45.16,
       "name": null
     },
     "ATO": {
       "score": 2.0,
       "gap_w": 3.3,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 179.38,
+      "freshness": 10,
+      "close": 174.14,
       "name": null
     },
     "AWK": {
       "score": 2.0,
       "gap_w": 3.0,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 135.9,
+      "freshness": 10,
+      "close": 136.84,
       "name": null
     },
     "BAC": {
       "score": 2.0,
       "gap_w": 16.7,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 62.47,
+      "freshness": 52,
+      "close": 61.76,
       "name": null
     },
     "DLTR": {
       "score": 2.0,
       "gap_w": 7.3,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 124.61,
+      "freshness": 24,
+      "close": 128.58,
       "name": null
     },
     "HIG": {
       "score": 2.0,
       "gap_w": 5.2,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 141.08,
+      "freshness": 17,
+      "close": 143.04,
       "name": null
     },
     "HPQ": {
       "score": 2.0,
       "gap_w": 19.3,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 26.05,
+      "freshness": 59,
+      "close": 26.87,
       "name": null
     },
     "HRL": {
       "score": 2.0,
       "gap_w": 12.2,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 26.01,
+      "freshness": 38,
+      "close": 25.37,
       "name": null
     },
     "INCY": {
       "score": 2.0,
       "gap_w": 16.8,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 119.39,
+      "freshness": 52,
+      "close": 123.02,
       "name": null
     },
     "JPM": {
       "score": 2.0,
       "gap_w": 15.1,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 355.49,
+      "freshness": 45,
+      "close": 350.88,
       "name": null
     },
-    "MCO": {
+    "KMB": {
       "score": 2.0,
-      "gap_w": 2.0,
+      "gap_w": 9.0,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 489.96,
+      "freshness": 24,
+      "close": 110.19,
       "name": null
     },
     "MPC": {
       "score": 2.0,
       "gap_w": 39.3,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 307.11,
+      "freshness": 430,
+      "close": 313.88,
       "name": null
     },
     "MSI": {
       "score": 2.0,
       "gap_w": 3.0,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 423.18,
+      "freshness": 10,
+      "close": 430.84,
       "name": null
     },
-    "URI": {
+    "OMC": {
       "score": 2.0,
-      "gap_w": 25.2,
+      "gap_w": 6.4,
       "atr_dist": 0,
-      "freshness": 78,
-      "close": 1116.7,
+      "freshness": 17,
+      "close": 79.61,
+      "name": null
+    },
+    "RSG": {
+      "score": 2.0,
+      "gap_w": 1.7,
+      "atr_dist": 0,
+      "freshness": 3,
+      "close": 211.33,
       "name": null
     },
     "V": {
       "score": 2.0,
       "gap_w": 10.3,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 363.37,
+      "freshness": 31,
+      "close": 366.21,
       "name": null
     },
-    "WM": {
+    "WFC": {
       "score": 2.0,
-      "gap_w": 6.8,
+      "gap_w": 4.0,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 240.66,
+      "freshness": 10,
+      "close": 85.43,
       "name": null
     },
-    "AGM": {
+    "ZBRA": {
       "score": 2.0,
-      "gap_w": 23.2,
+      "gap_w": 8.7,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 211.38,
+      "freshness": 24,
+      "close": 288.57,
       "name": null
     },
-    "MHO": {
+    "HCI": {
       "score": 2.0,
-      "gap_w": 13.4,
+      "gap_w": 6.6,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 150.31,
+      "freshness": 17,
+      "close": 182.38,
+      "name": null
+    },
+    "HRI": {
+      "score": 2.0,
+      "gap_w": 15.6,
+      "atr_dist": 0,
+      "freshness": 45,
+      "close": 146.64,
+      "name": null
+    },
+    "ICUI": {
+      "score": 2.0,
+      "gap_w": 13.1,
+      "atr_dist": 0,
+      "freshness": 38,
+      "close": 168.07,
+      "name": null
+    },
+    "OSK": {
+      "score": 2.0,
+      "gap_w": 10.8,
+      "atr_dist": 0,
+      "freshness": 31,
+      "close": 142.87,
       "name": null
     },
     "DORM": {
       "score": 2.0,
       "gap_w": 10.2,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 135.75,
+      "freshness": 31,
+      "close": 133.06,
       "name": null
     },
-    "PFGC": {
+    "HQY": {
       "score": 2.0,
-      "gap_w": 16.2,
+      "gap_w": 8.6,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 114.02,
-      "name": null
-    },
-    "FWONK": {
-      "score": 2.0,
-      "gap_w": 6.5,
-      "atr_dist": 0,
-      "freshness": 22,
-      "close": 97.72,
-      "name": null
-    },
-    "PLUS": {
-      "score": 2.0,
-      "gap_w": 6.6,
-      "atr_dist": 0,
-      "freshness": 22,
-      "close": 89.83,
+      "freshness": 24,
+      "close": 101.02,
       "name": null
     },
     "CAKE": {
       "score": 2.0,
       "gap_w": 39.3,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 85.79,
+      "freshness": 178,
+      "close": 101.28,
       "name": null
     },
-    "WAL": {
+    "JOYY": {
       "score": 2.0,
-      "gap_w": 4.5,
+      "gap_w": 22.3,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 84.0,
-      "name": null
-    },
-    "HAE": {
-      "score": 2.0,
-      "gap_w": 16.0,
-      "atr_dist": 0,
-      "freshness": 50,
-      "close": 80.4,
-      "name": null
-    },
-    "AIN": {
-      "score": 2.0,
-      "gap_w": 29.7,
-      "atr_dist": 0,
-      "freshness": 92,
-      "close": 75.44,
+      "freshness": 66,
+      "close": 72.98,
       "name": null
     },
     "VSAT": {
       "score": 2.0,
       "gap_w": 39.2,
       "atr_dist": 0,
-      "freshness": 414,
-      "close": 72.81,
+      "freshness": 416,
+      "close": 77.64,
+      "name": null
+    },
+    "FBK": {
+      "score": 2.0,
+      "gap_w": 6.5,
+      "atr_dist": 0,
+      "freshness": 17,
+      "close": 60.16,
       "name": null
     },
     "RXL": {
       "score": 2.0,
       "gap_w": 12.9,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 56.03,
+      "freshness": 38,
+      "close": 58.4,
       "name": null
     },
-    "ECL": {
+    "CDW": {
       "score": 1.9,
-      "gap_w": 0.0,
+      "gap_w": 4.5,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 271.17,
+      "freshness": 17,
+      "close": 145.56,
       "name": null
     },
-    "HOOD": {
+    "MCO": {
       "score": 1.9,
-      "gap_w": 1.0,
+      "gap_w": 2.0,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 93.75,
-      "name": null
-    },
-    "ITW": {
-      "score": 1.9,
-      "gap_w": 9.2,
-      "atr_dist": 0,
-      "freshness": 36,
-      "close": 287.64,
-      "name": null
-    },
-    "MET": {
-      "score": 1.9,
-      "gap_w": 20.8,
-      "atr_dist": 0,
-      "freshness": 71,
-      "close": 95.66,
+      "freshness": 10,
+      "close": 482.86,
       "name": null
     },
     "SJM": {
       "score": 1.9,
       "gap_w": 14.4,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 120.12,
+      "freshness": 52,
+      "close": 122.29,
       "name": null
     },
-    "SYY": {
+    "URI": {
       "score": 1.9,
-      "gap_w": 6.7,
+      "gap_w": 25.2,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 84.02,
+      "freshness": 80,
+      "close": 1070.13,
       "name": null
     },
     "VLO": {
       "score": 1.9,
       "gap_w": 38.3,
       "atr_dist": 0,
-      "freshness": 407,
-      "close": 300.4,
+      "freshness": 409,
+      "close": 311.63,
       "name": null
     },
-    "WSM": {
+    "WM": {
       "score": 1.9,
-      "gap_w": 14.8,
+      "gap_w": 6.8,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 231.23,
+      "freshness": 24,
+      "close": 226.4,
       "name": null
     },
     "BH": {
       "score": 1.9,
       "gap_w": 8.1,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 382.12,
+      "freshness": 31,
+      "close": 398.0,
       "name": null
     },
     "RACE": {
       "score": 1.9,
       "gap_w": 3.6,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 376.98,
+      "freshness": 17,
+      "close": 397.87,
       "name": null
     },
     "HEI": {
       "score": 1.9,
       "gap_w": 12.7,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 355.96,
+      "freshness": 45,
+      "close": 354.51,
       "name": null
     },
     "AYI": {
       "score": 1.9,
       "gap_w": 5.2,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 331.57,
+      "freshness": 24,
+      "close": 337.93,
       "name": null
     },
     "NTRA": {
       "score": 1.9,
       "gap_w": 19.3,
       "atr_dist": 0,
-      "freshness": 64,
-      "close": 258.2,
+      "freshness": 66,
+      "close": 269.79,
       "name": null
     },
     "HEI.A": {
       "score": 1.9,
       "gap_w": 7.4,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 257.68,
+      "freshness": 31,
+      "close": 256.16,
+      "name": null
+    },
+    "AGM": {
+      "score": 1.9,
+      "gap_w": 23.2,
+      "atr_dist": 0,
+      "freshness": 73,
+      "close": 220.16,
       "name": null
     },
     "DCO": {
       "score": 1.9,
       "gap_w": 37.3,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 177.7,
+      "freshness": 430,
+      "close": 184.05,
       "name": null
     },
-    "ARCB": {
+    "MHO": {
       "score": 1.9,
-      "gap_w": 38.5,
+      "gap_w": 13.4,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 147.39,
+      "freshness": 45,
+      "close": 151.53,
       "name": null
     },
     "PTGX": {
       "score": 1.9,
       "gap_w": 38.0,
       "atr_dist": 0,
-      "freshness": 505,
-      "close": 137.75,
+      "freshness": 507,
+      "close": 138.72,
       "name": null
     },
     "CROX": {
       "score": 1.9,
       "gap_w": 36.1,
       "atr_dist": 0,
-      "freshness": 113,
-      "close": 134.39,
+      "freshness": 115,
+      "close": 124.31,
       "name": null
     },
     "ABVX": {
       "score": 1.9,
       "gap_w": 7.5,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 127.43,
+      "freshness": 31,
+      "close": 124.39,
       "name": null
     },
     "SAIC": {
       "score": 1.9,
       "gap_w": 17.5,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 118.72,
+      "freshness": 59,
+      "close": 115.69,
       "name": null
     },
-    "FWONA": {
+    "FWONK": {
       "score": 1.9,
-      "gap_w": 7.3,
+      "gap_w": 6.5,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 89.95,
+      "freshness": 24,
+      "close": 99.97,
+      "name": null
+    },
+    "PLUS": {
+      "score": 1.9,
+      "gap_w": 6.6,
+      "atr_dist": 0,
+      "freshness": 24,
+      "close": 91.13,
+      "name": null
+    },
+    "WAL": {
+      "score": 1.9,
+      "gap_w": 4.5,
+      "atr_dist": 0,
+      "freshness": 17,
+      "close": 81.22,
       "name": null
     },
     "AAMI": {
       "score": 1.9,
       "gap_w": 38.6,
       "atr_dist": 0,
-      "freshness": 456,
-      "close": 82.49,
+      "freshness": 458,
+      "close": 84.0,
+      "name": null
+    },
+    "HAE": {
+      "score": 1.9,
+      "gap_w": 16.0,
+      "atr_dist": 0,
+      "freshness": 52,
+      "close": 84.93,
+      "name": null
+    },
+    "AIN": {
+      "score": 1.9,
+      "gap_w": 29.7,
+      "atr_dist": 0,
+      "freshness": 94,
+      "close": 74.24,
+      "name": null
+    },
+    "STC": {
+      "score": 1.9,
+      "gap_w": 3.5,
+      "atr_dist": 0,
+      "freshness": 17,
+      "close": 68.23,
       "name": null
     },
     "ESNT": {
       "score": 1.9,
       "gap_w": 8.2,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 66.34,
+      "freshness": 31,
+      "close": 66.46,
       "name": null
     },
     "CTRN": {
       "score": 1.9,
       "gap_w": 38.0,
       "atr_dist": 0,
-      "freshness": 596,
-      "close": 65.3,
-      "name": null
-    },
-    "OMF": {
-      "score": 1.9,
-      "gap_w": 4.7,
-      "atr_dist": 0,
-      "freshness": 22,
-      "close": 60.81,
-      "name": null
-    },
-    "CBSH": {
-      "score": 1.9,
-      "gap_w": 11.9,
-      "atr_dist": 0,
-      "freshness": 43,
-      "close": 59.22,
+      "freshness": 598,
+      "close": 67.71,
       "name": null
     },
     "IWFL": {
       "score": 1.9,
       "gap_w": 2.7,
       "atr_dist": 0,
-      "freshness": 15,
+      "freshness": 17,
       "close": 58.0,
       "name": null
     },
@@ -1801,480 +1705,456 @@
       "score": 1.8,
       "gap_w": -1.0,
       "atr_dist": 0,
-      "freshness": 8,
-      "close": 332.76,
+      "freshness": 10,
+      "close": 337.39,
       "name": null
     },
     "BRK.B": {
       "score": 1.8,
       "gap_w": 1.5,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 496.72,
+      "freshness": 17,
+      "close": 502.67,
       "name": null
     },
     "DOC": {
       "score": 1.8,
       "gap_w": 24.4,
       "atr_dist": 0,
-      "freshness": 85,
-      "close": 22.33,
+      "freshness": 87,
+      "close": 22.05,
       "name": null
     },
-    "GE": {
+    "ECL": {
       "score": 1.8,
-      "gap_w": 14.4,
+      "gap_w": 0.0,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 358.48,
+      "freshness": 10,
+      "close": 279.37,
+      "name": null
+    },
+    "ITW": {
+      "score": 1.8,
+      "gap_w": 9.2,
+      "atr_dist": 0,
+      "freshness": 38,
+      "close": 283.76,
+      "name": null
+    },
+    "MET": {
+      "score": 1.8,
+      "gap_w": 20.8,
+      "atr_dist": 0,
+      "freshness": 73,
+      "close": 97.12,
       "name": null
     },
     "PGR": {
       "score": 1.8,
       "gap_w": 3.1,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 215.67,
+      "freshness": 24,
+      "close": 213.37,
       "name": null
     },
     "PHM": {
       "score": 1.8,
       "gap_w": 6.1,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 130.23,
+      "freshness": 31,
+      "close": 128.78,
       "name": null
     },
-    "SOLV": {
+    "SYY": {
       "score": 1.8,
-      "gap_w": 4.8,
+      "gap_w": 6.7,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 80.58,
+      "freshness": 31,
+      "close": 84.72,
       "name": null
     },
     "TTWO": {
       "score": 1.8,
       "gap_w": 4.3,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 237.44,
+      "freshness": 24,
+      "close": 247.44,
+      "name": null
+    },
+    "UAL": {
+      "score": 1.8,
+      "gap_w": 15.5,
+      "atr_dist": 0,
+      "freshness": 59,
+      "close": 123.51,
       "name": null
     },
     "LGND": {
       "score": 1.8,
       "gap_w": 36.3,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 299.84,
+      "freshness": 388,
+      "close": 296.34,
       "name": null
     },
     "NHC": {
       "score": 1.8,
       "gap_w": 35.7,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 227.96,
-      "name": null
-    },
-    "ATI": {
-      "score": 1.8,
-      "gap_w": 35.7,
-      "atr_dist": 0,
-      "freshness": 442,
-      "close": 191.01,
+      "freshness": 346,
+      "close": 229.1,
       "name": null
     },
     "VOYA": {
       "score": 1.8,
       "gap_w": 27.5,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 98.64,
+      "freshness": 94,
+      "close": 100.29,
+      "name": null
+    },
+    "VCTR": {
+      "score": 1.8,
+      "gap_w": 35.8,
+      "atr_dist": 0,
+      "freshness": 402,
+      "close": 98.6,
       "name": null
     },
     "TIGO": {
       "score": 1.8,
       "gap_w": 36.1,
       "atr_dist": 0,
-      "freshness": 953,
-      "close": 95.42,
+      "freshness": 955,
+      "close": 95.18,
       "name": null
     },
     "INSW": {
       "score": 1.8,
       "gap_w": 36.7,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 90.18,
+      "freshness": 395,
+      "close": 95.36,
       "name": null
     },
-    "STRT": {
+    "FWONA": {
       "score": 1.8,
-      "gap_w": 11.9,
+      "gap_w": 7.3,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 86.12,
+      "freshness": 31,
+      "close": 91.94,
       "name": null
     },
     "MGEE": {
       "score": 1.8,
       "gap_w": 3.7,
       "atr_dist": 0,
-      "freshness": 22,
-      "close": 82.44,
-      "name": null
-    },
-    "KFY": {
-      "score": 1.8,
-      "gap_w": 17.8,
-      "atr_dist": 0,
-      "freshness": 64,
-      "close": 80.0,
-      "name": null
-    },
-    "LOAR": {
-      "score": 1.8,
-      "gap_w": 6.2,
-      "atr_dist": 0,
-      "freshness": 29,
-      "close": 71.59,
-      "name": null
-    },
-    "BROS": {
-      "score": 1.8,
-      "gap_w": 12.5,
-      "atr_dist": 0,
-      "freshness": 50,
-      "close": 64.74,
+      "freshness": 24,
+      "close": 79.54,
       "name": null
     },
     "RRR": {
       "score": 1.8,
       "gap_w": 10.8,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 65.15,
+      "freshness": 45,
+      "close": 64.94,
       "name": null
     },
-    "VIRT": {
+    "OMF": {
       "score": 1.8,
-      "gap_w": 35.3,
+      "gap_w": 4.7,
       "atr_dist": 0,
-      "freshness": 155,
-      "close": 58.82,
+      "freshness": 24,
+      "close": 63.42,
       "name": null
     },
-    "BMRN": {
+    "CBSH": {
       "score": 1.8,
-      "gap_w": 5.1,
+      "gap_w": 11.9,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 60.6,
-      "name": null
-    },
-    "CWT": {
-      "score": 1.8,
-      "gap_w": 12.2,
-      "atr_dist": 0,
-      "freshness": 50,
-      "close": 50.95,
+      "freshness": 45,
+      "close": 59.47,
       "name": null
     },
     "KOP": {
       "score": 1.8,
       "gap_w": 36.4,
       "atr_dist": 0,
-      "freshness": 169,
-      "close": 49.19,
+      "freshness": 171,
+      "close": 48.95,
       "name": null
     },
-    "CNC": {
+    "GE": {
       "score": 1.7,
-      "gap_w": 34.5,
+      "gap_w": 14.4,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 63.35,
+      "freshness": 59,
+      "close": 355.16,
+      "name": null
+    },
+    "SOLV": {
+      "score": 1.7,
+      "gap_w": 4.8,
+      "atr_dist": 0,
+      "freshness": 31,
+      "close": 86.84,
       "name": null
     },
     "TROW": {
       "score": 1.7,
       "gap_w": 17.5,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 118.83,
-      "name": null
-    },
-    "XYZ": {
-      "score": 1.7,
-      "gap_w": 19.6,
-      "atr_dist": 0,
-      "freshness": 78,
-      "close": 79.1,
-      "name": null
-    },
-    "BH.A": {
-      "score": 1.7,
-      "gap_w": 2.7,
-      "atr_dist": 0,
-      "freshness": 29,
-      "close": 1907.09,
+      "freshness": 73,
+      "close": 119.39,
       "name": null
     },
     "MOG.A": {
       "score": 1.7,
       "gap_w": 34.4,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 409.78,
+      "freshness": 353,
+      "close": 420.19,
       "name": null
     },
     "ILMN": {
       "score": 1.7,
       "gap_w": 34.4,
       "atr_dist": 0,
-      "freshness": 302,
-      "close": 191.18,
+      "freshness": 304,
+      "close": 205.35,
       "name": null
     },
     "NBIX": {
       "score": 1.7,
       "gap_w": 20.2,
       "atr_dist": 0,
-      "freshness": 78,
-      "close": 177.3,
+      "freshness": 80,
+      "close": 185.81,
       "name": null
     },
     "GH": {
       "score": 1.7,
       "gap_w": 34.8,
       "atr_dist": 0,
-      "freshness": 631,
-      "close": 144.75,
-      "name": null
-    },
-    "SXT": {
-      "score": 1.7,
-      "gap_w": 26.1,
-      "atr_dist": 0,
-      "freshness": 99,
-      "close": 127.31,
+      "freshness": 633,
+      "close": 152.47,
       "name": null
     },
     "RBA": {
       "score": 1.7,
       "gap_w": 10.8,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 115.18,
-      "name": null
-    },
-    "ITGR": {
-      "score": 1.7,
-      "gap_w": 17.0,
-      "atr_dist": 0,
-      "freshness": 71,
-      "close": 99.56,
+      "freshness": 52,
+      "close": 110.11,
       "name": null
     },
     "CHEF": {
       "score": 1.7,
       "gap_w": 32.5,
       "atr_dist": 0,
-      "freshness": 113,
-      "close": 94.3,
+      "freshness": 115,
+      "close": 112.29,
+      "name": null
+    },
+    "STRT": {
+      "score": 1.7,
+      "gap_w": 11.9,
+      "atr_dist": 0,
+      "freshness": 52,
+      "close": 88.03,
       "name": null
     },
     "WHLRL": {
       "score": 1.7,
       "gap_w": 1.8,
       "atr_dist": 0,
-      "freshness": 22,
+      "freshness": 24,
       "close": 82.5,
       "name": null
     },
-    "STC": {
+    "BMRN": {
       "score": 1.7,
-      "gap_w": -0.3,
+      "gap_w": 5.1,
       "atr_dist": 0,
-      "freshness": 15,
-      "close": 66.58,
+      "freshness": 31,
+      "close": 60.59,
       "name": null
     },
     "MSEX": {
       "score": 1.7,
       "gap_w": 6.7,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 55.77,
+      "freshness": 38,
+      "close": 55.73,
       "name": null
     },
-    "FFIV": {
-      "score": 1.6,
-      "gap_w": 27.7,
+    "PRSU": {
+      "score": 1.7,
+      "gap_w": 34.4,
       "atr_dist": 0,
-      "freshness": 106,
-      "close": 393.4,
+      "freshness": 318,
+      "close": 50.99,
+      "name": null
+    },
+    "CWT": {
+      "score": 1.7,
+      "gap_w": 12.2,
+      "atr_dist": 0,
+      "freshness": 52,
+      "close": 50.48,
       "name": null
     },
     "HBAN": {
       "score": 1.6,
       "gap_w": 4.2,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 17.32,
-      "name": null
-    },
-    "LII": {
-      "score": 1.6,
-      "gap_w": 6.5,
-      "atr_dist": 0,
-      "freshness": 43,
-      "close": 549.68,
-      "name": null
-    },
-    "MAS": {
-      "score": 1.6,
-      "gap_w": 19.4,
-      "atr_dist": 0,
-      "freshness": 85,
-      "close": 80.77,
+      "freshness": 38,
+      "close": 17.08,
       "name": null
     },
     "NWSA": {
       "score": 1.6,
       "gap_w": 6.2,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 27.54,
+      "freshness": 45,
+      "close": 28.09,
       "name": null
     },
-    "PG": {
+    "RCL": {
       "score": 1.6,
-      "gap_w": 1.0,
+      "gap_w": 5.6,
       "atr_dist": 0,
-      "freshness": 29,
-      "close": 149.83,
+      "freshness": 38,
+      "close": 322.0,
       "name": null
     },
     "STT": {
       "score": 1.6,
       "gap_w": 33.0,
       "atr_dist": 0,
-      "freshness": 435,
-      "close": 183.6,
+      "freshness": 437,
+      "close": 182.81,
       "name": null
     },
     "UNH": {
       "score": 1.6,
       "gap_w": 22.4,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 417.85,
+      "freshness": 94,
+      "close": 421.62,
       "name": null
     },
-    "TXRH": {
+    "XYZ": {
       "score": 1.6,
-      "gap_w": 12.9,
+      "gap_w": 19.6,
       "atr_dist": 0,
-      "freshness": 64,
-      "close": 199.63,
+      "freshness": 80,
+      "close": 82.61,
+      "name": null
+    },
+    "BH.A": {
+      "score": 1.6,
+      "gap_w": 2.7,
+      "atr_dist": 0,
+      "freshness": 31,
+      "close": 1917.5,
+      "name": null
+    },
+    "NEU": {
+      "score": 1.6,
+      "gap_w": 10.8,
+      "atr_dist": 0,
+      "freshness": 59,
+      "close": 866.0,
       "name": null
     },
     "TOL": {
       "score": 1.6,
       "gap_w": 6.9,
       "atr_dist": 0,
-      "freshness": 43,
-      "close": 151.81,
+      "freshness": 45,
+      "close": 150.3,
       "name": null
     },
     "FRHC": {
       "score": 1.6,
       "gap_w": 11.3,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 151.0,
+      "freshness": 59,
+      "close": 155.16,
       "name": null
     },
     "SN": {
       "score": 1.6,
       "gap_w": 29.6,
       "atr_dist": 0,
-      "freshness": 113,
-      "close": 153.1,
-      "name": null
-    },
-    "NUTX": {
-      "score": 1.6,
-      "gap_w": 11.2,
-      "atr_dist": 0,
-      "freshness": 57,
-      "close": 147.97,
+      "freshness": 115,
+      "close": 163.45,
       "name": null
     },
     "ROKU": {
       "score": 1.6,
       "gap_w": 27.0,
       "atr_dist": 0,
-      "freshness": 106,
-      "close": 143.65,
-      "name": null
-    },
-    "TKR": {
-      "score": 1.6,
-      "gap_w": 32.6,
-      "atr_dist": 0,
-      "freshness": 379,
-      "close": 139.3,
+      "freshness": 108,
+      "close": 145.15,
       "name": null
     },
     "RHP": {
       "score": 1.6,
       "gap_w": 31.2,
       "atr_dist": 0,
-      "freshness": 120,
-      "close": 134.69,
+      "freshness": 122,
+      "close": 133.52,
+      "name": null
+    },
+    "SXT": {
+      "score": 1.6,
+      "gap_w": 26.1,
+      "atr_dist": 0,
+      "freshness": 101,
+      "close": 124.08,
       "name": null
     },
     "FSS": {
       "score": 1.6,
       "gap_w": 4.0,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 117.99,
+      "freshness": 38,
+      "close": 124.39,
       "name": null
     },
     "BANF": {
       "score": 1.6,
       "gap_w": 4.4,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 116.51,
+      "freshness": 38,
+      "close": 113.0,
       "name": null
     },
     "KYMR": {
       "score": 1.6,
       "gap_w": 32.5,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 110.75,
+      "freshness": 402,
+      "close": 107.17,
+      "name": null
+    },
+    "RPM": {
+      "score": 1.6,
+      "gap_w": 2.4,
+      "atr_dist": 0,
+      "freshness": 31,
+      "close": 107.85,
       "name": null
     },
     "SSB": {
       "score": 1.6,
       "gap_w": 11.1,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 105.78,
-      "name": null
-    },
-    "LNTH": {
-      "score": 1.6,
-      "gap_w": 32.9,
-      "atr_dist": 0,
-      "freshness": 169,
-      "close": 108.11,
+      "freshness": 59,
+      "close": 105.27,
       "name": null
     },
     "VIK": {
@@ -2282,358 +2162,342 @@
       "gap_w": 31.1,
       "atr_dist": 0,
       "freshness": 999,
-      "close": 101.17,
+      "close": 104.46,
       "name": null
     },
-    "VCTR": {
+    "ITGR": {
       "score": 1.6,
-      "gap_w": 32.8,
+      "gap_w": 17.0,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 99.54,
-      "name": null
-    },
-    "RBCAA": {
-      "score": 1.6,
-      "gap_w": 29.2,
-      "atr_dist": 0,
-      "freshness": 113,
-      "close": 95.7,
+      "freshness": 73,
+      "close": 100.93,
       "name": null
     },
     "ECPG": {
       "score": 1.6,
       "gap_w": 32.4,
       "atr_dist": 0,
-      "freshness": 323,
-      "close": 93.56,
+      "freshness": 325,
+      "close": 94.09,
       "name": null
     },
     "CHMG": {
       "score": 1.6,
       "gap_w": 31.9,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 81.42,
-      "name": null
-    },
-    "CNXN": {
-      "score": 1.6,
-      "gap_w": 26.5,
-      "atr_dist": 0,
-      "freshness": 106,
-      "close": 80.55,
+      "freshness": 388,
+      "close": 81.29,
       "name": null
     },
     "PII": {
       "score": 1.6,
       "gap_w": 16.0,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 73.56,
+      "freshness": 73,
+      "close": 68.23,
       "name": null
     },
-    "FEIM": {
-      "score": 1.6,
-      "gap_w": 32.7,
-      "atr_dist": 0,
-      "freshness": 736,
-      "close": 72.41,
-      "name": null
-    },
-    "PRSU": {
-      "score": 1.6,
-      "gap_w": 31.0,
-      "atr_dist": 0,
-      "freshness": 316,
-      "close": 52.22,
-      "name": null
-    },
-    "DXCM": {
+    "MAS": {
       "score": 1.5,
-      "gap_w": 8.6,
+      "gap_w": 19.4,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 74.41,
+      "freshness": 87,
+      "close": 72.11,
       "name": null
     },
     "RVTY": {
       "score": 1.5,
       "gap_w": 11.9,
       "atr_dist": 0,
-      "freshness": 64,
-      "close": 110.1,
+      "freshness": 66,
+      "close": 113.52,
       "name": null
     },
     "TRV": {
       "score": 1.5,
       "gap_w": 29.5,
       "atr_dist": 0,
-      "freshness": 974,
-      "close": 391.43,
-      "name": null
-    },
-    "ARGX": {
-      "score": 1.5,
-      "gap_w": 9.6,
-      "atr_dist": 0,
-      "freshness": 57,
-      "close": 902.69,
+      "freshness": 976,
+      "close": 375.97,
       "name": null
     },
     "JAZZ": {
       "score": 1.5,
       "gap_w": 30.0,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 255.38,
+      "freshness": 332,
+      "close": 258.44,
       "name": null
     },
     "UFPT": {
       "score": 1.5,
       "gap_w": 7.3,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 246.63,
+      "freshness": 52,
+      "close": 254.91,
+      "name": null
+    },
+    "TXRH": {
+      "score": 1.5,
+      "gap_w": 12.9,
+      "atr_dist": 0,
+      "freshness": 66,
+      "close": 208.33,
       "name": null
     },
     "GKOS": {
       "score": 1.5,
       "gap_w": 29.1,
       "atr_dist": 0,
-      "freshness": 239,
-      "close": 149.87,
+      "freshness": 241,
+      "close": 168.54,
       "name": null
     },
     "PVLA": {
       "score": 1.5,
       "gap_w": 30.3,
       "atr_dist": 0,
-      "freshness": 533,
-      "close": 141.4,
+      "freshness": 535,
+      "close": 150.07,
       "name": null
     },
     "NNI": {
       "score": 1.5,
       "gap_w": 2.6,
       "atr_dist": 0,
-      "freshness": 36,
-      "close": 134.62,
+      "freshness": 38,
+      "close": 137.25,
       "name": null
     },
     "MSM": {
       "score": 1.5,
       "gap_w": 29.7,
       "atr_dist": 0,
-      "freshness": 414,
-      "close": 125.86,
+      "freshness": 416,
+      "close": 121.41,
       "name": null
     },
     "BFH": {
       "score": 1.5,
       "gap_w": 30.4,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 107.8,
-      "name": null
-    },
-    "SEIC": {
-      "score": 1.5,
-      "gap_w": 17.5,
-      "atr_dist": 0,
-      "freshness": 85,
-      "close": 100.55,
+      "freshness": 388,
+      "close": 110.64,
       "name": null
     },
     "BRC": {
       "score": 1.5,
       "gap_w": 13.4,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 95.17,
+      "freshness": 73,
+      "close": 93.34,
+      "name": null
+    },
+    "RBCAA": {
+      "score": 1.5,
+      "gap_w": 29.2,
+      "atr_dist": 0,
+      "freshness": 115,
+      "close": 98.42,
       "name": null
     },
     "ARWR": {
       "score": 1.5,
       "gap_w": 30.1,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 87.33,
+      "freshness": 346,
+      "close": 87.29,
       "name": null
     },
     "CNS": {
       "score": 1.5,
       "gap_w": 19.1,
       "atr_dist": 0,
-      "freshness": 85,
-      "close": 81.98,
+      "freshness": 87,
+      "close": 81.55,
+      "name": null
+    },
+    "CNXN": {
+      "score": 1.5,
+      "gap_w": 26.5,
+      "atr_dist": 0,
+      "freshness": 108,
+      "close": 82.19,
       "name": null
     },
     "XENE": {
       "score": 1.5,
       "gap_w": 30.0,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 65.41,
+      "freshness": 332,
+      "close": 64.26,
       "name": null
     },
     "KNSA": {
       "score": 1.5,
       "gap_w": 30.4,
       "atr_dist": 0,
-      "freshness": 449,
-      "close": 63.6,
+      "freshness": 451,
+      "close": 78.23,
       "name": null
     },
     "ARMK": {
       "score": 1.5,
       "gap_w": 30.6,
       "atr_dist": 0,
-      "freshness": 155,
-      "close": 57.93,
+      "freshness": 157,
+      "close": 57.12,
       "name": null
     },
     "ACU": {
       "score": 1.5,
       "gap_w": 30.4,
       "atr_dist": 0,
-      "freshness": 211,
-      "close": 54.75,
+      "freshness": 213,
+      "close": 58.53,
       "name": null
     },
     "OFG": {
       "score": 1.5,
-      "gap_w": 23.0,
+      "gap_w": 23.6,
       "atr_dist": 0,
-      "freshness": 99,
-      "close": 52.43,
+      "freshness": 101,
+      "close": 52.52,
       "name": null
     },
     "UBS": {
       "score": 1.5,
       "gap_w": 20.6,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 52.17,
+      "freshness": 94,
+      "close": 53.39,
       "name": null
     },
     "CI": {
       "score": 1.4,
       "gap_w": 5.0,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 289.67,
+      "freshness": 52,
+      "close": 287.78,
       "name": null
     },
     "CSX": {
       "score": 1.4,
       "gap_w": 27.3,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 52.53,
+      "freshness": 388,
+      "close": 50.19,
+      "name": null
+    },
+    "DXCM": {
+      "score": 1.4,
+      "gap_w": 8.6,
+      "atr_dist": 0,
+      "freshness": 59,
+      "close": 74.56,
+      "name": null
+    },
+    "NUE": {
+      "score": 1.4,
+      "gap_w": 28.6,
+      "atr_dist": 0,
+      "freshness": 381,
+      "close": 256.92,
       "name": null
     },
     "PSX": {
       "score": 1.4,
       "gap_w": 29.0,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 205.75,
-      "name": null
-    },
-    "TRGP": {
-      "score": 1.4,
-      "gap_w": 27.8,
-      "atr_dist": 0,
-      "freshness": 239,
-      "close": 270.52,
+      "freshness": 388,
+      "close": 210.58,
       "name": null
     },
     "WAT": {
       "score": 1.4,
       "gap_w": 5.7,
       "atr_dist": 0,
-      "freshness": 50,
-      "close": 375.05,
+      "freshness": 52,
+      "close": 380.8,
       "name": null
     },
     "MSGS": {
       "score": 1.4,
       "gap_w": 28.1,
       "atr_dist": 0,
-      "freshness": 316,
-      "close": 396.62,
+      "freshness": 318,
+      "close": 405.72,
       "name": null
     },
     "UNF": {
       "score": 1.4,
-      "gap_w": 28.1,
+      "gap_w": 28.8,
       "atr_dist": 0,
-      "freshness": 218,
-      "close": 297.3,
+      "freshness": 220,
+      "close": 293.86,
       "name": null
     },
     "MATX": {
       "score": 1.4,
       "gap_w": 28.1,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 203.92,
-      "name": null
-    },
-    "MOH": {
-      "score": 1.4,
-      "gap_w": 14.2,
-      "atr_dist": 0,
-      "freshness": 78,
-      "close": 201.69,
+      "freshness": 234,
+      "close": 203.59,
       "name": null
     },
     "HXL": {
       "score": 1.4,
       "gap_w": 28.7,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 109.04,
+      "freshness": 353,
+      "close": 102.83,
+      "name": null
+    },
+    "SEIC": {
+      "score": 1.4,
+      "gap_w": 17.5,
+      "atr_dist": 0,
+      "freshness": 87,
+      "close": 103.05,
       "name": null
     },
     "ESTA": {
       "score": 1.4,
       "gap_w": 27.8,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 91.45,
+      "freshness": 388,
+      "close": 93.48,
       "name": null
     },
-    "BYD": {
+    "VVX": {
       "score": 1.4,
-      "gap_w": 6.2,
+      "gap_w": 27.8,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 89.03,
+      "freshness": 353,
+      "close": 86.68,
       "name": null
     },
     "SYBT": {
       "score": 1.4,
       "gap_w": 18.8,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 82.13,
+      "freshness": 94,
+      "close": 86.33,
       "name": null
     },
     "PFIS": {
       "score": 1.4,
       "gap_w": 27.5,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 69.31,
+      "freshness": 395,
+      "close": 70.86,
       "name": null
     },
     "SCDL": {
       "score": 1.4,
       "gap_w": 28.2,
       "atr_dist": 0,
-      "freshness": 1121,
+      "freshness": 1123,
       "close": 55.91,
       "name": null
     },
@@ -2641,152 +2505,144 @@
       "score": 1.4,
       "gap_w": 28.9,
       "atr_dist": 0,
-      "freshness": 148,
-      "close": 52.61,
+      "freshness": 150,
+      "close": 52.65,
       "name": null
     },
     "UFCS": {
       "score": 1.4,
       "gap_w": 27.5,
       "atr_dist": 0,
-      "freshness": 624,
-      "close": 51.93,
-      "name": null
-    },
-    "CPT": {
-      "score": 1.3,
-      "gap_w": 6.6,
-      "atr_dist": 0,
-      "freshness": 64,
-      "close": 113.29,
+      "freshness": 626,
+      "close": 52.1,
       "name": null
     },
     "CVS": {
       "score": 1.3,
       "gap_w": 26.5,
       "atr_dist": 0,
-      "freshness": 526,
-      "close": 106.42,
+      "freshness": 528,
+      "close": 105.11,
       "name": null
     },
-    "JBHT": {
+    "F": {
       "score": 1.3,
-      "gap_w": 26.0,
+      "gap_w": 10.2,
       "atr_dist": 0,
-      "freshness": 281,
-      "close": 281.07,
-      "name": null
-    },
-    "NWS": {
-      "score": 1.3,
-      "gap_w": 4.5,
-      "atr_dist": 0,
-      "freshness": 57,
-      "close": 30.97,
+      "freshness": 73,
+      "close": 14.88,
       "name": null
     },
     "VTRS": {
       "score": 1.3,
       "gap_w": 25.3,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 17.5,
+      "freshness": 339,
+      "close": 17.78,
       "name": null
     },
     "MUSA": {
       "score": 1.3,
       "gap_w": 25.9,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 605.09,
+      "freshness": 199,
+      "close": 616.53,
       "name": null
     },
     "BNY": {
       "score": 1.3,
       "gap_w": 26.4,
       "atr_dist": 0,
-      "freshness": 995,
-      "close": 158.02,
+      "freshness": 997,
+      "close": 156.14,
       "name": null
     },
     "KWR": {
       "score": 1.3,
       "gap_w": 5.6,
       "atr_dist": 0,
-      "freshness": 57,
-      "close": 151.1,
-      "name": null
-    },
-    "AFG": {
-      "score": 1.3,
-      "gap_w": 9.1,
-      "atr_dist": 0,
-      "freshness": 71,
-      "close": 144.78,
+      "freshness": 59,
+      "close": 154.35,
       "name": null
     },
     "DAC": {
       "score": 1.3,
       "gap_w": 26.5,
       "atr_dist": 0,
-      "freshness": 442,
-      "close": 140.87,
+      "freshness": 444,
+      "close": 142.62,
       "name": null
     },
     "AIR": {
       "score": 1.3,
       "gap_w": 26.2,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 132.97,
+      "freshness": 402,
+      "close": 139.3,
+      "name": null
+    },
+    "BYD": {
+      "score": 1.3,
+      "gap_w": 6.2,
+      "atr_dist": 0,
+      "freshness": 59,
+      "close": 87.0,
       "name": null
     },
     "CIB": {
       "score": 1.3,
       "gap_w": 25.7,
       "atr_dist": 0,
-      "freshness": 1149,
-      "close": 86.54,
+      "freshness": 1151,
+      "close": 93.82,
       "name": null
     },
     "IOSP": {
       "score": 1.3,
       "gap_w": 9.9,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 84.93,
+      "freshness": 73,
+      "close": 86.09,
       "name": null
     },
     "MSGE": {
       "score": 1.3,
       "gap_w": 25.1,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 76.24,
+      "freshness": 402,
+      "close": 78.96,
       "name": null
     },
     "BLBD": {
       "score": 1.3,
       "gap_w": 26.2,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 74.45,
+      "freshness": 402,
+      "close": 73.26,
       "name": null
     },
     "FTDR": {
       "score": 1.3,
       "gap_w": 17.1,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 71.9,
+      "freshness": 94,
+      "close": 73.52,
       "name": null
     },
     "CGON": {
       "score": 1.3,
       "gap_w": 26.8,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 71.88,
+      "freshness": 332,
+      "close": 73.11,
+      "name": null
+    },
+    "MC": {
+      "score": 1.3,
+      "gap_w": 4.1,
+      "atr_dist": 0,
+      "freshness": 52,
+      "close": 68.31,
       "name": null
     },
     "BPH": {
@@ -2801,1087 +2657,1023 @@
       "score": 1.3,
       "gap_w": 25.6,
       "atr_dist": 0,
-      "freshness": 260,
-      "close": 61.73,
+      "freshness": 262,
+      "close": 61.63,
       "name": null
     },
     "BWFG": {
       "score": 1.3,
       "gap_w": 27.0,
       "atr_dist": 0,
-      "freshness": 463,
-      "close": 64.1,
+      "freshness": 465,
+      "close": 68.85,
       "name": null
     },
     "LKFN": {
       "score": 1.3,
       "gap_w": 8.2,
       "atr_dist": 0,
-      "freshness": 64,
-      "close": 61.52,
+      "freshness": 66,
+      "close": 62.6,
       "name": null
     },
     "IFS": {
       "score": 1.3,
       "gap_w": 26.3,
       "atr_dist": 0,
-      "freshness": 904,
-      "close": 59.67,
+      "freshness": 906,
+      "close": 58.59,
       "name": null
     },
     "RPRX": {
       "score": 1.3,
       "gap_w": 25.8,
       "atr_dist": 0,
-      "freshness": 561,
-      "close": 59.22,
+      "freshness": 563,
+      "close": 59.02,
       "name": null
     },
     "ECO": {
       "score": 1.3,
       "gap_w": 26.6,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 56.14,
+      "freshness": 388,
+      "close": 59.88,
       "name": null
     },
     "SMBK": {
       "score": 1.3,
       "gap_w": 25.3,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 50.34,
+      "freshness": 395,
+      "close": 52.38,
       "name": null
     },
     "ANET": {
       "score": 1.2,
       "gap_w": 19.5,
       "atr_dist": 0,
-      "freshness": 106,
-      "close": 168.21,
+      "freshness": 108,
+      "close": 166.99,
       "name": null
     },
     "AVB": {
       "score": 1.2,
       "gap_w": 5.5,
       "atr_dist": 0,
-      "freshness": 64,
-      "close": 189.82,
+      "freshness": 66,
+      "close": 187.89,
+      "name": null
+    },
+    "CPT": {
+      "score": 1.2,
+      "gap_w": 6.6,
+      "atr_dist": 0,
+      "freshness": 66,
+      "close": 115.17,
       "name": null
     },
     "INVH": {
       "score": 1.2,
       "gap_w": 8.5,
       "atr_dist": 0,
-      "freshness": 71,
-      "close": 29.86,
+      "freshness": 73,
+      "close": 29.66,
+      "name": null
+    },
+    "NWS": {
+      "score": 1.2,
+      "gap_w": 4.5,
+      "atr_dist": 0,
+      "freshness": 59,
+      "close": 31.79,
       "name": null
     },
     "WAB": {
       "score": 1.2,
       "gap_w": 23.5,
       "atr_dist": 0,
-      "freshness": 442,
-      "close": 297.39,
-      "name": null
-    },
-    "WST": {
-      "score": 1.2,
-      "gap_w": 16.4,
-      "atr_dist": 0,
-      "freshness": 99,
-      "close": 335.65,
+      "freshness": 444,
+      "close": 292.55,
       "name": null
     },
     "BAP": {
       "score": 1.2,
       "gap_w": 23.0,
       "atr_dist": 0,
-      "freshness": 946,
-      "close": 383.99,
+      "freshness": 948,
+      "close": 400.92,
       "name": null
     },
     "PRI": {
       "score": 1.2,
       "gap_w": 17.7,
       "atr_dist": 0,
-      "freshness": 99,
-      "close": 317.86,
-      "name": null
-    },
-    "R": {
-      "score": 1.2,
-      "gap_w": 23.4,
-      "atr_dist": 0,
-      "freshness": 393,
-      "close": 263.72,
+      "freshness": 101,
+      "close": 323.65,
       "name": null
     },
     "PSMT": {
       "score": 1.2,
       "gap_w": 24.1,
       "atr_dist": 0,
-      "freshness": 470,
-      "close": 187.85,
+      "freshness": 472,
+      "close": 192.8,
       "name": null
     },
     "BPOP": {
       "score": 1.2,
       "gap_w": 23.2,
       "atr_dist": 0,
-      "freshness": 442,
-      "close": 172.97,
+      "freshness": 444,
+      "close": 173.51,
+      "name": null
+    },
+    "AFG": {
+      "score": 1.2,
+      "gap_w": 9.1,
+      "atr_dist": 0,
+      "freshness": 73,
+      "close": 141.74,
       "name": null
     },
     "OPY": {
       "score": 1.2,
       "gap_w": 23.7,
       "atr_dist": 0,
-      "freshness": 974,
-      "close": 111.87,
+      "freshness": 976,
+      "close": 110.96,
       "name": null
     },
     "HSBC": {
       "score": 1.2,
       "gap_w": 23.1,
       "atr_dist": 0,
-      "freshness": 1303,
-      "close": 103.75,
+      "freshness": 1305,
+      "close": 107.11,
       "name": null
     },
     "TMP": {
       "score": 1.2,
       "gap_w": 23.8,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 99.46,
+      "freshness": 346,
+      "close": 100.76,
       "name": null
     },
     "GEF.B": {
       "score": 1.2,
       "gap_w": 24.8,
       "atr_dist": 0,
-      "freshness": 260,
-      "close": 98.01,
+      "freshness": 262,
+      "close": 109.59,
       "name": null
     },
     "SRCE": {
       "score": 1.2,
       "gap_w": 24.0,
       "atr_dist": 0,
-      "freshness": 260,
-      "close": 87.2,
+      "freshness": 262,
+      "close": 89.75,
       "name": null
     },
     "SLF": {
       "score": 1.2,
       "gap_w": 23.2,
       "atr_dist": 0,
-      "freshness": 701,
-      "close": 82.72,
+      "freshness": 703,
+      "close": 82.8,
       "name": null
     },
     "SLGL": {
       "score": 1.2,
       "gap_w": 23.8,
       "atr_dist": 0,
-      "freshness": 435,
-      "close": 84.39,
-      "name": null
-    },
-    "PRLB": {
-      "score": 1.2,
-      "gap_w": 24.4,
-      "atr_dist": 0,
-      "freshness": 631,
-      "close": 77.87,
+      "freshness": 437,
+      "close": 83.16,
       "name": null
     },
     "FTI": {
       "score": 1.2,
       "gap_w": 24.7,
       "atr_dist": 0,
-      "freshness": 449,
-      "close": 74.57,
+      "freshness": 451,
+      "close": 68.92,
       "name": null
     },
     "CTBI": {
       "score": 1.2,
       "gap_w": 23.1,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 76.58,
-      "name": null
-    },
-    "LASR": {
-      "score": 1.2,
-      "gap_w": 25.0,
-      "atr_dist": 0,
-      "freshness": 435,
-      "close": 64.81,
+      "freshness": 388,
+      "close": 78.03,
       "name": null
     },
     "ACNB": {
       "score": 1.2,
       "gap_w": 24.7,
       "atr_dist": 0,
-      "freshness": 442,
-      "close": 63.27,
+      "freshness": 444,
+      "close": 63.71,
       "name": null
     },
     "TRST": {
       "score": 1.2,
       "gap_w": 24.4,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 57.29,
+      "freshness": 395,
+      "close": 56.53,
+      "name": null
+    },
+    "CAC": {
+      "score": 1.2,
+      "gap_w": 23.3,
+      "atr_dist": 0,
+      "freshness": 248,
+      "close": 57.74,
       "name": null
     },
     "OBK": {
       "score": 1.2,
       "gap_w": 23.9,
       "atr_dist": 0,
-      "freshness": 253,
-      "close": 53.57,
+      "freshness": 255,
+      "close": 54.74,
       "name": null
     },
     "ALL": {
       "score": 1.1,
       "gap_w": 22.5,
       "atr_dist": 0,
-      "freshness": 1016,
-      "close": 261.12,
+      "freshness": 1018,
+      "close": 265.43,
       "name": null
     },
     "CASY": {
       "score": 1.1,
       "gap_w": 22.0,
       "atr_dist": 0,
-      "freshness": 1191,
-      "close": 855.14,
+      "freshness": 1193,
+      "close": 868.01,
+      "name": null
+    },
+    "CPAY": {
+      "score": 1.1,
+      "gap_w": 18.6,
+      "atr_dist": 0,
+      "freshness": 108,
+      "close": 390.22,
+      "name": null
+    },
+    "DAL": {
+      "score": 1.1,
+      "gap_w": 22.4,
+      "atr_dist": 0,
+      "freshness": 346,
+      "close": 88.55,
       "name": null
     },
     "ESS": {
       "score": 1.1,
       "gap_w": 11.1,
       "atr_dist": 0,
-      "freshness": 85,
-      "close": 294.29,
+      "freshness": 87,
+      "close": 281.47,
       "name": null
     },
     "GWW": {
       "score": 1.1,
       "gap_w": 21.7,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 1389.23,
+      "freshness": 199,
+      "close": 1354.86,
       "name": null
     },
     "HST": {
       "score": 1.1,
       "gap_w": 22.7,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 24.91,
+      "freshness": 346,
+      "close": 25.12,
       "name": null
     },
     "HWM": {
       "score": 1.1,
       "gap_w": 23.0,
       "atr_dist": 0,
-      "freshness": 1366,
-      "close": 284.75,
-      "name": null
-    },
-    "IBKR": {
-      "score": 1.1,
-      "gap_w": 22.0,
-      "atr_dist": 0,
-      "freshness": 932,
-      "close": 90.41,
+      "freshness": 1368,
+      "close": 277.36,
       "name": null
     },
     "NTRS": {
       "score": 1.1,
       "gap_w": 21.1,
       "atr_dist": 0,
-      "freshness": 435,
-      "close": 180.91,
+      "freshness": 437,
+      "close": 182.59,
       "name": null
     },
     "TGT": {
       "score": 1.1,
       "gap_w": 21.5,
       "atr_dist": 0,
-      "freshness": 218,
-      "close": 140.79,
-      "name": null
-    },
-    "UDR": {
-      "score": 1.1,
-      "gap_w": 8.6,
-      "atr_dist": 0,
-      "freshness": 78,
-      "close": 39.55,
+      "freshness": 220,
+      "close": 144.53,
       "name": null
     },
     "UNP": {
       "score": 1.1,
       "gap_w": 21.3,
       "atr_dist": 0,
-      "freshness": 246,
-      "close": 304.6,
+      "freshness": 248,
+      "close": 289.42,
       "name": null
     },
     "WELL": {
       "score": 1.1,
       "gap_w": 22.7,
       "atr_dist": 0,
-      "freshness": 1219,
-      "close": 250.91,
+      "freshness": 1221,
+      "close": 235.55,
       "name": null
     },
-    "WWD": {
+    "WST": {
       "score": 1.1,
-      "gap_w": 21.0,
+      "gap_w": 16.4,
       "atr_dist": 0,
-      "freshness": 1184,
-      "close": 411.05,
+      "freshness": 101,
+      "close": 339.23,
       "name": null
     },
     "RS": {
       "score": 1.1,
       "gap_w": 22.8,
       "atr_dist": 0,
-      "freshness": 204,
-      "close": 407.51,
+      "freshness": 206,
+      "close": 400.97,
       "name": null
     },
     "AIT": {
       "score": 1.1,
       "gap_w": 21.4,
       "atr_dist": 0,
-      "freshness": 372,
-      "close": 346.73,
+      "freshness": 374,
+      "close": 332.8,
       "name": null
     },
     "KRYS": {
       "score": 1.1,
       "gap_w": 22.1,
       "atr_dist": 0,
-      "freshness": 302,
-      "close": 337.54,
+      "freshness": 304,
+      "close": 366.75,
       "name": null
     },
     "BMO": {
       "score": 1.1,
       "gap_w": 22.8,
       "atr_dist": 0,
-      "freshness": 652,
-      "close": 177.6,
+      "freshness": 654,
+      "close": 178.69,
       "name": null
     },
     "ACA": {
       "score": 1.1,
       "gap_w": 22.4,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 145.1,
-      "name": null
-    },
-    "CHCO": {
-      "score": 1.1,
-      "gap_w": 16.5,
-      "atr_dist": 0,
-      "freshness": 106,
-      "close": 141.81,
+      "freshness": 346,
+      "close": 145.22,
       "name": null
     },
     "MIRM": {
       "score": 1.1,
       "gap_w": 21.6,
       "atr_dist": 0,
-      "freshness": 456,
-      "close": 114.3,
+      "freshness": 458,
+      "close": 112.5,
       "name": null
     },
     "CMPR": {
       "score": 1.1,
       "gap_w": 22.7,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 99.24,
-      "name": null
-    },
-    "SIGI": {
-      "score": 1.1,
-      "gap_w": 14.7,
-      "atr_dist": 0,
-      "freshness": 99,
-      "close": 95.03,
+      "freshness": 339,
+      "close": 94.6,
       "name": null
     },
     "SPB": {
       "score": 1.1,
       "gap_w": 22.2,
       "atr_dist": 0,
-      "freshness": 225,
-      "close": 89.7,
+      "freshness": 227,
+      "close": 88.85,
       "name": null
     },
     "SFBS": {
       "score": 1.1,
       "gap_w": 13.5,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 87.86,
+      "freshness": 94,
+      "close": 89.27,
       "name": null
     },
     "WSFS": {
       "score": 1.1,
       "gap_w": 22.5,
       "atr_dist": 0,
-      "freshness": 267,
-      "close": 80.7,
+      "freshness": 269,
+      "close": 79.85,
+      "name": null
+    },
+    "ESEA": {
+      "score": 1.1,
+      "gap_w": 21.5,
+      "atr_dist": 0,
+      "freshness": 444,
+      "close": 74.53,
       "name": null
     },
     "SUN": {
       "score": 1.1,
       "gap_w": 22.0,
       "atr_dist": 0,
-      "freshness": 246,
-      "close": 74.74,
-      "name": null
-    },
-    "FAF": {
-      "score": 1.1,
-      "gap_w": 16.4,
-      "atr_dist": 0,
-      "freshness": 106,
-      "close": 75.91,
-      "name": null
-    },
-    "UDOW": {
-      "score": 1.1,
-      "gap_w": 16.8,
-      "atr_dist": 0,
-      "freshness": 106,
-      "close": 69.0,
+      "freshness": 248,
+      "close": 75.73,
       "name": null
     },
     "MT": {
       "score": 1.1,
       "gap_w": 21.4,
       "atr_dist": 0,
-      "freshness": 540,
-      "close": 66.03,
+      "freshness": 542,
+      "close": 69.27,
       "name": null
     },
     "PLBC": {
       "score": 1.1,
       "gap_w": 22.4,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 61.44,
+      "freshness": 234,
+      "close": 60.99,
       "name": null
     },
     "LXP": {
       "score": 1.1,
       "gap_w": 22.2,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 60.94,
+      "freshness": 346,
+      "close": 60.72,
       "name": null
     },
     "CNO": {
       "score": 1.1,
       "gap_w": 21.4,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 53.66,
+      "freshness": 332,
+      "close": 53.5,
       "name": null
     },
     "HMN": {
       "score": 1.1,
       "gap_w": 15.1,
       "atr_dist": 0,
-      "freshness": 99,
-      "close": 52.3,
+      "freshness": 101,
+      "close": 51.96,
       "name": null
     },
     "STBA": {
       "score": 1.1,
       "gap_w": 22.2,
       "atr_dist": 0,
-      "freshness": 267,
-      "close": 52.2,
+      "freshness": 269,
+      "close": 52.22,
       "name": null
     },
     "AAPL": {
       "score": 1.0,
       "gap_w": 20.9,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 337.44,
+      "freshness": 332,
+      "close": 333.07,
       "name": null
     },
     "ADM": {
       "score": 1.0,
       "gap_w": 21.0,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 83.28,
+      "freshness": 402,
+      "close": 80.56,
       "name": null
     },
     "BEN": {
       "score": 1.0,
       "gap_w": 20.8,
       "atr_dist": 0,
-      "freshness": 435,
-      "close": 33.28,
+      "freshness": 437,
+      "close": 33.15,
       "name": null
     },
     "EG": {
       "score": 1.0,
       "gap_w": 15.7,
       "atr_dist": 0,
-      "freshness": 106,
-      "close": 388.67,
+      "freshness": 108,
+      "close": 375.34,
       "name": null
     },
     "KVUE": {
       "score": 1.0,
       "gap_w": 11.1,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 19.53,
-      "name": null
-    },
-    "ODFL": {
-      "score": 1.0,
-      "gap_w": 20.9,
-      "atr_dist": 0,
-      "freshness": 204,
-      "close": 228.38,
+      "freshness": 94,
+      "close": 19.3,
       "name": null
     },
     "SWK": {
       "score": 1.0,
       "gap_w": 19.2,
       "atr_dist": 0,
-      "freshness": 239,
-      "close": 93.18,
+      "freshness": 241,
+      "close": 95.55,
       "name": null
     },
     "VTR": {
       "score": 1.0,
       "gap_w": 20.3,
       "atr_dist": 0,
-      "freshness": 820,
-      "close": 100.81,
+      "freshness": 822,
+      "close": 91.93,
       "name": null
     },
     "AMG": {
       "score": 1.0,
       "gap_w": 20.2,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 361.92,
-      "name": null
-    },
-    "ESE": {
-      "score": 1.0,
-      "gap_w": 20.4,
-      "atr_dist": 0,
-      "freshness": 820,
-      "close": 321.88,
+      "freshness": 402,
+      "close": 365.95,
       "name": null
     },
     "ALX": {
       "score": 1.0,
       "gap_w": 19.8,
       "atr_dist": 0,
-      "freshness": 204,
-      "close": 282.96,
+      "freshness": 206,
+      "close": 264.37,
       "name": null
     },
     "RY": {
       "score": 1.0,
       "gap_w": 20.3,
       "atr_dist": 0,
-      "freshness": 435,
-      "close": 208.16,
+      "freshness": 437,
+      "close": 210.14,
       "name": null
     },
     "SENEA": {
       "score": 1.0,
       "gap_w": 20.8,
       "atr_dist": 0,
-      "freshness": 1030,
-      "close": 166.08,
+      "freshness": 1032,
+      "close": 167.46,
+      "name": null
+    },
+    "CHCO": {
+      "score": 1.0,
+      "gap_w": 16.5,
+      "atr_dist": 0,
+      "freshness": 108,
+      "close": 144.5,
       "name": null
     },
     "CNI": {
       "score": 1.0,
       "gap_w": 20.7,
       "atr_dist": 0,
-      "freshness": 211,
-      "close": 129.1,
-      "name": null
-    },
-    "NBN": {
-      "score": 1.0,
-      "gap_w": 19.5,
-      "atr_dist": 0,
-      "freshness": 225,
-      "close": 134.81,
+      "freshness": 213,
+      "close": 127.11,
       "name": null
     },
     "TD": {
       "score": 1.0,
       "gap_w": 20.9,
       "atr_dist": 0,
-      "freshness": 540,
-      "close": 119.64,
+      "freshness": 542,
+      "close": 119.78,
       "name": null
     },
     "MGRC": {
       "score": 1.0,
       "gap_w": 8.8,
       "atr_dist": 0,
-      "freshness": 85,
-      "close": 118.58,
-      "name": null
-    },
-    "PNFP": {
-      "score": 1.0,
-      "gap_w": 9.7,
-      "atr_dist": 0,
-      "freshness": 92,
-      "close": 103.26,
+      "freshness": 87,
+      "close": 114.95,
       "name": null
     },
     "BIB": {
       "score": 1.0,
       "gap_w": 20.6,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 101.69,
+      "freshness": 353,
+      "close": 99.92,
+      "name": null
+    },
+    "SIGI": {
+      "score": 1.0,
+      "gap_w": 14.7,
+      "atr_dist": 0,
+      "freshness": 101,
+      "close": 94.72,
       "name": null
     },
     "CBT": {
       "score": 1.0,
       "gap_w": 19.6,
       "atr_dist": 0,
-      "freshness": 120,
-      "close": 90.06,
-      "name": null
-    },
-    "DBD": {
-      "score": 1.0,
-      "gap_w": 19.9,
-      "atr_dist": 0,
-      "freshness": 449,
-      "close": 90.55,
+      "freshness": 122,
+      "close": 87.27,
       "name": null
     },
     "KSPI": {
       "score": 1.0,
       "gap_w": 11.5,
       "atr_dist": 0,
-      "freshness": 92,
-      "close": 86.5,
+      "freshness": 94,
+      "close": 88.76,
       "name": null
     },
     "NMM": {
       "score": 1.0,
       "gap_w": 20.7,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 77.43,
+      "freshness": 353,
+      "close": 79.46,
       "name": null
     },
     "GSBC": {
       "score": 1.0,
       "gap_w": 20.2,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 80.09,
+      "freshness": 353,
+      "close": 80.83,
       "name": null
     },
     "ANDE": {
       "score": 1.0,
       "gap_w": 19.2,
       "atr_dist": 0,
-      "freshness": 323,
-      "close": 74.3,
+      "freshness": 325,
+      "close": 71.56,
       "name": null
     },
     "SMBC": {
       "score": 1.0,
       "gap_w": 19.4,
       "atr_dist": 0,
-      "freshness": 253,
-      "close": 77.76,
+      "freshness": 255,
+      "close": 78.02,
       "name": null
     },
     "THFF": {
       "score": 1.0,
       "gap_w": 19.3,
       "atr_dist": 0,
-      "freshness": 743,
-      "close": 77.73,
+      "freshness": 745,
+      "close": 80.99,
       "name": null
     },
     "RUSHA": {
       "score": 1.0,
       "gap_w": 19.8,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 76.57,
+      "freshness": 234,
+      "close": 79.93,
       "name": null
     },
     "RUSHB": {
       "score": 1.0,
       "gap_w": 19.9,
       "atr_dist": 0,
-      "freshness": 225,
-      "close": 75.46,
+      "freshness": 227,
+      "close": 77.08,
+      "name": null
+    },
+    "FAF": {
+      "score": 1.0,
+      "gap_w": 16.4,
+      "atr_dist": 0,
+      "freshness": 108,
+      "close": 75.53,
       "name": null
     },
     "WLFC": {
       "score": 1.0,
       "gap_w": 19.6,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 70.08,
+      "freshness": 199,
+      "close": 72.46,
+      "name": null
+    },
+    "UDOW": {
+      "score": 1.0,
+      "gap_w": 16.8,
+      "atr_dist": 0,
+      "freshness": 108,
+      "close": 69.11,
       "name": null
     },
     "FBIZ": {
       "score": 1.0,
       "gap_w": 20.4,
       "atr_dist": 0,
-      "freshness": 995,
-      "close": 67.95,
+      "freshness": 997,
+      "close": 67.1,
       "name": null
     },
     "CATY": {
       "score": 1.0,
       "gap_w": 19.1,
       "atr_dist": 0,
-      "freshness": 379,
-      "close": 63.06,
+      "freshness": 381,
+      "close": 63.04,
       "name": null
     },
     "DAR": {
       "score": 1.0,
       "gap_w": 20.0,
       "atr_dist": 0,
-      "freshness": 246,
-      "close": 60.05,
+      "freshness": 248,
+      "close": 60.98,
       "name": null
     },
     "IIPR": {
       "score": 1.0,
       "gap_w": 20.8,
       "atr_dist": 0,
-      "freshness": 148,
-      "close": 61.58,
+      "freshness": 150,
+      "close": 60.74,
       "name": null
     },
     "EXEL": {
       "score": 1.0,
       "gap_w": 20.8,
       "atr_dist": 0,
-      "freshness": 267,
-      "close": 56.31,
+      "freshness": 269,
+      "close": 55.98,
       "name": null
     },
     "CASS": {
       "score": 1.0,
       "gap_w": 21.0,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 55.15,
+      "freshness": 234,
+      "close": 55.7,
+      "name": null
+    },
+    "CNA": {
+      "score": 1.0,
+      "gap_w": 20.8,
+      "atr_dist": 0,
+      "freshness": 227,
+      "close": 53.27,
       "name": null
     },
     "NBTB": {
       "score": 1.0,
       "gap_w": 19.1,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 52.53,
+      "freshness": 234,
+      "close": 52.96,
       "name": null
     },
     "YPF": {
       "score": 1.0,
       "gap_w": 20.3,
       "atr_dist": 0,
-      "freshness": 253,
-      "close": 50.38,
+      "freshness": 255,
+      "close": 52.18,
       "name": null
     },
     "FMBH": {
       "score": 1.0,
       "gap_w": 20.7,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 51.21,
+      "freshness": 388,
+      "close": 52.05,
       "name": null
     },
     "CF": {
       "score": 0.9,
       "gap_w": 17.2,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 120.48,
+      "freshness": 178,
+      "close": 125.67,
       "name": null
     },
     "CFG": {
       "score": 0.9,
       "gap_w": 18.3,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 71.62,
-      "name": null
-    },
-    "CPAY": {
-      "score": 0.9,
-      "gap_w": 13.5,
-      "atr_dist": 0,
-      "freshness": 106,
-      "close": 378.33,
+      "freshness": 388,
+      "close": 71.73,
       "name": null
     },
     "CTVA": {
       "score": 0.9,
       "gap_w": 17.5,
       "atr_dist": 0,
-      "freshness": 183,
-      "close": 88.3,
+      "freshness": 185,
+      "close": 89.39,
       "name": null
     },
     "DGX": {
       "score": 0.9,
       "gap_w": 18.3,
       "atr_dist": 0,
-      "freshness": 827,
-      "close": 229.93,
+      "freshness": 829,
+      "close": 234.63,
       "name": null
     },
     "EIX": {
       "score": 0.9,
       "gap_w": 18.6,
       "atr_dist": 0,
-      "freshness": 302,
-      "close": 79.34,
-      "name": null
-    },
-    "EQR": {
-      "score": 0.9,
-      "gap_w": 8.0,
-      "atr_dist": 0,
-      "freshness": 92,
-      "close": 68.06,
+      "freshness": 304,
+      "close": 78.73,
       "name": null
     },
     "FITB": {
       "score": 0.9,
       "gap_w": 17.9,
       "atr_dist": 0,
-      "freshness": 372,
-      "close": 57.24,
+      "freshness": 374,
+      "close": 56.59,
       "name": null
     },
     "FRT": {
       "score": 0.9,
       "gap_w": 17.2,
       "atr_dist": 0,
-      "freshness": 316,
-      "close": 127.47,
+      "freshness": 318,
+      "close": 124.17,
       "name": null
     },
     "GL": {
       "score": 0.9,
       "gap_w": 17.8,
       "atr_dist": 0,
-      "freshness": 666,
-      "close": 174.13,
-      "name": null
-    },
-    "GS": {
-      "score": 0.9,
-      "gap_w": 17.6,
-      "atr_dist": 0,
-      "freshness": 442,
-      "close": 1047.27,
+      "freshness": 668,
+      "close": 182.96,
       "name": null
     },
     "MTB": {
       "score": 0.9,
       "gap_w": 18.3,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 250.33,
+      "freshness": 388,
+      "close": 246.94,
       "name": null
     },
     "ROST": {
       "score": 0.9,
       "gap_w": 17.9,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 241.47,
+      "freshness": 339,
+      "close": 252.66,
       "name": null
     },
     "SPG": {
       "score": 0.9,
       "gap_w": 17.7,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 230.42,
+      "freshness": 346,
+      "close": 230.43,
       "name": null
     },
     "USB": {
       "score": 0.9,
       "gap_w": 18.0,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 63.98,
-      "name": null
-    },
-    "CACC": {
-      "score": 0.9,
-      "gap_w": 10.2,
-      "atr_dist": 0,
-      "freshness": 99,
-      "close": 564.08,
+      "freshness": 353,
+      "close": 62.9,
       "name": null
     },
     "THG": {
       "score": 0.9,
       "gap_w": 18.9,
       "atr_dist": 0,
-      "freshness": 120,
-      "close": 219.94,
-      "name": null
-    },
-    "DXPE": {
-      "score": 0.9,
-      "gap_w": 17.8,
-      "atr_dist": 0,
-      "freshness": 876,
-      "close": 164.24,
+      "freshness": 122,
+      "close": 229.66,
       "name": null
     },
     "NIC": {
       "score": 0.9,
       "gap_w": 18.7,
       "atr_dist": 0,
-      "freshness": 1100,
-      "close": 168.53,
+      "freshness": 1102,
+      "close": 169.54,
       "name": null
     },
     "CFR": {
       "score": 0.9,
       "gap_w": 18.9,
       "atr_dist": 0,
-      "freshness": 246,
-      "close": 164.44,
+      "freshness": 248,
+      "close": 163.55,
       "name": null
     },
     "LAMR": {
       "score": 0.9,
       "gap_w": 18.3,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 161.68,
+      "freshness": 388,
+      "close": 160.7,
       "name": null
     },
     "FMX": {
       "score": 0.9,
       "gap_w": 18.6,
       "atr_dist": 0,
-      "freshness": 239,
-      "close": 128.64,
+      "freshness": 241,
+      "close": 126.39,
       "name": null
     },
     "KB": {
       "score": 0.9,
       "gap_w": 18.1,
       "atr_dist": 0,
-      "freshness": 442,
-      "close": 117.71,
+      "freshness": 444,
+      "close": 120.81,
       "name": null
     },
     "CM": {
       "score": 0.9,
       "gap_w": 18.8,
       "atr_dist": 0,
-      "freshness": 449,
-      "close": 117.82,
+      "freshness": 451,
+      "close": 118.2,
+      "name": null
+    },
+    "PNFP": {
+      "score": 0.9,
+      "gap_w": 9.7,
+      "atr_dist": 0,
+      "freshness": 94,
+      "close": 104.88,
       "name": null
     },
     "RRBI": {
       "score": 0.9,
       "gap_w": 18.2,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 99.91,
+      "freshness": 430,
+      "close": 97.81,
       "name": null
     },
     "BNS": {
       "score": 0.9,
       "gap_w": 17.2,
       "atr_dist": 0,
-      "freshness": 421,
-      "close": 86.83,
+      "freshness": 423,
+      "close": 87.86,
       "name": null
     },
     "CYTK": {
       "score": 0.9,
       "gap_w": 17.5,
       "atr_dist": 0,
-      "freshness": 323,
-      "close": 80.22,
+      "freshness": 325,
+      "close": 80.43,
       "name": null
     },
     "LIVN": {
       "score": 0.9,
       "gap_w": 18.5,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 79.92,
+      "freshness": 353,
+      "close": 81.04,
       "name": null
     },
     "CZFS": {
       "score": 0.9,
       "gap_w": 19.0,
       "atr_dist": 0,
-      "freshness": 225,
-      "close": 74.12,
+      "freshness": 227,
+      "close": 76.0,
       "name": null
     },
-    "BANR": {
+    "URBN": {
       "score": 0.9,
-      "gap_w": 10.5,
+      "gap_w": 1.0,
       "atr_dist": 0,
-      "freshness": 99,
-      "close": 70.33,
-      "name": null
-    },
-    "TEX": {
-      "score": 0.9,
-      "gap_w": 18.9,
-      "atr_dist": 0,
-      "freshness": 386,
-      "close": 68.53,
+      "freshness": 66,
+      "close": 75.77,
       "name": null
     },
     "SHEH": {
       "score": 0.9,
       "gap_w": 18.5,
       "atr_dist": 0,
-      "freshness": 148,
+      "freshness": 150,
       "close": 68.68,
       "name": null
     },
@@ -3889,303 +3681,295 @@
       "score": 0.9,
       "gap_w": 13.4,
       "atr_dist": 0,
-      "freshness": 106,
-      "close": 65.78,
+      "freshness": 108,
+      "close": 66.11,
       "name": null
     },
     "DIG": {
       "score": 0.9,
       "gap_w": 17.9,
       "atr_dist": 0,
-      "freshness": 281,
-      "close": 59.47,
-      "name": null
-    },
-    "BLX": {
-      "score": 0.9,
-      "gap_w": 17.5,
-      "atr_dist": 0,
-      "freshness": 1373,
-      "close": 59.17,
+      "freshness": 283,
+      "close": 57.16,
       "name": null
     },
     "SON": {
       "score": 0.9,
       "gap_w": 18.3,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 58.6,
+      "freshness": 199,
+      "close": 56.84,
       "name": null
     },
     "TCBK": {
       "score": 0.9,
       "gap_w": 18.0,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 57.76,
+      "freshness": 346,
+      "close": 57.9,
       "name": null
     },
     "FET": {
       "score": 0.9,
       "gap_w": 18.5,
       "atr_dist": 0,
-      "freshness": 414,
-      "close": 56.97,
+      "freshness": 416,
+      "close": 51.59,
       "name": null
     },
-    "CAC": {
+    "YOU": {
       "score": 0.9,
-      "gap_w": 17.4,
+      "gap_w": 18.2,
       "atr_dist": 0,
-      "freshness": 246,
-      "close": 54.41,
-      "name": null
-    },
-    "CNA": {
-      "score": 0.9,
-      "gap_w": 17.9,
-      "atr_dist": 0,
-      "freshness": 225,
-      "close": 54.04,
+      "freshness": 388,
+      "close": 56.11,
       "name": null
     },
     "PBA": {
       "score": 0.9,
       "gap_w": 17.3,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 50.55,
+      "freshness": 339,
+      "close": 50.41,
       "name": null
     },
     "OZK": {
       "score": 0.9,
       "gap_w": 7.2,
       "atr_dist": 0,
-      "freshness": 85,
-      "close": 50.64,
+      "freshness": 87,
+      "close": 50.99,
       "name": null
     },
     "AIZ": {
       "score": 0.8,
       "gap_w": 16.2,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 278.12,
+      "freshness": 339,
+      "close": 277.41,
       "name": null
     },
     "EOG": {
       "score": 0.8,
       "gap_w": 15.6,
       "atr_dist": 0,
-      "freshness": 162,
-      "close": 142.78,
+      "freshness": 164,
+      "close": 145.59,
+      "name": null
+    },
+    "EQR": {
+      "score": 0.8,
+      "gap_w": 8.0,
+      "atr_dist": 0,
+      "freshness": 94,
+      "close": 67.14,
       "name": null
     },
     "IVZ": {
       "score": 0.8,
       "gap_w": 16.7,
       "atr_dist": 0,
-      "freshness": 379,
-      "close": 30.0,
+      "freshness": 381,
+      "close": 29.41,
       "name": null
     },
     "JNJ": {
       "score": 0.8,
       "gap_w": 16.4,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 268.1,
+      "freshness": 430,
+      "close": 255.85,
       "name": null
     },
     "KIM": {
       "score": 0.8,
       "gap_w": 15.7,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 26.47,
+      "freshness": 178,
+      "close": 25.5,
       "name": null
     },
     "LLY": {
       "score": 0.8,
       "gap_w": 15.1,
       "atr_dist": 0,
-      "freshness": 274,
-      "close": 1200.12,
+      "freshness": 276,
+      "close": 1155.76,
       "name": null
     },
     "MNST": {
       "score": 0.8,
       "gap_w": 16.0,
       "atr_dist": 0,
-      "freshness": 519,
-      "close": 95.48,
+      "freshness": 521,
+      "close": 97.61,
       "name": null
     },
     "MRK": {
       "score": 0.8,
       "gap_w": 16.7,
       "atr_dist": 0,
-      "freshness": 295,
-      "close": 132.47,
+      "freshness": 297,
+      "close": 129.8,
       "name": null
     },
     "NSC": {
       "score": 0.8,
       "gap_w": 15.7,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 347.63,
+      "freshness": 402,
+      "close": 334.05,
       "name": null
     },
     "PCAR": {
       "score": 0.8,
       "gap_w": 15.0,
       "atr_dist": 0,
-      "freshness": 281,
-      "close": 132.89,
+      "freshness": 283,
+      "close": 133.87,
       "name": null
     },
     "PFG": {
       "score": 0.8,
       "gap_w": 16.5,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 111.24,
+      "freshness": 339,
+      "close": 113.94,
       "name": null
     },
     "PKG": {
       "score": 0.8,
       "gap_w": 16.9,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 253.15,
+      "freshness": 332,
+      "close": 248.62,
       "name": null
     },
     "PNC": {
       "score": 0.8,
       "gap_w": 16.5,
       "atr_dist": 0,
-      "freshness": 379,
-      "close": 251.43,
+      "freshness": 381,
+      "close": 248.85,
+      "name": null
+    },
+    "TRGP": {
+      "score": 0.8,
+      "gap_w": 15.9,
+      "atr_dist": 0,
+      "freshness": 241,
+      "close": 268.38,
       "name": null
     },
     "VRSN": {
       "score": 0.8,
       "gap_w": 9.3,
       "atr_dist": 0,
-      "freshness": 99,
-      "close": 281.5,
+      "freshness": 101,
+      "close": 286.52,
       "name": null
     },
     "BURL": {
       "score": 0.8,
       "gap_w": 15.6,
       "atr_dist": 0,
-      "freshness": 358,
-      "close": 354.68,
+      "freshness": 360,
+      "close": 372.46,
       "name": null
     },
     "RGA": {
       "score": 0.8,
       "gap_w": 15.5,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 241.23,
-      "name": null
-    },
-    "AZZ": {
-      "score": 0.8,
-      "gap_w": 15.3,
-      "atr_dist": 0,
-      "freshness": 1128,
-      "close": 147.69,
+      "freshness": 234,
+      "close": 238.25,
       "name": null
     },
     "LEA": {
       "score": 0.8,
       "gap_w": 16.4,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 143.98,
+      "freshness": 388,
+      "close": 146.22,
       "name": null
     },
     "CHRD": {
       "score": 0.8,
       "gap_w": 16.4,
       "atr_dist": 0,
-      "freshness": 169,
-      "close": 133.96,
+      "freshness": 171,
+      "close": 138.28,
       "name": null
     },
     "TFX": {
       "score": 0.8,
       "gap_w": 8.7,
       "atr_dist": 0,
-      "freshness": 99,
-      "close": 133.82,
+      "freshness": 101,
+      "close": 132.32,
       "name": null
     },
     "MCY": {
       "score": 0.8,
       "gap_w": 15.1,
       "atr_dist": 0,
-      "freshness": 414,
-      "close": 108.3,
+      "freshness": 416,
+      "close": 106.87,
       "name": null
     },
     "USCI": {
       "score": 0.8,
       "gap_w": 15.4,
       "atr_dist": 0,
-      "freshness": 1107,
-      "close": 102.82,
+      "freshness": 1109,
+      "close": 100.91,
       "name": null
     },
     "TPC": {
       "score": 0.8,
       "gap_w": 16.2,
       "atr_dist": 0,
-      "freshness": 442,
-      "close": 83.92,
+      "freshness": 444,
+      "close": 83.34,
       "name": null
     },
     "GEF": {
       "score": 0.8,
       "gap_w": 16.9,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 79.56,
+      "freshness": 402,
+      "close": 87.28,
       "name": null
     },
     "TFIN": {
       "score": 0.8,
       "gap_w": 15.9,
       "atr_dist": 0,
-      "freshness": 225,
-      "close": 76.4,
+      "freshness": 227,
+      "close": 73.72,
       "name": null
     },
     "LB": {
       "score": 0.8,
       "gap_w": 16.1,
       "atr_dist": 0,
-      "freshness": 162,
-      "close": 75.24,
+      "freshness": 164,
+      "close": 76.6,
       "name": null
     },
     "HWC": {
       "score": 0.8,
       "gap_w": 15.4,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 76.06,
+      "freshness": 402,
+      "close": 76.31,
       "name": null
     },
     "MLPR": {
       "score": 0.8,
       "gap_w": 16.9,
       "atr_dist": 0,
-      "freshness": 400,
+      "freshness": 402,
       "close": 72.57,
       "name": null
     },
@@ -4193,80 +3977,88 @@
       "score": 0.8,
       "gap_w": 15.8,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 71.64,
+      "freshness": 430,
+      "close": 72.3,
       "name": null
     },
     "HBCP": {
       "score": 0.8,
       "gap_w": 15.0,
       "atr_dist": 0,
-      "freshness": 463,
-      "close": 70.44,
+      "freshness": 465,
+      "close": 70.86,
+      "name": null
+    },
+    "BANR": {
+      "score": 0.8,
+      "gap_w": 10.5,
+      "atr_dist": 0,
+      "freshness": 101,
+      "close": 69.86,
       "name": null
     },
     "ZION": {
       "score": 0.8,
       "gap_w": 16.5,
       "atr_dist": 0,
-      "freshness": 379,
-      "close": 69.47,
+      "freshness": 381,
+      "close": 69.44,
       "name": null
     },
     "SU": {
       "score": 0.8,
       "gap_w": 16.1,
       "atr_dist": 0,
-      "freshness": 407,
-      "close": 63.99,
+      "freshness": 409,
+      "close": 66.74,
       "name": null
     },
     "MGA": {
       "score": 0.8,
       "gap_w": 15.7,
       "atr_dist": 0,
-      "freshness": 379,
-      "close": 65.92,
+      "freshness": 381,
+      "close": 69.85,
       "name": null
     },
     "HTO": {
       "score": 0.8,
       "gap_w": 16.1,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 63.95,
+      "freshness": 199,
+      "close": 62.02,
       "name": null
     },
     "EPR": {
       "score": 0.8,
       "gap_w": 16.8,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 64.49,
+      "freshness": 178,
+      "close": 64.06,
       "name": null
     },
     "FRAF": {
       "score": 0.8,
-      "gap_w": 16.7,
+      "gap_w": 16.4,
       "atr_dist": 0,
-      "freshness": 729,
-      "close": 61.73,
+      "freshness": 731,
+      "close": 62.9,
       "name": null
     },
     "WABC": {
       "score": 0.8,
-      "gap_w": 15.9,
+      "gap_w": 15.6,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 60.45,
+      "freshness": 234,
+      "close": 59.85,
       "name": null
     },
     "DKL": {
       "score": 0.8,
       "gap_w": 15.4,
       "atr_dist": 0,
-      "freshness": 442,
-      "close": 57.24,
+      "freshness": 444,
+      "close": 59.14,
       "name": null
     },
     "AHR": {
@@ -4281,711 +4073,671 @@
       "score": 0.8,
       "gap_w": 16.8,
       "atr_dist": 0,
-      "freshness": 456,
-      "close": 51.88,
+      "freshness": 458,
+      "close": 51.6,
       "name": null
     },
     "MLR": {
       "score": 0.8,
       "gap_w": 16.6,
       "atr_dist": 0,
-      "freshness": 169,
-      "close": 51.07,
+      "freshness": 171,
+      "close": 49.97,
+      "name": null
+    },
+    "FDBC": {
+      "score": 0.8,
+      "gap_w": 15.6,
+      "atr_dist": 0,
+      "freshness": 332,
+      "close": 53.08,
       "name": null
     },
     "KNTK": {
       "score": 0.8,
       "gap_w": 16.8,
       "atr_dist": 0,
-      "freshness": 162,
-      "close": 48.91,
+      "freshness": 164,
+      "close": 50.01,
       "name": null
     },
     "YETI": {
       "score": 0.8,
       "gap_w": 16.1,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 50.83,
+      "freshness": 332,
+      "close": 49.62,
       "name": null
     },
     "DE": {
       "score": 0.7,
       "gap_w": 14.2,
       "atr_dist": 0,
-      "freshness": 190,
-      "close": 619.64,
+      "freshness": 192,
+      "close": 599.46,
       "name": null
     },
     "DLR": {
       "score": 0.7,
       "gap_w": 13.6,
       "atr_dist": 0,
-      "freshness": 162,
-      "close": 194.3,
+      "freshness": 164,
+      "close": 193.4,
       "name": null
     },
     "EBAY": {
       "score": 0.7,
       "gap_w": 14.3,
       "atr_dist": 0,
-      "freshness": 883,
-      "close": 110.79,
+      "freshness": 885,
+      "close": 113.5,
       "name": null
     },
     "FANG": {
       "score": 0.7,
       "gap_w": 14.3,
       "atr_dist": 0,
-      "freshness": 267,
-      "close": 199.74,
+      "freshness": 269,
+      "close": 199.83,
       "name": null
     },
     "IEX": {
       "score": 0.7,
       "gap_w": 13.5,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 221.6,
+      "freshness": 234,
+      "close": 233.7,
       "name": null
     },
     "LYV": {
       "score": 0.7,
       "gap_w": 14.8,
       "atr_dist": 0,
-      "freshness": 162,
-      "close": 179.65,
+      "freshness": 164,
+      "close": 183.47,
       "name": null
     },
     "PM": {
       "score": 0.7,
       "gap_w": 14.0,
       "atr_dist": 0,
-      "freshness": 183,
-      "close": 196.4,
+      "freshness": 185,
+      "close": 192.03,
       "name": null
     },
     "RF": {
       "score": 0.7,
       "gap_w": 13.3,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 30.8,
-      "name": null
-    },
-    "WTS": {
-      "score": 0.7,
-      "gap_w": 14.5,
-      "atr_dist": 0,
-      "freshness": 456,
-      "close": 343.94,
+      "freshness": 388,
+      "close": 30.85,
       "name": null
     },
     "RNR": {
       "score": 0.7,
       "gap_w": 13.5,
       "atr_dist": 0,
-      "freshness": 323,
-      "close": 330.33,
+      "freshness": 325,
+      "close": 318.45,
       "name": null
     },
     "PRK": {
       "score": 0.7,
       "gap_w": 13.6,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 189.06,
+      "freshness": 178,
+      "close": 207.31,
       "name": null
     },
     "KEX": {
       "score": 0.7,
       "gap_w": 14.3,
       "atr_dist": 0,
-      "freshness": 246,
-      "close": 145.06,
+      "freshness": 248,
+      "close": 132.28,
       "name": null
     },
     "UMBF": {
       "score": 0.7,
       "gap_w": 14.2,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 140.95,
-      "name": null
-    },
-    "MIDD": {
-      "score": 0.7,
-      "gap_w": 13.6,
-      "atr_dist": 0,
-      "freshness": 211,
-      "close": 134.4,
+      "freshness": 353,
+      "close": 145.62,
       "name": null
     },
     "EWBC": {
       "score": 0.7,
       "gap_w": 13.2,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 131.3,
+      "freshness": 395,
+      "close": 130.91,
       "name": null
     },
     "JXN": {
       "score": 0.7,
       "gap_w": 14.1,
       "atr_dist": 0,
-      "freshness": 358,
-      "close": 120.28,
+      "freshness": 360,
+      "close": 122.1,
       "name": null
     },
     "CCEP": {
       "score": 0.7,
       "gap_w": 14.3,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 107.8,
+      "freshness": 178,
+      "close": 111.71,
       "name": null
     },
     "PFBC": {
       "score": 0.7,
       "gap_w": 10.0,
       "atr_dist": 0,
-      "freshness": 106,
-      "close": 103.21,
+      "freshness": 108,
+      "close": 104.19,
       "name": null
     },
     "QCRH": {
       "score": 0.7,
       "gap_w": 13.6,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 100.26,
+      "freshness": 339,
+      "close": 102.96,
       "name": null
     },
     "USFD": {
       "score": 0.7,
       "gap_w": 13.3,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 98.96,
+      "freshness": 199,
+      "close": 100.67,
       "name": null
     },
     "CP": {
       "score": 0.7,
       "gap_w": 14.3,
       "atr_dist": 0,
-      "freshness": 169,
-      "close": 91.99,
+      "freshness": 171,
+      "close": 88.13,
       "name": null
     },
     "AWR": {
       "score": 0.7,
       "gap_w": 13.5,
       "atr_dist": 0,
-      "freshness": 148,
-      "close": 86.54,
-      "name": null
-    },
-    "BOH": {
-      "score": 0.7,
-      "gap_w": 14.0,
-      "atr_dist": 0,
-      "freshness": 239,
-      "close": 80.47,
+      "freshness": 150,
+      "close": 85.95,
       "name": null
     },
     "STNG": {
       "score": 0.7,
       "gap_w": 13.8,
       "atr_dist": 0,
-      "freshness": 358,
-      "close": 77.48,
-      "name": null
-    },
-    "TDW": {
-      "score": 0.7,
-      "gap_w": 14.3,
-      "atr_dist": 0,
-      "freshness": 365,
-      "close": 77.92,
+      "freshness": 360,
+      "close": 75.58,
       "name": null
     },
     "TRNO": {
       "score": 0.7,
       "gap_w": 14.3,
       "atr_dist": 0,
-      "freshness": 267,
-      "close": 72.94,
+      "freshness": 269,
+      "close": 72.33,
       "name": null
     },
     "URE": {
       "score": 0.7,
       "gap_w": 13.7,
       "atr_dist": 0,
-      "freshness": 162,
-      "close": 74.72,
+      "freshness": 164,
+      "close": 72.0,
       "name": null
     },
     "NKTR": {
       "score": 0.7,
       "gap_w": 14.8,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 71.93,
+      "freshness": 395,
+      "close": 71.47,
       "name": null
     },
     "TRP": {
       "score": 0.7,
       "gap_w": 13.9,
       "atr_dist": 0,
-      "freshness": 953,
-      "close": 68.95,
+      "freshness": 955,
+      "close": 68.06,
       "name": null
     },
     "ASH": {
       "score": 0.7,
       "gap_w": 13.9,
       "atr_dist": 0,
-      "freshness": 239,
-      "close": 66.11,
+      "freshness": 241,
+      "close": 72.69,
       "name": null
     },
     "NTB": {
       "score": 0.7,
       "gap_w": 14.6,
       "atr_dist": 0,
-      "freshness": 974,
-      "close": 61.31,
+      "freshness": 976,
+      "close": 61.84,
       "name": null
     },
     "NJR": {
       "score": 0.7,
       "gap_w": 14.3,
       "atr_dist": 0,
-      "freshness": 253,
-      "close": 60.31,
+      "freshness": 255,
+      "close": 58.58,
       "name": null
     },
     "MBWM": {
       "score": 0.7,
       "gap_w": 14.9,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 59.02,
+      "freshness": 395,
+      "close": 59.92,
       "name": null
     },
-    "BATRA": {
+    "VEON": {
       "score": 0.7,
-      "gap_w": 13.4,
+      "gap_w": -1.5,
       "atr_dist": 0,
-      "freshness": 155,
-      "close": 55.2,
+      "freshness": 73,
+      "close": 53.02,
       "name": null
     },
     "AFL": {
       "score": 0.6,
       "gap_w": 11.5,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 126.58,
+      "freshness": 339,
+      "close": 127.36,
       "name": null
     },
     "BALL": {
       "score": 0.6,
       "gap_w": 11.8,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 65.13,
+      "freshness": 199,
+      "close": 65.31,
       "name": null
     },
     "BMY": {
       "score": 0.6,
       "gap_w": 11.7,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 63.31,
+      "freshness": 234,
+      "close": 64.86,
       "name": null
     },
     "CB": {
       "score": 0.6,
       "gap_w": 12.5,
       "atr_dist": 0,
-      "freshness": 260,
-      "close": 360.88,
+      "freshness": 262,
+      "close": 350.07,
       "name": null
     },
     "CINF": {
       "score": 0.6,
       "gap_w": 11.7,
       "atr_dist": 0,
-      "freshness": 449,
-      "close": 184.7,
+      "freshness": 451,
+      "close": 174.75,
       "name": null
     },
     "D": {
       "score": 0.6,
       "gap_w": 12.1,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 71.14,
+      "freshness": 430,
+      "close": 69.75,
       "name": null
     },
     "EXPD": {
       "score": 0.6,
       "gap_w": 12.0,
       "atr_dist": 0,
-      "freshness": 372,
-      "close": 172.77,
+      "freshness": 374,
+      "close": 166.85,
       "name": null
     },
     "GD": {
       "score": 0.6,
       "gap_w": 12.2,
       "atr_dist": 0,
-      "freshness": 414,
-      "close": 391.19,
+      "freshness": 416,
+      "close": 382.29,
       "name": null
     },
     "HON": {
       "score": 0.6,
       "gap_w": 12.6,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 246.42,
+      "freshness": 199,
+      "close": 241.81,
       "name": null
     },
     "HSIC": {
       "score": 0.6,
       "gap_w": 12.2,
       "atr_dist": 0,
-      "freshness": 246,
-      "close": 85.97,
+      "freshness": 248,
+      "close": 85.08,
+      "name": null
+    },
+    "MDLZ": {
+      "score": 0.6,
+      "gap_w": 3.8,
+      "atr_dist": 0,
+      "freshness": 94,
+      "close": 63.05,
       "name": null
     },
     "MO": {
       "score": 0.6,
       "gap_w": 11.3,
       "atr_dist": 0,
-      "freshness": 183,
-      "close": 73.11,
+      "freshness": 185,
+      "close": 67.95,
       "name": null
     },
     "OKE": {
       "score": 0.6,
       "gap_w": 11.6,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 91.09,
+      "freshness": 178,
+      "close": 89.11,
       "name": null
     },
     "PSA": {
       "score": 0.6,
       "gap_w": 11.0,
       "atr_dist": 0,
-      "freshness": 162,
-      "close": 329.55,
+      "freshness": 164,
+      "close": 317.57,
       "name": null
     },
     "UPS": {
       "score": 0.6,
       "gap_w": 11.4,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 114.28,
+      "freshness": 234,
+      "close": 105.25,
       "name": null
     },
-    "FCNCA": {
+    "ESLT": {
       "score": 0.6,
-      "gap_w": 6.7,
+      "gap_w": 12.4,
       "atr_dist": 0,
-      "freshness": 106,
-      "close": 2163.31,
+      "freshness": 654,
+      "close": 785.58,
       "name": null
     },
     "DJCO": {
       "score": 0.6,
       "gap_w": 11.1,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 575.83,
+      "freshness": 332,
+      "close": 591.3,
       "name": null
     },
     "PRAX": {
       "score": 0.6,
       "gap_w": 11.0,
       "atr_dist": 0,
-      "freshness": 288,
-      "close": 320.41,
+      "freshness": 290,
+      "close": 308.14,
       "name": null
     },
     "CLH": {
       "score": 0.6,
       "gap_w": 12.8,
       "atr_dist": 0,
-      "freshness": 239,
-      "close": 302.81,
+      "freshness": 241,
+      "close": 317.1,
       "name": null
     },
     "LNG": {
       "score": 0.6,
       "gap_w": 12.7,
       "atr_dist": 0,
-      "freshness": 148,
-      "close": 258.34,
+      "freshness": 150,
+      "close": 257.87,
       "name": null
     },
     "ASND": {
       "score": 0.6,
       "gap_w": 11.2,
       "atr_dist": 0,
-      "freshness": 526,
-      "close": 255.74,
+      "freshness": 528,
+      "close": 251.16,
       "name": null
     },
     "EGP": {
       "score": 0.6,
       "gap_w": 12.1,
       "atr_dist": 0,
-      "freshness": 302,
-      "close": 213.08,
+      "freshness": 304,
+      "close": 209.66,
       "name": null
     },
     "BOKF": {
       "score": 0.6,
       "gap_w": 11.3,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 142.53,
+      "freshness": 346,
+      "close": 141.1,
       "name": null
     },
     "IMO": {
       "score": 0.6,
       "gap_w": 12.0,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 125.64,
+      "freshness": 430,
+      "close": 128.68,
       "name": null
     },
-    "ALGT": {
+    "CHH": {
       "score": 0.6,
-      "gap_w": 12.0,
+      "gap_w": 8.6,
       "atr_dist": 0,
-      "freshness": 281,
-      "close": 99.36,
+      "freshness": 108,
+      "close": 111.69,
       "name": null
     },
     "MVV": {
       "score": 0.6,
-      "gap_w": 12.4,
+      "gap_w": 12.6,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 88.29,
+      "freshness": 332,
+      "close": 88.28,
+      "name": null
+    },
+    "PVH": {
+      "score": 0.6,
+      "gap_w": 8.9,
+      "atr_dist": 0,
+      "freshness": 108,
+      "close": 86.97,
       "name": null
     },
     "IBOC": {
       "score": 0.6,
       "gap_w": 9.5,
       "atr_dist": 0,
-      "freshness": 113,
-      "close": 77.45,
+      "freshness": 115,
+      "close": 76.33,
       "name": null
     },
     "WBS": {
       "score": 0.6,
       "gap_w": 12.6,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 76.91,
+      "freshness": 388,
+      "close": 77.29,
       "name": null
     },
     "TNK": {
       "score": 0.6,
       "gap_w": 12.6,
       "atr_dist": 0,
-      "freshness": 414,
-      "close": 74.49,
+      "freshness": 416,
+      "close": 77.41,
       "name": null
     },
     "NGVT": {
       "score": 0.6,
       "gap_w": 11.0,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 73.25,
+      "freshness": 395,
+      "close": 70.08,
       "name": null
     },
     "BHRB": {
       "score": 0.6,
       "gap_w": 12.2,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 72.11,
+      "freshness": 353,
+      "close": 72.8,
       "name": null
     },
     "SMG": {
       "score": 0.6,
       "gap_w": 12.7,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 69.17,
+      "freshness": 199,
+      "close": 68.29,
       "name": null
     },
     "FR": {
       "score": 0.6,
       "gap_w": 12.1,
       "atr_dist": 0,
-      "freshness": 330,
-      "close": 67.02,
+      "freshness": 332,
+      "close": 66.0,
       "name": null
     },
     "FBNC": {
       "score": 0.6,
       "gap_w": 11.1,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 63.07,
+      "freshness": 395,
+      "close": 62.98,
       "name": null
     },
     "EZJ": {
       "score": 0.6,
       "gap_w": 11.3,
       "atr_dist": 0,
-      "freshness": 442,
+      "freshness": 444,
       "close": 62.2,
       "name": null
     },
-    "UXI": {
+    "SCL": {
       "score": 0.6,
-      "gap_w": 11.1,
+      "gap_w": 12.5,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 59.19,
-      "name": null
-    },
-    "FLR": {
-      "score": 0.6,
-      "gap_w": 12.4,
-      "atr_dist": 0,
-      "freshness": 162,
-      "close": 51.05,
+      "freshness": 185,
+      "close": 65.09,
       "name": null
     },
     "OHI": {
       "score": 0.6,
       "gap_w": 12.9,
       "atr_dist": 0,
-      "freshness": 372,
-      "close": 51.49,
-      "name": null
-    },
-    "GBCI": {
-      "score": 0.6,
-      "gap_w": 8.7,
-      "atr_dist": 0,
-      "freshness": 113,
-      "close": 49.74,
+      "freshness": 374,
+      "close": 50.33,
       "name": null
     },
     "ABNB": {
       "score": 0.5,
       "gap_w": 7.8,
       "atr_dist": 0,
-      "freshness": 113,
-      "close": 145.01,
+      "freshness": 115,
+      "close": 152.08,
       "name": null
     },
     "AME": {
       "score": 0.5,
       "gap_w": 10.1,
       "atr_dist": 0,
-      "freshness": 358,
-      "close": 240.04,
+      "freshness": 360,
+      "close": 239.95,
       "name": null
     },
     "AMGN": {
       "score": 0.5,
       "gap_w": 10.1,
       "atr_dist": 0,
-      "freshness": 302,
-      "close": 381.57,
+      "freshness": 304,
+      "close": 387.73,
       "name": null
     },
     "APA": {
       "score": 0.5,
       "gap_w": 11.0,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 35.41,
+      "freshness": 346,
+      "close": 36.34,
       "name": null
     },
     "BIIB": {
       "score": 0.5,
       "gap_w": 9.1,
       "atr_dist": 0,
-      "freshness": 323,
-      "close": 203.72,
+      "freshness": 325,
+      "close": 207.89,
       "name": null
     },
     "COP": {
       "score": 0.5,
       "gap_w": 9.0,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 117.5,
+      "freshness": 234,
+      "close": 119.07,
       "name": null
     },
     "CVX": {
       "score": 0.5,
       "gap_w": 9.7,
       "atr_dist": 0,
-      "freshness": 372,
-      "close": 191.98,
-      "name": null
-    },
-    "EMR": {
-      "score": 0.5,
-      "gap_w": 7.1,
-      "atr_dist": 0,
-      "freshness": 113,
-      "close": 148.72,
-      "name": null
-    },
-    "ETR": {
-      "score": 0.5,
-      "gap_w": 10.8,
-      "atr_dist": 0,
-      "freshness": 967,
-      "close": 115.35,
+      "freshness": 374,
+      "close": 192.54,
       "name": null
     },
     "EVRG": {
       "score": 0.5,
       "gap_w": 9.8,
       "atr_dist": 0,
-      "freshness": 827,
-      "close": 87.05,
+      "freshness": 829,
+      "close": 83.22,
       "name": null
     },
     "FTV": {
       "score": 0.5,
       "gap_w": 9.7,
       "atr_dist": 0,
-      "freshness": 274,
-      "close": 62.69,
+      "freshness": 276,
+      "close": 58.48,
       "name": null
     },
     "GM": {
       "score": 0.5,
       "gap_w": 9.2,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 84.53,
+      "freshness": 388,
+      "close": 88.46,
       "name": null
     },
     "KEY": {
       "score": 0.5,
       "gap_w": 9.1,
       "atr_dist": 0,
-      "freshness": 386,
+      "freshness": 388,
       "close": 22.62,
       "name": null
     },
@@ -4993,159 +4745,151 @@
       "score": 0.5,
       "gap_w": 9.7,
       "atr_dist": 0,
-      "freshness": 1289,
-      "close": 118.8,
+      "freshness": 1291,
+      "close": 116.42,
       "name": null
     },
     "NDSN": {
       "score": 0.5,
       "gap_w": 10.6,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 296.11,
+      "freshness": 353,
+      "close": 295.33,
       "name": null
     },
     "OXY": {
       "score": 0.5,
       "gap_w": 10.8,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 55.98,
+      "freshness": 178,
+      "close": 55.95,
       "name": null
     },
     "PH": {
       "score": 0.5,
       "gap_w": 9.1,
       "atr_dist": 0,
-      "freshness": 421,
-      "close": 983.34,
-      "name": null
-    },
-    "PNW": {
-      "score": 0.5,
-      "gap_w": 9.3,
-      "atr_dist": 0,
-      "freshness": 197,
-      "close": 106.33,
+      "freshness": 423,
+      "close": 962.59,
       "name": null
     },
     "REG": {
       "score": 0.5,
       "gap_w": 9.7,
       "atr_dist": 0,
-      "freshness": 190,
-      "close": 82.98,
+      "freshness": 192,
+      "close": 80.38,
       "name": null
     },
     "SBUX": {
       "score": 0.5,
       "gap_w": 10.5,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 105.5,
+      "freshness": 199,
+      "close": 105.81,
       "name": null
     },
     "SNA": {
       "score": 0.5,
       "gap_w": 10.7,
       "atr_dist": 0,
-      "freshness": 323,
-      "close": 406.76,
+      "freshness": 325,
+      "close": 409.23,
       "name": null
     },
     "TDY": {
       "score": 0.5,
       "gap_w": 9.6,
       "atr_dist": 0,
-      "freshness": 694,
-      "close": 647.08,
-      "name": null
-    },
-    "TT": {
-      "score": 0.5,
-      "gap_w": 9.6,
-      "atr_dist": 0,
-      "freshness": 169,
-      "close": 477.78,
+      "freshness": 696,
+      "close": 648.89,
       "name": null
     },
     "XOM": {
       "score": 0.5,
       "gap_w": 10.7,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 154.31,
+      "freshness": 388,
+      "close": 157.09,
+      "name": null
+    },
+    "FCNCA": {
+      "score": 0.5,
+      "gap_w": 6.7,
+      "atr_dist": 0,
+      "freshness": 108,
+      "close": 2157.93,
       "name": null
     },
     "UAN": {
       "score": 0.5,
       "gap_w": 9.3,
       "atr_dist": 0,
-      "freshness": 610,
-      "close": 120.42,
+      "freshness": 612,
+      "close": 128.25,
       "name": null
     },
     "ALSN": {
       "score": 0.5,
       "gap_w": 10.9,
       "atr_dist": 0,
-      "freshness": 218,
-      "close": 120.74,
+      "freshness": 220,
+      "close": 115.38,
       "name": null
     },
     "ESQ": {
       "score": 0.5,
       "gap_w": 10.8,
       "atr_dist": 0,
-      "freshness": 750,
-      "close": 120.0,
+      "freshness": 752,
+      "close": 130.36,
       "name": null
     },
     "FELE": {
       "score": 0.5,
       "gap_w": 7.6,
       "atr_dist": 0,
-      "freshness": 113,
-      "close": 105.75,
+      "freshness": 115,
+      "close": 103.51,
       "name": null
     },
-    "GOLF": {
+    "LLYVA": {
       "score": 0.5,
-      "gap_w": 10.8,
+      "gap_w": 10.0,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 104.22,
+      "freshness": 164,
+      "close": 102.0,
       "name": null
     },
     "TTE": {
       "score": 0.5,
       "gap_w": 9.8,
       "atr_dist": 0,
-      "freshness": 407,
-      "close": 85.11,
+      "freshness": 409,
+      "close": 87.05,
       "name": null
     },
     "INDB": {
       "score": 0.5,
       "gap_w": 10.1,
       "atr_dist": 0,
-      "freshness": 379,
-      "close": 85.12,
+      "freshness": 381,
+      "close": 84.34,
       "name": null
     },
     "BUD": {
       "score": 0.5,
       "gap_w": 10.5,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 80.8,
+      "freshness": 199,
+      "close": 86.13,
       "name": null
     },
     "CFFI": {
       "score": 0.5,
-      "gap_w": 10.4,
+      "gap_w": 10.0,
       "atr_dist": 0,
-      "freshness": 309,
+      "freshness": 311,
       "close": 80.58,
       "name": null
     },
@@ -5153,23 +4897,23 @@
       "score": 0.5,
       "gap_w": 10.2,
       "atr_dist": 0,
-      "freshness": 526,
-      "close": 77.03,
+      "freshness": 528,
+      "close": 74.05,
       "name": null
     },
     "TNL": {
       "score": 0.5,
       "gap_w": 9.1,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 75.73,
+      "freshness": 395,
+      "close": 75.16,
       "name": null
     },
     "TTT": {
       "score": 0.5,
       "gap_w": 11.0,
       "atr_dist": 0,
-      "freshness": 120,
+      "freshness": 122,
       "close": 73.4,
       "name": null
     },
@@ -5177,39 +4921,39 @@
       "score": 0.5,
       "gap_w": 10.1,
       "atr_dist": 0,
-      "freshness": 190,
-      "close": 64.09,
+      "freshness": 192,
+      "close": 63.22,
       "name": null
     },
     "DDM": {
       "score": 0.5,
       "gap_w": 10.6,
       "atr_dist": 0,
-      "freshness": 379,
-      "close": 65.75,
+      "freshness": 381,
+      "close": 64.3,
       "name": null
     },
     "SFST": {
       "score": 0.5,
       "gap_w": 10.7,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 62.38,
+      "freshness": 388,
+      "close": 60.98,
       "name": null
     },
     "UNTY": {
       "score": 0.5,
       "gap_w": 9.1,
       "atr_dist": 0,
-      "freshness": 995,
-      "close": 58.34,
+      "freshness": 997,
+      "close": 58.67,
       "name": null
     },
     "YCS": {
       "score": 0.5,
       "gap_w": 9.8,
       "atr_dist": 0,
-      "freshness": 316,
+      "freshness": 318,
       "close": 57.71,
       "name": null
     },
@@ -5217,296 +4961,344 @@
       "score": 0.5,
       "gap_w": 9.5,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 55.67,
+      "freshness": 178,
+      "close": 54.52,
       "name": null
     },
     "E": {
       "score": 0.5,
       "gap_w": 10.7,
       "atr_dist": 0,
-      "freshness": 435,
-      "close": 51.07,
-      "name": null
-    },
-    "FDBC": {
-      "score": 0.5,
-      "gap_w": 11.0,
-      "atr_dist": 0,
-      "freshness": 330,
-      "close": 50.51,
+      "freshness": 437,
+      "close": 55.52,
       "name": null
     },
     "EQBK": {
       "score": 0.5,
       "gap_w": 10.8,
       "atr_dist": 0,
-      "freshness": 323,
-      "close": 50.28,
+      "freshness": 325,
+      "close": 50.81,
       "name": null
     },
-    "AEP": {
-      "score": 0.4,
-      "gap_w": 7.5,
+    "GBCI": {
+      "score": 0.5,
+      "gap_w": 8.7,
       "atr_dist": 0,
-      "freshness": 897,
-      "close": 135.44,
+      "freshness": 115,
+      "close": 48.98,
       "name": null
     },
     "APD": {
       "score": 0.4,
       "gap_w": 7.7,
       "atr_dist": 0,
-      "freshness": 155,
-      "close": 292.95,
+      "freshness": 157,
+      "close": 309.79,
       "name": null
     },
     "CAH": {
       "score": 0.4,
       "gap_w": 8.5,
       "atr_dist": 0,
-      "freshness": 701,
-      "close": 229.56,
+      "freshness": 703,
+      "close": 227.12,
       "name": null
     },
     "CNP": {
       "score": 0.4,
       "gap_w": 7.7,
       "atr_dist": 0,
-      "freshness": 666,
-      "close": 44.4,
+      "freshness": 668,
+      "close": 42.15,
+      "name": null
+    },
+    "EMR": {
+      "score": 0.4,
+      "gap_w": 7.1,
+      "atr_dist": 0,
+      "freshness": 115,
+      "close": 148.68,
       "name": null
     },
     "ES": {
       "score": 0.4,
       "gap_w": 8.5,
       "atr_dist": 0,
-      "freshness": 435,
-      "close": 75.28,
+      "freshness": 437,
+      "close": 73.85,
       "name": null
     },
     "EXR": {
       "score": 0.4,
       "gap_w": 6.5,
       "atr_dist": 0,
-      "freshness": 113,
-      "close": 150.37,
+      "freshness": 115,
+      "close": 148.2,
       "name": null
     },
     "GRMN": {
       "score": 0.4,
       "gap_w": 7.1,
       "atr_dist": 0,
-      "freshness": 155,
-      "close": 241.81,
+      "freshness": 157,
+      "close": 297.75,
       "name": null
     },
     "KO": {
       "score": 0.4,
       "gap_w": 8.4,
       "atr_dist": 0,
-      "freshness": 253,
-      "close": 83.78,
+      "freshness": 255,
+      "close": 88.52,
       "name": null
     },
     "O": {
       "score": 0.4,
       "gap_w": 7.8,
       "atr_dist": 0,
-      "freshness": 421,
-      "close": 66.19,
+      "freshness": 423,
+      "close": 64.45,
       "name": null
     },
     "PCG": {
       "score": 0.4,
       "gap_w": 7.4,
       "atr_dist": 0,
-      "freshness": 281,
-      "close": 17.79,
+      "freshness": 283,
+      "close": 17.77,
       "name": null
     },
     "PLD": {
       "score": 0.4,
       "gap_w": 8.6,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 146.5,
+      "freshness": 339,
+      "close": 146.27,
       "name": null
     },
     "TFC": {
       "score": 0.4,
       "gap_w": 8.6,
       "atr_dist": 0,
-      "freshness": 379,
-      "close": 52.41,
+      "freshness": 381,
+      "close": 51.99,
       "name": null
     },
     "TPL": {
       "score": 0.4,
       "gap_w": 8.3,
       "atr_dist": 0,
-      "freshness": 169,
-      "close": 410.9,
+      "freshness": 171,
+      "close": 394.25,
+      "name": null
+    },
+    "TPR": {
+      "score": 0.4,
+      "gap_w": 7.5,
+      "atr_dist": 0,
+      "freshness": 682,
+      "close": 152.58,
       "name": null
     },
     "MDGL": {
       "score": 0.4,
       "gap_w": 8.2,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 559.57,
+      "freshness": 353,
+      "close": 492.5,
       "name": null
     },
     "WDFC": {
       "score": 0.4,
       "gap_w": 8.3,
       "atr_dist": 0,
-      "freshness": 169,
-      "close": 234.45,
+      "freshness": 171,
+      "close": 228.63,
       "name": null
     },
     "WTFC": {
       "score": 0.4,
       "gap_w": 8.9,
       "atr_dist": 0,
-      "freshness": 393,
-      "close": 160.26,
+      "freshness": 395,
+      "close": 159.65,
       "name": null
     },
     "NVS": {
       "score": 0.4,
       "gap_w": 7.2,
       "atr_dist": 0,
-      "freshness": 498,
-      "close": 157.86,
+      "freshness": 500,
+      "close": 158.51,
       "name": null
     },
     "BFC": {
       "score": 0.4,
       "gap_w": 8.5,
       "atr_dist": 0,
-      "freshness": 743,
-      "close": 147.69,
+      "freshness": 745,
+      "close": 152.06,
       "name": null
     },
     "IDA": {
       "score": 0.4,
       "gap_w": 7.5,
       "atr_dist": 0,
-      "freshness": 813,
-      "close": 148.59,
+      "freshness": 815,
+      "close": 142.14,
       "name": null
     },
     "UPV": {
       "score": 0.4,
       "gap_w": 8.7,
       "atr_dist": 0,
-      "freshness": 400,
+      "freshness": 402,
       "close": 100.49,
+      "name": null
+    },
+    "LLYVK": {
+      "score": 0.4,
+      "gap_w": 8.9,
+      "atr_dist": 0,
+      "freshness": 164,
+      "close": 105.61,
       "name": null
     },
     "AX": {
       "score": 0.4,
       "gap_w": 7.1,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 96.22,
+      "freshness": 402,
+      "close": 98.66,
+      "name": null
+    },
+    "LMAT": {
+      "score": 0.4,
+      "gap_w": 7.1,
+      "atr_dist": 0,
+      "freshness": 164,
+      "close": 102.22,
       "name": null
     },
     "SWX": {
       "score": 0.4,
       "gap_w": 7.4,
       "atr_dist": 0,
-      "freshness": 400,
-      "close": 92.72,
+      "freshness": 402,
+      "close": 90.38,
       "name": null
     },
     "SHEL": {
       "score": 0.4,
       "gap_w": 8.4,
       "atr_dist": 0,
-      "freshness": 456,
-      "close": 87.56,
+      "freshness": 458,
+      "close": 90.49,
+      "name": null
+    },
+    "BOH": {
+      "score": 0.4,
+      "gap_w": 8.1,
+      "atr_dist": 0,
+      "freshness": 241,
+      "close": 79.83,
       "name": null
     },
     "JBSS": {
       "score": 0.4,
       "gap_w": 7.9,
       "atr_dist": 0,
-      "freshness": 260,
-      "close": 83.74,
+      "freshness": 262,
+      "close": 81.48,
       "name": null
     },
     "ADC": {
       "score": 0.4,
       "gap_w": 7.8,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 81.22,
+      "freshness": 199,
+      "close": 78.42,
+      "name": null
+    },
+    "TDW": {
+      "score": 0.4,
+      "gap_w": 7.9,
+      "atr_dist": 0,
+      "freshness": 367,
+      "close": 73.62,
       "name": null
     },
     "EFO": {
       "score": 0.4,
       "gap_w": 7.3,
       "atr_dist": 0,
-      "freshness": 463,
-      "close": 71.75,
+      "freshness": 465,
+      "close": 75.47,
+      "name": null
+    },
+    "UTMD": {
+      "score": 0.4,
+      "gap_w": 8.7,
+      "atr_dist": 0,
+      "freshness": 339,
+      "close": 70.88,
       "name": null
     },
     "CBU": {
       "score": 0.4,
       "gap_w": 8.9,
       "atr_dist": 0,
-      "freshness": 316,
-      "close": 67.08,
+      "freshness": 318,
+      "close": 65.11,
       "name": null
     },
     "WF": {
       "score": 0.4,
       "gap_w": 8.0,
       "atr_dist": 0,
-      "freshness": 470,
-      "close": 67.61,
+      "freshness": 472,
+      "close": 68.83,
       "name": null
     },
     "FTS": {
       "score": 0.4,
       "gap_w": 7.2,
       "atr_dist": 0,
-      "freshness": 743,
-      "close": 58.83,
+      "freshness": 745,
+      "close": 57.48,
       "name": null
     },
     "FHI": {
       "score": 0.4,
       "gap_w": 7.4,
       "atr_dist": 0,
-      "freshness": 904,
-      "close": 59.09,
+      "freshness": 906,
+      "close": 59.61,
       "name": null
     },
     "ENB": {
       "score": 0.4,
       "gap_w": 8.7,
       "atr_dist": 0,
-      "freshness": 939,
-      "close": 56.02,
-      "name": null
-    },
-    "ASTE": {
-      "score": 0.4,
-      "gap_w": 7.8,
-      "atr_dist": 0,
-      "freshness": 610,
-      "close": 56.08,
+      "freshness": 941,
+      "close": 55.45,
       "name": null
     },
     "MEOH": {
       "score": 0.4,
       "gap_w": 8.2,
       "atr_dist": 0,
-      "freshness": 274,
-      "close": 53.79,
+      "freshness": 276,
+      "close": 55.2,
+      "name": null
+    },
+    "WHD": {
+      "score": 0.4,
+      "gap_w": 7.5,
+      "atr_dist": 0,
+      "freshness": 241,
+      "close": 61.95,
       "name": null
     },
     "EMA": {
@@ -5514,286 +5306,230 @@
       "gap_w": 7.8,
       "atr_dist": 0,
       "freshness": 999,
-      "close": 54.92,
+      "close": 54.11,
       "name": null
     },
     "UVV": {
       "score": 0.4,
       "gap_w": 3.9,
       "atr_dist": 0,
-      "freshness": 106,
-      "close": 53.87,
+      "freshness": 108,
+      "close": 53.36,
       "name": null
     },
     "GBX": {
       "score": 0.4,
       "gap_w": 7.6,
       "atr_dist": 0,
-      "freshness": 218,
-      "close": 51.73,
-      "name": null
-    },
-    "BG": {
-      "score": 0.3,
-      "gap_w": 6.7,
-      "atr_dist": 0,
-      "freshness": 358,
-      "close": 118.08,
+      "freshness": 220,
+      "close": 49.24,
       "name": null
     },
     "CHD": {
       "score": 0.3,
       "gap_w": 5.9,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 99.0,
-      "name": null
-    },
-    "CHRW": {
-      "score": 0.3,
-      "gap_w": 6.1,
-      "atr_dist": 0,
-      "freshness": 365,
-      "close": 177.59,
+      "freshness": 178,
+      "close": 97.67,
       "name": null
     },
     "CL": {
       "score": 0.3,
       "gap_w": 6.4,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 92.2,
-      "name": null
-    },
-    "DTE": {
-      "score": 0.3,
-      "gap_w": 5.6,
-      "atr_dist": 0,
-      "freshness": 169,
-      "close": 149.25,
+      "freshness": 178,
+      "close": 91.61,
       "name": null
     },
     "DUK": {
       "score": 0.3,
       "gap_w": 5.4,
       "atr_dist": 0,
-      "freshness": 176,
-      "close": 130.19,
+      "freshness": 178,
+      "close": 126.28,
       "name": null
     },
     "ED": {
       "score": 0.3,
       "gap_w": 5.5,
       "atr_dist": 0,
-      "freshness": 190,
-      "close": 113.09,
+      "freshness": 192,
+      "close": 109.66,
       "name": null
     },
     "FAST": {
       "score": 0.3,
       "gap_w": 6.6,
       "atr_dist": 0,
-      "freshness": 169,
-      "close": 47.52,
+      "freshness": 171,
+      "close": 46.67,
       "name": null
     },
     "FE": {
       "score": 0.3,
       "gap_w": 5.7,
       "atr_dist": 0,
-      "freshness": 456,
-      "close": 49.91,
+      "freshness": 458,
+      "close": 48.71,
+      "name": null
+    },
+    "IFF": {
+      "score": 0.3,
+      "gap_w": 6.6,
+      "atr_dist": 0,
+      "freshness": 185,
+      "close": 79.47,
       "name": null
     },
     "KMI": {
       "score": 0.3,
       "gap_w": 5.3,
       "atr_dist": 0,
-      "freshness": 260,
-      "close": 32.1,
-      "name": null
-    },
-    "LNT": {
-      "score": 0.3,
-      "gap_w": 6.7,
-      "atr_dist": 0,
-      "freshness": 820,
-      "close": 74.98,
+      "freshness": 262,
+      "close": 31.66,
       "name": null
     },
     "SO": {
       "score": 0.3,
       "gap_w": 5.1,
       "atr_dist": 0,
-      "freshness": 155,
-      "close": 98.04,
-      "name": null
-    },
-    "TXT": {
-      "score": 0.3,
-      "gap_w": 6.8,
-      "atr_dist": 0,
-      "freshness": 386,
-      "close": 96.77,
+      "freshness": 157,
+      "close": 94.36,
       "name": null
     },
     "VRTX": {
       "score": 0.3,
       "gap_w": 5.9,
       "atr_dist": 0,
-      "freshness": 218,
-      "close": 486.02,
+      "freshness": 220,
+      "close": 481.8,
       "name": null
     },
-    "WMB": {
+    "VZ": {
       "score": 0.3,
-      "gap_w": 6.1,
+      "gap_w": 5.6,
       "atr_dist": 0,
-      "freshness": 1121,
-      "close": 71.61,
+      "freshness": 178,
+      "close": 46.12,
       "name": null
     },
     "GHC": {
       "score": 0.3,
       "gap_w": 5.5,
       "atr_dist": 0,
-      "freshness": 995,
-      "close": 1175.18,
+      "freshness": 997,
+      "close": 1228.36,
       "name": null
     },
     "KAI": {
       "score": 0.3,
       "gap_w": 3.5,
       "atr_dist": 0,
-      "freshness": 113,
-      "close": 313.13,
+      "freshness": 115,
+      "close": 308.12,
       "name": null
     },
     "COKE": {
       "score": 0.3,
       "gap_w": 6.0,
       "atr_dist": 0,
-      "freshness": 274,
-      "close": 184.79,
+      "freshness": 276,
+      "close": 188.54,
       "name": null
     },
     "AER": {
       "score": 0.3,
       "gap_w": 6.9,
       "atr_dist": 0,
-      "freshness": 1366,
-      "close": 152.39,
-      "name": null
-    },
-    "DTM": {
-      "score": 0.3,
-      "gap_w": 6.6,
-      "atr_dist": 0,
-      "freshness": 1086,
-      "close": 142.4,
+      "freshness": 1368,
+      "close": 152.79,
       "name": null
     },
     "AGCO": {
       "score": 0.3,
       "gap_w": 5.4,
       "atr_dist": 0,
-      "freshness": 435,
-      "close": 119.72,
+      "freshness": 437,
+      "close": 107.26,
       "name": null
     },
     "TTC": {
       "score": 0.3,
       "gap_w": 6.7,
       "atr_dist": 0,
-      "freshness": 225,
-      "close": 94.59,
+      "freshness": 227,
+      "close": 91.58,
       "name": null
     },
     "OTTR": {
       "score": 0.3,
       "gap_w": 6.9,
       "atr_dist": 0,
-      "freshness": 442,
-      "close": 91.5,
-      "name": null
-    },
-    "ABCB": {
-      "score": 0.3,
-      "gap_w": 6.1,
-      "atr_dist": 0,
-      "freshness": 393,
-      "close": 86.8,
-      "name": null
-    },
-    "CSM": {
-      "score": 0.3,
-      "gap_w": 6.0,
-      "atr_dist": 0,
-      "freshness": 421,
-      "close": 85.22,
-      "name": null
-    },
-    "PTCT": {
-      "score": 0.3,
-      "gap_w": 6.4,
-      "atr_dist": 0,
-      "freshness": 820,
-      "close": 76.72,
+      "freshness": 444,
+      "close": 89.42,
       "name": null
     },
     "CUBI": {
       "score": 0.3,
       "gap_w": 5.3,
       "atr_dist": 0,
-      "freshness": 442,
-      "close": 78.07,
+      "freshness": 444,
+      "close": 78.33,
       "name": null
     },
     "PB": {
       "score": 0.3,
       "gap_w": 6.2,
       "atr_dist": 0,
-      "freshness": 232,
-      "close": 72.96,
+      "freshness": 234,
+      "close": 74.81,
       "name": null
     },
     "NWE": {
       "score": 0.3,
       "gap_w": 6.5,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 73.17,
+      "freshness": 353,
+      "close": 69.75,
+      "name": null
+    },
+    "MLI": {
+      "score": 0.3,
+      "gap_w": 6.2,
+      "atr_dist": 0,
+      "freshness": 388,
+      "close": 66.87,
       "name": null
     },
     "MPLX": {
       "score": 0.3,
       "gap_w": 6.7,
       "atr_dist": 0,
-      "freshness": 267,
-      "close": 58.74,
+      "freshness": 269,
+      "close": 57.64,
       "name": null
     },
     "PCVX": {
       "score": 0.3,
       "gap_w": 6.3,
       "atr_dist": 0,
-      "freshness": 253,
-      "close": 55.44,
+      "freshness": 255,
+      "close": 55.95,
       "name": null
     },
     "AEE": {
       "score": 0.2,
       "gap_w": 4.6,
       "atr_dist": 0,
-      "freshness": 743,
-      "close": 113.51,
+      "freshness": 745,
+      "close": 108.14,
       "name": null
     },
     "AES": {
       "score": 0.2,
       "gap_w": 3.1,
       "atr_dist": 0,
-      "freshness": 372,
+      "freshness": 374,
       "close": 14.85,
       "name": null
     },
@@ -5801,143 +5537,159 @@
       "score": 0.2,
       "gap_w": 4.5,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 43.79,
+      "freshness": 339,
+      "close": 44.17,
       "name": null
     },
     "EA": {
       "score": 0.2,
       "gap_w": 3.3,
       "atr_dist": 0,
-      "freshness": 449,
-      "close": 209.06,
+      "freshness": 451,
+      "close": 209.61,
       "name": null
     },
     "XEL": {
       "score": 0.2,
       "gap_w": 3.6,
       "atr_dist": 0,
-      "freshness": 729,
-      "close": 81.94,
+      "freshness": 731,
+      "close": 78.21,
       "name": null
     },
     "WTM": {
       "score": 0.2,
       "gap_w": 3.7,
       "atr_dist": 0,
-      "freshness": 281,
-      "close": 2194.02,
+      "freshness": 283,
+      "close": 2116.47,
       "name": null
     },
     "ITT": {
       "score": 0.2,
       "gap_w": 3.7,
       "atr_dist": 0,
-      "freshness": 421,
-      "close": 194.09,
+      "freshness": 423,
+      "close": 192.96,
       "name": null
     },
     "GATX": {
       "score": 0.2,
       "gap_w": 4.5,
       "atr_dist": 0,
-      "freshness": 344,
-      "close": 184.34,
+      "freshness": 346,
+      "close": 181.88,
+      "name": null
+    },
+    "SCCO": {
+      "score": 0.2,
+      "gap_w": 4.8,
+      "atr_dist": 0,
+      "freshness": 395,
+      "close": 184.82,
+      "name": null
+    },
+    "KOF": {
+      "score": 0.2,
+      "gap_w": 3.8,
+      "atr_dist": 0,
+      "freshness": 234,
+      "close": 109.01,
       "name": null
     },
     "CASH": {
       "score": 0.2,
       "gap_w": 4.5,
       "atr_dist": 0,
-      "freshness": 183,
-      "close": 87.25,
+      "freshness": 185,
+      "close": 89.43,
       "name": null
     },
     "BKH": {
       "score": 0.2,
       "gap_w": 4.4,
       "atr_dist": 0,
-      "freshness": 351,
-      "close": 75.49,
+      "freshness": 353,
+      "close": 72.24,
       "name": null
     },
     "ELS": {
       "score": 0.2,
       "gap_w": 4.6,
       "atr_dist": 0,
-      "freshness": 197,
-      "close": 66.03,
+      "freshness": 199,
+      "close": 65.57,
       "name": null
     },
     "GAM": {
       "score": 0.2,
       "gap_w": 4.7,
       "atr_dist": 0,
-      "freshness": 1310,
-      "close": 64.07,
+      "freshness": 1312,
+      "close": 64.6,
       "name": null
     },
     "BTI": {
       "score": 0.2,
       "gap_w": 4.5,
       "atr_dist": 0,
-      "freshness": 813,
-      "close": 60.88,
+      "freshness": 815,
+      "close": 61.68,
       "name": null
     },
     "NWN": {
       "score": 0.2,
       "gap_w": 4.4,
       "atr_dist": 0,
-      "freshness": 743,
-      "close": 51.33,
-      "name": null
-    },
-    "CMS": {
-      "score": 0.1,
-      "gap_w": 1.4,
-      "atr_dist": 0,
-      "freshness": 176,
-      "close": 74.98,
+      "freshness": 745,
+      "close": 50.05,
       "name": null
     },
     "EXC": {
       "score": 0.1,
       "gap_w": 3.0,
       "atr_dist": 0,
-      "freshness": 729,
-      "close": 47.8,
+      "freshness": 731,
+      "close": 45.59,
+      "name": null
+    },
+    "LYB": {
+      "score": 0.1,
+      "gap_w": 1.3,
+      "atr_dist": 0,
+      "freshness": 164,
+      "close": 60.45,
       "name": null
     },
     "NEE": {
       "score": 0.1,
       "gap_w": 2.6,
       "atr_dist": 0,
-      "freshness": 386,
-      "close": 89.86,
-      "name": null
-    },
-    "WEC": {
-      "score": 0.1,
-      "gap_w": 2.3,
-      "atr_dist": 0,
-      "freshness": 190,
-      "close": 115.72,
+      "freshness": 388,
+      "close": 87.94,
       "name": null
     },
     "FIVE": {
       "score": 0.1,
       "gap_w": 2.9,
       "atr_dist": 0,
-      "freshness": 428,
-      "close": 205.08,
+      "freshness": 430,
+      "close": 219.15,
+      "name": null
+    },
+    "IRMD": {
+      "score": 0.1,
+      "gap_w": 1.2,
+      "atr_dist": 0,
+      "freshness": 773,
+      "close": 95.24,
       "name": null
     },
     "UJB": {
       "score": 0.1,
       "gap_w": 2.0,
       "atr_dist": 0,
-      "freshness": 337,
+      "freshness": 339,
       "close": 78.77,
       "name": null
     },
@@ -5945,77 +5697,61 @@
       "score": 0.1,
       "gap_w": 1.9,
       "atr_dist": 0,
-      "freshness": 302,
-      "close": 73.64,
-      "name": null
-    },
-    "CET": {
-      "score": 0.1,
-      "gap_w": 2.2,
-      "atr_dist": 0,
-      "freshness": 428,
-      "close": 52.35,
+      "freshness": 304,
+      "close": 74.34,
       "name": null
     },
     "POR": {
       "score": 0.1,
       "gap_w": 3.0,
       "atr_dist": 0,
-      "freshness": 337,
-      "close": 51.86,
-      "name": null
-    },
-    "SRE": {
-      "score": 0.0,
-      "gap_w": 0.9,
-      "atr_dist": 0,
-      "freshness": 351,
-      "close": 93.11,
+      "freshness": 339,
+      "close": 50.15,
       "name": null
     },
     "FXB": {
       "score": 0.0,
       "gap_w": 0.3,
       "atr_dist": 0,
-      "freshness": 498,
+      "freshness": 500,
       "close": 128.25,
-      "name": null
-    },
-    "LMAT": {
-      "score": 0.0,
-      "gap_w": 0.5,
-      "atr_dist": 0,
-      "freshness": 162,
-      "close": 98.53,
-      "name": null
-    },
-    "NGG": {
-      "score": 0.0,
-      "gap_w": 0.9,
-      "atr_dist": 0,
-      "freshness": 484,
-      "close": 82.45,
       "name": null
     },
     "NTR": {
       "score": -0.0,
       "gap_w": -0.8,
       "atr_dist": 0,
-      "freshness": 547,
-      "close": 67.06,
+      "freshness": 549,
+      "close": 70.71,
       "name": null
     },
-    "BHF": {
+    "GSK": {
       "score": 0.0,
-      "gap_w": 0.2,
+      "gap_w": 1.0,
       "atr_dist": 0,
-      "freshness": 260,
-      "close": 63.48,
+      "freshness": 458,
+      "close": 52.08,
+      "name": null
+    },
+    "ALGN": {
+      "score": -0.1,
+      "gap_w": -2.2,
+      "atr_dist": 0,
+      "freshness": 192,
+      "close": 181.43,
+      "name": null
+    },
+    "NYT": {
+      "score": -0.1,
+      "gap_w": -1.1,
+      "atr_dist": 0,
+      "freshness": 430,
+      "close": 75.73,
       "name": null
     }
   },
   "portfolio": {
-    "cash": 49.921465217623336,
+    "cash": 14.239462228326374,
     "positions": {
       "MAN": {
         "shares": 270.6692,
@@ -6029,24 +5765,24 @@
         "shares": 92.8376,
         "entry_price": 153.56
       },
-      "AGL": {
-        "shares": 148.4242,
-        "entry_price": 96.05
-      },
       "CORT": {
         "shares": 155.7708,
         "entry_price": 91.52
       },
-      "DAVE": {
-        "shares": 34.6865,
-        "entry_price": 411.0
+      "KFRC": {
+        "shares": 234.2667,
+        "entry_price": 60.9
       },
-      "SAFT": {
-        "shares": 137.8337,
-        "entry_price": 103.43
+      "DAVE": {
+        "shares": 38.6014,
+        "entry_price": 368.7
+      },
+      "OKTA": {
+        "shares": 104.4116,
+        "entry_price": 136.31
       }
     },
-    "last_value": 99793.03,
+    "last_value": 103785.68,
     "inception": "2026-07-27"
   },
   "entry_prices": {
@@ -6074,21 +5810,21 @@
       "price": 153.56,
       "date": "2026-07-27"
     },
-    "AGL": {
-      "price": 96.05,
-      "date": "2026-07-27"
-    },
     "CORT": {
       "price": 91.52,
       "date": "2026-07-27"
     },
-    "DAVE": {
-      "price": 411.0,
-      "date": "2026-07-27"
+    "KFRC": {
+      "price": 60.9,
+      "date": "2026-07-29"
     },
-    "SAFT": {
-      "price": 103.43,
-      "date": "2026-07-28"
+    "DAVE": {
+      "price": 368.7,
+      "date": "2026-07-30"
+    },
+    "OKTA": {
+      "price": 136.31,
+      "date": "2026-07-30"
     }
   }
 }

@@ -148,3 +148,12 @@ ETF B&H (29 equal weight)	+69.7%	16.7%	same
 MTF on the 22-ETF universe beats both SPY and equal-weight B&H by ~15-20%, with lower drawdown. The 22 ETFs include thematic names (SMH, XLF, XLE, etc.) with enough momentum dispersion for the scoring system to differentiate. Unlike the pure 11-sector universe where scores clustered low, SMH/tech ETFs score high on gap_w and atr_dist, creating meaningful rotation signals.
 Verdict: Trade the MTF Top-10 ETFs via --mode etf.
 ======================== 
+
+
+SwingTrader-MTF-Stocks
+Key: PKF6Y6TUU6QNGNUYVVIA36JWBM
+Secret: 2GS8PNRTEiwNF4pSGVZJ6aAcqiPJKeFVPUnrgJBSXgBw
+
+SwingTrader-MTF-ETF 
+Key:PKECKL32A36LWURH5UUFOLRVQN
+Secret: 7oqEA6UjSNNt65aQKbSH8QXSMoFJ725vLvn7wfRh1dDw

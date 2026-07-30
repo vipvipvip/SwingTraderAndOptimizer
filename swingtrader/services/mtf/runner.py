@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""MTF Top-N Daily Runner — Phase 1 (Paper Trading).
+"""MTF Top-N Daily Runner — Phase 2 (Live Trading).
 
-Daily one-shot: scores all S&P 500 stocks using Multi-TF criteria,
-picks top 10, logs picks + paper portfolio to CSV, sends Slack alert.
-
-MTCS (Hilbert sine/lead) continues running alongside during Phase 1.
+Daily one-shot: scores all stocks using Multi-TF criteria,
+picks top N, executes live Alpaca rotation, sends Slack alert.
 """
 
 import json
@@ -13,6 +11,7 @@ import csv
 import sys
 import time
 import tempfile
+import subprocess
 
 from format_etf import etf_table_lines
 import argparse
@@ -25,9 +24,16 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
 import db as db_module
+import executor
 
 NY = ZoneInfo('America/New_York')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(BASE_DIR)))
+SCANNER_VENV_PYTHON = os.path.join(PROJECT_ROOT, 'scanner', '.venv', 'bin', 'python')
+POPULATE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'populate_tickers.py')
+COMPUTE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'compute_indicators.py')
+DATA_RETRIES = 3
+DATA_RETRY_DELAY = 60
 
 MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs'}
 CSV_SUFFIX = {'stock': '_stock', 'etf': '_etf'}
@@ -59,6 +65,21 @@ def _send_slack(msg, mode='stock'):
     label = MODE_LABEL.get(mode, mode)
     try:
         r = requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'[MTF-TopN {label}] {msg}'}, timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        print(f'[SLACK] Error: {e}')
+
+
+def _send_slack_alert(msg, mode='stock'):
+    """Send a bright red danger-banner Slack alert."""
+    if not config.SLACK_WEBHOOK_URL:
+        return
+    label = MODE_LABEL.get(mode, mode)
+    try:
+        r = requests.post(config.SLACK_WEBHOOK_URL, json={
+            'text': f'🚨🔴 *[MTF-TopN {label}] DATA INCOMPLETE* 🔴🚨',
+            'attachments': [{'color': 'danger', 'fallback': msg, 'text': msg}]
+        }, timeout=10)
         r.raise_for_status()
     except Exception as e:
         print(f'[SLACK] Error: {e}')
@@ -157,6 +178,53 @@ def _ensure_csv():
     os.makedirs(os.path.join(BASE_DIR, 'data'), exist_ok=True)
 
 
+def _ensure_daily_data(conn, mode, today):
+    """Check all enabled tickers have today's daily bar. Retry populate+compute if not.
+    Returns (success, message, conn). conn may be a new connection after retry."""
+    is_etf = mode == 'etf'
+    expected = config.EXPECTED_ETFS if is_etf else config.EXPECTED_STOCKS
+
+    for attempt in range(1, DATA_RETRIES + 2):
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(DISTINCT d.ticker_id)
+                FROM tbl_scanner_tickers_daily d
+                JOIN tbl_stock_tickers s ON d.ticker_id = s.id
+                WHERE d.date::date = %s AND s.enabled = true AND s.is_etf = %s
+            """, (today, is_etf))
+            today_count = cur.fetchone()[0]
+
+        if today_count >= expected:
+            print(f'[MTF] Data complete: {today_count}/{expected} {MODE_LABEL[mode]}')
+            return True, '', conn
+
+        msg = f'[{today}] {today_count}/{expected} {MODE_LABEL[mode]} have today\'s daily bar'
+        print(f'[MTF] {msg}')
+
+        if attempt > DATA_RETRIES:
+            return False, msg, conn
+
+        print(f'[MTF] Retry {attempt}/{DATA_RETRIES}: running populate_tickers + compute_indicators...')
+        conn.close()
+        try:
+            subprocess.run(
+                [SCANNER_VENV_PYTHON, POPULATE_SCRIPT, '--timeframe', 'day', '--workers', '10'],
+                check=True, capture_output=True, timeout=300)
+            subprocess.run(
+                [SCANNER_VENV_PYTHON, COMPUTE_SCRIPT, '--timeframe', 'day', '--workers', '10'],
+                check=True, capture_output=True, timeout=300)
+        except subprocess.CalledProcessError as e:
+            print(f'[MTF] Retry script failed: {e}')
+        except subprocess.TimeoutExpired:
+            print(f'[MTF] Retry script timed out')
+
+        print(f'[MTF] Waiting {DATA_RETRY_DELAY}s before recheck...')
+        time.sleep(DATA_RETRY_DELAY)
+        conn = _get_db_conn()
+
+    return False, 'unexpected error', conn
+
+
 def _compute_score(weekly, daily, hourly, wi, di, hi, sig_date):
     if wi < config.WARMUP_BARS or di < 1 or hi < 1:
         return None
@@ -230,8 +298,9 @@ def _format_regime(pct):
         return f'{pct:.0f}% uptrend \u2705 Risk-on'
 
 
-def _run_single_mode(mode, now, today, min_score=None):
+def _run_single_mode(mode, now, today, min_score=None, live=False):
     """Run scoring + portfolio for one mode. Returns (success, slack_lines, sig_date).
+    If live=True, also executes real Alpaca trades.
     Does NOT send Slack. Does NOT catch exceptions (caller must handle)."""
     conn = _get_db_conn()
     is_etf = mode == 'etf'
@@ -242,6 +311,16 @@ def _run_single_mode(mode, now, today, min_score=None):
     if not _check_data_freshness(conn, mode):
         conn.close()
         return False, [f'Skipped {MODE_LABEL[mode]} — stale data'], None
+
+    # Guard: all tickers must have today's daily bar before proceeding
+    ok, msg, conn = _ensure_daily_data(conn, mode, today)
+    if not ok:
+        conn.close()
+        slack_msg = f'{MODE_LABEL[mode]}: {msg}\nRetried {DATA_RETRIES}x — aborting. No picks or trades today.'
+        _send_slack_alert(slack_msg, mode)
+        lines = [f'Skipped {MODE_LABEL[mode]} — incomplete daily data', msg]
+        print(f'[MTF] {" / ".join(lines)}')
+        return False, lines, None
 
     tickers = db_module.get_all_tickers(conn, is_etf=is_etf)
     print(f'[MTF] Loaded {len(tickers)} {MODE_LABEL[mode]}')
@@ -312,20 +391,6 @@ def _run_single_mode(mode, now, today, min_score=None):
 
     sig_date = latest_date
 
-    # Monday: if today's daily data is incomplete (fewer tickers than expected),
-    # force sig_date to Friday so picks are consistent all day.
-    # After 16:45 when scanner-hourly + compute finish, today's data is complete.
-    if now.weekday() == 0 and latest_date == today:
-        with conn.cursor() as cur:
-            cur.execute('''SELECT COUNT(DISTINCT ticker_id) FROM tbl_scanner_tickers_daily
-                           WHERE date::date = %s''', (today,))
-            today_count = cur.fetchone()[0]
-        expected = len(enabled_tids)
-        if today_count < expected:
-            last_trading = today - timedelta(days=3)
-            sig_date = last_trading
-            print(f'[MTF] Monday catch-up: today has {today_count}/{expected} tickers, using {sig_date}')
-
     print(f'[MTF] Signal date: {sig_date}')
 
     candidates = []
@@ -377,6 +442,11 @@ def _run_single_mode(mode, now, today, min_score=None):
     cash = portfolio['cash']
 
     dropped = [s for s in prev_picks if s not in top_symbols]
+    # Guard: don't sell positions that had no score data today (data gap)
+    data_gap_held = [s for s in dropped if s not in score_detail]
+    for sym in data_gap_held:
+        print(f'[MTF] ⚠️ {sym} held but no score today (data gap) — preserving position')
+    dropped = [s for s in dropped if s in score_detail]
     new_entries = [s for s in top_symbols if s not in prev_picks]
     buys = []
     sells = []
@@ -470,6 +540,20 @@ def _run_single_mode(mode, now, today, min_score=None):
             w.writerow(['date', 'symbol', 'side', 'shares', 'price', 'return', 'pnl'])
         for entry in trade_log_entries:
             w.writerow(entry)
+
+    # ── Live execution ──
+    if live and min_score is None:
+        try:
+            live_lines = executor.execute_rotation(top_symbols, score_detail, mode)
+            if live_lines:
+                lines.append('')
+                lines.append('Live trades:')
+                lines.extend(live_lines)
+        except Exception as e:
+            lines.append(f'')
+            lines.append(f'⚠️ Live execution failed: {e}')
+            import traceback
+            traceback.print_exc()
 
     # Build message
     label = MODE_LABEL[mode]
@@ -649,11 +733,11 @@ def _run_sector_info(conn, now, today):
     return lines
 
 
-def run(mode='stock', min_score=None):
+def run(mode='stock', min_score=None, live=False):
     now = datetime.now(NY)
     today = now.date()
     try:
-        success, lines, sig_date = _run_single_mode(mode, now, today, min_score)
+        success, lines, sig_date = _run_single_mode(mode, now, today, min_score, live=live)
         msg = '\n'.join(lines)
         print(f'\n{msg}\n')
         _send_slack(msg, mode)
@@ -662,21 +746,10 @@ def run(mode='stock', min_score=None):
         raise
 
 
-def run_all():
+def run_all(live=False):
     """Run stock and ETF modes (default + min-score) + sector info, send ONE combined Slack message."""
     now = datetime.now(NY)
     today = now.date()
-
-    # Duplicate guard: check if we already ran for today's signal date
-    state = _load_state('stock', None)
-    last_run_date = state.get('last_date')
-    # Get expected sig_date quickly to check
-    conn = _get_db_conn()
-    latest_date = db_module.get_latest_daily_bar_date(conn)
-    conn.close()
-    if latest_date and last_run_date and str(last_run_date) == str(latest_date):
-        print(f'[MTF] Already ran for sig_date {latest_date} — skipping duplicate')
-        return
 
     all_lines = []
     sig_date = None
@@ -684,7 +757,7 @@ def run_all():
     for mode in ('stock', 'etf'):
         all_lines.append('')
         try:
-            success, lines, sd = _run_single_mode(mode, now, today)
+            success, lines, sd = _run_single_mode(mode, now, today, live=live)
             all_lines.extend(lines)
             if sd:
                 sig_date = sd
@@ -734,8 +807,10 @@ if __name__ == '__main__':
                         help='Ticker universe to score (default: stock, use "all" for stocks+ETFs)')
     parser.add_argument('--min-score', type=float, default=None,
                         help='Minimum MTF score filter (default: no filter)')
+    parser.add_argument('--live', action='store_true',
+                        help='Execute live Alpaca trades (default: paper only)')
     args = parser.parse_args()
     if args.mode == 'all':
-        run_all()
+        run_all(live=args.live)
     else:
-        run(mode=args.mode, min_score=args.min_score)
+        run(mode=args.mode, min_score=args.min_score, live=args.live)

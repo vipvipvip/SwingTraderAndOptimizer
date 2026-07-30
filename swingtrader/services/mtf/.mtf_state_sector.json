@@ -1,0 +1,95 @@
+{
+  "last_date": "2026-07-23",
+  "last_picks": [
+    "XLF",
+    "XLV",
+    "XLE",
+    "XLU",
+    "XLI"
+  ],
+  "last_scores": {
+    "XLF": {
+      "score": 2.3,
+      "gap_w": 7.3,
+      "atr_dist": 0.7,
+      "freshness": 31,
+      "close": 56.05,
+      "name": "Financial Select Sector SPDR Fund"
+    },
+    "XLV": {
+      "score": 1.5,
+      "gap_w": 6.5,
+      "atr_dist": 0,
+      "freshness": 52,
+      "close": 161.43,
+      "name": "Health Care Select Sector SPDR Fund"
+    },
+    "XLE": {
+      "score": 1.2,
+      "gap_w": 10.7,
+      "atr_dist": 0.92,
+      "freshness": 332,
+      "close": 59.24,
+      "name": "Energy Select Sector SPDR Fund"
+    },
+    "XLU": {
+      "score": 0.7,
+      "gap_w": 2.6,
+      "atr_dist": 0.9,
+      "freshness": 864,
+      "close": 45.61,
+      "name": "Utilities Select Sector SPDR Fund"
+    },
+    "XLI": {
+      "score": 0.5,
+      "gap_w": 9.1,
+      "atr_dist": 0,
+      "freshness": 430,
+      "close": 181.96,
+      "name": "Industrial Select Sector SPDR Fund"
+    },
+    "XLRE": {
+      "score": 0.3,
+      "gap_w": 6.7,
+      "atr_dist": 0,
+      "freshness": 192,
+      "close": 44.94,
+      "name": "Real Estate Select Sector SPDR Fund"
+    },
+    "XLP": {
+      "score": 0.1,
+      "gap_w": 1.9,
+      "atr_dist": 0,
+      "freshness": 185,
+      "close": 83.24,
+      "name": "Consumer Staples Select Sector SPDR Fund"
+    }
+  },
+  "portfolio": {
+    "cash": 49.99999999999636,
+    "positions": {
+      "XLF": {
+        "shares": 356.6459,
+        "entry_price": 56.05
+      },
+      "XLV": {
+        "shares": 123.8308,
+        "entry_price": 161.43
+      },
+      "XLE": {
+        "shares": 337.4409,
+        "entry_price": 59.24
+      },
+      "XLU": {
+        "shares": 438.2811,
+        "entry_price": 45.61
+      },
+      "XLI": {
+        "shares": 109.8593,
+        "entry_price": 181.96
+      }
+    },
+    "last_value": 99950.03,
+    "inception": "2026-07-23"
+  }
+}

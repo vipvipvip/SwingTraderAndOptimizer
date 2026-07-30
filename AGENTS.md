@@ -7,20 +7,21 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 | # | Name | Universe | Signals | Status |
 |---|------|----------|---------|--------|
 | 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/VTV | Optimized trailing stop | ✅ Live (Laravel) |
-| 2 | **EMAC** (EMA/SMA 30-min) | QQQ/VTI/VTV | EMA10 > SMA40 cross | ✅ Live (systemd) |
-| 3 | **MTCS** (Hilbert sine/lead) | QQQ/VTI/VTV | Sine wave crossover | ✅ Live — **slated for replacement** |
-| 4 | **MTF Top-N** (Multi-TF rotation) | VTI (1,534 stocks) + 22 ETFs | gap_w + atr_dist + freshness → top 10 daily | 🚧 Phase 1 (paper) |
+| 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
+| 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
+| 4 | **MTF Top-N** (Multi-TF rotation) | VTI stocks + ETFs | gap_w + atr_dist + freshness → top 10 | ✅ Live (#PA3PPZAZR76Z stocks / #PA3U8GZ96PEN ETFs) |
 | 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 4:30 PM |
 
 ## Constraints & Preferences
 - EMAC 30-min runner (QQQ/VTI/VTV, Alpaca paper, Slack tag `[EMAC]`) must remain untouched
 - MTCS (Alpaca paper acct #PA3NCXU4O2CN, Slack tag `[MTCS]`) runs alongside MTF Top-N during Phase 1 paper validation; slated for replacement by MTF Top-N
 - Daily Signal Service (Mon–Fri 4:30 PM ET, Slack tagged `[DAILY]`) is separate and stays
-- MTF Top-N Phase 1 is paper-only (Slack tag `[MTF-TopN]`) — no real Alpaca trading
+- MTF Top-N Phase 2 is live (Slack tag `[MTF-TopN]`) — places real Alpaca orders
 - CHAND (Alpaca paper, Slack tag `[CHAND]`) runs via Laravel `ExecuteDailyTrades` command on same trio (QQQ/VTI/VTV)
 - All backtests use scanner DB tables (`tbl_scanner_tickers*`), not strategy-specific ETF tables
 - MTCS uses optimizer venv for Python execution; Hilbert chart script (`chart.py`) auto-detects this venv via `os.execv`
 - Three Alpaca paper accounts: CHAND (#PA31Z71315NM), EMAC (#PA3EHVX93SJT), MTCS (#PA3NCXU4O2CN)
+- Two MTF Alpaca accounts: Stocks (#PA3PPZAZR76Z), ETFs (#PA3U8GZ96PEN)
 - Keep same Slack channel for all services — differentiate via prefix tags
 - One combined Slack message per day for MTF (stocks + ETFs + sector info) via `--mode all`
 - `--min-score 5` variant tracked separately with isolated state files / CSVs
@@ -136,15 +137,15 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - Explorer page: `http://localhost:9000/scanner/explorer` (HTML), data: `/scanner/explorer-data?mode=stock|etf` (JSON, ~6s uncached / 0.16s cached)
 - Backtest results: unfiltered MTF +5,469% (22.2% DD); `--min-score 5` +9,061% (33.2% DD); `--min-score 5 + --infancy` +688% (59.2% DD)
 - **CHAND Alpaca** (key `PK7DIID4NUY5N7HODFQRDTWMJC`): $1M paper, active, 0 positions
-- **EMAC Alpaca** (key `PK6IRYP5QWRVRVYJJYH5Q22RZS`, acct #PA3EHVX93SJT): $1M paper, active, 0 positions
-- **MTCS Alpaca** (key `PKQK45DA2ERAXX6XKPUDORIWSH`, acct #PA3NCXU4O2CN): $1M paper, active, 0 positions
+- **EMAC Alpaca** (key `PK6IRYP5QWRVRVYJJYH5Q22RZS`, acct #PA3EHVX93SJT): $1M paper, stopped
+- **MTCS Alpaca** (key `PKQK45DA2ERAXX6XKPUDORIWSH`, acct #PA3NCXU4O2CN): $1M paper, stopped
 
 ## Relevant Files
-- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 1 — `--mode stock|etf|all` flag, `--min-score` (CLI arg + filtered candidates), separate CSVs/state per variant, crash alerting, stale data check, atomic writes, DB retry, sector info (info-only scoring in combined Slack), **entry date column in terminal + Slack**
+- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 2 — `--mode stock|etf|all` flag, `--live` flag (Alpaca order execution), `--min-score`, separate CSVs/state per variant, crash alerting, stale data check, atomic writes, DB retry, sector info, **entry date column in terminal + Slack**
 - `swingtrader/services/mtf/db.py`: Market breadth queries — compute close>SMA40 inline, fixed `both`→`bt` CTE name
 - `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy` flags, partial-date exclusion fix
 - `swingtrader/services/mtf/config.py`: DB config, TOP_N=10, COST=0.0005, CAPITAL=100000
-- `swingtrader/services/mtf/systemd/mtf-daily-runner.service`: Single ExecStart `--mode all`, `TimeoutStopSec=300`
+- `swingtrader/services/mtf/systemd/mtf-daily-runner.service`: Single ExecStart `--mode all --live`, `TimeoutStopSec=300`
 - `swingtrader/services/mtf/health_check.py`: Checks timer, journal errors, data freshness, state file staleness
 - `swingtrader/backend/storage/framework/cache/`: Explorer data cache (5-min TTL) — clear this + `views/` for blade changes
 - `common/docs/services_doc/mtf-daily-runner.service`: Docs copy matching active service (`--mode all`, `TimeoutStopSec=300`)

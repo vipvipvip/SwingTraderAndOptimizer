@@ -1,8 +1,34 @@
 import psycopg2
 import numpy as np
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS, EMA_PERIOD, SMA_PERIOD, WARMUP_BARS, TS_START, SECTOR_ETFS
+
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS mtf_positions (
+    id SERIAL PRIMARY KEY,
+    ticker_id INTEGER NOT NULL REFERENCES tbl_stock_tickers(id) UNIQUE,
+    symbol VARCHAR(20) NOT NULL,
+    quantity NUMERIC(12,4) NOT NULL DEFAULT 0,
+    entry_price NUMERIC(12,4),
+    entry_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS mtf_trades (
+    id SERIAL PRIMARY KEY,
+    ticker_id INTEGER NOT NULL REFERENCES tbl_stock_tickers(id),
+    symbol VARCHAR(20) NOT NULL,
+    side VARCHAR(10) NOT NULL,
+    quantity NUMERIC(12,4) NOT NULL,
+    price NUMERIC(12,4) NOT NULL,
+    executed_at TIMESTAMP NOT NULL,
+    pnl_dollar NUMERIC(14,4),
+    pnl_pct NUMERIC(10,4),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+"""
 
 
 def get_conn():
@@ -11,8 +37,66 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
-    conn.close()
-    print('[MTF DB] Scanner tables available')
+    try:
+        with conn.cursor() as cur:
+            cur.execute(SCHEMA_SQL)
+        conn.commit()
+        print('[MTF DB] mtf_ tables ready')
+    finally:
+        conn.close()
+
+
+def get_ticker_id_from_symbol(conn, symbol):
+    with conn.cursor() as cur:
+        cur.execute('SELECT id FROM tbl_stock_tickers WHERE symbol = %s', (symbol,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def get_position(conn, ticker_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT symbol, quantity, entry_price, entry_at FROM mtf_positions WHERE ticker_id = %s',
+            (ticker_id,))
+        return cur.fetchone()
+
+
+def get_all_positions(conn):
+    with conn.cursor() as cur:
+        cur.execute('SELECT ticker_id, symbol, quantity, entry_price FROM mtf_positions')
+        return {row[1]: {'ticker_id': row[0], 'symbol': row[1], 'quantity': float(row[2]), 'entry_price': float(row[3]) if row[3] else 0}
+                for row in cur.fetchall()}
+
+
+def upsert_position(conn, ticker_id, symbol, qty, entry_price, entry_at):
+    with conn.cursor() as cur:
+        cur.execute(
+            'INSERT INTO mtf_positions (ticker_id, symbol, quantity, entry_price, entry_at, updated_at) '
+            'VALUES (%s, %s, %s, %s, %s, NOW()) '
+            'ON CONFLICT (ticker_id) DO UPDATE SET '
+            'quantity = EXCLUDED.quantity, entry_price = EXCLUDED.entry_price, '
+            'entry_at = EXCLUDED.entry_at, updated_at = NOW()',
+            (ticker_id, symbol, qty, round(entry_price, 4), entry_at))
+    conn.commit()
+
+
+def delete_position(conn, ticker_id):
+    with conn.cursor() as cur:
+        cur.execute('DELETE FROM mtf_positions WHERE ticker_id = %s', (ticker_id,))
+    conn.commit()
+
+
+def insert_trade(conn, ticker_id, symbol, side, quantity, price, executed_at,
+                 pnl_dollar=None, pnl_pct=None):
+    with conn.cursor() as cur:
+        cur.execute(
+            'INSERT INTO mtf_trades (ticker_id, symbol, side, quantity, price, executed_at, '
+            'pnl_dollar, pnl_pct) '
+            'VALUES (%s, %s, %s, %s, %s, %s, %s, %s)',
+            (ticker_id, symbol, side, quantity, round(price, 4), executed_at,
+             round(pnl_dollar, 4) if pnl_dollar is not None else None,
+             round(pnl_pct, 4) if pnl_pct is not None else None))
+    conn.commit()
 
 
 def get_all_tickers(conn, is_etf=False):

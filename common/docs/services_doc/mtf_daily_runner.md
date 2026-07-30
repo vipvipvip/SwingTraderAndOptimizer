@@ -6,10 +6,9 @@ MTF Top-N replaces MTCS (Hilbert sine/lead) as the primary rotation strategy.
 Uses Multi-TF scoring (weekly gap + ATR distance + freshness) across all S&P 500
 stocks and ETFs to select the top N most favorable long candidates daily.
 
-**Phase 1: Paper trading** — logs picks, tracks simulated portfolio, sends Slack
-alerts. MTCS continues running alongside for cross-validation.
-
-**Phase 2: Replace MTCS** — stop Hilbert runner, wire MTF picks into Alpaca executor.
+**Phase 2 (Current): Live trading** — EMAC and MTCS stopped; MTF executes real
+Alpaca orders (market orders at ~4:45 PM ET queue for next-day open fill).
+Paper simulation still runs alongside for record-keeping.
 
 ## Scoring Formula
 
@@ -33,15 +32,14 @@ Score = min(gap_w / 20, 3)   (weekly gap from SMA(40), points)
 ┌──────────┐    ┌──────────────┐    ┌──────────────────┐    ┌──────────────────────┐
 │ DB (PSQL)│───▶│  runner.py   │───▶│  CSV logs        │───▶│  Slack alert (1 msg) │
 │ scanner  │    │  --mode all  │    │  (picks/portfolio)│   │  stocks + ETFs       │
-│ tables   │    │  (one-shot)  │    │                  │    │                      │
-└──────────┘    └──────────────┘    └──────────────────┘    └──────────────────────┘
-                     │
-                     ▼
-               ┌──────────────┐
-               │  state.json  │
-               │  (day-over-  │
-               │   day delta)  │
-               └──────────────┘
+│ tables   │    │  --live      │    │                  │    │  + live trade details│
+└──────────┘    └──┬───────────┘    └──────────────────┘    └──────────────────────┘
+                    │
+                    ▼
+           ┌────────────────┐
+           │  executor.py   │───▶ Alpaca Paper API
+           │  execute_rot.  │───▶ mtf_positions / mtf_trades
+           └────────────────┘
 ```
 
 ## Files
@@ -62,7 +60,8 @@ All files live under `swingtrader/services/mtf/`:
 | `data/mtf_trades_etf.csv` | Individual ETF trade log |
 | `.mtf_state_stock.json` | State file: stock picks + portfolio |
 | `.mtf_state_etf.json` | State file: ETF picks + portfolio |
-| `systemd/mtf-daily-runner.{service,timer}` | systemd oneshot + timer (weekdays 5:30 PM ET, `--mode all`) |
+| `systemd/mtf-daily-runner.{service,timer}` | systemd oneshot + timer (weekdays 5:30 PM ET, `--mode all --live`) |
+| `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA3PPZAZR76Z, etf #PA3U8GZ96PEN) |
 
 ## Backtest Results (Multi-TF Daily Rebalance)
 
@@ -181,7 +180,8 @@ sudo journalctl -u mtf-daily-runner.service -f
 ### Manual
 ```bash
 cd /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
-python3 runner.py --mode all              # Both modes + sector info + min-score 5, one Slack message
+python3 runner.py --mode all --live       # Both modes + live Alpaca trades + sector info + min-score 5
+python3 runner.py --mode all              # Both modes, paper-only (no live trades)
 python3 runner.py --mode stock            # Stocks only (default scoring, TOP_N=10)
 python3 runner.py --mode stock --min-score 5  # Stocks only, score ≥ 5 filter
 python3 runner.py --mode etf              # ETFs only (default scoring, TOP_N=10)
@@ -196,15 +196,19 @@ and separate CSVs.
 
 | Phase | Action | Status |
 |-------|--------|--------|
-| 1 | Paper trading — log picks, track portfolio, Slack alerts alongside MTCS | 🚧 In Progress |
-| 2 | Stop MTCS runner, wire MTF picks into Alpaca executor (start --top-n 5) | ⏳ Pending |
-| 3 | Scale to --top-n 10, add stop-loss/trailing exit if needed | ⏳ Pending |
+| 1 | Paper trading — log picks, track portfolio, Slack alerts alongside MTCS | ✅ Done |
+| 2 | Stop MTCS/EMAC, wire MTF picks into Alpaca executor (--live flag, top-n 10) | ✅ Live |
+| 3 | Scale top-N, add stop-loss/trailing exit if needed | ⏳ Pending |
 
-## DB Schema (Read-Only)
+## DB Schema
 
-The runner reads from existing scanner tables:
-- `tbl_stock_tickers` — Master ticker list (503 S&P 500 stocks + 22 ETFs, `is_etf` flag)
+### Read-only (scanner tables)
+- `tbl_stock_tickers` — Master ticker list (1,534 stocks + 22 ETFs, `is_etf` flag)
 - `tbl_etf_tickers` — ETF display names (company_name)
 - `tbl_scanner_tickers` — Weekly OHLCV + indicators
 - `tbl_scanner_tickers_daily` — Daily OHLCV + indicators
 - `tbl_scanner_tickers_1hour` — 1-hour OHLCV + atr_stop
+
+### Read-write (mtf_ tables, created by init_db())
+- `mtf_positions` — Current open positions (ticker_id, symbol, quantity, entry_price, entry_at)
+- `mtf_trades` — Historical trade log (ticker_id, symbol, side, quantity, price, pnl, executed_at)
