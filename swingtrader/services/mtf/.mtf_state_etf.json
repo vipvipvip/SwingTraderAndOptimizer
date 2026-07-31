@@ -1,5 +1,5 @@
 {
-  "last_date": "2026-07-30",
+  "last_date": "2026-07-31",
   "last_picks": [
     "XLF",
     "XLV",
@@ -10,132 +10,124 @@
     "XLI",
     "XLRE",
     "DIA",
-    "IJH"
+    "RSP"
   ],
   "last_scores": {
     "XLF": {
       "score": 1.8,
       "gap_w": 8.7,
       "atr_dist": 0,
-      "freshness": 38,
-      "close": 57.0,
+      "freshness": 39,
+      "close": 56.87,
       "name": "Financial Select Sector SPDR Fund"
     },
     "XLV": {
       "score": 1.4,
       "gap_w": 7.6,
       "atr_dist": 0,
-      "freshness": 59,
-      "close": 163.49,
+      "freshness": 60,
+      "close": 162.14,
       "name": "Health Care Select Sector SPDR Fund"
     },
     "SCHD": {
       "score": 0.6,
       "gap_w": 12.8,
       "atr_dist": 0,
-      "freshness": 346,
-      "close": 33.4,
+      "freshness": 347,
+      "close": 33.28,
       "name": "Schwab U.S. Dividend Equity ETF"
     },
     "XLE": {
       "score": 0.6,
       "gap_w": 12.6,
       "atr_dist": 0,
-      "freshness": 339,
-      "close": 58.95,
+      "freshness": 340,
+      "close": 59.25,
       "name": "Energy Select Sector SPDR Fund"
     },
     "IJR": {
       "score": 0.6,
       "gap_w": 12.2,
       "atr_dist": 0,
-      "freshness": 353,
-      "close": 145.5,
+      "freshness": 354,
+      "close": 145.79,
       "name": "iShares Core S&P Small-Cap ETF"
     },
     "VTV": {
       "score": 0.5,
       "gap_w": 10.6,
       "atr_dist": 0,
-      "freshness": 402,
-      "close": 220.54,
+      "freshness": 403,
+      "close": 220.71,
       "name": "Vanguard Value ETF"
     },
     "XLI": {
       "score": 0.5,
       "gap_w": 10.0,
       "atr_dist": 0,
-      "freshness": 437,
-      "close": 178.35,
+      "freshness": 438,
+      "close": 180.34,
       "name": "Industrial Select Sector SPDR Fund"
     },
     "XLRE": {
       "score": 0.4,
       "gap_w": 8.9,
       "atr_dist": 0,
-      "freshness": 199,
-      "close": 45.29,
+      "freshness": 200,
+      "close": 45.16,
       "name": "Real Estate Select Sector SPDR Fund"
     },
     "DIA": {
       "score": 0.4,
       "gap_w": 7.2,
       "atr_dist": 0,
-      "freshness": 395,
-      "close": 521.37,
+      "freshness": 396,
+      "close": 522.44,
       "name": "SPDR Dow Jones Industrial Average ETF"
-    },
-    "IJH": {
-      "score": 0.4,
-      "gap_w": 8.9,
-      "atr_dist": 0,
-      "freshness": 381,
-      "close": 75.36,
-      "name": "iShares Core S&P Mid-Cap ETF"
     },
     "RSP": {
       "score": 0.4,
       "gap_w": 8.3,
       "atr_dist": 0,
-      "freshness": 402,
-      "close": 215.35,
+      "freshness": 403,
+      "close": 215.24,
       "name": "Invesco S&P 500 Equal Weight ETF"
     },
     "EFA": {
       "score": 0.3,
       "gap_w": 5.7,
       "atr_dist": 0,
-      "freshness": 535,
-      "close": 106.24,
+      "freshness": 536,
+      "close": 105.16,
       "name": "iShares MSCI EAFE ETF"
     },
     "XLB": {
       "score": 0.3,
       "gap_w": 5.3,
       "atr_dist": 0,
-      "freshness": 388,
-      "close": 51.65,
+      "freshness": 389,
+      "close": 50.69,
       "name": "Materials Select Sector SPDR Fund"
     },
     "XLU": {
       "score": 0.2,
       "gap_w": 3.9,
       "atr_dist": 0,
-      "freshness": 871,
-      "close": 44.65,
+      "freshness": 872,
+      "close": 44.59,
       "name": "Utilities Select Sector SPDR Fund"
     },
     "XLP": {
       "score": 0.2,
       "gap_w": 3.6,
       "atr_dist": 0,
-      "freshness": 192,
-      "close": 85.46,
+      "freshness": 193,
+      "close": 84.54,
       "name": "Consumer Staples Select Sector SPDR Fund"
     }
   },
   "portfolio": {
-    "cash": 0.02498750394465077,
+    "cash": 1.2493751972323525e-05,
     "positions": {
       "VTV": {
         "shares": 225.5487,
@@ -148,9 +140,13 @@
       "IJH": {
         "shares": 0.6656,
         "entry_price": 75.05
+      },
+      "RSP": {
+        "shares": 0.0001,
+        "entry_price": 215.24
       }
     },
-    "last_value": 99687.1,
+    "last_value": 99827.99,
     "inception": "2026-07-27"
   },
   "entry_prices": {
@@ -193,6 +189,11 @@
     "IJH": {
       "price": 75.05,
       "date": "2026-07-29"
+    },
+    "RSP": {
+      "price": 215.24,
+      "date": "2026-07-31"
     }
-  }
+  },
+  "pending_execution": null
 }

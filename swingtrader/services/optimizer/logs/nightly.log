@@ -13778,3 +13778,654 @@ Results for VTV:
   Trades: 52
   Runtime: 2.9s
 [2026-07-30 09:20:24] Optimizer finished (exit: 0)
+[2026-07-31 09:12:03] Nightly optimizer starting...
+[2026-07-31 09:12:03] Waiting for PostgreSQL...
+[2026-07-31 09:12:03] PostgreSQL ready.
+Traceback (most recent call last):
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 198, in _one_request
+    response.raise_for_status()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 429 Client Error: Too Many Requests for url: https://data.alpaca.markets/v2/stocks/bars?start=2026-07-29T04%3A00%3A00%2B00%3A00&end=2026-07-31T13%3A12%3A18.387227%2B00%3A00&limit=10000&timeframe=1Day&feed=iex&symbols=XLK
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/data_fetcher.py", line 161, in fetch_historical_data
+    bars_dict = client.get_stock_bars(request_params)
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/data/historical/stock.py", line 87, in get_stock_bars
+    raw_bars = self._get_marketdata(
+        path="/stocks/bars",
+        params=request_params.to_request_fields(),
+        page_size=10_000,
+    )
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 393, in _get_marketdata
+    response = self.get(path=path, data=params)
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 225, in get
+    return self._request("GET", path, data, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 131, in _request
+    return self._one_request(method, url, opts, retry)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 207, in _one_request
+    raise APIError(error, http_error)
+alpaca.common.exceptions.APIError: {"message": "too many requests."}
+
+Traceback (most recent call last):
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 198, in _one_request
+    response.raise_for_status()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 429 Client Error: Too Many Requests for url: https://data.alpaca.markets/v2/stocks/bars?start=2026-07-27T04%3A00%3A00%2B00%3A00&end=2026-07-31T13%3A12%3A27.670036%2B00%3A00&limit=10000&timeframe=1Day&feed=iex&symbols=XLE
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/data_fetcher.py", line 161, in fetch_historical_data
+    bars_dict = client.get_stock_bars(request_params)
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/data/historical/stock.py", line 87, in get_stock_bars
+    raw_bars = self._get_marketdata(
+        path="/stocks/bars",
+        params=request_params.to_request_fields(),
+        page_size=10_000,
+    )
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 393, in _get_marketdata
+    response = self.get(path=path, data=params)
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 225, in get
+    return self._request("GET", path, data, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 131, in _request
+    return self._one_request(method, url, opts, retry)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/lib/python3.14/site-packages/alpaca/common/rest.py", line 207, in _one_request
+    raise APIError(error, http_error)
+alpaca.common.exceptions.APIError: {"message": "too many requests."}
+
+[Parallel(n_jobs=-1)]: Using backend LokyBackend with 8 concurrent workers.
+
+======================================================================
+NIGHTLY OPTIMIZER RUN
+Timestamp: 2026-07-31T09:12:06.785371-04:00
+Tickers: QQQ, VTI, VTV
+Timeframe: 1Day
+======================================================================
+
+
+======================================================================
+STEP 1: FETCHING INCREMENTAL PRICES
+======================================================================
+
+============================================================
+Updating XLC
+============================================================
+Loaded 1509 bars for XLC from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLC incremental data since 2026-07-29
+Fetching XLC data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for XLC (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for XLC to PostgreSQL
+Loaded 1510 bars for XLC from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating XLY
+============================================================
+Loaded 1509 bars for XLY from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLY incremental data since 2026-07-29
+Fetching XLY data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for XLY (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for XLY to PostgreSQL
+Loaded 1510 bars for XLY from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating XLP
+============================================================
+Loaded 1509 bars for XLP from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLP incremental data since 2026-07-29
+Fetching XLP data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for XLP (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for XLP to PostgreSQL
+Loaded 1510 bars for XLP from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating XLV
+============================================================
+Loaded 1509 bars for XLV from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLV incremental data since 2026-07-29
+Fetching XLV data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for XLV (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for XLV to PostgreSQL
+Loaded 1510 bars for XLV from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating XLI
+============================================================
+Loaded 1509 bars for XLI from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLI incremental data since 2026-07-29
+Fetching XLI data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for XLI (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for XLI to PostgreSQL
+Loaded 1510 bars for XLI from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating XLB
+============================================================
+Loaded 1509 bars for XLB from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLB incremental data since 2026-07-29
+Fetching XLB data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for XLB (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for XLB to PostgreSQL
+Loaded 1510 bars for XLB from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating XLRE
+============================================================
+Loaded 1509 bars for XLRE from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLRE incremental data since 2026-07-29
+Fetching XLRE data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for XLRE (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for XLRE to PostgreSQL
+Loaded 1510 bars for XLRE from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating IWM
+============================================================
+Loaded 1509 bars for IWM from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching IWM incremental data since 2026-07-29
+Fetching IWM data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for IWM (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for IWM to PostgreSQL
+Loaded 1510 bars for IWM from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating DIA
+============================================================
+Loaded 1509 bars for DIA from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching DIA incremental data since 2026-07-29
+Fetching DIA data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for DIA (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for DIA to PostgreSQL
+Loaded 1510 bars for DIA from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating IJH
+============================================================
+Loaded 1509 bars for IJH from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching IJH incremental data since 2026-07-29
+Fetching IJH data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for IJH (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for IJH to PostgreSQL
+Loaded 1510 bars for IJH from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating IJR
+============================================================
+Loaded 1509 bars for IJR from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching IJR incremental data since 2026-07-29
+Fetching IJR data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for IJR (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for IJR to PostgreSQL
+Loaded 1510 bars for IJR from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating RSP
+============================================================
+Loaded 1509 bars for RSP from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching RSP incremental data since 2026-07-29
+Fetching RSP data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for RSP (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for RSP to PostgreSQL
+Loaded 1510 bars for RSP from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating SCHB
+============================================================
+Loaded 1504 bars for SCHB from PostgreSQL
+Current data: 1504 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching SCHB incremental data since 2026-07-29
+Fetching SCHB data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for SCHB (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for SCHB to PostgreSQL
+Loaded 1505 bars for SCHB from PostgreSQL
+✓ Updated: 1505 total bars, last: 2026-07-30
+
+============================================================
+Updating SCHD
+============================================================
+Loaded 1509 bars for SCHD from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching SCHD incremental data since 2026-07-29
+Fetching SCHD data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for SCHD (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for SCHD to PostgreSQL
+Loaded 1510 bars for SCHD from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating SMH
+============================================================
+Loaded 1509 bars for SMH from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching SMH incremental data since 2026-07-29
+Fetching SMH data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for SMH (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for SMH to PostgreSQL
+Loaded 1510 bars for SMH from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating VGT
+============================================================
+Loaded 1508 bars for VGT from PostgreSQL
+Current data: 1508 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching VGT incremental data since 2026-07-29
+Fetching VGT data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for VGT (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VGT to PostgreSQL
+Loaded 1509 bars for VGT from PostgreSQL
+✓ Updated: 1509 total bars, last: 2026-07-30
+
+============================================================
+Updating VUG
+============================================================
+Loaded 1509 bars for VUG from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching VUG incremental data since 2026-07-29
+Fetching VUG data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for VUG (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VUG to PostgreSQL
+Loaded 1510 bars for VUG from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating XLF
+============================================================
+Loaded 1509 bars for XLF from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLF incremental data since 2026-07-29
+Fetching XLF data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for XLF (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for XLF to PostgreSQL
+Loaded 1510 bars for XLF from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating XLK
+============================================================
+Loaded 1509 bars for XLK from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLK incremental data since 2026-07-29
+Fetching XLK data from 2026-07-29 to 2026-07-31
+Error fetching data for XLK: {"message": "too many requests."}
+
+No new data to fetch for XLK
+
+============================================================
+Updating XLE
+============================================================
+Loaded 1507 bars for XLE from PostgreSQL
+Current data: 1507 bars, last: 2026-07-27
+Fetching incremental data...
+Fetching XLE incremental data since 2026-07-27
+Fetching XLE data from 2026-07-27 to 2026-07-31
+Error fetching data for XLE: {"message": "too many requests."}
+
+No new data to fetch for XLE
+
+============================================================
+Updating XLU
+============================================================
+Loaded 1509 bars for XLU from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching XLU incremental data since 2026-07-29
+Fetching XLU data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for XLU (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for XLU to PostgreSQL
+Loaded 1510 bars for XLU from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating TLT
+============================================================
+Loaded 1509 bars for TLT from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching TLT incremental data since 2026-07-29
+Fetching TLT data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for TLT (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for TLT to PostgreSQL
+Loaded 1510 bars for TLT from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating GLD
+============================================================
+Loaded 1509 bars for GLD from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching GLD incremental data since 2026-07-29
+Fetching GLD data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for GLD (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for GLD to PostgreSQL
+Loaded 1510 bars for GLD from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating EEM
+============================================================
+Loaded 1509 bars for EEM from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching EEM incremental data since 2026-07-29
+Fetching EEM data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for EEM (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for EEM to PostgreSQL
+Loaded 1510 bars for EEM from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating EFA
+============================================================
+Loaded 1509 bars for EFA from PostgreSQL
+Current data: 1509 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching EFA incremental data since 2026-07-29
+Fetching EFA data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for EFA (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for EFA to PostgreSQL
+Loaded 1510 bars for EFA from PostgreSQL
+✓ Updated: 1510 total bars, last: 2026-07-30
+
+============================================================
+Updating QQQ
+============================================================
+Loaded 1508 bars for QQQ from PostgreSQL
+Current data: 1508 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching QQQ incremental data since 2026-07-29
+Fetching QQQ data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for QQQ (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for QQQ to PostgreSQL
+Loaded 1509 bars for QQQ from PostgreSQL
+✓ Updated: 1509 total bars, last: 2026-07-30
+
+============================================================
+Updating VTI
+============================================================
+Loaded 1508 bars for VTI from PostgreSQL
+Current data: 1508 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching VTI incremental data since 2026-07-29
+Fetching VTI data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for VTI (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTI to PostgreSQL
+Loaded 1509 bars for VTI from PostgreSQL
+✓ Updated: 1509 total bars, last: 2026-07-30
+
+============================================================
+Updating VTV
+============================================================
+Loaded 1508 bars for VTV from PostgreSQL
+Current data: 1508 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching VTV incremental data since 2026-07-29
+Fetching VTV data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for VTV (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for VTV to PostgreSQL
+Loaded 1509 bars for VTV from PostgreSQL
+✓ Updated: 1509 total bars, last: 2026-07-30
+
+============================================================
+Updating SPY
+============================================================
+Loaded 1044 bars for SPY from PostgreSQL
+Current data: 1044 bars, last: 2026-07-29
+Fetching incremental data...
+Fetching SPY incremental data since 2026-07-29
+Fetching SPY data from 2026-07-29 to 2026-07-31
+Fetched 2 bars for SPY (timestamped in America/New_York)
+Appending 2 bars to database...
+Appended 1 new bars for SPY to PostgreSQL
+Loaded 1045 bars for SPY from PostgreSQL
+✓ Updated: 1045 total bars, last: 2026-07-30
+[Parallel(n_jobs=-1)]: Done   3 out of   3 | elapsed:    3.9s finished
+✓ Saved optimization candidate for QQQ (base_case=0)
+✓ Saved best candidate for QQQ (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for QQQ
+✓ Saved 36 backtest trades for QQQ to PostgreSQL
+✓ Saved 37 equity snapshots for QQQ
+✓ Logged optimization run for QQQ: Sharpe=1.0516552898518303
+✓ Saved optimization candidate for VTI (base_case=0)
+✓ Saved best candidate for VTI (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTI
+✓ Saved 46 backtest trades for VTI to PostgreSQL
+✓ Saved 47 equity snapshots for VTI
+✓ Logged optimization run for VTI: Sharpe=1.0372155475752969
+✓ Saved optimization candidate for VTV (base_case=0)
+✓ Saved best candidate for VTV (cleaned up old candidates)
+✓ Updated base_case=true params + metrics for VTV
+✓ Saved 52 backtest trades for VTV to PostgreSQL
+✓ Saved 53 equity snapshots for VTV
+✓ Logged optimization run for VTV: Sharpe=0.9509067420964188
+
+======================================================================
+STEP 3: PORTFOLIO COORDINATE ASCENT
+======================================================================
+Loaded 1509 bars for QQQ from PostgreSQL
+Loaded 1509 bars for VTI from PostgreSQL
+Loaded 1509 bars for VTV from PostgreSQL
+  Promotion gate: 0.8298 (best ever: 0.0000, current: 0.8298)
+  Converged after 2 iterations
+  Portfolio return: 145.07%
+  Sharpe: 1.07 (baseline: 0.83)
+  Max DD: 14.71%
+  Trades: 59
+  QQQ: CHAND(18, 3.5, entry_mult=1.5), REG(slope_pct 8d th=-0.5)
+  VTI: CHAND(18, 3.0, entry_mult=1.0)
+  VTV: CHAND(18, 2.5, entry_mult=2.0), REG(slope_atr 3d th=-2.0)
+  ✓ Sharpe improved 0.8298 → 1.0691 — promoting new params
+✓ Saved 59 backtest trades for BLENDED to PostgreSQL
+✓ Saved 1492 equity snapshots for BLENDED
+  ✓ Saved BLENDED portfolio results
+
+======================================================================
+NIGHTLY OPTIMIZATION COMPLETE
+======================================================================
+Total tickers: 3/3
+Total runtime: 22.9s
+
+QQQ:
+  Params: CHAND(period=18, mult=3.5), REG(slope_pct 8d th=-0.5)
+  Sharpe: 1.05 | Return: 134.26%
+VTI:
+  Params: CHAND(period=14, mult=3.0)
+  Sharpe: 1.04 | Return: 89.94%
+VTV:
+  Params: CHAND(period=18, mult=2.5), REG(slope_atr 3d th=-1.0)
+  Sharpe: 0.95 | Return: 66.45%
+
+======================================================================
+DATABASE SUMMARY
+======================================================================
+
+QQQ:
+  Sharpe: 1.05, Return: 134.26%, Win Rate: 58.3%
+VTI:
+  Sharpe: 1.04, Return: 89.94%, Win Rate: 54.4%
+VTV:
+  Sharpe: 0.95, Return: 66.45%, Win Rate: 51.9%
+BLENDED (PORTFOLIO):
+  Sharpe: 1.07, Return: 145.07%, Win Rate: 49.2%
+
+[VTI] Starting optimization...
+
+======================================================================
+Optimizing VTI [1Day]...
+======================================================================
+Loaded 1509 bars for VTI from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTI] Tested 10/27 combinations...
+  [VTI] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.04       54.3     89.94     % 46       CHAND(period=14, mult=3.0, entry=1.5)                                 
+2      1.01       53.7     81.10     % 41       CHAND(period=18, mult=3.0, entry=1.0)                                 
+3      1.00       58.1     83.44     % 43       CHAND(period=18, mult=3.0, entry=1.5)                                 
+4      0.97       52.3     79.26     % 44       CHAND(period=14, mult=3.0, entry=1.0)                                 
+5      0.89       56.4     73.37     % 39       CHAND(period=18, mult=3.5, entry=1.5)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=14, mult=3.0, entry=1.5)...
+  ✓ Chandelier-only wins: Sharpe 1.04 vs regression 1.04
+
+Results for VTI:
+  Best Sharpe: 1.04
+  Win Rate: 54.3%
+  Total Return: 89.94%
+  Trades: 46
+  Runtime: 2.8s
+
+[QQQ] Starting optimization...
+
+======================================================================
+Optimizing QQQ [1Day]...
+======================================================================
+Loaded 1509 bars for QQQ from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [QQQ] Tested 10/27 combinations...
+  [QQQ] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      1.02       58.3     128.63    % 36       CHAND(period=18, mult=3.5, entry=1.5)                                 
+2      0.95       48.7     123.62    % 39       CHAND(period=14, mult=3.5, entry=1.5)                                 
+3      0.94       46.3     127.55    % 41       CHAND(period=14, mult=3.5, entry=2.0)                                 
+4      0.93       51.3     118.42    % 39       CHAND(period=18, mult=3.5, entry=2.0)                                 
+5      0.88       60.0     100.11    % 35       CHAND(period=18, mult=3.5, entry=1.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=3.5, entry=1.5)...
+  ✓ Regression exit wins: Sharpe 1.05 vs 1.02
+
+Results for QQQ:
+  Best Sharpe: 1.05
+  Win Rate: 58.3%
+  Total Return: 134.26%
+  Trades: 36
+  Runtime: 2.8s
+
+[VTV] Starting optimization...
+
+======================================================================
+Optimizing VTV [1Day]...
+======================================================================
+Loaded 1509 bars for VTV from PostgreSQL
+PASS 1: Testing 27 chandelier-only combinations...
+
+Testing 27 parameter combinations...
+This may take a few minutes...
+
+  [VTV] Tested 10/27 combinations...
+  [VTV] Tested 20/27 combinations...
+
+[OK] Optimization complete! Top 5 results:
+
+Rank   Sharpe     Win%     Return     Trades   Parameters                                                            
+------------------------------------------------------------------------------------------------------------------------
+1      0.93       52.9     65.19     % 51       CHAND(period=18, mult=2.5, entry=2.0)                                 
+2      0.86       58.3     62.45     % 48       CHAND(period=14, mult=3.0, entry=1.5)                                 
+3      0.82       52.2     56.85     % 46       CHAND(period=18, mult=3.0, entry=2.0)                                 
+4      0.81       53.8     60.21     % 52       CHAND(period=14, mult=3.0, entry=2.0)                                 
+5      0.80       53.2     56.98     % 62       CHAND(period=14, mult=2.5, entry=2.0)                                 
+
+PASS 2: Testing 32 regression combinations (fixed chandelier: period=18, mult=2.5, entry=2.0)...
+  ✓ Regression exit wins: Sharpe 0.95 vs 0.93
+
+Results for VTV:
+  Best Sharpe: 0.95
+  Win Rate: 51.9%
+  Total Return: 66.45%
+  Trades: 52
+  Runtime: 2.8s
+[2026-07-31 09:13:11] Optimizer finished (exit: 0)

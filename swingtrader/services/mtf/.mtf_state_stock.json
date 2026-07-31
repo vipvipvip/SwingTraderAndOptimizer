@@ -461,14 +461,6 @@
       "close": 404.72,
       "name": null
     },
-    "BTSGU": {
-      "score": 2.5,
-      "gap_w": 49.8,
-      "atr_dist": 0,
-      "freshness": 999,
-      "close": 229.31,
-      "name": null
-    },
     "PAG": {
       "score": 2.5,
       "gap_w": 31.9,
@@ -717,14 +709,6 @@
       "close": 534.89,
       "name": null
     },
-    "MOG.B": {
-      "score": 2.3,
-      "gap_w": 46.1,
-      "atr_dist": 0,
-      "freshness": 999,
-      "close": 420.07,
-      "name": null
-    },
     "EAT": {
       "score": 2.3,
       "gap_w": 28.1,
@@ -795,14 +779,6 @@
       "atr_dist": 0,
       "freshness": 38,
       "close": 83.32,
-      "name": null
-    },
-    "DULL": {
-      "score": 2.3,
-      "gap_w": 9.2,
-      "atr_dist": 0,
-      "freshness": 10,
-      "close": 76.49,
       "name": null
     },
     "UHAL.B": {
@@ -923,14 +899,6 @@
       "atr_dist": 0,
       "freshness": 115,
       "close": 97.47,
-      "name": null
-    },
-    "UYG": {
-      "score": 2.2,
-      "gap_w": 13.5,
-      "atr_dist": 0,
-      "freshness": 31,
-      "close": 96.11,
       "name": null
     },
     "CALM": {
@@ -1067,14 +1035,6 @@
       "atr_dist": 0,
       "freshness": 3,
       "close": 362.43,
-      "name": null
-    },
-    "ITIC": {
-      "score": 2.1,
-      "gap_w": 14.1,
-      "atr_dist": 0,
-      "freshness": 38,
-      "close": 294.57,
       "name": null
     },
     "NET": {
@@ -1461,14 +1421,6 @@
       "close": 60.16,
       "name": null
     },
-    "RXL": {
-      "score": 2.0,
-      "gap_w": 12.9,
-      "atr_dist": 0,
-      "freshness": 38,
-      "close": 58.4,
-      "name": null
-    },
     "CDW": {
       "score": 1.9,
       "gap_w": 4.5,
@@ -1691,14 +1643,6 @@
       "atr_dist": 0,
       "freshness": 598,
       "close": 67.71,
-      "name": null
-    },
-    "IWFL": {
-      "score": 1.9,
-      "gap_w": 2.7,
-      "atr_dist": 0,
-      "freshness": 17,
-      "close": 58.0,
       "name": null
     },
     "AXP": {
@@ -1963,14 +1907,6 @@
       "atr_dist": 0,
       "freshness": 52,
       "close": 88.03,
-      "name": null
-    },
-    "WHLRL": {
-      "score": 1.7,
-      "gap_w": 1.8,
-      "atr_dist": 0,
-      "freshness": 24,
-      "close": 82.5,
       "name": null
     },
     "BMRN": {
@@ -2493,14 +2429,6 @@
       "close": 70.86,
       "name": null
     },
-    "SCDL": {
-      "score": 1.4,
-      "gap_w": 28.2,
-      "atr_dist": 0,
-      "freshness": 1123,
-      "close": 55.91,
-      "name": null
-    },
     "ZD": {
       "score": 1.4,
       "gap_w": 28.9,
@@ -2643,14 +2571,6 @@
       "atr_dist": 0,
       "freshness": 52,
       "close": 68.31,
-      "name": null
-    },
-    "BPH": {
-      "score": 1.3,
-      "gap_w": 26.4,
-      "atr_dist": 0,
-      "freshness": 999,
-      "close": 66.83,
       "name": null
     },
     "OVV": {
@@ -2811,14 +2731,6 @@
       "atr_dist": 0,
       "freshness": 1305,
       "close": 107.11,
-      "name": null
-    },
-    "TMP": {
-      "score": 1.2,
-      "gap_w": 23.8,
-      "atr_dist": 0,
-      "freshness": 346,
-      "close": 100.76,
       "name": null
     },
     "GEF.B": {
@@ -3085,14 +2997,6 @@
       "close": 79.85,
       "name": null
     },
-    "ESEA": {
-      "score": 1.1,
-      "gap_w": 21.5,
-      "atr_dist": 0,
-      "freshness": 444,
-      "close": 74.53,
-      "name": null
-    },
     "SUN": {
       "score": 1.1,
       "gap_w": 22.0,
@@ -3307,14 +3211,6 @@
       "atr_dist": 0,
       "freshness": 353,
       "close": 79.46,
-      "name": null
-    },
-    "GSBC": {
-      "score": 1.0,
-      "gap_w": 20.2,
-      "atr_dist": 0,
-      "freshness": 353,
-      "close": 80.83,
       "name": null
     },
     "ANDE": {
@@ -3669,28 +3565,12 @@
       "close": 75.77,
       "name": null
     },
-    "SHEH": {
-      "score": 0.9,
-      "gap_w": 18.5,
-      "atr_dist": 0,
-      "freshness": 150,
-      "close": 68.68,
-      "name": null
-    },
     "EFSC": {
       "score": 0.9,
       "gap_w": 13.4,
       "atr_dist": 0,
       "freshness": 108,
       "close": 66.11,
-      "name": null
-    },
-    "DIG": {
-      "score": 0.9,
-      "gap_w": 17.9,
-      "atr_dist": 0,
-      "freshness": 283,
-      "close": 57.16,
       "name": null
     },
     "SON": {
@@ -3965,14 +3845,6 @@
       "close": 76.31,
       "name": null
     },
-    "MLPR": {
-      "score": 0.8,
-      "gap_w": 16.9,
-      "atr_dist": 0,
-      "freshness": 402,
-      "close": 72.57,
-      "name": null
-    },
     "SHG": {
       "score": 0.8,
       "gap_w": 15.8,
@@ -4083,14 +3955,6 @@
       "atr_dist": 0,
       "freshness": 171,
       "close": 49.97,
-      "name": null
-    },
-    "FDBC": {
-      "score": 0.8,
-      "gap_w": 15.6,
-      "atr_dist": 0,
-      "freshness": 332,
-      "close": 53.08,
       "name": null
     },
     "KNTK": {
@@ -4549,14 +4413,6 @@
       "close": 111.69,
       "name": null
     },
-    "MVV": {
-      "score": 0.6,
-      "gap_w": 12.6,
-      "atr_dist": 0,
-      "freshness": 332,
-      "close": 88.28,
-      "name": null
-    },
     "PVH": {
       "score": 0.6,
       "gap_w": 8.9,
@@ -4627,14 +4483,6 @@
       "atr_dist": 0,
       "freshness": 395,
       "close": 62.98,
-      "name": null
-    },
-    "EZJ": {
-      "score": 0.6,
-      "gap_w": 11.3,
-      "atr_dist": 0,
-      "freshness": 444,
-      "close": 62.2,
       "name": null
     },
     "SCL": {
@@ -4885,14 +4733,6 @@
       "close": 86.13,
       "name": null
     },
-    "CFFI": {
-      "score": 0.5,
-      "gap_w": 10.0,
-      "atr_dist": 0,
-      "freshness": 311,
-      "close": 80.58,
-      "name": null
-    },
     "WPC": {
       "score": 0.5,
       "gap_w": 10.2,
@@ -4907,14 +4747,6 @@
       "atr_dist": 0,
       "freshness": 395,
       "close": 75.16,
-      "name": null
-    },
-    "TTT": {
-      "score": 0.5,
-      "gap_w": 11.0,
-      "atr_dist": 0,
-      "freshness": 122,
-      "close": 73.4,
       "name": null
     },
     "CQP": {
@@ -4947,14 +4779,6 @@
       "atr_dist": 0,
       "freshness": 997,
       "close": 58.67,
-      "name": null
-    },
-    "YCS": {
-      "score": 0.5,
-      "gap_w": 9.8,
-      "atr_dist": 0,
-      "freshness": 318,
-      "close": 57.71,
       "name": null
     },
     "UTL": {
@@ -5147,14 +4971,6 @@
       "atr_dist": 0,
       "freshness": 815,
       "close": 142.14,
-      "name": null
-    },
-    "UPV": {
-      "score": 0.4,
-      "gap_w": 8.7,
-      "atr_dist": 0,
-      "freshness": 402,
-      "close": 100.49,
       "name": null
     },
     "LLYVK": {
@@ -5685,14 +5501,6 @@
       "close": 95.24,
       "name": null
     },
-    "UJB": {
-      "score": 0.1,
-      "gap_w": 2.0,
-      "atr_dist": 0,
-      "freshness": 339,
-      "close": 78.77,
-      "name": null
-    },
     "QSR": {
       "score": 0.1,
       "gap_w": 1.9,
@@ -5707,14 +5515,6 @@
       "atr_dist": 0,
       "freshness": 339,
       "close": 50.15,
-      "name": null
-    },
-    "FXB": {
-      "score": 0.0,
-      "gap_w": 0.3,
-      "atr_dist": 0,
-      "freshness": 500,
-      "close": 128.25,
       "name": null
     },
     "NTR": {
@@ -5826,5 +5626,6 @@
       "price": 136.31,
       "date": "2026-07-30"
     }
-  }
+  },
+  "pending_execution": null
 }

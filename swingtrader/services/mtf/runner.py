@@ -18,7 +18,7 @@ import argparse
 import traceback
 import numpy as np
 import requests
-from datetime import datetime, date as dt_date, timedelta
+from datetime import datetime, time as dt_time, date as dt_date, timedelta
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -178,11 +178,33 @@ def _ensure_csv():
     os.makedirs(os.path.join(BASE_DIR, 'data'), exist_ok=True)
 
 
-def _ensure_daily_data(conn, mode, today):
-    """Check all enabled tickers have today's daily bar. Retry populate+compute if not.
+def _ensure_daily_data(conn, mode, now, today):
+    """Check all enabled tickers have complete daily data. Retry populate+compute if not.
+    For evening runs (>= 15:30 ET) requires TODAY's bar; earlier runs fall back to the
+    latest available daily date (e.g. yesterday mid-morning).
     Returns (success, message, conn). conn may be a new connection after retry."""
     is_etf = mode == 'etf'
     expected = config.EXPECTED_ETFS if is_etf else config.EXPECTED_STOCKS
+    EVENING_CUTOFF = dt_time(15, 30)
+
+    required_date = today
+    if now.time() < EVENING_CUTOFF:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT d.date::date
+                FROM tbl_scanner_tickers_daily d
+                JOIN tbl_stock_tickers s ON d.ticker_id = s.id
+                WHERE s.enabled = true AND s.is_etf = %s
+                GROUP BY d.date::date
+                HAVING COUNT(DISTINCT d.ticker_id) >= %s
+                ORDER BY d.date::date DESC
+                LIMIT 1
+            """, (is_etf, expected))
+            row = cur.fetchone()
+        if row is None:
+            return False, f'No complete daily data date found for {MODE_LABEL[mode]}', conn, None
+        required_date = row[0]
+        print(f'[MTF] Pre-evening run — latest complete date: {required_date}')
 
     for attempt in range(1, DATA_RETRIES + 2):
         with conn.cursor() as cur:
@@ -191,18 +213,18 @@ def _ensure_daily_data(conn, mode, today):
                 FROM tbl_scanner_tickers_daily d
                 JOIN tbl_stock_tickers s ON d.ticker_id = s.id
                 WHERE d.date::date = %s AND s.enabled = true AND s.is_etf = %s
-            """, (today, is_etf))
+            """, (required_date, is_etf))
             today_count = cur.fetchone()[0]
 
         if today_count >= expected:
             print(f'[MTF] Data complete: {today_count}/{expected} {MODE_LABEL[mode]}')
-            return True, '', conn
+            return True, '', conn, required_date
 
-        msg = f'[{today}] {today_count}/{expected} {MODE_LABEL[mode]} have today\'s daily bar'
+        msg = f'[{required_date}] {today_count}/{expected} {MODE_LABEL[mode]} have daily data'
         print(f'[MTF] {msg}')
 
         if attempt > DATA_RETRIES:
-            return False, msg, conn
+            return False, msg, conn, required_date
 
         print(f'[MTF] Retry {attempt}/{DATA_RETRIES}: running populate_tickers + compute_indicators...')
         conn.close()
@@ -222,7 +244,7 @@ def _ensure_daily_data(conn, mode, today):
         time.sleep(DATA_RETRY_DELAY)
         conn = _get_db_conn()
 
-    return False, 'unexpected error', conn
+    return False, 'unexpected error', conn, required_date
 
 
 def _compute_score(weekly, daily, hourly, wi, di, hi, sig_date):
@@ -312,8 +334,8 @@ def _run_single_mode(mode, now, today, min_score=None):
         conn.close()
         return False, [f'Skipped {MODE_LABEL[mode]} — stale data'], None
 
-    # Guard: all tickers must have today's daily bar before proceeding
-    ok, msg, conn = _ensure_daily_data(conn, mode, today)
+    # Guard: all tickers must have complete daily data before proceeding
+    ok, msg, conn, guard_date = _ensure_daily_data(conn, mode, now, today)
     if not ok:
         conn.close()
         slack_msg = f'{MODE_LABEL[mode]}: {msg}\nRetried {DATA_RETRIES}x — aborting. No picks or trades today.'
@@ -321,6 +343,7 @@ def _run_single_mode(mode, now, today, min_score=None):
         lines = [f'Skipped {MODE_LABEL[mode]} — incomplete daily data', msg]
         print(f'[MTF] {" / ".join(lines)}')
         return False, lines, None
+    guard_date = guard_date or today
 
     tickers = db_module.get_all_tickers(conn, is_etf=is_etf)
     print(f'[MTF] Loaded {len(tickers)} {MODE_LABEL[mode]}')
@@ -389,7 +412,9 @@ def _run_single_mode(mode, now, today, min_score=None):
         conn.close()
         return False, ['No daily data found'], None
 
-    sig_date = latest_date
+    # For pre-evening runs, score on the last COMPLETE date (guard_date),
+    # not the partial current-day bars.
+    sig_date = guard_date if guard_date else latest_date
 
     print(f'[MTF] Signal date: {sig_date}')
 
@@ -545,7 +570,9 @@ def _run_single_mode(mode, now, today, min_score=None):
     if min_score is None:
         state['pending_execution'] = {
             'top_symbols': top_symbols,
-            'score_detail': {sym: score_detail[sym] for sym in top_symbols},
+            # Full score_detail (ALL scored symbols, not just top-10) so the
+            # executor can distinguish a real drop from a data gap when selling.
+            'score_detail': score_detail,
             'timestamp': str(datetime.now(NY)),
         }
 
