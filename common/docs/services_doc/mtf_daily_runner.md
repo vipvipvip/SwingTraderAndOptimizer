@@ -297,7 +297,7 @@ re-running the scorer replaces that mode's pending, and executing marks it consu
 ## DB Schema
 
 ### Read-only (scanner tables)
-- `tbl_stock_tickers` — Master ticker list (1,534 stocks + 22 ETFs, `is_etf` flag)
+- `tbl_stock_tickers` — Master ticker list (1,435 stocks + 28 ETFs, `is_etf` flag)
 - `tbl_etf_tickers` — ETF display names (company_name)
 - `tbl_scanner_tickers` — Weekly OHLCV + indicators
 - `tbl_scanner_tickers_daily` — Daily OHLCV + indicators

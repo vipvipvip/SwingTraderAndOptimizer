@@ -80,9 +80,11 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 ### MTF Infrastructure Refactor (Done)
 - **Partitioned `tbl_scanner_tickers_1hour`** into 16 hash buckets (`ticker_id % 16`), migrated 2.8M rows, dropped 3 redundant indexes (saved 347 MB), old table backed up and dropped
 - **Rewrote `compute_indicators.py`**: partition-aware workers (1 per partition = zero lock contention), COPY bulk UPDATEs instead of individual UPDATEs. Runtime: 1h 47min → **8.5 min** (12x speedup)
-- **VTI universe**: 1,462 tickers fetched from Alpaca (Price > $50, non-OTC, non-ETF), added to `tbl_stock_tickers` → **1,534 enabled stocks** total
-- **Created `get_vti_universe.py`**: fetches all active US equities from Alpaca, filters by price/exchange/ETF, inserts into DB
+- **VTI universe**: 1,462 tickers fetched from Alpaca (Price > $50, non-OTC, non-ETF), added to `tbl_stock_tickers` → **1,435 enabled stocks** + 28 ETFs total (after removing 41 misclassified leveraged/commodity/currency/bitcoin/preferred funds, 2026-07-31)
+- **Created `get_vti_universe.py`**: fetches all active US equities from Alpaca, filters by price/exchange/ETF, skips leveraged/inverse/commodity/currency/bitcoin/preferred funds (name classifier), inserts into DB
 - **No changes needed** to `populate_tickers.py`, `runner.py`, `db.py` — PostgreSQL handles partition routing/pruning transparently
+
+- **Universe cleanup (2026-07-31)**: removed 41 misclassified funds from `tbl_stock_tickers` — 15 no-data leveraged/currency/inverse ETFs (BKTI, EFO, FLYD, FNGO, FXA, FXC, IGHG, IWDL, NOCT, PFBC, QQUP, QQXL, UAN, USCI, UXI) + 26 leveraged/commodity/currency/preferred instruments (AGQ, ASA, BIB, DDM, DGP, FXE, FXF, FXY, GDXU, GLDM, IAU, MCHPP, QLD, ROM, SATA, SLV, SMCIP, SSO, STRC, STRD, STRF, STRK, URE, USD, UWM + GLD). None ever traded (0 rows in `mtf_positions`/`mtf_trades`/`mtf_pending`). Deleted 13,641 hourly + 28,504 daily + 6,212 weekly rows; `tbl_etf_tickers` dropped GLD (29 rows left). `EXPECTED_STOCKS`/`EXPECTED_ETFS` in `config.py` updated to 1435/28. Daily coverage now 100% of enabled universe.
 
 ### In Progress
 - (none)
@@ -126,13 +128,13 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 2. ✅ Multi-TF daily beats weekly + crushes Long scanner — **shift strategy: MTF Top-N replaces MTCS**
 3. ✅ **Phase 1** — Finish `--min-score` integration in runner.py (CLI arg, filtered candidates, isolated suffix)
 4. ✅ Add health check for min-score state files
-5. ✅ **MTF Infrastructure Refactor** — Expand universe from 503 S&P 500 to ~1,534 VTI constituents (Price > $50), partition `tbl_scanner_tickers_1hour` (16 hash buckets), rewrite `compute_indicators.py` with partition-aware workers + COPY bulk writes. **Plan saved: `common/docs/mtf-infra-refactor-plan.md`**
+5. ✅ **MTF Infrastructure Refactor** — Expand universe from 503 S&P 500 to ~1,463 VTI constituents (Price > $50), partition `tbl_scanner_tickers_1hour` (16 hash buckets), rewrite `compute_indicators.py` with partition-aware workers + COPY bulk writes. **Plan saved: `common/docs/mtf-infra-refactor-plan.md`**
 6. ✅ **Phase 2** — MTCS runner stopped, MTF picks wired into real Alpaca executor (`--top-n 10`)
 7. ⏳ Phase 3 — Optimize top-N size, add exit rules (stop-loss, trailing)
 
 ## Critical Context
 - PostgreSQL `swingtrader-db` on `127.0.0.1:5432`, docker container healthy
-- Scanner tables: 1,534 stocks + 22 ETFs with `is_etf` flag; `tbl_etf_tickers` has company names
+- Scanner tables: **1,435 enabled stocks + 28 enabled ETFs** with `is_etf` flag; `tbl_etf_tickers` (29 rows incl. BLENDED) has company names
 - EMA=10, SMA=40, COST=0.0005, CAPITAL=100000
 - MTF Top-N Phase 2 is live: `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` in PostgreSQL; sector ETFs shown in Slack as info-only scoring
 - `mtf-daily-runner.timer` active at 4:45 PM ET weekdays — runs `--action score --mode all` via systemd; `mtf-executor.timer` at 10:00 AM ET runs `--action execute --mode all` (both `Persistent=yes`)

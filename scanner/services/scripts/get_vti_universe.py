@@ -20,6 +20,28 @@ from config import API_KEY, SECRET_KEY, get_db_conn
 ALPACA_TRADE_BASE = 'https://paper-api.alpaca.markets'
 
 
+UNWANTED_FUND_PATTERNS = [
+    # Leveraged / inverse products
+    'PROSHARES ULTRA', 'DIREXION DAILY', 'MICROSECTORS', ' ETRACS ', 'VELOCITYSHARES',
+    ' 2X ', ' 3X ', '-2X', '-3X', 'INVERSE', 'LEVERAGED',
+    # Commodity / currency
+    'CURRENCYSHARES', 'GOLD TRUST', 'GOLD MINISHARES', 'SILVER TRUST', 'GOLD DOUBLE LONG',
+    'OIL FUND', 'NATURAL GAS FUND', 'GAS FUND', 'COPPER FUND', 'COMMODITY',
+    'PRECIOUS METALS', 'UNITED STATES OIL', 'UNITED STATES NATURAL GAS',
+    # Bitcoin / crypto
+    'BITCOIN', 'ETHEREUM', 'CRYPTO', 'BLOCKCHAIN',
+    # Preferred shares
+    'PREFERRED',
+]
+
+
+def _is_unwanted_fund(name, symbol):
+    """True if asset is a leveraged/inverse/commodity/currency/bitcoin/preferred
+    fund that Alpaca misclassifies as a us_equity common stock."""
+    upper = (name or symbol).upper()
+    return any(p in upper for p in UNWANTED_FUND_PATTERNS)
+
+
 def get_all_us_equities():
     """Fetch all active US equity assets from Alpaca Trading API."""
     headers = {
@@ -122,6 +144,12 @@ def main():
             continue
         # Skip preferred shares (e.g. ALB.PRA) but keep class shares (BRK.A, BF.B)
         if '.PR' in sym.upper() or '.PREF' in sym.upper():
+            continue
+        # Skip leveraged/inverse/commodity/currency/bitcoin/preferred funds that
+        # Alpaca misclassifies as us_equity (ProShares Ultra, MicroSectors, ETNs,
+        # CurrencyShares, gold/silver trusts, etc.)
+        if _is_unwanted_fund(name, sym):
+            etf_skipped += 1
             continue
         qualified.append({
             'symbol': sym,

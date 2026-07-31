@@ -122,8 +122,9 @@ def _bulk_update_from_temp(cur, table, tmp_name):
     ''')
 
 
-def _copy_to_temp(cur, rows, tmp_name):
-    """COPY rows to a temp table for bulk update."""
+def _copy_to_temp(cur, rows, tmp_name, date_type='date'):
+    """COPY rows to a temp table for bulk update. date_type='timestamp' for the
+    hourly table (bars are timestamps; joining on a plain date never matches)."""
     buf = StringIO()
     for row in rows:
         vals = []
@@ -139,7 +140,7 @@ def _copy_to_temp(cur, rows, tmp_name):
     cur.execute(f'DROP TABLE IF EXISTS {tmp_name}')
     cur.execute(
         f'CREATE TEMP TABLE {tmp_name} ('
-        'ticker_id bigint, date date, '
+        f'ticker_id bigint, date {date_type}, '
         'macd_line float8, macd_signal float8, macd_histogram float8, '
         'macd_crossover boolean, macd_cross_bearish boolean, '
         'ppo_line float8, ppo_signal float8, ppo_histogram float8, '
@@ -171,7 +172,7 @@ def load_ticker_data_bulk(conn, ticker_ids, table):
     return {tid: group.reset_index(drop=True) for tid, group in df.groupby('ticker_id')}
 
 
-def worker_process(worker_id, ticker_ids, table,
+def worker_process(worker_id, ticker_ids, table, is_hourly,
                    ema_fast, ema_slow, macd_signal_period, ppo_fast, ppo_slow):
     """Process a batch of tickers in a single DB connection. Returns (count, crossovers)."""
     conn = get_db_conn()
@@ -194,7 +195,7 @@ def worker_process(worker_id, ticker_ids, table,
                 date_val = row['date']
                 if hasattr(date_val, 'to_pydatetime'):
                     date_val = date_val.to_pydatetime()
-                if hasattr(date_val, 'date'):
+                if not is_hourly and hasattr(date_val, 'date'):
                     date_val = date_val.date()
                 all_rows.append((
                     int(row['ticker_id']), date_val,
@@ -217,7 +218,7 @@ def worker_process(worker_id, ticker_ids, table,
         if all_rows:
             cur = conn.cursor()
             tmp_name = f'_ind_w{worker_id}'
-            _copy_to_temp(cur, all_rows, tmp_name)
+            _copy_to_temp(cur, all_rows, tmp_name, date_type='timestamp' if is_hourly else 'date')
             _bulk_update_from_temp(cur, table, tmp_name)
             conn.commit()
             cur.close()
@@ -291,7 +292,7 @@ def main():
         for w_id in range(num_workers):
             if worker_groups[w_id]:
                 futures[executor.submit(
-                    worker_process, w_id, worker_groups[w_id], table,
+                    worker_process, w_id, worker_groups[w_id], table, is_hourly,
                     args.ema_fast, args.ema_slow, args.macd_signal_period,
                     args.ppo_fast, args.ppo_slow,
                 )] = w_id
