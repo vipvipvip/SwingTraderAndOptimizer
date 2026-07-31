@@ -152,6 +152,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - `swingtrader/services/mtf/db.py`: Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state tables, JSONB helpers (`save_pending`/`get_pending`/`clear_pending`, `log_run`/`get_last_run`)
 - `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy` flags, partial-date exclusion fix
 - `swingtrader/services/mtf/config.py`: DB config, TOP_N=10, COST=0.0005, CAPITAL=100000
+- `swingtrader/services/mtf/executor.py`: Alpaca order executor (mode keys); `_wait_for_fill` polls to full fill, buy path falls back to Alpaca position qty so fills never under-record; `reconcile_trades()` rebuilds `mtf_trades` from Alpaca order history
+- `swingtrader/services/mtf/reconcile_trades.py`: CLI `--mode all|stock|etf` — idempotent fill-log rebuild (delete + re-insert from Alpaca's authoritative filled orders); use when `mtf_trades` disagrees with real fills
 - `swingtrader/services/mtf/systemd/mtf-daily-runner.service`: Single ExecStart `--action score --mode all`, `TimeoutStopSec=300` (executor service runs `--action execute`)
 - `swingtrader/services/mtf/health_check.py`: Checks timer, journal errors, data freshness, `mtf_runs` staleness, `mtf_pending` status — all DB-backed
 - `swingtrader/services/scripts/show_picks.py`: Reads picks from `mtf_picks_*.csv` + holdings from `mtf_positions`, equity from real Alpaca accounts

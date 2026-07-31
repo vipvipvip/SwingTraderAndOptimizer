@@ -81,7 +81,7 @@ def _place_order(symbol, qty, side):
     return resp.json()
 
 
-def _wait_for_fill(order_id, max_retries=60, delay=1):
+def _wait_for_fill(order_id, max_retries=300, delay=1):
     """Poll an order until it is FULLY filled (or hits a terminal state).
     Returns the final order object; returns None only if the order lookup fails.
     Wait on any partial fill was the root cause of understated mtf_positions."""
@@ -281,6 +281,15 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
 
                 filled_qty = int(float(filled_order.get('filled_qty', qty)))
                 fill_price = float(filled_order['filled_avg_price']) if filled_order.get('filled_avg_price') else None
+                # Safety net: a market buy fully fills; if the poll returned a
+                # stale/partial order state, trust the live Alpaca position qty
+                # so we never under-record (positions are ground truth).
+                if filled_qty < qty:
+                    pos = _get_alpaca_position(symbol)
+                    if pos:
+                        pos_qty = abs(int(float(pos.get('qty', 0))))
+                        if pos_qty > filled_qty:
+                            filled_qty = pos_qty
                 if filled_qty < 1:
                     _send_slack_error(f'{symbol} BUY order {order.get("id")} never filled')
                     trade_lines.append(f'  ❌ BUY {symbol} qty={qty} never filled')
@@ -319,3 +328,75 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
         conn.close()
 
     return trade_lines
+
+
+def reconcile_trades(mode='stock'):
+    """Rebuild mtf_trades from Alpaca's authoritative filled-order history.
+
+    Idempotent: deletes this mode's rows, then inserts one row per filled
+    order from Alpaca (qty + avg price straight from the order). Sell PnL is
+    computed from the DB entry price when available, else NULL.
+
+    Use this whenever the fill log disagrees with real fills (e.g. a past
+    partial-fill bug under-recorded quantities).
+    """
+    _set_alpaca_keys(mode)
+    is_etf = mode == 'etf'
+    conn = db_module.get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'DELETE FROM mtf_trades WHERE ticker_id IN '
+                '(SELECT id FROM tbl_stock_tickers WHERE is_etf = %s)', (is_etf,))
+        conn.commit()
+
+        url = f'{config.ALPACA_BASE_URL}/v2/orders'
+        resp = requests.get(url, headers=_alpaca_headers(),
+                            params={'status': 'filled', 'direction': 'asc', 'limit': 500}, timeout=15)
+        if resp.status_code >= 400:
+            raise Exception(f'Alpaca orders failed: {resp.text}')
+
+        count = 0
+        for o in resp.json():
+            symbol = o.get('symbol')
+            if not symbol:
+                continue
+            ticker_id = db_module.get_ticker_id_from_symbol(conn, symbol)
+            if not ticker_id:
+                print(f'  [RECONCILE] skip {symbol}: not in scanner DB')
+                continue
+            with conn.cursor() as cur:
+                cur.execute('SELECT is_etf FROM tbl_stock_tickers WHERE id = %s', (ticker_id,))
+                row = cur.fetchone()
+                if not row or bool(row[0]) != is_etf:
+                    continue
+
+            side = o.get('side')
+            quantity = int(float(o.get('filled_qty', 0)))
+            price = float(o.get('filled_avg_price') or 0)
+            if side not in ('buy', 'sell') or quantity < 1 or price <= 0:
+                print(f'  [RECONCILE] skip {symbol}: bad fill data (qty={o.get("filled_qty")}, avg={o.get("filled_avg_price")})')
+                continue
+
+            filled_at = o.get('filled_at')
+            if filled_at:
+                executed_at = datetime.fromisoformat(filled_at.replace('Z', '+00:00')).replace(tzinfo=None)
+            else:
+                executed_at = datetime.now(NY).replace(tzinfo=None)
+
+            pnl_dollar = pnl_pct = None
+            if side == 'sell':
+                db_pos = db_module.get_position(conn, ticker_id)
+                entry = float(db_pos[2]) if db_pos and db_pos[2] else None
+                if entry:
+                    pnl_dollar = (price - entry) * quantity
+                    pnl_pct = (price - entry) / entry * 100
+
+            db_module.insert_trade(conn, ticker_id, symbol, side.upper(), quantity, price,
+                                   executed_at, pnl_dollar=pnl_dollar, pnl_pct=pnl_pct)
+            count += 1
+            print(f'  [RECONCILE] {side.upper()} {quantity} {symbol} @ {price:.4f} ({executed_at:%Y-%m-%d %H:%M} UTC)')
+
+        print(f'[RECONCILE {mode}] rebuilt mtf_trades: {count} fills')
+    finally:
+        conn.close()

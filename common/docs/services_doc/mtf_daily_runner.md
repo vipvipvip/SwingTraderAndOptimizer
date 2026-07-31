@@ -87,7 +87,8 @@ All files live under `swingtrader/services/mtf/`:
 | `runner.py` | Two-phase: `--action score` (evening analytics) or `--action execute` (morning trades) |
 | `config.py` | DB creds, scoring params (TOP_N=10, EMA/SMA periods, cost, capital) |
 | `db.py` | Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state |
-| `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA3PPZAZR76Z, etf #PA3U8GZ96PEN) |
+| `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA3PPZAZR76Z, etf #PA3U8GZ96PEN); `reconcile_trades()` rebuilds `mtf_trades` from Alpaca fills |
+| `reconcile_trades.py` | CLI wrapper: `--mode all\|stock\|etf` — idempotent fill-log rebuild from Alpaca's authoritative order history |
 | `format_etf.py` | Shared ETF P&L table formatting (Slack + show_picks) |
 | `health_check.py` | DB-backed health checks (mtf_runs staleness, pending status, data freshness) |
 | `.env` | Environment variables (DB creds, Slack webhook URL) |
@@ -304,6 +305,6 @@ re-running the scorer replaces that mode's pending, and executing marks it consu
 
 ### Read-write (mtf_ tables, created by init_db())
 - `mtf_positions` — Real open positions (ticker_id, symbol, quantity, entry_price, entry_at) — source of truth for holdings/MTM
-- `mtf_trades` — Historical trade log (ticker_id, symbol, side, quantity, price, pnl, executed_at)
+- `mtf_trades` — Historical trade log (ticker_id, symbol, side, quantity, price, pnl, executed_at). **Source of truth for fills is Alpaca** — if the log ever disagrees with real fills, rebuild it with `python3 reconcile_trades.py --mode all`
 - `mtf_pending` — Evening scorer's picks for the morning executor (mode, top_symbols JSONB, score_detail JSONB, sig_date, consumed_at)
 - `mtf_runs` — Run history for ops/staleness (mode, sig_date, action, status, detail, created_at)
