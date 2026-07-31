@@ -1,6 +1,7 @@
 import psycopg2
 import numpy as np
 import pandas as pd
+import json
 from datetime import date, datetime
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS, EMA_PERIOD, SMA_PERIOD, WARMUP_BARS, TS_START, SECTOR_ETFS
 
@@ -28,6 +29,30 @@ CREATE TABLE IF NOT EXISTS mtf_trades (
     pnl_pct NUMERIC(10,4),
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS mtf_pending (
+    id SERIAL PRIMARY KEY,
+    mode VARCHAR(10) NOT NULL,
+    top_symbols JSONB NOT NULL,
+    score_detail JSONB NOT NULL,
+    sig_date DATE NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    consumed_at TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mtf_pending_unconsumed
+    ON mtf_pending(mode) WHERE consumed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS mtf_runs (
+    id SERIAL PRIMARY KEY,
+    mode VARCHAR(10) NOT NULL,
+    sig_date DATE NOT NULL,
+    action VARCHAR(10) NOT NULL,
+    status VARCHAR(10) NOT NULL,
+    detail TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mtf_runs_mode_time
+    ON mtf_runs(mode, created_at DESC);
 """
 
 
@@ -107,7 +132,70 @@ def get_all_tickers(conn, is_etf=False):
         return cur.fetchall()
 
 
+def save_pending(conn, mode, top_symbols, score_detail, sig_date):
+    """Store the evening scorer's picks for the morning executor.
+    Replaces any existing unconsumed pending for the mode."""
+    with conn.cursor() as cur:
+        cur.execute('DELETE FROM mtf_pending WHERE mode = %s AND consumed_at IS NULL', (mode,))
+        cur.execute(
+            'INSERT INTO mtf_pending (mode, top_symbols, score_detail, sig_date) '
+            'VALUES (%s, %s::jsonb, %s::jsonb, %s)',
+            (mode, json.dumps(top_symbols), json.dumps(score_detail), sig_date))
+    conn.commit()
+
+
+def get_pending(conn, mode):
+    """Return the unconsumed pending execution for a mode, or None."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT top_symbols::text, score_detail::text, sig_date, created_at '
+            'FROM mtf_pending WHERE mode = %s AND consumed_at IS NULL '
+            'ORDER BY id DESC LIMIT 1', (mode,))
+        row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        'top_symbols': json.loads(row[0]),
+        'score_detail': json.loads(row[1]),
+        'sig_date': row[2],
+        'created_at': row[3],
+    }
+
+
+def clear_pending(conn, mode):
+    """Mark the mode's unconsumed pending as consumed."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'UPDATE mtf_pending SET consumed_at = NOW() '
+            'WHERE mode = %s AND consumed_at IS NULL', (mode,))
+    conn.commit()
+
+
+def log_run(conn, mode, sig_date, action, status, detail=None):
+    """Append a run entry to mtf_runs for staleness/ops tracking."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'INSERT INTO mtf_runs (mode, sig_date, action, status, detail) '
+            'VALUES (%s, %s, %s, %s, %s)',
+            (mode, sig_date, action, status, detail))
+    conn.commit()
+
+
+def get_last_run(conn, mode, action):
+    """Return the most recent mtf_runs row for (mode, action), or None."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT sig_date, status, detail, created_at FROM mtf_runs '
+            'WHERE mode = %s AND action = %s ORDER BY created_at DESC LIMIT 1',
+            (mode, action))
+        row = cur.fetchone()
+    if not row:
+        return None
+    return {'sig_date': row[0], 'status': row[1], 'detail': row[2], 'created_at': row[3]}
+
+
 def get_sector_tickers(conn):
+    """Enabled ticker IDs+symbols for the SECTOR_ETFS list (info-only scoring)."""
     with conn.cursor() as cur:
         cur.execute(
             'SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND symbol = ANY(%s) ORDER BY symbol',

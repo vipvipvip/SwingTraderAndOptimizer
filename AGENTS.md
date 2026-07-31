@@ -24,7 +24,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - Two MTF Alpaca accounts: Stocks (#PA3PPZAZR76Z), ETFs (#PA3U8GZ96PEN)
 - Keep same Slack channel for all services — differentiate via prefix tags
 - One combined Slack message per day for MTF (stocks + ETFs + sector info) via `--mode all`
-- `--min-score 5` variant tracked separately with isolated state files / CSVs
+- **MTF state is DB-backed** (PostgreSQL), not files: `mtf_pending` (evening picks → morning executor), `mtf_runs` (ops/staleness log), `mtf_positions` (real Alpaca holdings = source of truth), `mtf_trades` (fill log). No `.mtf_state_*.json`, no portfolio/trades CSVs, no paper accounting — MTM in Slack is real positions × close
+- `--min-score 5` variant **dropped** from production (research backtest only, +9,061% result retained in docs)
 - Laravel cache must be cleared in `swingtrader/backend/storage/framework/` (not `scanner/backend/`) — both data cache (`cache/explorer_*.json`) and compiled views (`views/*.php`) must be cleared after blade changes
 
 ## Progress
@@ -59,6 +60,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Adding `--min-score 5` variant to runner.py**: separate state files (`.mtf_state_min5_stock.json`), separate CSVs (`mtf_picks_min5_stock.csv`), isolated from default pipeline
 - **Updated MTF health_check.py**: now checks all state/CSV variants (stock/etf/min5) instead of old `.mtf_state.json` naming
 - **LinkedIn posts for infra work**: created `LinkedIn-Posts/LINKEDIN_POSTS_INFRA.md` — 3 posts framing the infra refactor as "Vibe coding" (no Claude references, PGSQL instead of SQLite)
+- **MTF state → PostgreSQL (2026-07-31)**: dropped all `.mtf_state_*.json` / `mtf_portfolio_*` / `mtf_trades_*` CSVs and the min-score 5 variant. Added `mtf_pending` (JSONB, unique partial index on unconsumed) + `mtf_runs` tables. Runner now: NEW/OUT vs real `mtf_positions` holdings, MTM = held qty × close, ETF P&L from real fills, idempotent pick CSVs (rewrites date rows). `health_check.py` + `show_picks.py` migrated to DB (`mtf_runs` staleness, `mtf_pending` status, real Alpaca equity).
 
 ### Fixed Bugs
 - **Duplicate live_trades entries** — `syncLiveTradesFromAlpaca()` Step 1 in EquityService.php re-opened closed trades via `status => 'open'` (fixed: skip if `status !== 'open'`)
@@ -69,6 +71,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Weekend stale-bar false alarms** — MTCS health check and unified health-check.sh both flagged Friday bars as stale on Monday; fixed both to count trading days (Mon-Fri) instead of raw calendar/hours
 - **MTF runner zero candidates with incomplete daily data** — daily index lookup used exact `.get(sig_date)`, failed when scanner daily table had only 1 row for today; fixed to use `_nearest_date_idx` fallback like weekly/hourly already did
 - **MTF runner entry date column** — added `entry YYYY-MM-DD (Nxd)` to terminal + Slack output for all lists (stocks, ETFs, sectors, min-score variants)
+- **MTF `get_sector_tickers` restored** — the `def` line was accidentally dropped during the pending-table refactor, silently killing sector ETF info in Slack; fixed orphaned body back into a working function
+- **`get_pending` jsonb decode** — psycopg2 returns JSONB natively in some configs; cast to `::text` in SQL so `json.loads` is reliable regardless of adapter settings
 - **MTCS/EMAC journald pipe stall** — long-running processes with `StandardOutput=journal` go silent when journald pipe buffer fills; fixed by redirecting to `/var/log/emac-runner.log` and `/var/log/mtcs-runner.log`
 - **compute_indicators.py lock contention** — 10 workers × 5,260 individual UPDATEs per ticker causes row-level lock contention (1h 47min runtime). Root cause identified: need partition-aware workers + COPY bulk writes (planned for refactor)
 
@@ -111,7 +115,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Phase 3 (scale)** — increase to `--top-n 10` once comfortable; optionally add stop-loss or trailing exit to protect gains
 - **One combined Slack message** per day instead of separate stock+ETF messages — reduces noise, one view of both universes
 - **`--mode all` refactored runner**: `_run_single_mode()` returns (success, lines, sig_date), `run_all()` merges both sections into one Slack send
-- **`--min-score 5` isolated as separate pipeline** with its own state files / CSVs — tracks as an alternative paper portfolio alongside the default top-10, no interference
+- **State in PostgreSQL, not files** — pending handoff via `mtf_pending`, ops log via `mtf_runs`, holdings via real `mtf_positions`; no paper portfolio simulation, no state JSONs (2026-07-31)
+- **`--min-score 5` dropped from production** — research backtest only (+9,061% retained in docs); pipeline, state, and CSV variants removed
 - **Partial-date fix for backtests**: filter out dates where <400 tickers have daily data (prevents incomplete-last-day artifacts)
 - **Infancy filter drags performance** — `--min-score 5` alone crushes (+9,061% vs unfiltered +5,469%), but `+ --infancy` drops to +688% because it skips too many explosive entries
 
@@ -128,8 +133,10 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - PostgreSQL `swingtrader-db` on `127.0.0.1:5432`, docker container healthy
 - Scanner tables: 1,534 stocks + 22 ETFs with `is_etf` flag; `tbl_etf_tickers` has company names
 - EMA=10, SMA=40, COST=0.0005, CAPITAL=100000
-- MTF Top-N Phase 1: separate paper portfolios per mode (stock + ETF) + min-score variant, state in `.mtf_state_*.json`; sector ETFs shown in Slack as info-only scoring
-- `mtf-daily-runner.timer` active at 5:30 PM ET weekdays — runs `--mode all` via systemd (single ExecStart)
+- MTF Top-N Phase 2 is live: `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` in PostgreSQL; sector ETFs shown in Slack as info-only scoring
+- `mtf-daily-runner.timer` active at 4:45 PM ET weekdays — runs `--action score --mode all` via systemd; `mtf-executor.timer` at 10:00 AM ET runs `--action execute --mode all` (both `Persistent=yes`)
+- `mtf_positions` is the source of truth for holdings; MTM in Slack = held qty × latest close; ETF P&L uses real Alpaca fill prices
+- `get_pending`/`save_pending` cast JSONB to `::text` — psycopg2 jsonb handling varies by adapter config
 - `ema10_sma40_crossover` and `sma_crossover` columns in scanner tables are never populated by the pipeline (all false) — must compute inline via window functions
 - Laravel backend runs on port 9000 with `artisan serve` via systemd
 - Three composite indexes: `idx_daily_tid_date_close`, `idx_wk_tid_date_close`, `idx_1h_tid_date_atr`
@@ -141,12 +148,13 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **MTCS Alpaca** (key `PKQK45DA2ERAXX6XKPUDORIWSH`, acct #PA3NCXU4O2CN): $1M paper, stopped
 
 ## Relevant Files
-- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 2 — `--mode stock|etf|all` flag, `--live` flag (Alpaca order execution), `--min-score`, separate CSVs/state per variant, crash alerting, stale data check, atomic writes, DB retry, sector info, **entry date column in terminal + Slack**
-- `swingtrader/services/mtf/db.py`: Market breadth queries — compute close>SMA40 inline, fixed `both`→`bt` CTE name
+- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 2 — `--action score|execute` + `--mode stock|etf|all` flags, DB-backed state (`mtf_pending`/`mtf_runs`/`mtf_positions`), crash alerting, stale data check, DB retry, sector info, **entry date column in terminal + Slack**
+- `swingtrader/services/mtf/db.py`: Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state tables, JSONB helpers (`save_pending`/`get_pending`/`clear_pending`, `log_run`/`get_last_run`)
 - `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy` flags, partial-date exclusion fix
 - `swingtrader/services/mtf/config.py`: DB config, TOP_N=10, COST=0.0005, CAPITAL=100000
-- `swingtrader/services/mtf/systemd/mtf-daily-runner.service`: Single ExecStart `--mode all --live`, `TimeoutStopSec=300`
-- `swingtrader/services/mtf/health_check.py`: Checks timer, journal errors, data freshness, state file staleness
+- `swingtrader/services/mtf/systemd/mtf-daily-runner.service`: Single ExecStart `--action score --mode all`, `TimeoutStopSec=300` (executor service runs `--action execute`)
+- `swingtrader/services/mtf/health_check.py`: Checks timer, journal errors, data freshness, `mtf_runs` staleness, `mtf_pending` status — all DB-backed
+- `swingtrader/services/scripts/show_picks.py`: Reads picks from `mtf_picks_*.csv` + holdings from `mtf_positions`, equity from real Alpaca accounts
 - `swingtrader/backend/storage/framework/cache/`: Explorer data cache (5-min TTL) — clear this + `views/` for blade changes
 - `common/docs/services_doc/mtf-daily-runner.service`: Docs copy matching active service (`--mode all`, `TimeoutStopSec=300`)
 - `common/docs/services_doc/mtf_daily_runner.md`: Updated with combined Slack message example, per-mode CSVs, `--mode all` CLI docs, `--user` systemd commands

@@ -10,6 +10,10 @@ and thematic ETFs to select the top N most favorable long candidates daily.
 pending trades. Morning executor (10:00 AM) reads pending trades, places market
 orders when market is open, and records fills immediately.
 
+**State is DB-backed**: pending picks live in `mtf_pending` (JSONB), run history
+in `mtf_runs`, and real holdings in `mtf_positions`. No state files, no R&D
+paper-portfolio accounting — the live Alpaca positions are the source of truth.
+
 ## Scoring Formula
 
 ```
@@ -32,21 +36,24 @@ Score = min(gap_w / 20, 3)   (weekly gap from SMA(40), points)
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
 │ DB (PSQL)│───▶│  runner.py       │───▶│  Slack alert (picks) │
-│ scanner  │    │  data guard       │    │  (stocks + ETFs +    │
-│ tables   │    │  + score + state  │    │   sectors)           │
-└──────────┘    │  + pending_trades │    └──────────────────────┘
+│ scanner  │    │  data guard      │    │  (stocks + ETFs +    │
+│ tables   │    │  + score + MTM   │    │   sectors)           │
+└──────────┘    │  + CSV append    │    └──────────────────────┘
                 └────────┬─────────┘
-                         │ saves pending_execution to
+                         │ saves pending → mtf_pending (JSONB)
+                         │ logs run      → mtf_runs
                          ▼
                  ┌───────────────┐
-                 │ .mtf_state_*.json │
+                 │ PostgreSQL    │
+                 │ mtf_pending   │
+                 │ mtf_runs      │
                  └───────────────┘
 ```
 
 **Morning (10:00 AM)** — `--action execute`:
 ```
                  ┌───────────────┐
-                 │ .mtf_state_*.json │ ─── reads pending_execution
+                 │ mtf_pending   │ ─── reads unconsumed pending
                  └───────────────┘
                          │
                          ▼
@@ -59,6 +66,12 @@ Score = min(gap_w / 20, 3)   (weekly gap from SMA(40), points)
                 ┌────────────────┐
                 │  Alpaca API    │
                 │  (market open) │
+                └────────────────┘
+                        │
+                        ▼
+                ┌────────────────┐
+                │  mtf_positions │ (real fills → holdings)
+                │  mtf_trades    │ (trade log)
                 └────────────────┘
 ```
 
@@ -73,19 +86,15 @@ All files live under `swingtrader/services/mtf/`:
 |------|---------|
 | `runner.py` | Two-phase: `--action score` (evening analytics) or `--action execute` (morning trades) |
 | `config.py` | DB creds, scoring params (TOP_N=10, EMA/SMA periods, cost, capital) |
-| `db.py` | Scanner DB access (weekly/daily/hourly OHLC, market breadth) |
+| `db.py` | Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state |
+| `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA3PPZAZR76Z, etf #PA3U8GZ96PEN) |
+| `format_etf.py` | Shared ETF P&L table formatting (Slack + show_picks) |
+| `health_check.py` | DB-backed health checks (mtf_runs staleness, pending status, data freshness) |
 | `.env` | Environment variables (DB creds, Slack webhook URL) |
-| `data/mtf_picks_stock.csv` | Daily stock top-N picks with scores and components |
-| `data/mtf_picks_etf.csv` | Daily ETF top-N picks with scores and components |
-| `data/mtf_portfolio_stock.csv` | Daily stock portfolio snapshot |
-| `data/mtf_portfolio_etf.csv` | Daily ETF portfolio snapshot |
-| `data/mtf_trades_stock.csv` | Individual stock trade log |
-| `data/mtf_trades_etf.csv` | Individual ETF trade log |
-| `.mtf_state_stock.json` | State file: stock picks + portfolio + pending trades |
-| `.mtf_state_etf.json` | State file: ETF picks + portfolio + pending trades |
+| `data/mtf_picks_stock.csv` | Daily stock top-N picks with scores and components (pick history) |
+| `data/mtf_picks_etf.csv` | Daily ETF top-N picks with scores and components (pick history) |
 | `systemd/mtf-daily-runner.{service,timer}` | Evening scorer (weekdays 4:45 PM ET, `--action score --mode all`) |
 | `systemd/mtf-executor.{service,timer}` | Morning executor (weekdays 10:00 AM ET, `--action execute --mode all`) |
-| `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA3PPZAZR76Z, etf #PA3U8GZ96PEN) |
 
 ## Backtest Results (Multi-TF Daily Rebalance)
 
@@ -108,16 +117,16 @@ All files live under `swingtrader/services/mtf/`:
 | Buys | 526 | **280** | — | 12,399 | — |
 | Avg return/buy | +10.4% | **+32.4%** | — | ~0% | — |
 
-### Min-Score 5 Variant (6th Strategy)
+### Min-Score 5 Variant (research only — dropped)
 
-Filters candidates to `score ≥ 5` before ranking the top 10. Compared to unfiltered:
+The `score ≥ 5` filter was backtested as an alternative strategy:
 - **+66% higher return** (+9,061% vs +5,469%) — fewer, higher-conviction entries
 - **47% fewer buys** (280 vs 526) — less churn, no weak marginal picks
 - **Higher drawdown** (33.2% vs 22.2%) — less diversification across picks
 
-Backtest confirmed infancy as a hard filter *drags* performance (min-score 5 + infancy: +688% only) — freshness is better as a component of the score (0-2 pts) than a hard cutoff. The min-score 5 variant excludes the lowest-score picks (gap_w < ~10%, atr_dist < ~0.5%, or stale crosses) while preserving explosive entries with high momentum.
+Backtest confirmed infancy as a hard filter *drags* performance (min-score 5 + infancy: +688% only) — freshness is better as a component of the score (0-2 pts) than a hard cutoff.
 
-**Current status**: Runs automatically as part of `--mode all` alongside the default pipeline, isolated state/CSV (`.mtf_state_min5_stock.json`, `mtf_picks_min5_stock.csv`). Paper-only.
+**Status: research paper portfolio only — not run in production.** The min-score 5 pipeline, its state files, and CSV variants were removed from `runner.py` (2026-07-31) to keep production lean. The backtest result is retained for reference; revisit only if the default top-10 underperforms live.
 
 Multi-TF score (weekly+daily bullish filter) eliminates weak stocks completely.
 Long scanner's MACD/PPO zero-line crosses are noisy (50% win rate = coin flip).
@@ -134,28 +143,44 @@ Multi-TF Top 10 — 2026-07-13 (stocks)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Breadth: 52% uptrend ➖ Neutral
 
- 1. HPE     6.2  gap +64.0%  atr 4.40%  105d
- 2. SNDK    6.0  gap +97.5%  atr 7.25%  old
- ...
+#   Ticker   Score     Gap   Fresh
+--- -------- ----- ------- -------
+1   CRNX       4.6  +82.1%     24d
+2   FBRX       4.6 +179.3%     24d
+3   MNPR       4.3  +56.3%     31d
+...
+10  OKTA       3.3  +48.1%     66d
+
+No changes since last run
+
+MTM: $96,656  |  Positions: 10  |  Picks: 10
+CRNX,FBRX,MNPR,MAN,CBRL,CORT,SEZL,KFRC,DAVE,OKTA
 
 Multi-TF Top 10 — 2026-07-13 (ETFs)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Breadth: 64% uptrend ✅ Risk-on
 
- 1. SMH     3.1  gap +31.4%  atr 2.33%  392d
- 2. XLF     2.5  gap +7.0%  atr 0.78%  21d
- ...
+#   Ticker   Score  Entry $    Now $   P&L %   Fresh
+--- -------- ----- -------- -------- ------- -------
+1   XLF        2.2   $56.36   $56.87  +0.90%     39d
+2   XLV        2.0  $162.60  $162.14  -0.28%     60d
+...
+
+⚠️ preserved (no score today): IJH
+
+MTM: $105,282  |  Positions: 11  |  Picks: 10
+XLF,XLV,SCHD,XLE,IJR,VTV,XLI,XLRE,DIA,RSP
 
 Sector ETFs — 2026-07-13
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  1. XLK     3.5  gap +18.2%  atr 1.80%  45d
- 2. XLF     2.8  gap +12.5%  atr 1.20%  21d
- 3. XLE     2.3  gap +8.3%   atr 0.95%  30d
  ...
-
-Portfolio: $102,340  (+2.3%)
-Positions: 5  Cash: $28,000
 ```
+
+- **NEW/OUT** lines show picks added/removed vs real `mtf_positions` holdings
+- **MTM** is sum of held quantity × today's close (real positions, not a simulated portfolio)
+- ETF entry prices come from real Alpaca fills recorded in `mtf_positions`
+- Positions held but not scored today (data gap) are preserved, listed after ⚠️
 
 ### Sector ETFs (Informational)
 
@@ -188,19 +213,18 @@ Two Slack messages per day:
 Evening message includes:
 - Market breadth regime per universe
 - Top-10 stock picks with full scoring breakdown
-- Top-10 ETF picks with full scoring breakdown
+- Top-10 ETF picks with P&L vs real fill prices
 - Sector ETF rankings (informational only, no portfolio)
-- Changes from previous day (NEW/OUT) per universe
-- Paper portfolio value, total return, and daily P&L per universe
-- Current cash and positions count per universe
+- Changes from previous day (NEW/OUT) vs real holdings
+- MTM (held positions × latest close) and positions/picks counts per universe
+- Comma-separated ticker line for copying into a broker
 
-### CSV Logs (separate per mode and variant)
-- `data/mtf_picks_stock.csv` / `data/mtf_picks_etf.csv` — Daily top-N picks (default)
-- `data/mtf_picks_min5_stock.csv` / `data/mtf_picks_min5_etf.csv` — Score ≥ 5 variant
-- `data/mtf_portfolio_stock.csv` / `data/mtf_portfolio_etf.csv` — Portfolio MTM (default)
-- `data/mtf_portfolio_min5_stock.csv` / `data/mtf_portfolio_min5_etf.csv` — Score ≥ 5 variant
-- `data/mtf_trades_stock.csv` / `data/mtf_trades_etf.csv` — Individual trades (default)
-- `data/mtf_trades_min5_stock.csv` / `data/mtf_trades_min5_etf.csv` — Score ≥ 5 variant
+### CSV Logs (pick history only)
+- `data/mtf_picks_stock.csv` — Daily stock top-N picks (idempotent per date)
+- `data/mtf_picks_etf.csv` — Daily ETF top-N picks (idempotent per date)
+
+Trade fills and holdings are logged in PostgreSQL (`mtf_trades`, `mtf_positions`),
+not CSV.
 
 ### Systemd
 
@@ -244,10 +268,9 @@ sudo journalctl -u mtf-executor.service -f
 cd /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
 
 # Evening: score only (default)
-python3 runner.py --action score --mode all       # Both modes + sectors + min-score 5
+python3 runner.py --action score --mode all       # Both modes + sectors
 python3 runner.py --action score --mode stock     # Stocks only
 python3 runner.py --action score --mode etf       # ETFs only
-python3 runner.py --action score --mode stock --min-score 5  # Score ≥ 5 filter
 
 # Morning: execute pending trades
 python3 runner.py --action execute --mode all     # Execute pending for both modes
@@ -258,9 +281,9 @@ python3 runner.py --action execute --mode etf     # Execute pending for ETFs onl
 python3 runner.py --mode all --live
 ```
 
-Note: `--mode all` automatically runs both stock and ETF modes, sector ETF info, and both the default and min-score 5 variants
-in a single execution. Each variant has isolated state files (`.mtf_state_min5_*.json`)
-and separate CSVs.
+Note: `--mode all` runs both stock and ETF modes plus sector ETF info in a single
+execution. State lives in PostgreSQL (`mtf_pending` unconsumed row per mode);
+re-running the scorer replaces that mode's pending, and executing marks it consumed.
 
 ## Phases
 
@@ -280,5 +303,7 @@ and separate CSVs.
 - `tbl_scanner_tickers_1hour` — 1-hour OHLCV + atr_stop
 
 ### Read-write (mtf_ tables, created by init_db())
-- `mtf_positions` — Current open positions (ticker_id, symbol, quantity, entry_price, entry_at)
+- `mtf_positions` — Real open positions (ticker_id, symbol, quantity, entry_price, entry_at) — source of truth for holdings/MTM
 - `mtf_trades` — Historical trade log (ticker_id, symbol, side, quantity, price, pnl, executed_at)
+- `mtf_pending` — Evening scorer's picks for the morning executor (mode, top_symbols JSONB, score_detail JSONB, sig_date, consumed_at)
+- `mtf_runs` — Run history for ops/staleness (mode, sig_date, action, status, detail, created_at)

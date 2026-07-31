@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Show current picks and P&L for MTF Top-N and Daily Signal strategies."""
+"""Show current picks and P&L for MTF Top-N and Daily Signal strategies.
+
+Picks come from the pick-history CSVs (data/mtf_picks_*.csv); holdings and
+entry prices come from the live mtf_positions table (DB), not state files.
+"""
 
 import csv
 import io
-import json
 import os
 import subprocess
 import sys
@@ -12,6 +15,9 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MTF_DATA = os.path.join(BASE, 'mtf', 'data')
 DS_CSV = os.path.join(BASE, 'ema_sma_crossover', 'data', 'daily_signals.csv')
 sys.path.insert(0, os.path.join(BASE, 'mtf'))
+import config
+import db as db_module
+import executor
 from format_etf import etf_table_lines
 
 
@@ -41,63 +47,109 @@ def db_close(symbol):
     return None
 
 
-def show_mtf(label, state_file, tsv=False):
-    path = os.path.join(os.path.dirname(MTF_DATA), state_file)
-    try:
-        state = json.load(open(path))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return
+def _latest_pick_rows(mode):
+    """Return the most recent date's pick rows from the pick-history CSV.
 
-    picks = state.get('last_picks', [])
-    scores = state.get('last_scores', {})
-    entry_prices = state.get('entry_prices', {})
-    date = state.get('last_date', '?')
-    if not picks:
+    Columns (positional): date, rank, symbol, score, gap_w, atr_dist,
+    freshness, entry_date, close. A header row may or may not be present.
+    """
+    path = os.path.join(MTF_DATA, f'mtf_picks_{mode}.csv')
+    try:
+        with open(path) as f:
+            rows = list(csv.reader(f))
+    except FileNotFoundError:
+        return None
+    if not rows:
+        return None
+    if rows[0] and rows[0][0] == 'date':
+        rows = rows[1:]
+    if not rows:
+        return None
+    latest_date = rows[-1][0]
+    out = []
+    for r in rows:
+        if r[0] != latest_date or len(r) < 9:
+            continue
+        out.append({
+            'date': latest_date, 'symbol': r[2], 'score': float(r[3]),
+            'gap_w': float(r[4]), 'atr_dist': float(r[5]), 'freshness': int(r[6]),
+            'entry_date': r[7], 'close': float(r[8]),
+        })
+    return out or None
+
+
+def _db_positions(mode):
+    """Held positions from mtf_positions, filtered to the mode's universe."""
+    is_etf = mode == 'etf'
+    conn = db_module.get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT p.symbol, p.quantity, p.entry_price, p.entry_at
+                FROM mtf_positions p
+                JOIN tbl_stock_tickers s ON s.id = p.ticker_id
+                WHERE s.is_etf = %s
+            ''', (is_etf,))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return {r[0]: {'qty': float(r[1]), 'price': float(r[2]) if r[2] else 0,
+                   'date': str(r[3])[:10] if r[3] else '?'} for r in rows}
+
+
+def _alpaca_equity(mode):
+    """Live Alpaca account equity for the mode's paper account."""
+    try:
+        executor._set_alpaca_keys(mode)
+        account = executor._get_account()
+        return float(account.get('equity', 0))
+    except Exception:
+        return None
+
+
+def show_mtf(label, mode, tsv=False):
+    rows = _latest_pick_rows(mode)
+    if not rows:
         return
+    picks = [r['symbol'] for r in rows]
+    date = rows[0]['date']
+    positions = _db_positions(mode)
+    entry_prices = {sym: {'price': p['price'], 'date': p['date']}
+                    for sym, p in positions.items() if p['price']}
 
     if tsv:
         print(f"\n{label}  |  {date}")
-        # Build score_detail with current prices via db_close
-        score_detail = {}
-        for sym in picks:
-            info = scores.get(sym, {})
-            now = db_close(sym)
-            d = dict(info)
-            d['close'] = now or 0
-            score_detail[sym] = d
         top_n = []
-        for sym in picks:
-            info = scores.get(sym, {})
-            top_n.append({
-                'symbol': sym,
-                'score': info.get('score', 0),
-                'freshness': info.get('freshness', 999),
-                'gap_w': info.get('gap_w', 0),
-            })
+        score_detail = {}
+        for r in rows:
+            sym = r['symbol']
+            now = db_close(sym) or 0
+            top_n.append({'symbol': sym, 'score': float(r['score']),
+                          'freshness': int(r['freshness']), 'gap_w': float(r['gap_w'])})
+            score_detail[sym] = {'close': now}
         for line in etf_table_lines(top_n, score_detail, entry_prices, tsv=True):
             print(line)
         print(','.join(picks))
         return
 
     print(f"\n{'─' * 88}")
-    print(f"  {label}  —  {len(picks)} positions  |  {date}")
+    print(f"  {label}  —  {len(positions)} positions  |  {date}")
     print(f"{'─' * 88}")
     print(f"  {'Ticker':8s}  {'Entry $':>8s}  {'Now $':>8s}  {'P&L $':>9s}  {'P&L %':>7s}  {'Fresh':>5s}  {'Score':>5s}  {'Date':>10s}")
     print(f"  {'─' * 74}")
-    for sym in picks:
-        info = scores.get(sym, {})
-        score = info.get('score', 0)
-        ep = entry_prices.get(sym, {})
-        entry = ep.get('price', 0)
+    for r in rows:
+        sym = r['symbol']
+        score = float(r['score'])
+        freshness = int(r['freshness'])
+        ep = positions.get(sym, {}).get('price', 0)
+        ed = positions.get(sym, {}).get('date', '?')
         now = db_close(sym)
-        ed = ep.get('date', '?')
-        freshness = info.get('freshness', 999)
         days = f'{freshness}d' if freshness < 999 else 'old'
-        if now and entry:
-            pl = now - entry
-            print(f"  {sym:8s}  ${entry:<6.2f}  ${now:<6.2f}  ${pl:>+8.2f}  {(pl/entry)*100:>+6.2f}%  {days:>5s}  {score:>4.1f}  {ed:>10s}")
+        if now and ep:
+            pl = now - ep
+            print(f"  {sym:8s}  ${ep:<6.2f}  ${now:<6.2f}  ${pl:>+8.2f}  {(pl/ep)*100:>+6.2f}%  {days:>5s}  {score:>4.1f}  {ed:>10s}")
         else:
-            print(f"  {sym:8s}  ${entry:<6.2f}  {'N/A':>8s}  {'N/A':>9s}  {'N/A':>7s}  {days:>5s}  {score:>4.1f}  {ed:>10s}")
+            print(f"  {sym:8s}  ${ep:<6.2f}  {'N/A':>8s}  {'N/A':>9s}  {'N/A':>7s}  {days:>5s}  {score:>4.1f}  {ed:>10s}")
 
     print(','.join(picks))
 
@@ -137,35 +189,13 @@ def show_daily():
     print(','.join(sym for sym, _, _, _ in latest))
 
 
-def _live_mtm(state_file):
-    """Compute live MTM from state positions + db_close() prices."""
-    path = os.path.join(os.path.dirname(MTF_DATA), state_file)
-    try:
-        state = json.load(open(path))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
-    portfolio = state.get('portfolio', {})
-    cash = portfolio.get('cash', 0)
-    positions = portfolio.get('positions', {})
-    mtm = cash
-    for sym, pos in positions.items():
-        close = db_close(sym)
-        if close:
-            mtm += pos['shares'] * close
-    return mtm
-
-
 def show_summary():
-    configs = [
-        ('MTF Stock (default)', '.mtf_state_stock.json', 100000),
-        ('MTF Stock (min-score 5)', '.mtf_state_min5_stock.json', 100000),
-        ('MTF ETF', '.mtf_state_etf.json', 100000),
-    ]
-    lines = []
-    for label, state_file, cap in configs:
-        mtm = _live_mtm(state_file)
-        if mtm is not None:
-            lines.append((label, cap, mtm))
+    rows = []
+    for label, mode, cap in [('MTF Stock', 'stock', config.INITIAL_CAPITAL),
+                             ('MTF ETF', 'etf', config.INITIAL_CAPITAL)]:
+        eq = _alpaca_equity(mode)
+        if eq:
+            rows.append((label, cap, eq))
 
     spy = db_close('SPY') or 748.23
     spy_ref = 749.66  # SPY on 7/13
@@ -174,18 +204,17 @@ def show_summary():
     print(f"\n{'=' * 72}")
     print(f"  PORTFOLIO SUMMARY")
     print(f"{'=' * 72}")
-    print(f"  {'Strategy':30s} {'Capital':>9s} {'MTM':>10s} {'Return':>8s} {'vs SPY':>8s}")
+    print(f"  {'Strategy':30s} {'Capital':>9s} {'Equity':>10s} {'Return':>8s} {'vs SPY':>8s}")
     print(f"  {'─' * 67}")
-    for label, cap, mtm in lines:
-        ret = (mtm - cap) / cap * 100
-        print(f"  {label:30s} ${cap:>7,} ${mtm:>8,.2f}  {ret:>+7.2f}%  {ret-spy_ret:>+7.2f}%")
+    for label, cap, eq in rows:
+        ret = (eq - cap) / cap * 100
+        print(f"  {label:30s} ${cap:>7,} ${eq:>8,.2f}  {ret:>+7.2f}%  {ret-spy_ret:>+7.2f}%")
     print(f"  {'SPY':30s} {'':>9s} {'':>10s}  {spy_ret:>+7.2f}%")
 
 
 def main():
-    show_mtf('MTF Stock (default)', '../mtf/.mtf_state_stock.json')
-    show_mtf('MTF Stock (min-score 5)', '../mtf/.mtf_state_min5_stock.json')
-    show_mtf('MTF ETF', '../mtf/.mtf_state_etf.json', tsv=True)
+    show_mtf('MTF Stock', 'stock')
+    show_mtf('MTF ETF', 'etf', tsv=True)
     show_daily()
     show_summary()
 

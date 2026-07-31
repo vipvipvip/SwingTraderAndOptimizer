@@ -57,5 +57,11 @@ scanner/backend/.env
 # EMAC Crossover
 swingtrader/services/ema_sma_crossover/__pycache__/
 swingtrader/services/ema_sma_crossover/*.pyc
+swingtrader/services/scripts/__pycache__/
+
+# MTF state/data (DB-backed; pick-history CSVs only)
+swingtrader/services/mtf/.mtf_state*.json
+swingtrader/services/mtf/data/mtf_portfolio_*.csv
+swingtrader/services/mtf/data/mtf_trades_*.csv
 swingtrader/services/ema_sma_crossover/.env
 swingtrader/services/ema_sma_crossover/.emac_buffer.json

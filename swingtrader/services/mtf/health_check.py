@@ -104,32 +104,41 @@ def main():
         else:
             warn('Could not compute market breadth')
 
-        # ── State files (per mode + min-score variants) ──
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        state_variants = [
-            ('.mtf_state_stock.json', 'default stocks'),
-            ('.mtf_state_etf.json', 'default ETFs'),
-            ('.mtf_state_min5_stock.json', 'min-score 5 stocks'),
-            ('.mtf_state_min5_etf.json', 'min-score 5 ETFs'),
-        ]
-        for fname, label in state_variants:
-            sp = os.path.join(base_dir, fname)
-            if os.path.exists(sp):
-                age = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(sp))).total_seconds()
-                if age < 86400:
-                    ok(f'State [{label}] updated {age/3600:.1f}h ago')
-                elif age < 172800:
-                    warn(f'State [{label}] stale ({age/3600:.1f}h ago)')
-                else:
-                    fail(f'State [{label}] not updated for {age/3600:.1f}h — may be failing silently')
+        # ── Runner runs (DB-backed: mtf_runs) ──
+        modes = ('stock', 'etf')
+        for mode in modes:
+            run = db_module.get_last_run(conn, mode, 'score')
+            label = f'{mode} scorer'
+            if not run:
+                warn(f'[{label}] no score run recorded yet')
+                continue
+            age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - run['created_at']).total_seconds() / 86400
+            status = run['status']
+            if status != 'ok':
+                fail(f'[{label}] last run {run["sig_date"]} ended {status}: {run["detail"] or "no detail"}')
+            elif age_days > 2:
+                fail(f'[{label}] last ok run {run["sig_date"]} is {age_days:.1f}d old — may be failing silently')
+            elif age_days > 1:
+                warn(f'[{label}] last ok run {run["sig_date"]} is {age_days:.1f}d old')
+            else:
+                ok(f'[{label}] last ok run {run["sig_date"]} ({age_days*24:.1f}h ago)')
 
-        # ── Data files (per mode + min-score variants) ──
+        # ── Pending execution status ──
+        with conn.cursor() as cur:
+            cur.execute('SELECT mode, sig_date FROM mtf_pending WHERE consumed_at IS NULL')
+            pending = cur.fetchall()
+        if pending:
+            for mode, sig_date in pending:
+                ok(f'[pending] {mode} execution waiting (scored {sig_date})')
+        else:
+            ok('[pending] no outstanding execution')
+
+        # ── Pick-history CSVs (per mode) ──
+        base_dir = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.path.join(base_dir, 'data')
         csv_variants = [
             ('mtf_picks_stock.csv', 'picks stocks'),
             ('mtf_picks_etf.csv', 'picks ETFs'),
-            ('mtf_picks_min5_stock.csv', 'picks min5 stocks'),
-            ('mtf_picks_min5_etf.csv', 'picks min5 ETFs'),
         ]
         if os.path.exists(data_dir):
             any_picks = False

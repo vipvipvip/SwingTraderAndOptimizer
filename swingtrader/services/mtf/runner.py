@@ -5,18 +5,15 @@ Daily one-shot: scores all stocks using Multi-TF criteria,
 picks top N, executes live Alpaca rotation, sends Slack alert.
 """
 
-import json
 import os
 import csv
 import sys
 import time
-import tempfile
 import subprocess
 
 from format_etf import etf_table_lines
 import argparse
 import traceback
-import numpy as np
 import requests
 from datetime import datetime, time as dt_time, date as dt_date, timedelta
 from zoneinfo import ZoneInfo
@@ -39,24 +36,12 @@ MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs'}
 CSV_SUFFIX = {'stock': '_stock', 'etf': '_etf'}
 
 
-def _suffix(mode, min_score=None):
-    s = CSV_SUFFIX[mode]
-    if min_score is not None:
-        s = f'_min{int(min_score)}{s}'
-    return s
+def _csv_path(name, mode='stock'):
+    return os.path.join(BASE_DIR, 'data', f'mtf_{name}{CSV_SUFFIX[mode]}.csv')
 
 MAX_DB_RETRIES = 3
 DB_RETRY_DELAY = 5
 MAX_STALE_DAYS = 2
-
-
-def _csv_path(name, mode='stock', min_score=None):
-    return os.path.join(BASE_DIR, 'data', f'mtf_{name}{_suffix(mode, min_score)}.csv')
-
-
-def _state_path(mode, min_score=None):
-    base = f'.mtf_state{_suffix(mode, min_score)}'
-    return os.path.join(BASE_DIR, f'{base}.json')
 
 
 def _send_slack(msg, mode='stock'):
@@ -137,41 +122,6 @@ def _check_data_freshness(conn, mode='stock'):
         return False
 
     return True
-
-
-def _load_state(mode='stock', min_score=None):
-    sp = _state_path(mode, min_score)
-    if os.path.exists(sp):
-        try:
-            with open(sp) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            print(f'[STATE] Corrupted state file {sp}: {e}')
-            print(f'[STATE] Starting fresh')
-            return {}
-    # Fallback: migrate old state file for stock mode
-    old_sp = os.path.join(BASE_DIR, '.mtf_state.json')
-    if mode == 'stock' and min_score is None and os.path.exists(old_sp):
-        with open(old_sp) as f:
-            data = json.load(f)
-        _save_state(data, mode)
-        os.rename(old_sp, old_sp + '.bak')
-        return data
-    return {}
-
-
-def _save_state(state, mode='stock', min_score=None):
-    sp = _state_path(mode, min_score)
-    tmp = None
-    try:
-        fd, tmp = tempfile.mkstemp(dir=BASE_DIR, suffix='.tmp')
-        with os.fdopen(fd, 'w') as f:
-            json.dump(state, f, indent=2)
-        os.replace(tmp, sp)
-    except Exception:
-        if tmp and os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
 
 
 def _ensure_csv():
@@ -320,23 +270,24 @@ def _format_regime(pct):
         return f'{pct:.0f}% uptrend \u2705 Risk-on'
 
 
-def _run_single_mode(mode, now, today, min_score=None):
-    """Run scoring + portfolio for one mode. Returns (success, slack_lines, sig_date).
-    If live=True, also executes real Alpaca trades.
+def _run_single_mode(mode, now, today):
+    """Run evening scoring for one mode. Returns (success, slack_lines, sig_date).
+    Analytics only — saves pending picks for the morning executor. No Alpaca calls.
     Does NOT send Slack. Does NOT catch exceptions (caller must handle)."""
     conn = _get_db_conn()
     is_etf = mode == 'etf'
-    score_tag = f' score ≥ {min_score}' if min_score else ''
-    print(f'[MTF] Mode: {MODE_LABEL[mode]}{score_tag}')
+    print(f'[MTF] Mode: {MODE_LABEL[mode]}')
 
     # Data freshness check
     if not _check_data_freshness(conn, mode):
+        db_module.log_run(conn, mode, today, 'score', 'error', 'stale data')
         conn.close()
         return False, [f'Skipped {MODE_LABEL[mode]} — stale data'], None
 
     # Guard: all tickers must have complete daily data before proceeding
     ok, msg, conn, guard_date = _ensure_daily_data(conn, mode, now, today)
     if not ok:
+        db_module.log_run(conn, mode, today, 'score', 'error', msg)
         conn.close()
         slack_msg = f'{MODE_LABEL[mode]}: {msg}\nRetried {DATA_RETRIES}x — aborting. No picks or trades today.'
         _send_slack_alert(slack_msg, mode)
@@ -432,12 +383,11 @@ def _run_single_mode(mode, now, today, min_score=None):
         result['tid'] = tid
         result['symbol'] = ticker_names[tid]
         result['name'] = company_names.get(tid)
-        if min_score is not None and result['score'] < min_score:
-            continue
         candidates.append(result)
 
     lines = []
     if not candidates:
+        db_module.log_run(conn, mode, sig_date, 'score', 'error', 'no qualifying picks')
         lines.append(f'No qualifying {MODE_LABEL[mode]} on {sig_date}')
         conn.close()
         return False, lines, sig_date
@@ -454,66 +404,59 @@ def _run_single_mode(mode, now, today, min_score=None):
         }
     top_symbols = [t['symbol'] for t in top_n]
 
-    state = _load_state(mode, min_score)
-    prev_picks = state.get('last_picks', [])
-    prev_scores = state.get('last_scores', {})
-    prev_date = state.get('last_date')
+    # Real holdings from the live Alpaca-executed portfolio (mtf_positions)
+    all_positions = db_module.get_all_positions(conn)
+    mode_symbols = set(ticker_names.values())
+    held = {sym for sym in all_positions if sym in mode_symbols}
+    entry_map = {sym: pos['entry_price'] for sym, pos in all_positions.items() if sym in mode_symbols}
 
-    portfolio = state.get('portfolio', {
-        'cash': config.INITIAL_CAPITAL, 'positions': {},
-        'last_value': config.INITIAL_CAPITAL, 'inception': str(today),
-    })
-    positions = portfolio['positions']
-    cash = portfolio['cash']
-
-    dropped = [s for s in prev_picks if s not in top_symbols]
-    # Guard: don't sell positions that had no score data today (data gap)
-    data_gap_held = [s for s in dropped if s not in score_detail]
+    held_out = sorted(sym for sym in held if sym not in top_symbols)
+    # Guard: don't flag positions with no score today (data gap) as OUT —
+    # the executor preserves them for the same reason
+    data_gap_held = [sym for sym in held_out if sym not in score_detail]
     for sym in data_gap_held:
         print(f'[MTF] ⚠️ {sym} held but no score today (data gap) — preserving position')
-    dropped = [s for s in dropped if s in score_detail]
-    new_entries = [s for s in top_symbols if s not in prev_picks]
-    buys = []
-    sells = []
-    trade_log_entries = []
+    dropped = [sym for sym in held_out if sym in score_detail]
+    new_entries = sorted(sym for sym in top_symbols if sym not in held)
 
-    for sym in dropped:
-        if sym in positions:
-            pos = positions[sym]
-            entry_price = pos['entry_price']
-            shares = pos['shares']
-            close_price = prev_scores.get(sym, {}).get('close') or pos['entry_price']
-            proceeds = shares * close_price * (1 - config.COST_PER_TRADE)
-            ret = (close_price - entry_price) / entry_price - config.COST_PER_TRADE
-            cash += proceeds
-            sells.append(f'{sym} {ret*100:+.1f}%')
-            pnl = proceeds - shares * entry_price
-            trade_log_entries.append((str(sig_date), sym, 'SELL', f'{shares:.4f}',
-                                      f'{close_price:.2f}', f'{ret*100:+.2f}%', f'{pnl:.2f}'))
-            del positions[sym]
+    _ensure_csv()
+    picks_csv = _csv_path('picks', mode)
+    header = ['date', 'rank', 'symbol', 'score', 'gap_w', 'atr_dist', 'freshness', 'entry_date', 'close']
+    rows = []
+    if os.path.exists(picks_csv):
+        with open(picks_csv, newline='') as f:
+            reader = csv.reader(f)
+            for r in reader:
+                if r and r[0] == 'date':
+                    continue
+                if r and r[0] != str(sig_date):
+                    rows.append(r)
+    for i, t in enumerate(top_n, 1):
+        if t['freshness'] < 999:
+            entry_date = str(sig_date - timedelta(days=t['freshness']))
+        else:
+            entry_date = ''
+        rows.append([str(sig_date), i, t['symbol'], t['score'],
+                     t['gap_w'], t['atr_dist'], t['freshness'], entry_date, t['close']])
+    with open(picks_csv, 'w', newline='') as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(rows)
 
-    if new_entries:
-        per_stock = (cash / len(new_entries)) if cash > 0 else 0
-        for sym in new_entries:
-            sd = score_detail.get(sym, {})
-            bp = sd.get('close', 0)
-            if bp <= 0:
-                continue
-            shares = (per_stock / bp) * (1 - config.COST_PER_TRADE)
-            cost = shares * bp
-            cash -= cost
-            positions[sym] = {'shares': round(shares, 4), 'entry_price': bp}
-            buys.append(f'{sym} @ ${bp:.2f}')
-            trade_log_entries.append((str(sig_date), sym, 'BUY', f'{shares:.4f}',
-                                      f'{bp:.2f}', '', ''))
+    # ── Save pending picks for morning execution ──
+    # Full score_detail (ALL scored symbols, not just top-10) so the executor
+    # can distinguish a real drop from a data gap when selling.
+    db_module.save_pending(conn, mode, top_symbols, score_detail, sig_date)
 
-    mtm_value = cash
-    for sym, pos in list(positions.items()):
+    # MTM from real holdings × today's closes
+    mtm_value = 0.0
+    for sym, pos in all_positions.items():
+        if sym not in held:
+            continue
         sd = score_detail.get(sym)
         close = sd['close'] if sd else None
         if not close:
             try:
-                conn = db_module.get_conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT close FROM tbl_scanner_tickers_daily "
@@ -521,65 +464,13 @@ def _run_single_mode(mode, now, today, min_score=None):
                         "ORDER BY date DESC LIMIT 1", (sym,))
                     row = cur.fetchone()
                     close = float(row[0]) if row else None
-                conn.close()
             except Exception:
                 close = None
         if close:
-            mtm_value += pos['shares'] * close * (1 - config.COST_PER_TRADE)
-
-    total_ret = (mtm_value - config.INITIAL_CAPITAL) / config.INITIAL_CAPITAL * 100
-
-    portfolio['cash'] = cash
-    portfolio['last_value'] = round(mtm_value, 2)
-
-    _ensure_csv()
-    picks_csv = _csv_path('picks', mode, min_score)
-    picks_header = not os.path.exists(picks_csv)
-    with open(picks_csv, 'a', newline='') as f:
-        w = csv.writer(f)
-        if picks_header:
-            w.writerow(['date', 'rank', 'symbol', 'score', 'gap_w', 'atr_dist', 'freshness', 'entry_date', 'close'])
-        for i, t in enumerate(top_n, 1):
-            if t['freshness'] < 999:
-                entry_date = str(sig_date - timedelta(days=t['freshness']))
-            else:
-                entry_date = ''
-            w.writerow([str(sig_date), i, t['symbol'], t['score'],
-                        t['gap_w'], t['atr_dist'], t['freshness'], entry_date, t['close']])
-
-    port_csv = _csv_path('portfolio', mode, min_score)
-    port_header = not os.path.exists(port_csv)
-    with open(port_csv, 'a', newline='') as f:
-        w = csv.writer(f)
-        if port_header:
-            w.writerow(['date', 'cash', 'mtm_value', 'return_pct', 'positions_count', 'buys', 'sells'])
-        w.writerow([str(sig_date), f'{cash:.2f}', f'{mtm_value:.2f}',
-                    f'{total_ret:+.2f}%', len(positions),
-                    '|'.join(buys), '|'.join(sells)])
-
-    trades_csv = _csv_path('trades', mode, min_score)
-    trades_header = not os.path.exists(trades_csv)
-    with open(trades_csv, 'a', newline='') as f:
-        w = csv.writer(f)
-        if trades_header:
-            w.writerow(['date', 'symbol', 'side', 'shares', 'price', 'return', 'pnl'])
-        for entry in trade_log_entries:
-            w.writerow(entry)
-
-    # ── Save pending trades for morning execution ──
-    if min_score is None:
-        state['pending_execution'] = {
-            'top_symbols': top_symbols,
-            # Full score_detail (ALL scored symbols, not just top-10) so the
-            # executor can distinguish a real drop from a data gap when selling.
-            'score_detail': score_detail,
-            'timestamp': str(datetime.now(NY)),
-        }
+            mtm_value += pos['quantity'] * close
 
     # Build message
     label = MODE_LABEL[mode]
-    if min_score is not None:
-        label = f'{label} (score \u2265 {min_score})'
     lines.append(f'*Multi-TF Top {config.TOP_N} — {sig_date} ({label})*')
     lines.append('```')
 
@@ -591,18 +482,8 @@ def _run_single_mode(mode, now, today, min_score=None):
     except Exception:
         pass
 
-    # Track entry prices for all picks (used for Slack P&L and show_picks.py)
-    entry_prices = state.get('entry_prices', {})
-    for sym in dropped:
-        entry_prices.pop(sym, None)
-    for sym in new_entries:
-        sd = score_detail.get(sym, {})
-        sd_close = sd.get('close', 0)
-        if sd_close > 0:
-            entry_prices[sym] = {'price': sd_close, 'date': str(sig_date)}
-    state['entry_prices'] = entry_prices
-
     if is_etf:
+        entry_prices = {sym: {'price': entry_map.get(sym) or 0, 'date': ''} for sym in top_symbols}
         lines.extend(etf_table_lines(top_n, score_detail, entry_prices))
     else:
         lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"Fresh":>7}')
@@ -614,29 +495,21 @@ def _run_single_mode(mode, now, today, min_score=None):
                 f'{t["gap_w"]:>+6.1f}% {days_str:>7}'
             )
 
-    if prev_date and (new_entries or dropped):
+    if new_entries or dropped or data_gap_held:
         lines.append('')
         if new_entries:
             details = [f'{s} ({score_detail.get(s, {}).get("score", 0):.1f})' for s in new_entries]
             lines.append(f'NEW: {", ".join(details)}')
         if dropped:
             lines.append(f'OUT: {", ".join(dropped)}')
-    elif prev_date:
+        if data_gap_held:
+            lines.append(f'⚠️ preserved (no score today): {", ".join(data_gap_held)}')
+    else:
         lines.append('')
         lines.append('No changes since last run')
 
     lines.append('')
-    if prev_date and str(prev_date) != str(sig_date):
-        prev_val = state.get('portfolio', {}).get('last_value', config.INITIAL_CAPITAL)
-        if prev_val and prev_val > 0:
-            daily_ret = (mtm_value - prev_val) / prev_val * 100
-            lines.append(f'Portfolio: ${mtm_value:,.0f}  ({total_ret:+.1f}% total, {daily_ret:+.2f}% today)')
-        else:
-            lines.append(f'Portfolio: ${mtm_value:,.0f}  ({total_ret:+.1f}%)')
-    else:
-        lines.append(f'Portfolio: ${mtm_value:,.0f}  ({total_ret:+.1f}%)')
-
-    lines.append(f'Positions: {len(positions)}  Cash: ${cash:,.0f}')
+    lines.append(f'MTM: ${mtm_value:,.0f}  |  Positions: {len(held)}  |  Picks: {len(top_symbols)}')
 
     # Comma-delimited ticker list
     lines.append('')
@@ -644,30 +517,26 @@ def _run_single_mode(mode, now, today, min_score=None):
 
     lines.append('```')
 
-    # Save state AFTER message is built (so prev_date is available for NEW/OUT)
-    state['last_date'] = str(sig_date)
-    state['last_picks'] = top_symbols
-    state['last_scores'] = score_detail
-    state['portfolio'] = portfolio
-    _save_state(state, mode, min_score)
-
+    db_module.log_run(conn, mode, sig_date, 'score', 'ok')
     conn.close()
     return True, lines, sig_date
 
 
 def _run_execute_pending(mode, today):
-    """Execute pending trades saved by the evening scorer.
+    """Execute pending picks saved by the evening scorer.
     Returns (success, lines, sig_date)."""
-    state = _load_state(mode, min_score=None)
-    pending = state.get('pending_execution')
+    conn = _get_db_conn()
+    pending = db_module.get_pending(conn, mode)
     if not pending:
         msg = f'No pending trades for {MODE_LABEL[mode]}'
         print(f'[MTF] {msg}')
+        conn.close()
         return False, [msg], None
 
     top_symbols = pending['top_symbols']
     score_detail = pending['score_detail']
-    ts = pending['timestamp']
+    sig_date = pending['sig_date']
+    ts = pending['created_at']
 
     lines = []
     lines.append(f'*Executing {MODE_LABEL[mode]} trades (scored {ts})*')
@@ -677,15 +546,17 @@ def _run_execute_pending(mode, today):
         live_lines = executor.execute_rotation(top_symbols, score_detail, mode)
         if live_lines:
             lines.extend(live_lines)
-        state['pending_execution'] = None
-        _save_state(state, mode)
+        db_module.clear_pending(conn, mode)
+        db_module.log_run(conn, mode, sig_date, 'execute', 'ok')
         print(f'[MTF] Pending trades cleared for {MODE_LABEL[mode]}')
     except Exception as e:
+        db_module.log_run(conn, mode, sig_date, 'execute', 'error', str(e))
         lines.append(f'')
         lines.append(f'⚠️ Execution failed: {e}')
         import traceback
         traceback.print_exc()
 
+    conn.close()
     return True, lines, str(today)
 
 
@@ -788,14 +659,14 @@ def _run_sector_info(conn, now, today):
     return lines
 
 
-def run(mode='stock', min_score=None, live=False):
+def run(mode='stock', live=False):
     """Run evening scoring (action='score') or morning execution (action='execute')."""
     now = datetime.now(NY)
     today = now.date()
     action = 'execute' if live else 'score'
     if action == 'score':
         try:
-            success, lines, sig_date = _run_single_mode(mode, now, today, min_score)
+            success, lines, sig_date = _run_single_mode(mode, now, today)
             msg = '\n'.join(lines)
             print(f'\n{msg}\n')
             _send_slack(msg, mode)
@@ -875,19 +746,16 @@ def run_all(live=False):
         all_lines.append(f'❌ sector info crashed: {exc}')
         print(f'[MTF] sector info crashed: {exc}')
 
-    # Also run min-score 5 variant
-    for mode in ('stock', 'etf'):
-        all_lines.append('')
-        try:
-            success, lines, sd = _run_single_mode(mode, now, today, min_score=5)
-            all_lines.extend(lines)
-            if sd:
-                sig_date = sd
-        except Exception as exc:
-            tb = ''.join(traceback.format_exception(*sys.exc_info()))
-            all_lines.append(f'❌ {MODE_LABEL[mode]} (min 5) crashed: {exc}')
-            all_lines.append(f'```{tb[-1500:]}```')
-            print(f'[MTF] {mode} min-score crashed: {exc}')
+    # Sector ETFs (informational only)
+    all_lines.append('')
+    try:
+        conn = _get_db_conn()
+        sector_lines = _run_sector_info(conn, now, today)
+        all_lines.extend(sector_lines)
+        conn.close()
+    except Exception as exc:
+        all_lines.append(f'❌ sector info crashed: {exc}')
+        print(f'[MTF] sector info crashed: {exc}')
 
     if not sig_date:
         sig_date = str(today)
@@ -904,8 +772,6 @@ if __name__ == '__main__':
                         help='score (evening analytics) or execute (morning trades)')
     parser.add_argument('--mode', choices=['stock', 'etf', 'all'], default='stock',
                         help='Ticker universe (default: stock, use "all" for stocks+ETFs)')
-    parser.add_argument('--min-score', type=float, default=None,
-                        help='Minimum MTF score filter (default: no filter)')
     parser.add_argument('--live', action='store_true',
                         help='Deprecated: use --action execute instead')
     args = parser.parse_args()
@@ -913,4 +779,4 @@ if __name__ == '__main__':
     if args.mode == 'all':
         run_all(live=live)
     else:
-        run(mode=args.mode, min_score=args.min_score, live=live)
+        run(mode=args.mode, live=live)
