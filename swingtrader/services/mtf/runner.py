@@ -411,11 +411,12 @@ def _run_single_mode(mode, now, today):
     entry_map = {sym: pos['entry_price'] for sym, pos in all_positions.items() if sym in mode_symbols}
 
     held_out = sorted(sym for sym in held if sym not in top_symbols)
-    # Guard: don't flag positions with no score today (data gap) as OUT —
-    # the executor preserves them for the same reason
+    # Guard: don't flag positions with no score today as OUT — they either
+    # failed the bullish filter or had missing data; the executor preserves
+    # them for the same reason (avoids whipsaw on a marginal filter flip).
     data_gap_held = [sym for sym in held_out if sym not in score_detail]
     for sym in data_gap_held:
-        print(f'[MTF] ⚠️ {sym} held but no score today (data gap) — preserving position')
+        print(f'[MTF] ⚠️ {sym} held but not scored today (failed filter or data gap) — preserving position')
     dropped = [sym for sym in held_out if sym in score_detail]
     new_entries = sorted(sym for sym in top_symbols if sym not in held)
 
@@ -445,7 +446,8 @@ def _run_single_mode(mode, now, today):
 
     # ── Save pending picks for morning execution ──
     # Full score_detail (ALL scored symbols, not just top-10) so the executor
-    # can distinguish a real drop from a data gap when selling.
+    # can distinguish a real drop (has a score, out of top-10) from a no-score
+    # preserve (failed filter or missing data) when selling.
     db_module.save_pending(conn, mode, top_symbols, score_detail, sig_date)
 
     # MTM from real holdings × today's closes
@@ -503,7 +505,7 @@ def _run_single_mode(mode, now, today):
         if dropped:
             lines.append(f'OUT: {", ".join(dropped)}')
         if data_gap_held:
-            lines.append(f'⚠️ preserved (no score today): {", ".join(data_gap_held)}')
+            lines.append(f'⚠️ preserved (not scored today — filter or data gap): {", ".join(data_gap_held)}')
     else:
         lines.append('')
         lines.append('No changes since last run')

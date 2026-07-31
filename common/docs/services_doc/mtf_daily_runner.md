@@ -166,7 +166,7 @@ Breadth: 64% uptrend ✅ Risk-on
 2   XLV        2.0  $162.60  $162.14  -0.28%     60d
 ...
 
-⚠️ preserved (no score today): IJH
+⚠️ preserved (not scored today — filter or data gap): IJH
 
 MTM: $105,282  |  Positions: 11  |  Picks: 10
 XLF,XLV,SCHD,XLE,IJR,VTV,XLI,XLRE,DIA,RSP
@@ -180,7 +180,7 @@ Sector ETFs — 2026-07-13
 - **NEW/OUT** lines show picks added/removed vs real `mtf_positions` holdings
 - **MTM** is sum of held quantity × today's close (real positions, not a simulated portfolio)
 - ETF entry prices come from real Alpaca fills recorded in `mtf_positions`
-- Positions held but not scored today (data gap) are preserved, listed after ⚠️
+- Positions held but not scored today (failed the bullish filter or missing data) are preserved, listed after ⚠️
 
 ### Sector ETFs (Informational)
 

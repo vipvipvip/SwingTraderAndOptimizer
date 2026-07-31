@@ -187,11 +187,13 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
         symbols_to_sell = held_symbols - target_symbols
         symbols_to_buy = target_symbols - held_symbols
 
-        # Guard: don't sell positions that had no score data today (data gap)
+        # Guard: don't sell positions that weren't scored today — they either
+        # failed the bullish filter or had missing data. Preserve to avoid
+        # whipsaw on a marginal filter flip (e.g. IJH 07-31: daily EMA 1c below SMA40).
         data_gap_held = [s for s in symbols_to_sell if s not in score_detail]
         for sym in data_gap_held:
-            trade_lines.append(f'  ⚠️ {sym} held but no score today (data gap) — preserving')
-            print(f'[MTF EXECUTOR] ⚠️ {sym} held but no score today — preserving position')
+            trade_lines.append(f'  ⚠️ {sym} held but not scored today (filter or data gap) — preserving')
+            print(f'[MTF EXECUTOR] ⚠️ {sym} held but not scored today (filter or data gap) — preserving position')
         symbols_to_sell = symbols_to_sell - set(data_gap_held)
 
         # Cancel all open orders first
