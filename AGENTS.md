@@ -73,6 +73,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **MTF runner entry date column** — added `entry YYYY-MM-DD (Nxd)` to terminal + Slack output for all lists (stocks, ETFs, sectors, min-score variants)
 - **MTF `get_sector_tickers` restored** — the `def` line was accidentally dropped during the pending-table refactor, silently killing sector ETF info in Slack; fixed orphaned body back into a working function
 - **`get_pending` jsonb decode** — psycopg2 returns JSONB natively in some configs; cast to `::text` in SQL so `json.loads` is reliable regardless of adapter settings
+- **`mtf_trades` fill log under-records** — partial-fill bug logged requested/partial qty (CBRL 95 vs 176, SEZL 23 vs 62, IJH 17 vs 129, RSP 9 vs 45) plus a phantom `VTV SELL 682` (0 sells ever placed on either account). Rebuilt the log from Alpaca's authoritative fill history via new `reconcile_trades.py` (idempotent delete+reinsert); hardened executor buy path to fall back to live Alpaca position qty; verified 21/21 trade rows exactly match `mtf_positions`
 - **MTCS/EMAC journald pipe stall** — long-running processes with `StandardOutput=journal` go silent when journald pipe buffer fills; fixed by redirecting to `/var/log/emac-runner.log` and `/var/log/mtcs-runner.log`
 - **compute_indicators.py lock contention** — 10 workers × 5,260 individual UPDATEs per ticker causes row-level lock contention (1h 47min runtime). Root cause identified: need partition-aware workers + COPY bulk writes (planned for refactor)
 
