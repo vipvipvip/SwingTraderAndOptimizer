@@ -81,16 +81,21 @@ def _place_order(symbol, qty, side):
     return resp.json()
 
 
-def _wait_for_fill(order_id, max_retries=30, delay=1):
+def _wait_for_fill(order_id, max_retries=60, delay=1):
+    """Poll an order until it is FULLY filled (or hits a terminal state).
+    Returns the final order object; returns None only if the order lookup fails.
+    Wait on any partial fill was the root cause of understated mtf_positions."""
     for _ in range(max_retries):
         order = _get_order(order_id)
         if order is None:
             return None
-        filled_qty = float(order.get('filled_qty', 0))
-        if filled_qty > 0:
-            return float(order.get('filled_avg_price', 0)), order
+        status = order.get('status')
+        if status == 'filled':
+            return order
+        if status in ('cancelled', 'canceled', 'expired', 'rejected', 'suspended'):
+            return order
         time.sleep(delay)
-    return None, None
+    return _get_order(order_id)
 
 
 def _get_alpaca_position(symbol):
@@ -208,21 +213,18 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                 trade_lines.append(f'  ❌ SELL {symbol} failed: {e}')
                 continue
 
-            order_id = order.get('id')
-            fill_price = float(order['filled_avg_price']) if order.get('filled_avg_price') else None
-            filled_order = None
-            if not fill_price and order_id:
-                fill_price, filled_order = _wait_for_fill(order_id)
+            filled_order = order
+            if order.get('status') != 'filled':
+                filled_order = _wait_for_fill(order.get('id')) or order
+
+            filled_qty = int(float(filled_order.get('filled_qty', qty)))
+            fill_price = float(filled_order['filled_avg_price']) if filled_order.get('filled_avg_price') else None
+            if filled_qty < 1:
+                _send_slack_error(f'{symbol} SELL order {order.get("id")} never filled')
+                trade_lines.append(f'  ❌ SELL {symbol} qty={qty} never filled')
+                continue
             if not fill_price:
-                filled_qty = int(float(order.get('filled_qty', qty)))
-                if filled_qty > 0:
-                    fill_price = float(order.get('filled_avg_price')) or _latest_trade_price(symbol)
-                else:
-                    _send_slack_error(f'{symbol} SELL order {order_id} never filled')
-                    trade_lines.append(f'  ❌ SELL {symbol} qty={qty} never filled')
-                    continue
-            else:
-                filled_qty = int(float(filled_order.get('filled_qty', qty))) if filled_order else qty
+                fill_price = _latest_trade_price(symbol)
 
             # Update DB
             ticker_id = db_module.get_ticker_id_from_symbol(conn, symbol)
@@ -271,21 +273,18 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                     trade_lines.append(f'  ❌ BUY {symbol} failed: {e}')
                     continue
 
-                order_id = order.get('id')
-                fill_price = float(order['filled_avg_price']) if order.get('filled_avg_price') else None
-                filled_order = None
-                if not fill_price and order_id:
-                    fill_price, filled_order = _wait_for_fill(order_id)
+                filled_order = order
+                if order.get('status') != 'filled':
+                    filled_order = _wait_for_fill(order.get('id')) or order
+
+                filled_qty = int(float(filled_order.get('filled_qty', qty)))
+                fill_price = float(filled_order['filled_avg_price']) if filled_order.get('filled_avg_price') else None
+                if filled_qty < 1:
+                    _send_slack_error(f'{symbol} BUY order {order.get("id")} never filled')
+                    trade_lines.append(f'  ❌ BUY {symbol} qty={qty} never filled')
+                    continue
                 if not fill_price:
-                    filled_qty = int(float(order.get('filled_qty', qty)))
-                    if filled_qty > 0:
-                        fill_price = float(order.get('filled_avg_price')) or price
-                    else:
-                        _send_slack_error(f'{symbol} BUY order {order_id} never filled')
-                        trade_lines.append(f'  ❌ BUY {symbol} qty={qty} never filled')
-                        continue
-                else:
-                    filled_qty = int(float(filled_order.get('filled_qty', qty))) if filled_order else qty
+                    fill_price = price
 
                 spent = fill_price * filled_qty
 
