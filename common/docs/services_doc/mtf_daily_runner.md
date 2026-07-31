@@ -3,12 +3,12 @@
 ## Overview
 
 MTF Top-N replaces MTCS (Hilbert sine/lead) as the primary rotation strategy.
-Uses Multi-TF scoring (weekly gap + ATR distance + freshness) across all S&P 500
-stocks and ETFs to select the top N most favorable long candidates daily.
+Uses Multi-TF scoring (weekly gap + ATR distance + freshness) across VTI stocks
+and thematic ETFs to select the top N most favorable long candidates daily.
 
-**Phase 2 (Current): Live trading** — EMAC and MTCS stopped; MTF executes real
-Alpaca orders (market orders at ~4:45 PM ET queue for next-day open fill).
-Paper simulation still runs alongside for record-keeping.
+**Two-phase execution**: Evening scorer (4:45 PM) runs analytics, scores, saves
+pending trades. Morning executor (10:00 AM) reads pending trades, places market
+orders when market is open, and records fills immediately.
 
 ## Scoring Formula
 
@@ -28,19 +28,42 @@ Score = min(gap_w / 20, 3)   (weekly gap from SMA(40), points)
 
 ## Architecture
 
+**Evening (4:45 PM)** — `--action score`:
 ```
-┌──────────┐    ┌──────────────┐    ┌──────────────────┐    ┌──────────────────────┐
-│ DB (PSQL)│───▶│  runner.py   │───▶│  CSV logs        │───▶│  Slack alert (1 msg) │
-│ scanner  │    │  --mode all  │    │  (picks/portfolio)│   │  stocks + ETFs       │
-│ tables   │    │  --live      │    │                  │    │  + live trade details│
-└──────────┘    └──┬───────────┘    └──────────────────┘    └──────────────────────┘
-                    │
-                    ▼
-           ┌────────────────┐
-           │  executor.py   │───▶ Alpaca Paper API
-           │  execute_rot.  │───▶ mtf_positions / mtf_trades
-           └────────────────┘
+┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
+│ DB (PSQL)│───▶│  runner.py       │───▶│  Slack alert (picks) │
+│ scanner  │    │  data guard       │    │  (stocks + ETFs +    │
+│ tables   │    │  + score + state  │    │   sectors)           │
+└──────────┘    │  + pending_trades │    └──────────────────────┘
+                └────────┬─────────┘
+                         │ saves pending_execution to
+                         ▼
+                 ┌───────────────┐
+                 │ .mtf_state_*.json │
+                 └───────────────┘
 ```
+
+**Morning (10:00 AM)** — `--action execute`:
+```
+                 ┌───────────────┐
+                 │ .mtf_state_*.json │ ─── reads pending_execution
+                 └───────────────┘
+                         │
+                         ▼
+                ┌────────────────┐    ┌──────────────────────┐
+                │  runner.py     │───▶│  Slack alert (fills) │
+                │  executor.py   │    │  (bought/sold/fills) │
+                └───────┬────────┘    └──────────────────────┘
+                        │
+                        ▼
+                ┌────────────────┐
+                │  Alpaca API    │
+                │  (market open) │
+                └────────────────┘
+```
+
+Key principle: **All analytics happen in the evening. Morning only acts.**
+No guessing after-hours fills — market orders at 10 AM record fills immediately.
 
 ## Files
 
@@ -48,7 +71,7 @@ All files live under `swingtrader/services/mtf/`:
 
 | File | Purpose |
 |------|---------|
-| `runner.py` | Daily one-shot — `--mode stock\|etf\|all`. `--mode all` runs both modes with combined Slack message |
+| `runner.py` | Two-phase: `--action score` (evening analytics) or `--action execute` (morning trades) |
 | `config.py` | DB creds, scoring params (TOP_N=10, EMA/SMA periods, cost, capital) |
 | `db.py` | Scanner DB access (weekly/daily/hourly OHLC, market breadth) |
 | `.env` | Environment variables (DB creds, Slack webhook URL) |
@@ -58,9 +81,10 @@ All files live under `swingtrader/services/mtf/`:
 | `data/mtf_portfolio_etf.csv` | Daily ETF portfolio snapshot |
 | `data/mtf_trades_stock.csv` | Individual stock trade log |
 | `data/mtf_trades_etf.csv` | Individual ETF trade log |
-| `.mtf_state_stock.json` | State file: stock picks + portfolio |
-| `.mtf_state_etf.json` | State file: ETF picks + portfolio |
-| `systemd/mtf-daily-runner.{service,timer}` | systemd oneshot + timer (weekdays 5:30 PM ET, `--mode all --live`) |
+| `.mtf_state_stock.json` | State file: stock picks + portfolio + pending trades |
+| `.mtf_state_etf.json` | State file: ETF picks + portfolio + pending trades |
+| `systemd/mtf-daily-runner.{service,timer}` | Evening scorer (weekdays 4:45 PM ET, `--action score --mode all`) |
+| `systemd/mtf-executor.{service,timer}` | Morning executor (weekdays 10:00 AM ET, `--action execute --mode all`) |
 | `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA3PPZAZR76Z, etf #PA3U8GZ96PEN) |
 
 ## Backtest Results (Multi-TF Daily Rebalance)
@@ -101,8 +125,7 @@ Multi-TF daily doesn't churn because scores are stable day-to-day.
 
 ## Slack Messages
 
-One combined message sent after market close (5:30 PM ET), tagged `[MTF-TopN]`:
-
+**Evening (4:45 PM)** — picks and analytics, tagged `[MTF-TopN]`:
 ```
 Multi-TF Top 10 — 2026-07-13 (stocks + ETFs + sectors)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -140,10 +163,29 @@ Sector ETF scores appear in the daily Slack for situational awareness — which 
 strong momentum. No portfolio, no state, no CSVs. Just score rankings so you can see
 where the rotational strength is.
 
+**Morning (10:00 AM)** — fill confirmation, tagged `[MTF-TopN]`:
+```
+Multi-TF Execution — 2026-07-14 (stocks + ETFs)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Executing stocks trades (scored 2026-07-13 16:45:00)*
+  SELL 10 AAPL @ $215.30  (PnL: +12.5%)
+  BUY 25 MSFT @ $185.20 ($4,630.00)
+  Rotation: 2 sells, 3 buys — $1,000,000 equity
+
+*Executing ETFs trades (scored 2026-07-13 16:45:00)*
+  BUY 15 SMH @ $220.10 ($3,301.50)
+  Rotation: 0 sells, 1 buy — $1,000,000 equity
+```
+
 ## Monitoring
 
 ### Slack
-One combined `[MTF-TopN]` message at 5:30 PM ET with stock, ETF, and sector results:
+Two Slack messages per day:
+- **4:45 PM** — Evening picks with full scoring, portfolio status, sector info
+- **10:00 AM** — Morning fill confirmation (what was bought/sold)
+
+Evening message includes:
 - Market breadth regime per universe
 - Top-10 stock picks with full scoring breakdown
 - Top-10 ETF picks with full scoring breakdown
@@ -161,31 +203,59 @@ One combined `[MTF-TopN]` message at 5:30 PM ET with stock, ETF, and sector resu
 - `data/mtf_trades_min5_stock.csv` / `data/mtf_trades_min5_etf.csv` — Score ≥ 5 variant
 
 ### Systemd
+
 ```bash
-# Run once (manual)
+# Evening scorer (manual)
 sudo systemctl start mtf-daily-runner.service
 
-# Journal
+# Morning executor (manual)
+sudo systemctl start mtf-executor.service
+
+# Journal — scorer
 sudo journalctl -u mtf-daily-runner.service -n 50 --no-pager
 
-# Status
-sudo systemctl status mtf-daily-runner.timer
+# Journal — executor
+sudo journalctl -u mtf-executor.service -n 50 --no-pager
 
-# Tail live
+# Status — both timers
+sudo systemctl status mtf-daily-runner.timer
+sudo systemctl status mtf-executor.timer
+
+# Tail live — scorer
 sudo journalctl -u mtf-daily-runner.service -f
+
+# Tail live — executor
+sudo journalctl -u mtf-executor.service -f
 ```
 
 **Dependency**: `mtf-daily-runner.service` declares `After=scanner-hourly.service` + `Wants=scanner-hourly.service`. When the runner starts, it pulls in `scanner-hourly.service` (populate + capture close quote + compute ATR_stop) and waits for it to complete before scoring. This ensures hourly `atr_stop` indicators are always freshly computed, even if `scanner-hourly.timer` is disabled or delayed.
 
+**Data completeness guard**: Runner checks all enabled tickers have today's daily bar before scoring. If incomplete, it retries `populate_tickers.py` + `compute_indicators.py` up to 3 times. On failure, sends a red `🚨🔴 DATA INCOMPLETE` Slack alert and aborts. No trades are placed.
+
+### Timers
+
+| Timer | Time | Action | Service |
+|-------|------|--------|---------|
+| `mtf-daily-runner.timer` | Mon–Fri 4:45 PM ET | Evening scoring | `mtf-daily-runner.service` |
+| `mtf-executor.timer` | Mon–Fri 10:00 AM ET | Morning execution | `mtf-executor.service` |
+
 ### Manual
 ```bash
 cd /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
-python3 runner.py --mode all --live       # Both modes + live Alpaca trades + sector info + min-score 5
-python3 runner.py --mode all              # Both modes, paper-only (no live trades)
-python3 runner.py --mode stock            # Stocks only (default scoring, TOP_N=10)
-python3 runner.py --mode stock --min-score 5  # Stocks only, score ≥ 5 filter
-python3 runner.py --mode etf              # ETFs only (default scoring, TOP_N=10)
-python3 runner.py --mode etf --min-score 5   # ETFs only, score ≥ 5 filter
+
+# Evening: score only (default)
+python3 runner.py --action score --mode all       # Both modes + sectors + min-score 5
+python3 runner.py --action score --mode stock     # Stocks only
+python3 runner.py --action score --mode etf       # ETFs only
+python3 runner.py --action score --mode stock --min-score 5  # Score ≥ 5 filter
+
+# Morning: execute pending trades
+python3 runner.py --action execute --mode all     # Execute pending for both modes
+python3 runner.py --action execute --mode stock   # Execute pending for stocks only
+python3 runner.py --action execute --mode etf     # Execute pending for ETFs only
+
+# Legacy (deprecated — same as --action execute)
+python3 runner.py --mode all --live
 ```
 
 Note: `--mode all` automatically runs both stock and ETF modes, sector ETF info, and both the default and min-score 5 variants

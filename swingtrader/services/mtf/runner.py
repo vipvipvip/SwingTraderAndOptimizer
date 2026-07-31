@@ -298,7 +298,7 @@ def _format_regime(pct):
         return f'{pct:.0f}% uptrend \u2705 Risk-on'
 
 
-def _run_single_mode(mode, now, today, min_score=None, live=False):
+def _run_single_mode(mode, now, today, min_score=None):
     """Run scoring + portfolio for one mode. Returns (success, slack_lines, sig_date).
     If live=True, also executes real Alpaca trades.
     Does NOT send Slack. Does NOT catch exceptions (caller must handle)."""
@@ -541,19 +541,13 @@ def _run_single_mode(mode, now, today, min_score=None, live=False):
         for entry in trade_log_entries:
             w.writerow(entry)
 
-    # ── Live execution ──
-    if live and min_score is None:
-        try:
-            live_lines = executor.execute_rotation(top_symbols, score_detail, mode)
-            if live_lines:
-                lines.append('')
-                lines.append('Live trades:')
-                lines.extend(live_lines)
-        except Exception as e:
-            lines.append(f'')
-            lines.append(f'⚠️ Live execution failed: {e}')
-            import traceback
-            traceback.print_exc()
+    # ── Save pending trades for morning execution ──
+    if min_score is None:
+        state['pending_execution'] = {
+            'top_symbols': top_symbols,
+            'score_detail': {sym: score_detail[sym] for sym in top_symbols},
+            'timestamp': str(datetime.now(NY)),
+        }
 
     # Build message
     label = MODE_LABEL[mode]
@@ -632,6 +626,40 @@ def _run_single_mode(mode, now, today, min_score=None, live=False):
 
     conn.close()
     return True, lines, sig_date
+
+
+def _run_execute_pending(mode, today):
+    """Execute pending trades saved by the evening scorer.
+    Returns (success, lines, sig_date)."""
+    state = _load_state(mode, min_score=None)
+    pending = state.get('pending_execution')
+    if not pending:
+        msg = f'No pending trades for {MODE_LABEL[mode]}'
+        print(f'[MTF] {msg}')
+        return False, [msg], None
+
+    top_symbols = pending['top_symbols']
+    score_detail = pending['score_detail']
+    ts = pending['timestamp']
+
+    lines = []
+    lines.append(f'*Executing {MODE_LABEL[mode]} trades (scored {ts})*')
+    print(f'[MTF] Executing pending trades for {MODE_LABEL[mode]} (scored {ts})')
+
+    try:
+        live_lines = executor.execute_rotation(top_symbols, score_detail, mode)
+        if live_lines:
+            lines.extend(live_lines)
+        state['pending_execution'] = None
+        _save_state(state, mode)
+        print(f'[MTF] Pending trades cleared for {MODE_LABEL[mode]}')
+    except Exception as e:
+        lines.append(f'')
+        lines.append(f'⚠️ Execution failed: {e}')
+        import traceback
+        traceback.print_exc()
+
+    return True, lines, str(today)
 
 
 def _run_sector_info(conn, now, today):
@@ -734,22 +762,64 @@ def _run_sector_info(conn, now, today):
 
 
 def run(mode='stock', min_score=None, live=False):
+    """Run evening scoring (action='score') or morning execution (action='execute')."""
     now = datetime.now(NY)
     today = now.date()
-    try:
-        success, lines, sig_date = _run_single_mode(mode, now, today, min_score, live=live)
-        msg = '\n'.join(lines)
-        print(f'\n{msg}\n')
-        _send_slack(msg, mode)
-    except Exception:
-        _send_crash_alert(sys.exc_info(), mode)
-        raise
+    action = 'execute' if live else 'score'
+    if action == 'score':
+        try:
+            success, lines, sig_date = _run_single_mode(mode, now, today, min_score)
+            msg = '\n'.join(lines)
+            print(f'\n{msg}\n')
+            _send_slack(msg, mode)
+        except Exception:
+            _send_crash_alert(sys.exc_info(), mode)
+            raise
+    else:
+        try:
+            success, lines, sig_date = _run_execute_pending(mode, today)
+            msg = '\n'.join(lines)
+            print(f'\n{msg}\n')
+            if success:
+                _send_slack(msg, mode)
+        except Exception:
+            _send_crash_alert(sys.exc_info(), mode)
+            raise
+
+
+def _run_execute_all(today):
+    """Execute pending trades for all modes. Sends ONE combined Slack message."""
+    all_lines = []
+    sig_date = str(today)
+
+    for mode in ('stock', 'etf'):
+        all_lines.append('')
+        try:
+            success, lines, sd = _run_execute_pending(mode, today)
+            all_lines.extend(lines)
+            if sd:
+                sig_date = sd
+        except Exception as exc:
+            tb = ''.join(traceback.format_exception(*sys.exc_info()))
+            all_lines.append(f'❌ {MODE_LABEL[mode]} execution crashed: {exc}')
+            all_lines.append(f'```{tb[-1500:]}```')
+            print(f'[MTF] {mode} execution crashed: {exc}')
+
+    header = f'Multi-TF Execution — {sig_date} (stocks + ETFs)'
+    full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
+    print(f'\n{full_msg}\n')
+    _send_slack(full_msg, 'stock')
 
 
 def run_all(live=False):
-    """Run stock and ETF modes (default + min-score) + sector info, send ONE combined Slack message."""
+    """Evening scoring (default) or morning execution (live=True)."""
     now = datetime.now(NY)
     today = now.date()
+    action = 'execute' if live else 'score'
+
+    if action == 'execute':
+        _run_execute_all(today)
+        return
 
     all_lines = []
     sig_date = None
@@ -757,7 +827,7 @@ def run_all(live=False):
     for mode in ('stock', 'etf'):
         all_lines.append('')
         try:
-            success, lines, sd = _run_single_mode(mode, now, today, live=live)
+            success, lines, sd = _run_single_mode(mode, now, today)
             all_lines.extend(lines)
             if sd:
                 sig_date = sd
@@ -803,14 +873,17 @@ def run_all(live=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MTF Top-N Daily Runner')
+    parser.add_argument('--action', choices=['score', 'execute'], default='score',
+                        help='score (evening analytics) or execute (morning trades)')
     parser.add_argument('--mode', choices=['stock', 'etf', 'all'], default='stock',
-                        help='Ticker universe to score (default: stock, use "all" for stocks+ETFs)')
+                        help='Ticker universe (default: stock, use "all" for stocks+ETFs)')
     parser.add_argument('--min-score', type=float, default=None,
                         help='Minimum MTF score filter (default: no filter)')
     parser.add_argument('--live', action='store_true',
-                        help='Execute live Alpaca trades (default: paper only)')
+                        help='Deprecated: use --action execute instead')
     args = parser.parse_args()
+    live = args.live or args.action == 'execute'
     if args.mode == 'all':
-        run_all(live=args.live)
+        run_all(live=live)
     else:
-        run(mode=args.mode, min_score=args.min_score, live=args.live)
+        run(mode=args.mode, min_score=args.min_score, live=live)
