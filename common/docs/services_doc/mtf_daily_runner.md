@@ -38,7 +38,7 @@ Score = min(gap_w / 20, 3)   (weekly gap from SMA(40), points)
 │ DB (PSQL)│───▶│  runner.py       │───▶│  Slack alert (picks) │
 │ scanner  │    │  data guard      │    │  (stocks + ETFs +    │
 │ tables   │    │  + score + MTM   │    │   sectors)           │
-└──────────┘    │  + CSV append    │    └──────────────────────┘
+└──────────┘    │  + CSV (idemp.)  │    └──────────────────────┘
                 └────────┬─────────┘
                          │ saves pending → mtf_pending (JSONB)
                          │ logs run      → mtf_runs
@@ -102,7 +102,7 @@ All files live under `swingtrader/services/mtf/`:
 | Metric | Value |
 |--------|-------|
 | Period | Jul 2023 – Jul 2026 |
-| Return | +5,299% ($100k → $5.4M) |
+| Return | +5,469% ($100k → $5.57M) |
 | Max DD | 22.2% |
 | Win rate | 68% |
 | Avg win | +16.24% |

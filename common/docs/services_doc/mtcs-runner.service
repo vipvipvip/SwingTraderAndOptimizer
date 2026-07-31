@@ -11,8 +11,8 @@ WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/servi
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtcs/runner.py
 Restart=always
 RestartSec=30
-StandardOutput=journal
-StandardError=journal
+StandardOutput=append:/var/log/mtcs-runner.log
+StandardError=append:/var/log/mtcs-runner.log
 Environment=PYTHONUNBUFFERED=1
 
 [Install]

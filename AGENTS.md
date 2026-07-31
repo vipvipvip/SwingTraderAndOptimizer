@@ -14,7 +14,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 
 ## Constraints & Preferences
 - EMAC 30-min runner (QQQ/VTI/VTV, Alpaca paper, Slack tag `[EMAC]`) must remain untouched
-- MTCS (Alpaca paper acct #PA3NCXU4O2CN, Slack tag `[MTCS]`) runs alongside MTF Top-N during Phase 1 paper validation; slated for replacement by MTF Top-N
+- MTCS (Alpaca paper acct #PA3NCXU4O2CN, Slack tag `[MTCS]`) is **stopped** — service removed from systemd, replaced by MTF Top-N (Phase 2 live)
 - Daily Signal Service (Mon–Fri 4:30 PM ET, Slack tagged `[DAILY]`) is separate and stays
 - MTF Top-N Phase 2 is live (Slack tag `[MTF-TopN]`) — places real Alpaca orders
 - CHAND (Alpaca paper, Slack tag `[CHAND]`) runs via Laravel `ExecuteDailyTrades` command on same trio (QQQ/VTI/VTV)
@@ -111,8 +111,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Colgroups removed from all table modes** — all 6 scanner tables now auto-size columns consistently
 - **Infancy as score beat infancy as filter** — hard filter removes too many explosive entries (APP, SNDK, HWM zero trades); using freshness as a 0-2 pt bonus preserves them while still favoring fresh entries
 - **Multi-TF Top-N replaces MTCS as the primary rotation strategy** — Hilbert sine/lead on 3 ETFs underperforms; Multi-TF score on 503 stocks with daily rebalance captures explosive breakouts with 22% max DD
-- **Phase 1 (paper only)** — validate live scoring matches backtest by logging picks alongside running MTCS; sends Slack alert daily with picks, changes, and paper P&L
-- **Phase 2 (replace MTCS)** — stop Hilbert runner, point Alpaca executor at MTF top-N picks; start with `--top-n 5` then scale to 10
+- **Phase 1 (paper only)** — validate live scoring matches backtest by logging picks alongside running MTCS; sends Slack alert daily with picks, changes, and paper P&L ✅ done
+- **Phase 2 (replace MTCS)** — stop Hilbert runner, point Alpaca executor at MTF top-N picks; started at `--top-n 10` ✅ live
 - **Phase 3 (scale)** — increase to `--top-n 10` once comfortable; optionally add stop-loss or trailing exit to protect gains
 - **One combined Slack message** per day instead of separate stock+ETF messages — reduces noise, one view of both universes
 - **`--mode all` refactored runner**: `_run_single_mode()` returns (success, lines, sig_date), `run_all()` merges both sections into one Slack send
@@ -127,7 +127,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 3. ✅ **Phase 1** — Finish `--min-score` integration in runner.py (CLI arg, filtered candidates, isolated suffix)
 4. ✅ Add health check for min-score state files
 5. ✅ **MTF Infrastructure Refactor** — Expand universe from 503 S&P 500 to ~1,534 VTI constituents (Price > $50), partition `tbl_scanner_tickers_1hour` (16 hash buckets), rewrite `compute_indicators.py` with partition-aware workers + COPY bulk writes. **Plan saved: `common/docs/mtf-infra-refactor-plan.md`**
-6. ⏳ After 1-week validation: Phase 2 — stop MTCS runner, wire MTF picks into real Alpaca executor (`--top-n 5`)
+6. ✅ **Phase 2** — MTCS runner stopped, MTF picks wired into real Alpaca executor (`--top-n 10`)
 7. ⏳ Phase 3 — Optimize top-N size, add exit rules (stop-loss, trailing)
 
 ## Critical Context
@@ -151,7 +151,6 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 ## Relevant Files
 - `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 2 — `--action score|execute` + `--mode stock|etf|all` flags, DB-backed state (`mtf_pending`/`mtf_runs`/`mtf_positions`), crash alerting, stale data check, DB retry, sector info, **entry date column in terminal + Slack**
 - `swingtrader/services/mtf/db.py`: Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state tables, JSONB helpers (`save_pending`/`get_pending`/`clear_pending`, `log_run`/`get_last_run`)
-- `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy` flags, partial-date exclusion fix
 - `swingtrader/services/mtf/config.py`: DB config, TOP_N=10, COST=0.0005, CAPITAL=100000
 - `swingtrader/services/mtf/executor.py`: Alpaca order executor (mode keys); `_wait_for_fill` polls to full fill, buy path falls back to Alpaca position qty so fills never under-record; `reconcile_trades()` rebuilds `mtf_trades` from Alpaca order history
 - `swingtrader/services/mtf/reconcile_trades.py`: CLI `--mode all|stock|etf` — idempotent fill-log rebuild (delete + re-insert from Alpaca's authoritative filled orders); use when `mtf_trades` disagrees with real fills
@@ -164,7 +163,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - `scanner/backend/Controllers/ScannerController.php`: Explorer data endpoint with optimized window function queries
 - `scanner/backend/views/scanner/explorer.blade.php`: Explorer Dashboard — 3-panel charts, all-strategy signal columns, sortable
 - `swingtrader/services/ema_sma_crossover/daily_signal_service.py`: Multi-TF scanner with scoring + infancy + market breadth → Slack
-- `swingtrader/services/ema_sma_crossover/backtest_multitf.py`: Multi-timeframe backtest with `--exit daily-ema` mode
+- `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy --exit daily-ema` flags, partial-date exclusion fix
 - `common/docs/mtf-infra-refactor-plan.md`: **MTF Infrastructure Refactor Plan** — VTI universe, partitioning, worker scheduler, implementation tasks
 - `scanner/services/scripts/compute_indicators.py`: **Rewritten** — partition-aware workers (1 per hash partition), COPY bulk UPDATEs, 12x speedup (1h 47min → 8.5min)
 - `scanner/services/scripts/get_vti_universe.py`: **New** — fetches all active US equities from Alpaca, filters by price/exchange/ETF, inserts into `tbl_stock_tickers`

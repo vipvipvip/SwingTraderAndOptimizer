@@ -11,8 +11,8 @@ WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/servi
 ExecStart=/usr/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover/runner.py
 Restart=always
 RestartSec=30
-StandardOutput=journal
-StandardError=journal
+StandardOutput=append:/var/log/emac-runner.log
+StandardError=append:/var/log/emac-runner.log
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
