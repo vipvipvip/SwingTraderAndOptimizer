@@ -122,6 +122,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **`--min-score 5` dropped from production** — research backtest only (+9,061% retained in docs); pipeline, state, and CSV variants removed
 - **Partial-date fix for backtests**: filter out dates where <400 tickers have daily data (prevents incomplete-last-day artifacts)
 - **Infancy filter drags performance** — `--min-score 5` alone crushes (+9,061% vs unfiltered +5,469%), but `+ --infancy` drops to +688% because it skips too many explosive entries
+- **WeeklyAndDailyPPO experiment CLOSED (2026-08-01)** — TOS PPO (EMA60/130 wk + EMA12/26 dy, both scaled by weekly 130 EMA) tested as MTF alternative; **not adopted**. PPO top-10 stock rotation +611% vs MTF +9,031%; PPO filter on MTF halves return; PPO ETF +113% loses to SPY B&H +150%; PPO on SPY/VTI/QQQ = degenerate B&H. **Do not revisit.** Full writeup: `swingtrader/services/ppo/FINDINGS.md`
 
 ## Next Steps
 1. ✅ Test infancy-filtered variant of the strategy — **done: infancy as hard filter degrades returns** (top 25 avg +101% vs unfiltered +356%)
@@ -166,6 +167,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - `scanner/backend/views/scanner/explorer.blade.php`: Explorer Dashboard — 3-panel charts, all-strategy signal columns, sortable
 - `swingtrader/services/ema_sma_crossover/daily_signal_service.py`: Multi-TF scanner with scoring + infancy + market breadth → Slack
 - `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy --exit daily-ema` flags, partial-date exclusion fix
+- `swingtrader/services/ppo/`: **CLOSED experiment** — TOS WeeklyAndDailyPPO backtests (`backtest.py` state machine, `backtest_topn.py` rotation, `FINDINGS.md`). Do not revisit.
 - `common/docs/mtf-infra-refactor-plan.md`: **MTF Infrastructure Refactor Plan** — VTI universe, partitioning, worker scheduler, implementation tasks
 - `scanner/services/scripts/compute_indicators.py`: **Rewritten** — partition-aware workers (1 per hash partition), COPY bulk UPDATEs, 12x speedup (1h 47min → 8.5min)
 - `scanner/services/scripts/get_vti_universe.py`: **New** — fetches all active US equities from Alpaca, filters by price/exchange/ETF, inserts into `tbl_stock_tickers`

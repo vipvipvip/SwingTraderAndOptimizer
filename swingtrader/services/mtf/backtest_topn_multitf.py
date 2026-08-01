@@ -21,6 +21,12 @@ WARMUP = 60
 EMA = 10
 SMA = 40
 
+# TOS WeeklyAndDailyPPO params (used by --ppo-filter hybrid)
+WPPO_FAST = 60
+WPPO_SLOW = 130
+DPPO_FAST = 12
+DPPO_SLOW = 26
+
 
 def _last_idx_before(idx_map, dates, target):
     """Return index for `target` date, or the last available index on/before it."""
@@ -102,6 +108,8 @@ def main():
                         help='Stop-loss exit: sell if position drops >N%% from entry (e.g. 5.0)')
     parser.add_argument('--top-trades', type=int, default=0,
                         help='Print top N winning/losing trades by return %%')
+    parser.add_argument('--ppo-filter', action='store_true',
+                        help='Hybrid: require TOS WeeklyAndDailyPPO > 0 as an extra entry filter')
     args = parser.parse_args()
 
     db_module.init_db()
@@ -140,6 +148,16 @@ def main():
             dc = pd.Series(daily[tid]['close'])
             daily[tid]['ema'] = dc.ewm(span=EMA, adjust=False).mean().to_numpy()
             daily[tid]['sma'] = dc.rolling(window=SMA).mean().to_numpy()
+
+        if args.ppo_filter:
+            for tid in weekly:
+                wc = pd.Series(weekly[tid]['close'])
+                weekly[tid]['ppo_fast'] = wc.ewm(span=WPPO_FAST, adjust=False).mean().to_numpy()
+                weekly[tid]['ppo_slow'] = wc.ewm(span=WPPO_SLOW, adjust=False).mean().to_numpy()
+            for tid in daily:
+                dc = pd.Series(daily[tid]['close'])
+                daily[tid]['ppo_fast'] = dc.ewm(span=DPPO_FAST, adjust=False).mean().to_numpy()
+                daily[tid]['ppo_slow'] = dc.ewm(span=DPPO_SLOW, adjust=False).mean().to_numpy()
 
         # Build date index maps
         daily_idx = {}
@@ -222,6 +240,15 @@ def main():
                     continue  # weekly or daily not bullish
                 if hc <= ha or hc <= 0:
                     continue
+
+                if args.ppo_filter:
+                    ws130 = weekly[tid]['ppo_slow'][wi]
+                    if np.isnan(ws130) or ws130 <= 0:
+                        continue
+                    wppo = (weekly[tid]['ppo_fast'][wi] - ws130) / ws130 * 100
+                    dppo = (daily[tid]['ppo_fast'][di] - daily[tid]['ppo_slow'][di]) / ws130 * 100
+                    if wppo + dppo <= 0:
+                        continue  # WeeklyAndDailyPPO not bullish
 
                 # gap_w: weekly gap from SMA
                 gap_w = (wc - ws) / ws * 100
@@ -379,6 +406,8 @@ def main():
         print(f'\n{"="*80}')
         print(f'  TOP-{args.top_n} MULTI-TF BACKTEST  ({period_label})')
         print(f'  Score: gap_w/20 + atr_dist/1.5 + freshness')
+        if args.ppo_filter:
+            print(f'  Hybrid: + WeeklyAndDailyPPO>0 entry filter')
         print(f'  Period: {all_dates[0]} to {all_dates[-1]}')
         print(f'{"="*80}')
         print(f'  Initial: ${CAPITAL:,.0f}')
