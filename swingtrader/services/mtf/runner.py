@@ -32,8 +32,11 @@ COMPUTE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'c
 DATA_RETRIES = 3
 DATA_RETRY_DELAY = 60
 
-MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs'}
+MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs', 'all': 'stocks+ETFs'}
 CSV_SUFFIX = {'stock': '_stock', 'etf': '_etf'}
+# ETF leg now runs the weekly EMA10>SMA40 rotation (EMASMA), not Multi-TF.
+STRATEGY_TAG = {'stock': 'MTF-TopN', 'etf': 'EMA-SMA', 'all': 'MTF+EMA-SMA'}
+STRATEGY_NAME = {'stock': 'Multi-TF', 'etf': 'EMA/SMA'}
 
 
 def _csv_path(name, mode='stock'):
@@ -48,8 +51,9 @@ def _send_slack(msg, mode='stock'):
     if not config.SLACK_WEBHOOK_URL:
         return
     label = MODE_LABEL.get(mode, mode)
+    tag = STRATEGY_TAG.get(mode, 'MTF-TopN')
     try:
-        r = requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'[MTF-TopN {label}] {msg}'}, timeout=10)
+        r = requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'[{tag} {label}] {msg}'}, timeout=10)
         r.raise_for_status()
     except Exception as e:
         print(f'[SLACK] Error: {e}')
@@ -60,9 +64,10 @@ def _send_slack_alert(msg, mode='stock'):
     if not config.SLACK_WEBHOOK_URL:
         return
     label = MODE_LABEL.get(mode, mode)
+    tag = STRATEGY_TAG.get(mode, 'MTF-TopN')
     try:
         r = requests.post(config.SLACK_WEBHOOK_URL, json={
-            'text': f'🚨🔴 *[MTF-TopN {label}] DATA INCOMPLETE* 🔴🚨',
+            'text': f'🚨🔴 *[{tag} {label}] DATA INCOMPLETE* 🔴🚨',
             'attachments': [{'color': 'danger', 'fallback': msg, 'text': msg}]
         }, timeout=10)
         r.raise_for_status()
@@ -105,7 +110,10 @@ def _check_data_freshness(conn, mode='stock'):
             f'⚠️  Daily bar data is {age}d old (latest: {latest}) — picks may be based on stale prices',
             mode)
 
-    # Check hourly ATR data freshness — critical for accurate scoring
+    # Check hourly ATR data freshness — critical for MTF scoring only
+    # (ETF leg runs EMA/SMA rotation on weekly data, no hourly needed).
+    if mode == 'etf':
+        return True
     with conn.cursor() as cur:
         cur.execute('SELECT MAX(date) FROM tbl_scanner_tickers_1hour')
         latest_hourly = cur.fetchone()[0]
@@ -252,6 +260,54 @@ def _compute_score(weekly, daily, hourly, wi, di, hi, sig_date):
     }
 
 
+def _compute_emasma_score(weekly, daily_close, wi, sig_date):
+    """EMA/SMA score for ETF rotation (matches backtest --score emasma).
+
+    Pure weekly strategy: long when weekly EMA10 > SMA40, flat otherwise.
+    Rank = min(gap_w / 5, 5) where gap_w is the weekly close vs SMA40 gap.
+    No daily/hourly/ATR filters.
+    """
+    if wi < config.WARMUP_BARS:
+        return None
+
+    wc = weekly['close'][wi]
+    we = weekly['ema'][wi]
+    ws = weekly['sma'][wi]
+
+    import math
+    if any(math.isnan(x) for x in (wc, we, ws)):
+        return None
+    if we <= ws:
+        return None
+
+    gap_w = (wc - ws) / ws * 100
+    score = round(min(gap_w / 5, 5), 2)
+
+    # Freshness: days since last weekly EMA/SMA crossover (informational)
+    days_since = 999
+    w_ema = weekly['ema']
+    w_sma = weekly['sma']
+    w_dates = weekly['dates']
+    for j in range(wi, 0, -1):
+        wj_ema = w_ema[j]
+        wj_sma = w_sma[j]
+        wj_ema_prev = w_ema[j - 1]
+        wj_sma_prev = w_sma[j - 1]
+        if not (math.isnan(wj_ema) or math.isnan(wj_sma) or math.isnan(wj_ema_prev) or math.isnan(wj_sma_prev)):
+            if wj_ema > wj_sma and wj_ema_prev <= wj_sma_prev:
+                days_since = (sig_date - w_dates[j]).days
+                break
+
+    return {
+        'score': score,
+        'gap_w': round(gap_w, 1),
+        'atr_dist': 0.0,
+        'freshness': days_since,
+        'close': round(daily_close, 2),
+        'name': None,
+    }
+
+
 def _get_ticker_name(conn, tid):
     with conn.cursor() as cur:
         cur.execute('SELECT symbol FROM tbl_stock_tickers WHERE id = %s', (tid,))
@@ -315,7 +371,8 @@ def _run_single_mode(mode, now, today):
     print(f'[MTF] Loading hourly data...', flush=True)
     hourly_data_raw = db_module.bulk_load_hourly(conn, enabled_tids)
 
-    # Filter to enabled tickers with all 3 timeframes
+    # Filter to enabled tickers with all 3 timeframes (ETF/EMA-SMA only
+    # needs weekly + daily; hourly is used by the MTF score only)
     weekly_data = {tid: d for tid, d in weekly_data.items()
                    if tid in enabled_tids and len(d['dates']) >= config.WARMUP_BARS}
     daily_data = {}
@@ -325,7 +382,10 @@ def _run_single_mode(mode, now, today):
             daily_data[tid] = daily_data_raw[tid]
         if tid in hourly_data_raw and len(hourly_data_raw[tid]['dates']) >= 2:
             hourly_data[tid] = hourly_data_raw[tid]
-    valid_tids = set(weekly_data) & set(daily_data) & set(hourly_data)
+    if is_etf:
+        valid_tids = set(weekly_data) & set(daily_data)
+    else:
+        valid_tids = set(weekly_data) & set(daily_data) & set(hourly_data)
     weekly_data = {tid: weekly_data[tid] for tid in valid_tids}
     daily_data = {tid: daily_data[tid] for tid in valid_tids}
     hourly_data = {tid: hourly_data[tid] for tid in valid_tids}
@@ -373,11 +433,16 @@ def _run_single_mode(mode, now, today):
     for tid in weekly_data:
         di = _nearest_date_idx(daily_idx[tid], daily_dates_sorted[tid], sig_date)
         wi = _nearest_date_idx(weekly_idx[tid], weekly_dates_sorted[tid], sig_date)
-        hi = _nearest_date_idx(hourly_idx[tid], hourly_dates_sorted[tid], sig_date)
-        if di is None or wi is None or hi is None:
+        if di is None or wi is None:
             continue
-        result = _compute_score(weekly_data[tid], daily_data[tid], hourly_data[tid],
-                                wi, di, hi, sig_date)
+        if is_etf:
+            result = _compute_emasma_score(weekly_data[tid], daily_data[tid]['close'][di], wi, sig_date)
+        else:
+            hi = _nearest_date_idx(hourly_idx[tid], hourly_dates_sorted[tid], sig_date)
+            if hi is None:
+                continue
+            result = _compute_score(weekly_data[tid], daily_data[tid], hourly_data[tid],
+                                    wi, di, hi, sig_date)
         if result is None:
             continue
         result['tid'] = tid
@@ -473,7 +538,8 @@ def _run_single_mode(mode, now, today):
 
     # Build message
     label = MODE_LABEL[mode]
-    lines.append(f'*Multi-TF Top {config.TOP_N} — {sig_date} ({label})*')
+    strategy_name = STRATEGY_NAME.get(mode, 'Multi-TF')
+    lines.append(f'*{strategy_name} Top {config.TOP_N} — {sig_date} ({label})*')
     lines.append('```')
 
     try:
@@ -705,10 +771,10 @@ def _run_execute_all(today):
             all_lines.append(f'```{tb[-1500:]}```')
             print(f'[MTF] {mode} execution crashed: {exc}')
 
-    header = f'Multi-TF Execution — {sig_date} (stocks + ETFs)'
+    header = f'MTF + EMA/SMA Execution — {sig_date} (stocks + ETFs)'
     full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
     print(f'\n{full_msg}\n')
-    _send_slack(full_msg, 'stock')
+    _send_slack(full_msg, 'all')
 
 
 def run_all(live=False):
@@ -762,10 +828,10 @@ def run_all(live=False):
     if not sig_date:
         sig_date = str(today)
 
-    header = f'Multi-TF Top {config.TOP_N} \u2014 {sig_date} (stocks + ETFs + sectors)'
+    header = f'MTF Top {config.TOP_N} + EMA/SMA Top {config.TOP_N} — {sig_date} (stocks + ETFs + sectors)'
     full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
     print(f'\n{full_msg}\n')
-    _send_slack(full_msg, 'stock')
+    _send_slack(full_msg, 'all')
 
 
 if __name__ == '__main__':

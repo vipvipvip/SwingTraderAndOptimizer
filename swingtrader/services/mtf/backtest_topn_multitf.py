@@ -98,8 +98,9 @@ def main():
     parser.add_argument('--rebalance', choices=['daily', 'weekly'], default='daily')
     parser.add_argument('--detail', action='store_true')
     parser.add_argument('--etf', action='store_true', help='Run on ETF universe (is_etf=true)')
-    parser.add_argument('--score', choices=['mtf', 'early'], default='mtf',
-                        help='Sorting score: mtf=gap+atr+fresh, early=signals+fresh-gap')
+    parser.add_argument('--score', choices=['mtf', 'early', 'emasma'], default='mtf',
+                        help='Sorting score: mtf=gap+atr+fresh, early=signals+fresh-gap, '
+                             'emasma=weekly EMA10>SMA40 gap')
     parser.add_argument('--min-score', type=float, default=None,
                         help='Minimum MTF score to consider (e.g. 5.0 = only stocks with score >= 5)')
     parser.add_argument('--infancy', action='store_true',
@@ -110,6 +111,8 @@ def main():
                         help='Print top N winning/losing trades by return %%')
     parser.add_argument('--ppo-filter', action='store_true',
                         help='Hybrid: require TOS WeeklyAndDailyPPO > 0 as an extra entry filter')
+    parser.add_argument('--start', default=None,
+                        help='Restrict backtest to dates >= YYYY-MM-DD (fair comparison window)')
     args = parser.parse_args()
 
     db_module.init_db()
@@ -198,6 +201,10 @@ def main():
                 start_idx = ri
                 break
         all_dates = all_dates[start_idx:]
+        if args.start:
+            from datetime import date as _date
+            _start = _date.fromisoformat(args.start)
+            all_dates = [d for d in all_dates if d >= _start]
         print(f'  Universe: {len(common)} tickers, warmup from {all_dates[0]}')
 
         step = 5 if args.rebalance == 'weekly' else 1
@@ -219,6 +226,25 @@ def main():
                 di = daily_idx[tid].get(sig_date)
                 wi = weekly_idx[tid].get(sig_date)
                 hi = hourly_idx[tid].get(sig_date)
+
+                if args.score == 'emasma':
+                    # Strategy signal: weekly EMA10 > SMA40 (long), flat otherwise.
+                    # No daily/hourly/ATR filters — pure weekly strategy under
+                    # the same top-N rotation mechanics.
+                    if wi is None or wi < WARMUP:
+                        continue
+                    we = weekly[tid]['ema'][wi]
+                    ws = weekly[tid]['sma'][wi]
+                    wc = weekly[tid]['close'][wi]
+                    if np.isnan(we) or np.isnan(ws) or np.isnan(wc):
+                        continue
+                    if we <= ws:
+                        continue
+                    gap_w = (wc - ws) / ws * 100
+                    emasma_score = round(min(gap_w / 5, 5), 2)
+                    candidates.append((tid, emasma_score))
+                    continue
+
                 if di is None or wi is None or hi is None:
                     continue
                 if di < 1 or wi < WARMUP or hi < 1:
@@ -405,7 +431,10 @@ def main():
 
         print(f'\n{"="*80}')
         print(f'  TOP-{args.top_n} MULTI-TF BACKTEST  ({period_label})')
-        print(f'  Score: gap_w/20 + atr_dist/1.5 + freshness')
+        if args.score == 'emasma':
+            print(f'  Score: weekly EMA10>SMA40 gap (strategy signal)')
+        else:
+            print(f'  Score: gap_w/20 + atr_dist/1.5 + freshness')
         if args.ppo_filter:
             print(f'  Hybrid: + WeeklyAndDailyPPO>0 entry filter')
         print(f'  Period: {all_dates[0]} to {all_dates[-1]}')

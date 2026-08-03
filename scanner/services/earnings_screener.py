@@ -92,7 +92,7 @@ def refresh_earnings_calendar(lookahead_days: int = 28):
     cur = conn.cursor()
 
     # Get all tickers from DB
-    cur.execute("SELECT symbol FROM tbl_stock_tickers WHERE enabled = true")
+    cur.execute("SELECT symbol FROM tbl_stock_tickers WHERE enabled = true and is_etf=false")
     tickers = [row[0] for row in cur.fetchall()]
     print(f"Checking earnings dates for {len(tickers)} tickers...")
 

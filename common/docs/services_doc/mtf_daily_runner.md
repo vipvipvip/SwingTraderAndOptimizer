@@ -4,7 +4,8 @@
 
 MTF Top-N replaces MTCS (Hilbert sine/lead) as the primary rotation strategy.
 Uses Multi-TF scoring (weekly gap + ATR distance + freshness) across VTI stocks
-and thematic ETFs to select the top N most favorable long candidates daily.
+and weekly EMA10>SMA40 rotation (EMASMA) across thematic ETFs to select the top N
+most favorable long candidates daily.
 
 **Two-phase execution**: Evening scorer (4:45 PM) runs analytics, scores, saves
 pending trades. Morning executor (10:00 AM) reads pending trades, places market
@@ -15,6 +16,8 @@ in `mtf_runs`, and real holdings in `mtf_positions`. No state files, no R&D
 paper-portfolio accounting — the live Alpaca positions are the source of truth.
 
 ## Scoring Formula
+
+Stocks use **Multi-TF** scoring:
 
 ```
 Score = min(gap_w / 20, 3)   (weekly gap from SMA(40), points)
@@ -29,6 +32,16 @@ Score = min(gap_w / 20, 3)   (weekly gap from SMA(40), points)
 - **freshness**: Days since last weekly EMA(10) > SMA(40) crossover. 2 pts at day 0,
   linearly decays to 0 at day 120. Preserves explosive early entries while still
   favoring fresh breakouts.
+
+ETFs use **EMA/SMA** scoring (pure weekly rotation, no daily/hourly/ATR filters):
+
+```
+Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
+```
+
+- Long only while weekly EMA(10) > SMA(40); flat otherwise. Same top-N rotation
+  mechanics, no additional filters. Backtested at **+143% (10.5% DD)** vs MTF
+  +66% (15.4% DD) over Jul 2023 – Jul 2026 on the same 28-ETF universe.
 
 ## Architecture
 
@@ -84,7 +97,7 @@ All files live under `swingtrader/services/mtf/`:
 
 | File | Purpose |
 |------|---------|
-| `runner.py` | Two-phase: `--action score` (evening analytics) or `--action execute` (morning trades) |
+| `runner.py` | Two-phase: `--action score` (evening analytics) or `--action execute` (morning trades). Stocks scored with Multi-TF, ETFs with EMA/SMA |
 | `config.py` | DB creds, scoring params (TOP_N=10, EMA/SMA periods, cost, capital) |
 | `db.py` | Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state |
 | `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA3PPZAZR76Z, etf #PA3U8GZ96PEN); `reconcile_trades()` rebuilds `mtf_trades` from Alpaca fills |
@@ -135,9 +148,9 @@ Multi-TF daily doesn't churn because scores are stable day-to-day.
 
 ## Slack Messages
 
-**Evening (4:45 PM)** — picks and analytics, tagged `[MTF-TopN]`:
+**Evening (4:45 PM)** — picks and analytics, tagged `[MTF+EMA-SMA stocks+ETFs]`:
 ```
-Multi-TF Top 10 — 2026-07-13 (stocks + ETFs + sectors)
+MTF Top 10 + EMA/SMA Top 10 — 2026-07-13 (stocks + ETFs + sectors)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Multi-TF Top 10 — 2026-07-13 (stocks)
@@ -157,7 +170,7 @@ No changes since last run
 MTM: $96,656  |  Positions: 10  |  Picks: 10
 CRNX,FBRX,MNPR,MAN,CBRL,CORT,SEZL,KFRC,DAVE,OKTA
 
-Multi-TF Top 10 — 2026-07-13 (ETFs)
+EMA/SMA Top 10 — 2026-07-13 (ETFs)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Breadth: 64% uptrend ✅ Risk-on
 
@@ -189,9 +202,9 @@ Sector ETF scores appear in the daily Slack for situational awareness — which 
 strong momentum. No portfolio, no state, no CSVs. Just score rankings so you can see
 where the rotational strength is.
 
-**Morning (10:00 AM)** — fill confirmation, tagged `[MTF-TopN]`:
+**Morning (10:00 AM)** — fill confirmation, tagged `[MTF+EMA-SMA stocks+ETFs]`:
 ```
-Multi-TF Execution — 2026-07-14 (stocks + ETFs)
+MTF + EMA/SMA Execution — 2026-07-14 (stocks + ETFs)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 *Executing stocks trades (scored 2026-07-13 16:45:00)*

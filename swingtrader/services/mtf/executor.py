@@ -12,9 +12,14 @@ NY = ZoneInfo('America/New_York')
 _current_api_key = config.ALPACA_API_KEY
 _current_api_secret = config.ALPACA_SECRET_KEY
 
+# Slack tag per mode: ETF leg now runs EMA/SMA rotation, not MTF.
+STRATEGY_TAG = {'stock': 'MTF-TopN', 'etf': 'EMA-SMA'}
+_current_strategy_tag = 'MTF-TopN'
+
 
 def _set_alpaca_keys(mode):
-    global _current_api_key, _current_api_secret
+    global _current_api_key, _current_api_secret, _current_strategy_tag
+    _current_strategy_tag = STRATEGY_TAG.get(mode, 'MTF-TopN')
     if mode == 'etf':
         _current_api_key = config.ALPACA_ETF_API_KEY or config.ALPACA_API_KEY
         _current_api_secret = config.ALPACA_ETF_SECRET_KEY or config.ALPACA_SECRET_KEY
@@ -139,7 +144,7 @@ def _send_slack(msg):
     acct_no = _get_account_number()
     try:
         requests.post(config.SLACK_WEBHOOK_URL,
-                      json={'text': f'[MTF-TopN] [Paper:{acct_no}] {msg}'},
+                      json={'text': f'[{_current_strategy_tag}] [Paper:{acct_no}] {msg}'},
                       timeout=10)
     except Exception as e:
         print(f'[MTF EXECUTOR SLACK] Error: {e}')
@@ -151,7 +156,7 @@ def _send_slack_error(msg):
     acct_no = _get_account_number()
     try:
         requests.post(config.SLACK_WEBHOOK_URL,
-                      json={'text': f'⚠️ [MTF-TopN] [Paper:{acct_no}] {msg}'},
+                      json={'text': f'⚠️ [{_current_strategy_tag}] [Paper:{acct_no}] {msg}'},
                       timeout=10)
     except Exception as e:
         print(f'[MTF EXECUTOR SLACK] Error: {e}')

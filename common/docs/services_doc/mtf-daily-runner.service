@@ -1,5 +1,5 @@
 [Unit]
-Description=MTF Top-N Daily Scorer (Multi-TF rotation — evening analytics)
+Description=MTF Top-N Daily Scorer (Multi-TF stocks + EMA/SMA ETFs — evening analytics)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target swingtrader-db.service scanner-hourly.service
 Wants=swingtrader-db.service scanner-hourly.service

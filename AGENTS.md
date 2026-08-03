@@ -9,14 +9,14 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 | 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/VTV | Optimized trailing stop | ✅ Live (Laravel) |
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
-| 4 | **MTF Top-N** (Multi-TF rotation) | VTI stocks + ETFs | gap_w + atr_dist + freshness → top 10 | ✅ Live (#PA3PPZAZR76Z stocks / #PA3U8GZ96PEN ETFs) |
+| 4 | **MTF Top-N** (MTF stocks + EMA/SMA ETFs) | VTI stocks + ETFs | Stocks: gap_w + atr_dist + freshness; ETFs: weekly EMA10>SMA40 gap → top 10 | ✅ Live (#PA3PPZAZR76Z stocks / #PA3U8GZ96PEN ETFs) |
 | 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 4:30 PM |
 
 ## Constraints & Preferences
 - EMAC 30-min runner (QQQ/VTI/VTV, Alpaca paper, Slack tag `[EMAC]`) must remain untouched
 - MTCS (Alpaca paper acct #PA3NCXU4O2CN, Slack tag `[MTCS]`) is **stopped** — service removed from systemd, replaced by MTF Top-N (Phase 2 live)
 - Daily Signal Service (Mon–Fri 4:30 PM ET, Slack tagged `[DAILY]`) is separate and stays
-- MTF Top-N Phase 2 is live (Slack tag `[MTF-TopN]`) — places real Alpaca orders
+- MTF Top-N Phase 2 is live (Slack tag `[MTF-TopN stocks]` / `[EMA-SMA ETFs]`) — places real Alpaca orders
 - CHAND (Alpaca paper, Slack tag `[CHAND]`) runs via Laravel `ExecuteDailyTrades` command on same trio (QQQ/VTI/VTV)
 - All backtests use scanner DB tables (`tbl_scanner_tickers*`), not strategy-specific ETF tables
 - MTCS uses optimizer venv for Python execution; Hilbert chart script (`chart.py`) auto-detects this venv via `os.execv`
@@ -152,7 +152,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **MTCS Alpaca** (key `PKQK45DA2ERAXX6XKPUDORIWSH`, acct #PA3NCXU4O2CN): $1M paper, stopped
 
 ## Relevant Files
-- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 2 — `--action score|execute` + `--mode stock|etf|all` flags, DB-backed state (`mtf_pending`/`mtf_runs`/`mtf_positions`), crash alerting, stale data check, DB retry, sector info, **entry date column in terminal + Slack**
+- `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 2 — `--action score|execute` + `--mode stock|etf|all` flags, DB-backed state (`mtf_pending`/`mtf_runs`/`mtf_positions`), crash alerting, stale data check, DB retry, sector info, **entry date column in terminal + Slack**. Stocks scored with Multi-TF; ETF leg uses weekly EMA10>SMA40 rotation (`_compute_emasma_score`)
 - `swingtrader/services/mtf/db.py`: Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state tables, JSONB helpers (`save_pending`/`get_pending`/`clear_pending`, `log_run`/`get_last_run`)
 - `swingtrader/services/mtf/config.py`: DB config, TOP_N=10, COST=0.0005, CAPITAL=100000
 - `swingtrader/services/mtf/executor.py`: Alpaca order executor (mode keys); `_wait_for_fill` polls to full fill, buy path falls back to Alpaca position qty so fills never under-record; `reconcile_trades()` rebuilds `mtf_trades` from Alpaca order history
