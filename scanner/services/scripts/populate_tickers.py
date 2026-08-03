@@ -28,9 +28,9 @@ SP500_URL = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
 NY = ZoneInfo('America/New_York')
 
 TIMEFRAMES = {
-    'week': {'tf': TimeFrame.Week, 'table': 'tbl_scanner_tickers', 'label': 'weeks'},
-    'day': {'tf': TimeFrame.Day, 'table': 'tbl_scanner_tickers_daily', 'label': 'days'},
-    'hour': {'tf': TimeFrame.Hour, 'table': 'tbl_scanner_tickers_1hour', 'label': 'hours'},
+    'week': {'tf': TimeFrame.Week, 'table': 'tbl_scanner_tickers', 'label': 'weeks', 'yf_interval': '1wk'},
+    'day': {'tf': TimeFrame.Day, 'table': 'tbl_scanner_tickers_daily', 'label': 'days', 'yf_interval': '1d'},
+    'hour': {'tf': TimeFrame.Hour, 'table': 'tbl_scanner_tickers_1hour', 'label': 'hours', 'yf_interval': '1h'},
 }
 
 
@@ -107,7 +107,62 @@ def fetch_bars(symbol, client, tf_name, start):
     return all_bars
 
 
-def process_ticker(symbol, client, tf_name, global_start):
+def fetch_yfinance_bars(symbol, tf_name, start):
+    """Fallback data source: yfinance.
+
+    Alpaca's IEX feed sometimes has no bars for ultra-thin names that still
+    trade (e.g. CZFS/PDEX/SEB/UTMD). When Alpaca returns nothing, use
+    yfinance as a fallback so invested tickers always get a price to generate
+    exit signals.
+
+    Returns a list of simple bar objects compatible with Alpaca's Bar
+    (attributes: timestamp, open, high, low, close, volume), or None.
+    """
+    import yfinance as yf
+
+    end = datetime.now(NY)
+    interval = TIMEFRAMES[tf_name]['yf_interval']
+    try:
+        df = yf.download(symbol, start=start, end=end, interval=interval,
+                         auto_adjust=False, progress=False)
+    except Exception:
+        return None
+    if df is None or len(df) == 0:
+        return None
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    bars = []
+    for idx, row in df.iterrows():
+        ts = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=NY)
+        try:
+            bars.append(_SimpleBar(
+                ts,
+                float(row['Open']),
+                float(row['High']),
+                float(row['Low']),
+                float(row['Close']),
+                int(row['Volume']),
+            ))
+        except Exception:
+            continue
+    return bars or None
+
+
+class _SimpleBar:
+    """Minimal Alpaca-Bar-compatible object for yfinance fallback rows."""
+    def __init__(self, timestamp, open, high, low, close, volume):
+        self.timestamp = timestamp
+        self.open = open
+        self.high = high
+        self.low = low
+        self.close = close
+        self.volume = volume
+
+
+def process_ticker(symbol, client, tf_name, global_start, priority=False):
     try:
         table = TIMEFRAMES[tf_name]['table']
         is_hourly = tf_name == 'hour'
@@ -132,16 +187,21 @@ def process_ticker(symbol, client, tf_name, global_start):
             start = global_start
 
         now = datetime.now(NY)
-        if is_hourly:
-            if start >= now:
-                return symbol, 0, 'up to date'
-        else:
-            if latest_date is not None and latest_date >= now.date():
-                return symbol, 0, 'up to date'
+        if not priority:
+            if is_hourly:
+                if start >= now:
+                    return symbol, 0, 'up to date'
+            else:
+                if latest_date is not None and latest_date >= now.date():
+                    return symbol, 0, 'up to date'
 
         bars = fetch_bars(symbol, client, tf_name, start)
+        source = 'alpaca'
         if not bars or len(bars) == 0:
-            return symbol, 0, 'no new data'
+            bars = fetch_yfinance_bars(symbol, tf_name, start)
+            if not bars or len(bars) == 0:
+                return symbol, 0, 'no new data'
+            source = 'yfinance'
 
         rows = []
         for bar in bars:
@@ -176,6 +236,8 @@ def process_ticker(symbol, client, tf_name, global_start):
         finally:
             conn.close()
 
+        if source == 'yfinance':
+            return symbol, len(rows), 'ok (yfinance fallback)'
         return symbol, len(rows), 'ok'
     except Exception as e:
         return symbol, 0, str(e)
@@ -188,7 +250,12 @@ def main():
     parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers')
     parser.add_argument('--full-refetch', action='store_true',
                         help='Delete and re-fetch all data instead of incremental update')
+    parser.add_argument('--priority', default='',
+                        help='Comma-separated symbols to force-fetch even if "up to date" '
+                             '(e.g. currently invested tickers that must have fresh prices for exit signals)')
     args = parser.parse_args()
+
+    priority_set = {s.strip().upper() for s in args.priority.split(',') if s.strip()}
 
     table = TIMEFRAMES[args.timeframe]['table']
     label = TIMEFRAMES[args.timeframe]['label']
@@ -237,7 +304,8 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {
-            executor.submit(process_ticker, ticker, client, args.timeframe, start): ticker
+            executor.submit(process_ticker, ticker, client, args.timeframe, start,
+                            ticker in priority_set): ticker
             for ticker in tickers
         }
 
@@ -246,10 +314,13 @@ def main():
             symbol, bars_inserted, status = future.result()
             done += 1
 
-            if status == 'ok':
+            if status.startswith('ok'):
                 ok += 1
                 total_bars += bars_inserted
-                print(f"  [{done}/{total}] {symbol}: {bars_inserted} {label} inserted")
+                if status == 'ok (yfinance fallback)':
+                    print(f"  [{done}/{total}] {symbol}: {bars_inserted} {label} inserted (yfinance fallback)")
+                else:
+                    print(f"  [{done}/{total}] {symbol}: {bars_inserted} {label} inserted")
             else:
                 failed += 1
                 reason = 'no data' if status == 'no data' else status

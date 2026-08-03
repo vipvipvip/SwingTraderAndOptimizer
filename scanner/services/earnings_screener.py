@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import json
 import sys
 import os
 import requests
@@ -32,6 +33,30 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import DB_CONFIG
 
 SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
+
+# State file tracks the last result set sent to Slack so repeated identical
+# lists (every 30-min timer run) don't spam the channel. Only a changed set
+# (new ticker in/out, or a fresh crossover) triggers a new message.
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.earnings_screener_state.json')
+
+
+def _state_signature(results):
+    """Stable fingerprint of a result set: sorted (ticker, freshness) pairs.
+    Returned as JSON-native list-of-lists so a JSON round-trip preserves it."""
+    return sorted([r['ticker'], r['freshness'], bool(r['just_turned_positive'])] for r in results)
+
+
+def _load_state():
+    try:
+        with open(STATE_FILE) as f:
+            return json.load(f).get('signature')
+    except (OSError, ValueError):
+        return None
+
+
+def _save_state(signature):
+    with open(STATE_FILE, 'w') as f:
+        json.dump({'signature': signature, 'updated_at': datetime.now().isoformat()}, f)
 
 
 # ── DB Helpers ──────────────────────────────────────────────────────────────
@@ -335,9 +360,15 @@ def run_screener(days_ahead: int = 14, fresh_only: bool = True, send_slack: bool
     ticker_list = ','.join(r['ticker'] for r in results)
     print(f"\n{ticker_list}")
 
-    # Send to Slack if requested
+    # Send to Slack if requested — only when the result set changed since the
+    # last run, so the 30-min timer doesn't spam identical lists.
     if send_slack and results:
-        _send_slack_message(results)
+        sig = _state_signature(results)
+        if sig == _load_state():
+            print(f"[SLACK] No change from last run — suppressing duplicate ({len(results)} stocks)")
+        else:
+            _send_slack_message(results)
+            _save_state(sig)
 
 
 def show_stats():

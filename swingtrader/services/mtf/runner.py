@@ -185,11 +185,18 @@ def _ensure_daily_data(conn, mode, now, today):
             return False, msg, conn, required_date
 
         print(f'[MTF] Retry {attempt}/{DATA_RETRIES}: running populate_tickers + compute_indicators...')
+        # Force-fetch invested tickers so exit signals always have fresh prices.
+        invested = ''
+        try:
+            invested = ','.join(sorted(db_module.get_all_positions(conn).keys()))
+        except Exception:
+            invested = ''
         conn.close()
         try:
-            subprocess.run(
-                [SCANNER_VENV_PYTHON, POPULATE_SCRIPT, '--timeframe', 'day', '--workers', '10'],
-                check=True, capture_output=True, timeout=300)
+            cmd = [SCANNER_VENV_PYTHON, POPULATE_SCRIPT, '--timeframe', 'day', '--workers', '10']
+            if invested:
+                cmd += ['--priority', invested]
+            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
             subprocess.run(
                 [SCANNER_VENV_PYTHON, COMPUTE_SCRIPT, '--timeframe', 'day', '--workers', '10'],
                 check=True, capture_output=True, timeout=300)
@@ -802,17 +809,6 @@ def run_all(live=False):
             all_lines.append(f'❌ {MODE_LABEL[mode]} crashed: {exc}')
             all_lines.append(f'```{tb[-1500:]}```')
             print(f'[MTF] {mode} crashed: {exc}')
-
-    # Sector ETFs (informational only)
-    all_lines.append('')
-    try:
-        conn = _get_db_conn()
-        sector_lines = _run_sector_info(conn, now, today)
-        all_lines.extend(sector_lines)
-        conn.close()
-    except Exception as exc:
-        all_lines.append(f'❌ sector info crashed: {exc}')
-        print(f'[MTF] sector info crashed: {exc}')
 
     # Sector ETFs (informational only)
     all_lines.append('')
