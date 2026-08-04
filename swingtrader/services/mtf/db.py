@@ -134,9 +134,11 @@ def get_all_tickers(conn, is_etf=False):
 
 def save_pending(conn, mode, top_symbols, score_detail, sig_date):
     """Store the evening scorer's picks for the morning executor.
-    Replaces any existing unconsumed pending for the mode."""
+    Replaces any existing unconsumed pending for the same mode+sig_date (idempotency).
+    Does NOT delete unconsumed pending with a different sig_date (preserves failed executions)."""
     with conn.cursor() as cur:
-        cur.execute('DELETE FROM mtf_pending WHERE mode = %s AND consumed_at IS NULL', (mode,))
+        cur.execute('DELETE FROM mtf_pending WHERE mode = %s AND sig_date = %s AND consumed_at IS NULL', 
+                    (mode, sig_date))
         cur.execute(
             'INSERT INTO mtf_pending (mode, top_symbols, score_detail, sig_date) '
             'VALUES (%s, %s::jsonb, %s::jsonb, %s)',
@@ -162,12 +164,19 @@ def get_pending(conn, mode):
     }
 
 
-def clear_pending(conn, mode):
-    """Mark the mode's unconsumed pending as consumed."""
+def clear_pending(conn, mode, sig_date=None):
+    """Mark the pending as consumed. If sig_date is provided, only mark that specific pending;
+    otherwise mark all unconsumed for the mode (backward-compat for older call sites)."""
     with conn.cursor() as cur:
-        cur.execute(
-            'UPDATE mtf_pending SET consumed_at = NOW() '
-            'WHERE mode = %s AND consumed_at IS NULL', (mode,))
+        if sig_date:
+            cur.execute(
+                'UPDATE mtf_pending SET consumed_at = NOW() '
+                'WHERE mode = %s AND sig_date = %s AND consumed_at IS NULL', 
+                (mode, sig_date))
+        else:
+            cur.execute(
+                'UPDATE mtf_pending SET consumed_at = NOW() '
+                'WHERE mode = %s AND consumed_at IS NULL', (mode,))
     conn.commit()
 
 

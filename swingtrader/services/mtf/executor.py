@@ -162,6 +162,27 @@ def _send_slack_error(msg):
         print(f'[MTF EXECUTOR SLACK] Error: {e}')
 
 
+def _wait_for_network(timeout_sec=30, check_hosts=['8.8.8.8', 'paper-api.alpaca.markets']):
+    """Wait for network connectivity after wake-from-suspend.
+    Retries DNS resolution of key hosts until available or timeout.
+    
+    Fixes timing issue when executor.timer fires immediately after wake,
+    before WiFi/network is fully connected."""
+    import socket
+    start = time.time()
+    for host in check_hosts:
+        while time.time() - start < timeout_sec:
+            try:
+                socket.gethostbyname(host)
+                print(f'[MTF] Network ready: {host} resolved')
+                return True
+            except (socket.gaierror, OSError):
+                time.sleep(0.5)
+                continue
+    print(f'[MTF] Warning: network not ready after {timeout_sec}s; proceeding anyway')
+    return False
+
+
 def execute_rotation(top_symbols, score_detail, mode='stock'):
     """Execute MTF rotation: sell dropped positions, buy new entries.
 
@@ -173,6 +194,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
     Returns:
         list of human-readable trade summary lines
     """
+    _wait_for_network()
     _set_alpaca_keys(mode)
     conn = db_module.get_conn()
     now = datetime.now(NY)

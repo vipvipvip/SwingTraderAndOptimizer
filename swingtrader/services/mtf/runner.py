@@ -621,7 +621,7 @@ def _run_execute_pending(mode, today):
         live_lines = executor.execute_rotation(top_symbols, score_detail, mode)
         if live_lines:
             lines.extend(live_lines)
-        db_module.clear_pending(conn, mode)
+        db_module.clear_pending(conn, mode, sig_date)
         db_module.log_run(conn, mode, sig_date, 'execute', 'ok')
         print(f'[MTF] Pending trades cleared for {MODE_LABEL[mode]}')
     except Exception as e:
