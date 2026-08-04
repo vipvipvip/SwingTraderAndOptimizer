@@ -12,6 +12,7 @@ class TradeExecutorService
     private $alpacaService;
     private $strategyService;
     private $equityService;
+    private $dryRun = false;
 
     public function __construct(AlpacaService $alpaca, StrategyService $strategy, EquityService $equity)
     {
@@ -54,14 +55,18 @@ class TradeExecutorService
         return true;
     }
 
-    public function executeForAllTickers($override = false)
+    public function executeForAllTickers($override = false, $dryRun = false)
     {
+        $this->dryRun = $dryRun;
+
         // Reconcile live_trades from Alpaca order history before every cycle
         // This ensures the DB reflects Alpaca's actual positions (self-healing)
-        try {
-            $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
-        } catch (\Exception $e) {
-            \Log::warning("Reconciliation failed: " . $e->getMessage());
+        if (!$dryRun) {
+            try {
+                $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+            } catch (\Exception $e) {
+                \Log::warning("Reconciliation failed: " . $e->getMessage());
+            }
         }
 
         $account = null;
@@ -114,17 +119,12 @@ class TradeExecutorService
             }
         }
 
-        if ($availableCash <= 0) {
-            \Log::debug("No available cash (\${$availableCash}), skipping buys");
-            return $results;
-        }
-
-        // Pass 2: pool cash among tickers with buy signals
-        if ($buySignals && $availableCash > 0) {
-            $result = $this->handlePooledEntries($buySignals, $availableCash, $account, $positions);
-            if ($result) {
-                $results['buys'] = $result;
-            }
+        // Pass 2: MTF-style rebalance — equal-weight every in-play ticker
+        // (held positions + this cycle's buy signals) toward equity/N.
+        // Overweight holdings are trimmed to fund new entries, so capital
+        // rotates instead of getting stranded in one name.
+        if (!empty($buySignals)) {
+            $this->rebalanceEqualWeight($accountEquity, $buySignals, $positions, $results);
         }
 
         // Pass 3 (override only): if cash remains stranded, force-check entry
@@ -134,6 +134,181 @@ class TradeExecutorService
         }
 
         return $results;
+    }
+
+    /**
+     * MTF-style rotation for the CHAND trio.
+     *
+     * In-play tickers (held positions + tickers with a buy signal this cycle)
+     * are sized toward equity/N each. Overweight held tickers are trimmed to
+     * fund underweight entries, so the account rotates instead of being
+     * permanently parked in one symbol.
+     */
+    private function rebalanceEqualWeight(float $accountEquity, array $buySignals, ?array $positions, array &$results): void
+    {
+        if ($accountEquity <= 0) {
+            return;
+        }
+
+        $held = [];
+        foreach ($positions ?? [] as $pos) {
+            $held[$pos['symbol']] = floatval($pos['market_value'] ?? 0);
+        }
+
+        $inPlay = array_values(array_unique(array_merge(array_keys($held), $buySignals)));
+        if (count($inPlay) < 1) {
+            return;
+        }
+
+        $perPosition = $accountEquity / count($inPlay);
+        \Log::info("Rebalance: " . count($inPlay) . " in-play tickers (" . implode(',', $inPlay) . "), target \$" . round($perPosition, 2) . " each");
+
+        // 1) Trim overweight held tickers down to the equal-weight target.
+        foreach ($inPlay as $sym) {
+            $currentValue = $held[$sym] ?? 0;
+            if ($currentValue <= $perPosition) {
+                continue;
+            }
+            $excess = $currentValue - $perPosition;
+            $price = $this->getCurrentPrice($sym);
+            if (!$price) {
+                continue;
+            }
+            $sellQty = intval($excess / $price);
+            if ($sellQty < 1) {
+                continue;
+            }
+            if ($this->rebalanceTrim($sym, $sellQty)) {
+                $results['sells'][] = "$sym (rebalance trim $sellQty)";
+            }
+        }
+
+        // 2) Buy underweight in-play tickers that signaled this cycle.
+        foreach ($buySignals as $sym) {
+            $currentValue = $held[$sym] ?? 0;
+            $needed = $perPosition - $currentValue;
+            if ($needed <= 0) {
+                continue;
+            }
+            $price = $this->getCurrentPrice($sym);
+            if (!$price) {
+                continue;
+            }
+            $buyQty = intval($needed / $price);
+            if ($buyQty < 1) {
+                continue;
+            }
+            if ($this->rebalanceBuy($sym, $buyQty, $price)) {
+                $results['buys'][] = $sym;
+            }
+        }
+    }
+
+    /**
+     * Partial sell for rebalance trims. Reduces the open trade's quantity; a
+     * closed SELL trade records the trimmed portion so reconciliation skips it.
+     */
+    private function rebalanceTrim(string $symbol, int $qty): bool
+    {
+        $openTrade = LiveTrade::where('symbol', $symbol)->where('status', 'open')->first();
+        if (!$openTrade) {
+            return false;
+        }
+        $currentQty = intval($openTrade->quantity ?? 0);
+        if ($qty >= $currentQty) {
+            $qty = $currentQty;
+        }
+        if ($qty < 1) {
+            return false;
+        }
+
+        if ($this->dryRun) {
+            \Log::info("DRY RUN REBALANCE TRIM $symbol: qty=$qty, newQty=" . ($currentQty - $qty) . " (no order placed)");
+            return true;
+        }
+
+        try {
+            $price = $this->getCurrentPrice($symbol);
+            $order = $this->alpacaService->placeOrder($symbol, $qty, 'sell');
+            $fillPrice = floatval($order['filled_avg_price'] ?? $price ?? 0);
+            $orderId = $order['id'] ?? null;
+
+            $entryPrice = floatval($openTrade->entry_price ?? 0);
+            $pnlDollar = ($fillPrice - $entryPrice) * $qty;
+            $pnlPct = $entryPrice > 0 ? (($fillPrice - $entryPrice) / $entryPrice) * 100 : 0;
+
+            $newQty = $currentQty - $qty;
+            if ($newQty <= 0) {
+                $openTrade->update([
+                    'exit_price' => $fillPrice,
+                    'exit_at' => now(),
+                    'status' => 'closed',
+                    'pnl_dollar' => $pnlDollar,
+                    'pnl_pct' => $pnlPct,
+                    'alpaca_order_id' => $orderId,
+                    'strategy_signal' => 'CHANDELIER_REBALANCE_TRIM',
+                ]);
+            } else {
+                $openTrade->update(['quantity' => $newQty]);
+                LiveTrade::create([
+                    'ticker_id' => $openTrade->ticker_id,
+                    'symbol' => $symbol,
+                    'side' => 'SELL',
+                    'quantity' => $qty,
+                    'entry_price' => $entryPrice,
+                    'exit_price' => $fillPrice,
+                    'entry_at' => $openTrade->entry_at,
+                    'exit_at' => now(),
+                    'status' => 'closed',
+                    'pnl_dollar' => $pnlDollar,
+                    'pnl_pct' => $pnlPct,
+                    'alpaca_order_id' => $orderId,
+                    'strategy_signal' => 'CHANDELIER_REBALANCE_TRIM',
+                ]);
+            }
+            \Log::info("REBALANCE TRIM $symbol: qty=$qty, fill=$fillPrice, newQty=$newQty");
+            return true;
+        } catch (\Exception $e) {
+            \Log::error("Rebalance trim failed for $symbol: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * New entry for rebalance buys (equal-weight target).
+     */
+    private function rebalanceBuy(string $symbol, int $qty, float $price): bool
+    {
+        if ($this->dryRun) {
+            \Log::info("DRY RUN REBALANCE BUY $symbol: qty=$qty, ~$price (no order placed)");
+            return true;
+        }
+
+        $ticker = Ticker::where('symbol', $symbol)->first();
+        if (!$ticker) {
+            return false;
+        }
+        try {
+            $order = $this->alpacaService->placeOrder($symbol, $qty, 'buy');
+            $fillPrice = floatval($order['filled_avg_price'] ?? $price);
+            $orderId = $order['id'] ?? null;
+            LiveTrade::create([
+                'ticker_id' => $ticker->id,
+                'symbol' => $symbol,
+                'side' => 'BUY',
+                'quantity' => $qty,
+                'entry_price' => $fillPrice,
+                'entry_at' => now(),
+                'status' => 'open',
+                'alpaca_order_id' => $orderId,
+                'strategy_signal' => 'CHANDELIER_REBALANCE_ENTRY',
+            ]);
+            \Log::info("REBALANCE BUY $symbol: qty=$qty, fill=$fillPrice");
+            return true;
+        } catch (\Exception $e) {
+            \Log::error("Rebalance buy failed for $symbol: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -508,6 +683,11 @@ class TradeExecutorService
         }
 
         $qty = $openTrade->quantity;
+
+        if ($this->dryRun) {
+            \Log::info("DRY RUN SELL $symbol: qty=$qty, ~$currentPrice (no order placed)");
+            return 'sell';
+        }
 
         try {
             $order = $this->alpacaService->placeOrder($symbol, $qty, 'sell');

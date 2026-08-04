@@ -186,6 +186,14 @@ class EquityService
             foreach ($sellOrders as $sellOrder) {
                 $sellTime = $sellOrder['created_at'];
 
+                // Skip sells already recorded by the executor (e.g. rebalance
+                // trims create a closed trade with alpaca_order_id set). Without
+                // this, reconciliation would close the whole open position on a
+                // partial trim and corrupt the remaining quantity.
+                if (LiveTrade::where('alpaca_order_id', $sellOrder['id'])->exists()) {
+                    continue;
+                }
+
                 // Only match sell orders to buys that entered before the sell
                 $openBuy = LiveTrade::where('ticker_id', $sellOrder['ticker_id'])
                     ->where('status', 'open')
