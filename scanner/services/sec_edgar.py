@@ -124,6 +124,12 @@ class SECEdgarFetcher:
             }
 
             r = self.session.get(SEC_CIK_LOOKUP, params=params, timeout=10)
+
+            # Handle 503 (server down) gracefully
+            if r.status_code == 503:
+                logger.warning(f"SEC EDGAR server temporarily unavailable (503). Will use fallback.")
+                return None
+
             r.raise_for_status()
 
             # Find first 10-Q filing link
