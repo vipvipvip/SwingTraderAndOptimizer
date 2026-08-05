@@ -69,10 +69,13 @@ class SECEdgarFetcher:
         self.cik = None
         self.max_retries = max_retries
         self.session = requests.Session()
-        # SEC requires legitimate User-Agent with company info
-        # Format: {Client}/{Version} {Identifier}/{Version}
+        # SEC EDGAR rejects custom User-Agents (returns 403)
+        # Must use standard browser User-Agent and referer
         self.session.headers.update({
-            'User-Agent': 'SwingTraderResearch/1.0 (research; +https://github.com/dikesh/SwingTraderAndOptimizer)',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Referer': 'https://www.sec.gov/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
         })
 
     def get_cik(self) -> Optional[str]:
@@ -107,6 +110,7 @@ class SECEdgarFetcher:
 
         try:
             logger.info(f"Fetching latest 10-Q for {self.ticker}...")
+            time.sleep(0.5)  # Be respectful to SEC servers
 
             # Try EDGAR company filings API
             # Format: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001018724&type=10-Q&dateb=&owner=exclude&count=40
@@ -123,8 +127,8 @@ class SECEdgarFetcher:
             r.raise_for_status()
 
             # Find first 10-Q filing link
-            # Format: href="/Archives/edgar/0001018724/000101872425000001/..."
-            match = re.search(r'href="(/Archives/edgar/\d+/\d+/.*?)"', r.text)
+            # Format: href="/Archives/edgar/data/0001018724/000101872425000001/...index.htm"
+            match = re.search(r'href="(/Archives/edgar/data/\d+/\d+/.*?-index\.htm)"', r.text, re.IGNORECASE)
             if match:
                 filing_path = match.group(1)
                 filing_url = urljoin('https://www.sec.gov', filing_path)
