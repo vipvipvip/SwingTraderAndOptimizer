@@ -269,11 +269,11 @@ def main():
 
         print(f"{rank:2}. {ticker:6} | Tier: {tier:15} | SEC: {sec_score:2}/15 | Combined: {combined:2}/20")
 
-    # Generate PDF if requested
+    # Generate evidence-based PDF if requested
     if args.output and not args.db_only:
-        from sec_research_pdf import generate_comprehensive_pdf
-        generate_comprehensive_pdf(analysis, args.output)
-        logger.info(f"PDF saved to {args.output}")
+        from evidence_based_pdf import generate_evidence_based_pdf
+        generate_evidence_based_pdf(analysis, args.output)
+        logger.info(f"Evidence-based PDF saved to {args.output}")
 
 
 if __name__ == '__main__':
