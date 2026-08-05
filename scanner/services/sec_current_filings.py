@@ -43,7 +43,7 @@ class SECCurrentFilingsFetcher:
         logger.info("Fetching current 10-Q filings from SEC (XML feed)...")
 
         try:
-            r = self.session.get(SEC_CURRENT_FILINGS, timeout=30)
+            r = self.session.get(SEC_CURRENT_FILINGS_XML, timeout=30)
             r.raise_for_status()
 
             filings = {}

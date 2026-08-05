@@ -205,7 +205,7 @@ class SECEdgarFetcher:
 
         # Try SEC current filings feed first (single source for all tickers, no rate limiting)
         try:
-            from sec_current_filings import SECCurrentFilingsFetcher
+            from .sec_current_filings import SECCurrentFilingsFetcher
             sec_fetcher = SECCurrentFilingsFetcher()
             sec_text = sec_fetcher.get_10q_for_ticker(self.ticker)
             if sec_text:
@@ -213,11 +213,11 @@ class SECEdgarFetcher:
                 self.source = "SEC Current Filings (XML)"
                 return sec_text
         except Exception as e:
-            logger.warning(f"SEC current filings fetch failed: {e}")
+            logger.debug(f"SEC current filings fetch failed: {e}")
 
         # Try investor relations website as fallback
         try:
-            from investor_relations_fetcher import InvestorRelationsFetcher
+            from .investor_relations_fetcher import InvestorRelationsFetcher
             ir_fetcher = InvestorRelationsFetcher(self.ticker)
             ir_text = ir_fetcher.fetch_10q_text()
             if ir_text:
@@ -225,7 +225,7 @@ class SECEdgarFetcher:
                 self.source = "Investor Relations Website"
                 return ir_text
         except Exception as e:
-            logger.warning(f"IR website fetch failed: {e}")
+            logger.debug(f"IR website fetch failed: {e}")
 
         # Try SEC EDGAR
         try:
