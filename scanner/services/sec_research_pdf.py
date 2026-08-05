@@ -1,6 +1,6 @@
 """
-PDF Report Generator for SEC Research Analysis
-Generates comprehensive PDF with executive summary, detailed ticker analysis, board comments.
+PDF Report Generator for SEC Research Analysis + Comprehensive Watchlist
+Generates professional reports combining SEC filing analysis with watchlist screening.
 """
 
 import os
@@ -14,6 +14,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.platypus import KeepTogether
 from reportlab.pdfgen import canvas
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+import re
 
 
 def generate_pdf(analysis, output_path: str):
@@ -340,3 +341,302 @@ def generate_pdf(analysis, output_path: str):
     # Build PDF
     doc.build(story)
     print(f"✓ PDF saved to {output_path}")
+
+
+def generate_comprehensive_pdf(analysis, output_path: str):
+    """
+    Generate comprehensive PDF combining watchlist tier + SEC filing analysis.
+    Shows which candidates from watchlist have 10-Q support.
+    """
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=letter,
+        rightMargin=0.5*inch,
+        leftMargin=0.5*inch,
+        topMargin=0.5*inch,
+        bottomMargin=0.5*inch,
+    )
+
+    story = []
+    styles = getSampleStyleSheet()
+
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=HexColor('#1a1a1a'),
+        spaceAfter=12,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Bold',
+    )
+
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=14,
+        textColor=HexColor('#2c3e50'),
+        spaceAfter=10,
+        spaceBefore=10,
+        fontName='Helvetica-Bold',
+    )
+
+    subheading_style = ParagraphStyle(
+        'CustomSubHeading',
+        parent=styles['Heading3'],
+        fontSize=11,
+        textColor=HexColor('#34495e'),
+        spaceAfter=6,
+        fontName='Helvetica-Bold',
+    )
+
+    body_style = ParagraphStyle(
+        'CustomBody',
+        parent=styles['BodyText'],
+        fontSize=9,
+        textColor=HexColor('#2c3e50'),
+        spaceAfter=6,
+        leading=11,
+    )
+
+    # ────────────────────────────────────────────────────────────────────
+    # COVER PAGE
+    # ────────────────────────────────────────────────────────────────────
+    story.append(Spacer(1, 1.5*inch))
+    story.append(Paragraph("Comprehensive R&D Adoption Research", title_style))
+    story.append(Spacer(1, 0.3*inch))
+    story.append(Paragraph("Watchlist Screening + SEC Filing Analysis", heading_style))
+    story.append(Spacer(1, 0.3*inch))
+
+    # Metadata
+    run_date = datetime.now().strftime("%B %d, %Y at %H:%M")
+    story.append(Paragraph(f"<b>Report Date:</b> {run_date}", body_style))
+    story.append(Paragraph(f"<b>Run ID:</b> {analysis.sec_analysis.run_id}", body_style))
+    story.append(Paragraph(f"<b>Tickers Analyzed:</b> {len(analysis.results)}", body_style))
+    story.append(Spacer(1, 0.2*inch))
+
+    # Methodology
+    story.append(Paragraph("Methodology", subheading_style))
+    story.append(Paragraph(
+        "This analysis combines two layers: (1) Watchlist screening (market cap, sector, analyst activity) "
+        "and (2) SEC filing analysis (10-Q MD&A, revenue attribution, risk factors). "
+        "Combined score reflects both market signals and fundamental adoption proof.",
+        body_style
+    ))
+
+    story.append(Spacer(1, 0.5*inch))
+    story.append(PageBreak())
+
+    # ────────────────────────────────────────────────────────────────────
+    # EXECUTIVE SUMMARY (RANKINGS)
+    # ────────────────────────────────────────────────────────────────────
+    story.append(Paragraph("Executive Summary: Ranked Candidates", title_style))
+    story.append(Spacer(1, 0.2*inch))
+
+    story.append(Paragraph(
+        "Ranked by combined score (watchlist tier + SEC filing fundamentals). "
+        "Watchlist tier (HIGH-PRIORITY/SECONDARY/etc.) indicates market signal strength. "
+        "SEC score indicates 10-Q adoption proof. Combined score is highest when both align.",
+        body_style
+    ))
+    story.append(Spacer(1, 0.2*inch))
+
+    # Build summary table
+    summary_data = [['Rank', 'Ticker', 'Watchlist Tier', 'SEC Score', 'Combined', 'Status']]
+
+    for result in analysis.results:
+        rank = result.get('overall_rank', '?')
+        ticker = result['ticker']
+        tier = result.get('watchlist_tier', 'UNRANKED')
+        sec_score = result['score_breakdown']['sec_filing_score']
+        combined = result['combined_score']
+
+        # Status badge
+        if combined >= 17:
+            status = 'STRONG'
+        elif combined >= 12:
+            status = 'WATCH'
+        elif combined >= 7:
+            status = 'CAUTION'
+        else:
+            status = 'AVOID'
+
+        summary_data.append([
+            str(rank),
+            Paragraph(f"<b>{ticker}</b>", body_style),
+            tier,
+            Paragraph(f"{sec_score}/15", body_style),
+            Paragraph(f"<b>{combined}/20</b>", body_style),
+            status,
+        ])
+
+    summary_table = Table(summary_data, colWidths=[0.8*inch, 0.8*inch, 1.3*inch, 0.9*inch, 0.9*inch, 0.9*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#34495e')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#bdc3c7')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, HexColor('#ecf0f1')]),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+
+    story.append(summary_table)
+    story.append(Spacer(1, 0.3*inch))
+
+    # Tier breakdown
+    strong = [r for r in analysis.results if r.get('combined_score', 0) >= 17]
+    watch = [r for r in analysis.results if 12 <= r.get('combined_score', 0) < 17]
+    caution = [r for r in analysis.results if 7 <= r.get('combined_score', 0) < 12]
+    avoid = [r for r in analysis.results if r.get('combined_score', 0) < 7]
+
+    if strong:
+        story.append(Paragraph("🔥 Strong Candidates (Score ≥ 17/20)", subheading_style))
+        for r in strong:
+            tier = r['watchlist_tier']
+            combined = r['combined_score']
+            sec = r['score_breakdown']['sec_filing_score']
+            text = f"<b>{r['ticker']}</b> ({combined}/20) — Watchlist: {tier} | SEC: {sec}/15"
+            story.append(Paragraph(text, body_style))
+        story.append(Spacer(1, 0.15*inch))
+
+    if watch:
+        story.append(Paragraph("👀 Watch (Score 12-16/20)", subheading_style))
+        for r in watch:
+            tier = r['watchlist_tier']
+            combined = r['combined_score']
+            sec = r['score_breakdown']['sec_filing_score']
+            text = f"<b>{r['ticker']}</b> ({combined}/20) — Watchlist: {tier} | SEC: {sec}/15"
+            story.append(Paragraph(text, body_style))
+        story.append(Spacer(1, 0.15*inch))
+
+    story.append(PageBreak())
+
+    # ────────────────────────────────────────────────────────────────────
+    # DETAILED ANALYSIS PER TICKER
+    # ────────────────────────────────────────────────────────────────────
+    for i, result in enumerate(analysis.results, 1):
+        ticker = result['ticker']
+        combined = result['combined_score']
+        tier = result['watchlist_tier']
+        sec_score = result['score_breakdown']['sec_filing_score']
+        rank = result['overall_rank']
+
+        story.append(Paragraph(
+            f"Analysis #{rank}: {ticker} | Combined Score: {combined}/20 | Tier: {tier}",
+            heading_style
+        ))
+
+        # Watchlist Tier Info
+        watchlist_data = result.get('watchlist_data', {})
+        if watchlist_data:
+            story.append(Paragraph(f"<b>Watchlist Position:</b> {tier}", subheading_style))
+            raw_content = watchlist_data.get('raw_content', '')
+            if raw_content:
+                # Extract key points from watchlist markdown
+                if 'What\'s Brewing' in raw_content or 'Why It Fits' in raw_content:
+                    preview = raw_content.split('\n')[2:6]  # Get first few lines
+                    story.append(Paragraph(
+                        ' '.join([p for p in preview if p.strip() and not p.startswith('#')]),
+                        body_style
+                    ))
+            story.append(Spacer(1, 0.1*inch))
+
+        # SEC Scoring
+        sec_data = result.get('sec_data', {})
+        breakdown = sec_data.get('score_breakdown', {})
+        if breakdown:
+            story.append(Paragraph("SEC Filing Scoring", subheading_style))
+
+            breakdown_data = [['Criterion', 'Met?', 'Wt', 'Source']]
+            for criterion, details in breakdown.get('breakdown', {}).items():
+                met = '✓' if details.get('met') else '✗'
+                weight = details.get('weight', 0)
+                source = details.get('source', '—')
+                breakdown_data.append([
+                    criterion.replace('_', ' ').title()[:20],
+                    Paragraph(met, body_style),
+                    Paragraph(str(weight), body_style),
+                    Paragraph(source[:15], body_style)
+                ])
+
+            breakdown_table = Table(breakdown_data, colWidths=[1.8*inch, 0.5*inch, 0.5*inch, 1.5*inch])
+            breakdown_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), HexColor('#95a5a6')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), white),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 7),
+                ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#bdc3c7')),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, HexColor('#f8f9fa')]),
+            ]))
+            story.append(breakdown_table)
+            story.append(Spacer(1, 0.1*inch))
+
+        # MD&A & Risk Factors
+        if sec_data.get('mda_summary'):
+            story.append(Paragraph("MD&A from 10-Q", subheading_style))
+            story.append(Paragraph(sec_data['mda_summary'][:250], body_style))
+            story.append(Spacer(1, 0.08*inch))
+
+        if sec_data.get('risk_factors_summary'):
+            story.append(Paragraph("Risk Factors from 10-Q", subheading_style))
+            story.append(Paragraph(sec_data['risk_factors_summary'][:250], body_style))
+
+        story.append(Spacer(1, 0.2*inch))
+
+        # Page break between tickers (except last)
+        if i < len(analysis.results):
+            story.append(PageBreak())
+
+    story.append(PageBreak())
+
+    # ────────────────────────────────────────────────────────────────────
+    # SCORING EXPLANATION
+    # ────────────────────────────────────────────────────────────────────
+    story.append(Paragraph("How Scores Work", heading_style))
+    story.append(Spacer(1, 0.1*inch))
+
+    story.append(Paragraph("<b>SEC Filing Score (0-15):</b>", subheading_style))
+    story.append(Paragraph(
+        "Based on 10-Q analysis. Evaluates if product is named, revenue is quantified, "
+        "growth is accelerating, and risk factors are updated.",
+        body_style
+    ))
+
+    story.append(Paragraph("<b>Watchlist Tier Bonus/Penalty:</b>", subheading_style))
+    story.append(Paragraph("• HIGH-PRIORITY: +3 (market cap, sector, analyst activity confirmed)", body_style))
+    story.append(Paragraph("• SECONDARY: +1 (needs deeper research)", body_style))
+    story.append(Paragraph("• CAUTION: -2 (red flags present)", body_style))
+    story.append(Paragraph("• NON-FIT: -5 (doesn't match framework)", body_style))
+
+    story.append(Paragraph("<b>Combined Score (0-20):</b>", subheading_style))
+    story.append(Paragraph("SEC score + tier bonus. Shows alignment: high combined score means "
+                          "watchlist tier AND 10-Q fundamentals both support adoption thesis.",
+                          body_style))
+
+    story.append(Spacer(1, 0.2*inch))
+    story.append(Paragraph("Combined Score Tiers:", subheading_style))
+    story.append(Paragraph("• 17-20: STRONG (pursue aggressively)", body_style))
+    story.append(Paragraph("• 12-16: WATCH (listen to earnings call)", body_style))
+    story.append(Paragraph("• 7-11: CAUTION (execution risk)", body_style))
+    story.append(Paragraph("• <7: AVOID (doesn't fit framework)", body_style))
+
+    story.append(Spacer(1, 0.3*inch))
+    story.append(Paragraph(
+        f"Report generated {datetime.now().strftime('%B %d, %Y at %H:%M:%S')} | "
+        f"Run ID: {analysis.sec_analysis.run_id}",
+        ParagraphStyle(
+            'Footer',
+            parent=styles['Normal'],
+            fontSize=8,
+            textColor=grey,
+            alignment=TA_CENTER,
+        )
+    ))
+
+    # Build PDF
+    doc.build(story)
+    print(f"✓ Comprehensive PDF saved to {output_path}")
