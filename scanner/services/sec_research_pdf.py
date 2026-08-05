@@ -141,8 +141,8 @@ def generate_pdf(analysis, output_path: str):
 
         summary_data.append([
             str(rank),
-            f"<b>{ticker}</b>",
-            f"<b>{score}/15</b>",
+            Paragraph(f"<b>{ticker}</b>", body_style),
+            Paragraph(f"<b>{score}/15</b>", body_style),
             earnings,
             status,
         ])
@@ -224,7 +224,12 @@ def generate_pdf(analysis, output_path: str):
                 met = '✓' if details.get('met') else '✗'
                 weight = details.get('weight', 0)
                 source = details.get('source', '—')
-                breakdown_data.append([criterion.replace('_', ' ').title(), met, str(weight), source])
+                breakdown_data.append([
+                    criterion.replace('_', ' ').title(),
+                    Paragraph(met, body_style),
+                    Paragraph(str(weight), body_style),
+                    Paragraph(source, body_style)
+                ])
 
             breakdown_table = Table(breakdown_data, colWidths=[2*inch, 0.6*inch, 0.6*inch, 1.8*inch])
             breakdown_table.setStyle(TableStyle([
