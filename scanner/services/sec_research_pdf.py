@@ -256,12 +256,10 @@ def generate_pdf(analysis, output_path: str):
         sources = result.get('sources', {})
         if sources:
             story.append(Paragraph("Sources Found", subheading_style))
-            sources_text = f"""
-            <bullet>•</bullet> Press Releases: {sources.get('press_releases_count', 0)}<br/>
-            <bullet>•</bullet> Analyst Reports: {sources.get('analyst_reports_count', 0)}<br/>
-            <bullet>•</bullet> News Articles: {sources.get('news_count', 0)}<br/>
-            """
-            story.append(Paragraph(sources_text, body_style))
+            story.append(Paragraph(f"• Press Releases: {sources.get('press_releases_count', 0)}", body_style))
+            story.append(Paragraph(f"• Analyst Reports: {sources.get('analyst_reports_count', 0)}", body_style))
+            story.append(Paragraph(f"• News Articles: {sources.get('news_count', 0)}", body_style))
+            story.append(Paragraph(f"• SEC Filing: {sources.get('sec_filing', 'Not found')}", body_style))
 
         story.append(Spacer(1, 0.2*inch))
 

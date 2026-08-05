@@ -29,6 +29,7 @@ from dotenv import load_dotenv
 # Local imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import DB_CONFIG
+from services.sec_edgar import SECEdgarFetcher
 
 # Load environment
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'swingtrader', 'services', 'mtf', '.env'))
@@ -98,69 +99,39 @@ def get_upcoming_earnings(days_ahead: int = 14) -> List[tuple]:
 
 
 class SECFiling:
-    """Fetch and extract data from 10-Q filings via SEC EDGAR."""
+    """Fetch and extract data from 10-Q filings via SEC EDGAR (free public access)."""
 
     def __init__(self, ticker: str):
         self.ticker = ticker
-        self.cik = None
-        self.latest_10q = None
+        self.fetcher = SECEdgarFetcher(ticker)
+        self.text = None
 
-    def get_latest_10q_text(self) -> Optional[str]:
-        """Fetch the latest 10-Q filing text from SEC EDGAR."""
+    def fetch(self) -> bool:
+        """Fetch latest 10-Q from SEC EDGAR. Returns True if successful."""
         try:
-            # Try to get 10-Q via yfinance
-            t = yf.Ticker(self.ticker)
-            # Note: yfinance doesn't directly expose 10-Q text
-            # We'll fetch from SEC EDGAR via CIK lookup
-            logger.info(f"Fetching 10-Q for {self.ticker}...")
-
-            # For now, we'll cache locally and assume filing is available
-            # In production, integrate with sec-api.com or direct EDGAR parsing
-            return self._get_cached_filing()
-
+            self.text = self.fetcher.fetch_10q_text()
+            return self.text is not None
         except Exception as e:
             logger.error(f"Error fetching 10-Q for {self.ticker}: {e}")
-            return None
+            return False
 
-    def _get_cached_filing(self) -> Optional[str]:
-        """Return cached filing if available."""
-        cache_file = CACHE_DIR / f"{self.ticker}_10q_latest.txt"
-        if cache_file.exists():
-            return cache_file.read_text()
-        return None
-
-    def extract_mda(self, text: str) -> Optional[str]:
+    def extract_mda(self) -> Optional[str]:
         """Extract MD&A (Item 2) from 10-Q text."""
-        if not text:
+        if not self.text:
             return None
+        return self.fetcher.extract_mda(self.text)
 
-        # Simple extraction: look for Item 2 markers
-        mda_start = text.find("Item 2")
-        if mda_start == -1:
-            return None
-
-        mda_end = text.find("Item 3", mda_start)
-        if mda_end == -1:
-            mda_end = len(text)
-
-        return text[mda_start:mda_end]
-
-    def extract_risk_factors(self, text: str) -> Optional[str]:
+    def extract_risk_factors(self) -> Optional[str]:
         """Extract risk factors (Item 1A) from 10-Q text."""
-        if not text:
+        if not self.text:
             return None
+        return self.fetcher.extract_risk_factors(self.text)
 
-        risk_start = text.find("Item 1A")
-        if risk_start == -1:
+    def extract_revenue_data(self) -> Optional[Dict]:
+        """Extract revenue and segment data from 10-Q."""
+        if not self.text:
             return None
-
-        risk_end = text.find("Item 1B", risk_start)
-        if risk_end == -1:
-            risk_end = text.find("Item 2", risk_start)
-        if risk_end == -1:
-            risk_end = len(text)
-
-        return text[risk_start:risk_end]
+        return self.fetcher.extract_revenue_data(self.text)
 
 
 class WebResearch:
@@ -310,19 +281,20 @@ class Analysis:
         self.scorer = FrameworkScorer()
 
     def analyze_ticker(self, ticker: str, earnings_date: str) -> Dict:
-        """Analyze single ticker."""
+        """Analyze single ticker by fetching 10-Q from SEC EDGAR."""
         logger.info(f"Analyzing {ticker} (earnings: {earnings_date})...")
 
         filing = SECFiling(ticker)
-        filing_text = filing.get_latest_10q_text()
 
-        if not filing_text:
+        # Fetch latest 10-Q from SEC EDGAR
+        if not filing.fetch():
             logger.warning(f"No 10-Q found for {ticker}")
             return self._empty_result(ticker, earnings_date)
 
         # Extract sections
-        mda = filing.extract_mda(filing_text)
-        risk_factors = filing.extract_risk_factors(filing_text)
+        mda = filing.extract_mda()
+        risk_factors = filing.extract_risk_factors()
+        revenue_data = filing.extract_revenue_data()
 
         # Web research
         web = WebResearch()
@@ -330,16 +302,16 @@ class Analysis:
         analyst_reports = web.search_analyst_reports(ticker)
         news = web.search_news(ticker)
 
-        # Score
+        # Score based on actual 10-Q findings
         criteria = {
-            'product_named': bool(mda),
-            'revenue_quantified': False,  # Would extract from footnotes
-            'qoq_growth_strong': False,   # Would extract from financials
-            'customer_names': False,       # Would extract from risk factors
-            'guidance_updated': False,     # Would extract from MD&A
+            'product_named': self._check_product_named(mda),
+            'revenue_quantified': self._check_revenue_quantified(revenue_data),
+            'qoq_growth_strong': self._check_growth_strong(revenue_data),
+            'customer_names': self._check_customer_names(risk_factors),
+            'guidance_updated': self._check_guidance(mda),
             'analyst_initiations': len(analyst_reports) > 0,
-            'hiring_spike': False,         # Would check LinkedIn
-            'backlog_pipeline': False,     # Would extract from disclosure
+            'hiring_spike': False,         # TODO: LinkedIn API or scraping
+            'backlog_pipeline': self._check_backlog(mda),
         }
 
         score_result = self.scorer.score(ticker, criteria)
@@ -349,8 +321,9 @@ class Analysis:
             'earnings_date': earnings_date,
             'score': score_result['total_score'],
             'score_breakdown': score_result,
-            'mda_summary': mda[:500] if mda else None,
-            'risk_factors_summary': risk_factors[:500] if risk_factors else None,
+            'mda_summary': mda[:400] if mda else None,
+            'risk_factors_summary': risk_factors[:400] if risk_factors else None,
+            'revenue_data': revenue_data,
             'press_releases': press_releases,
             'analyst_reports': analyst_reports,
             'news': news,
@@ -358,8 +331,52 @@ class Analysis:
                 'press_releases_count': len(press_releases),
                 'analyst_reports_count': len(analyst_reports),
                 'news_count': len(news),
+                'sec_filing': 'Found',
             }
         }
+
+    def _check_product_named(self, mda: Optional[str]) -> bool:
+        """Check if product is mentioned in MD&A."""
+        if not mda:
+            return False
+        # Look for common product keywords
+        keywords = ['product', 'service', 'solution', 'platform', 'infrastructure', 'cloud']
+        return any(kw in mda.lower() for kw in keywords)
+
+    def _check_revenue_quantified(self, revenue_data: Optional[Dict]) -> bool:
+        """Check if revenue is quantified in segments."""
+        if not revenue_data:
+            return False
+        return bool(revenue_data.get('segments')) or bool(revenue_data.get('total_revenue'))
+
+    def _check_growth_strong(self, revenue_data: Optional[Dict]) -> bool:
+        """Check if QoQ/YoY growth >15%."""
+        if not revenue_data:
+            return False
+        growth = revenue_data.get('yoy_growth')
+        return growth is not None and growth > 15
+
+    def _check_customer_names(self, risk_factors: Optional[str]) -> bool:
+        """Check if customer names are disclosed."""
+        if not risk_factors:
+            return False
+        # Look for customer concentration language
+        patterns = ['customer', 'concentration', 'largest customer', 'major customer']
+        return any(pat in risk_factors.lower() for pat in patterns)
+
+    def _check_guidance(self, mda: Optional[str]) -> bool:
+        """Check if guidance is updated in MD&A."""
+        if not mda:
+            return False
+        patterns = ['expect', 'guidance', 'outlook', 'forecast', 'projected']
+        return any(pat in mda.lower() for pat in patterns)
+
+    def _check_backlog(self, mda: Optional[str]) -> bool:
+        """Check for backlog or pipeline evidence."""
+        if not mda:
+            return False
+        patterns = ['backlog', 'pipeline', 'remaining performance obligations', 'rpo', 'committed']
+        return any(pat in mda.lower() for pat in patterns)
 
     def _empty_result(self, ticker: str, earnings_date: str) -> Dict:
         """Return empty result for ticker with no data."""
@@ -371,17 +388,21 @@ class Analysis:
             'score_breakdown': self.scorer.score(ticker, {}),
         }
 
-    def run(self, days_ahead: int = 14):
-        """Run full analysis for upcoming earnings."""
+    def run(self, days_ahead: int = 14, max_tickers: int = None):
+        """Run full analysis for upcoming earnings. Can limit to max_tickers for speed."""
         upcoming = get_upcoming_earnings(days_ahead)
 
         if not upcoming:
             logger.info(f"No tickers with earnings in next {days_ahead} days")
             return self.results
 
+        # Limit to max_tickers if specified (for faster testing)
+        if max_tickers:
+            upcoming = upcoming[:max_tickers]
+
         logger.info(f"Analyzing {len(upcoming)} tickers...")
 
-        for ticker, earnings_date, quarter, year in upcoming:
+        for i, (ticker, earnings_date, quarter, year) in enumerate(upcoming, 1):
             result = self.analyze_ticker(ticker, str(earnings_date))
             self.results.append(result)
 
@@ -438,6 +459,8 @@ def main():
                         help='Days ahead to analyze (default: 14)')
     parser.add_argument('--ticker', type=str,
                         help='Analyze single ticker')
+    parser.add_argument('--max', type=int, default=None,
+                        help='Limit to N tickers (for faster testing)')
     parser.add_argument('--output', type=str,
                         help='PDF output path')
     parser.add_argument('--db-only', action='store_true',
@@ -454,8 +477,8 @@ def main():
         result = analysis.analyze_ticker(args.ticker, str(datetime.now().date()))
         analysis.results = [result]
     else:
-        # All upcoming
-        analysis.run(args.upcoming)
+        # All upcoming (optionally limited)
+        analysis.run(args.upcoming, max_tickers=args.max)
 
     analysis.save_to_db()
 
