@@ -189,7 +189,7 @@ class SECEdgarFetcher:
     def fetch_10q_text(self, use_cache: bool = True) -> Optional[str]:
         """
         Fetch the latest 10-Q filing and return as plain text.
-        Checks local cache first. If no cache and SEC is blocked, uses yfinance fallback.
+        Priority: (1) Cache, (2) Investor Relations website, (3) SEC EDGAR, (4) yfinance fallback
         """
         # Check cache first
         cache_file = EDGAR_CACHE_DIR / f"{self.ticker}_10q_latest.txt"
@@ -199,6 +199,18 @@ class SECEdgarFetcher:
                 logger.info(f"Using cached 10-Q for {self.ticker} ({age_hours:.1f}h old)")
                 return cache_file.read_text(encoding='utf-8', errors='ignore')
 
+        # Try investor relations website first (no rate limiting)
+        try:
+            from investor_relations_fetcher import InvestorRelationsFetcher
+            ir_fetcher = InvestorRelationsFetcher(self.ticker)
+            ir_text = ir_fetcher.fetch_10q_text()
+            if ir_text:
+                logger.info(f"Successfully fetched 10-Q from IR website for {self.ticker}")
+                return ir_text
+        except Exception as e:
+            logger.warning(f"IR website fetch failed: {e}")
+
+        # Try SEC EDGAR
         try:
             # Try online fetch first
             filing_index_url = self.get_latest_10q_url()
