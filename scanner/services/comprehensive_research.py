@@ -24,6 +24,11 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import DB_CONFIG
 from services.sec_research import Analysis as SECAnalysis
+from services.advanced_research import (
+    RedFlagDetector, EarningsCallAnalyzer, AnalystCoverageTracker,
+    RPOBacklogExtractor, GuidanceExtractor, StockPerformanceTracker,
+    TrackingLog
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -154,7 +159,7 @@ class ComprehensiveAnalysis:
         return self.results
 
     def analyze_ticker(self, ticker: str) -> Optional[Dict]:
-        """Analyze single ticker: watchlist + SEC filing."""
+        """Analyze single ticker: watchlist + SEC filing + advanced signals."""
         logger.info(f"Analyzing {ticker}...")
 
         # Get watchlist data
@@ -192,6 +197,26 @@ class ComprehensiveAnalysis:
             'watchlist_tier_bonus': bonus,
             'combined': combined['combined_score'],
         }
+
+        # Advanced analysis
+        # Red flags
+        red_flag_detector = RedFlagDetector()
+        combined['red_flags'] = red_flag_detector.detect(combined)
+
+        # Stock performance (last 90 days)
+        combined['stock_performance'] = StockPerformanceTracker.get_performance(ticker, days=90)
+
+        # Analyst coverage
+        analyst_tracker = AnalystCoverageTracker()
+        combined['analyst_coverage'] = analyst_tracker.get_recent_coverage(ticker)
+
+        # RPO/Backlog (from 10-Q text)
+        sec_text = sec_data.get('sec_data', {}) if isinstance(sec_data, dict) else ""
+        mda = sec_data.get('mda_summary', '')
+        combined['rpo_backlog'] = RPOBacklogExtractor.extract_from_10q(mda)
+
+        # Forward guidance (from MD&A)
+        combined['guidance'] = GuidanceExtractor.extract_from_mda(mda)
 
         return combined
 

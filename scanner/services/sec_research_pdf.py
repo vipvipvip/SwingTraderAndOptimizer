@@ -575,15 +575,72 @@ def generate_comprehensive_pdf(analysis, output_path: str):
             story.append(breakdown_table)
             story.append(Spacer(1, 0.1*inch))
 
+        # Red Flags
+        red_flags = result.get('red_flags', {})
+        if red_flags and red_flags.get('disqualifiers'):
+            story.append(Paragraph("🚩 RED FLAGS DETECTED", subheading_style))
+            for flag in red_flags['disqualifiers']:
+                story.append(Paragraph(f"❌ {flag}", body_style))
+            story.append(Spacer(1, 0.08*inch))
+
+        # Stock Performance
+        perf = result.get('stock_performance')
+        if perf:
+            story.append(Paragraph("Stock Performance (90 Days)", subheading_style))
+            pct = perf.get('change_pct', 0)
+            direction = "📈" if pct > 0 else "📉"
+            story.append(Paragraph(
+                f"{direction} {pct:+.1f}% | Price: ${perf.get('end_price', 0):.2f} "
+                f"| Range: ${perf.get('min_price', 0):.2f}-${perf.get('max_price', 0):.2f}",
+                body_style
+            ))
+            story.append(Spacer(1, 0.08*inch))
+
+        # Analyst Coverage
+        analysts = result.get('analyst_coverage', [])
+        if analysts:
+            story.append(Paragraph("Analyst Coverage", subheading_style))
+            for analyst_info in analysts:
+                if analyst_info.get('type') == 'target_price':
+                    story.append(Paragraph(
+                        f"Target Price: ${analyst_info.get('value', 0):.2f} "
+                        f"({analyst_info.get('num_analysts', 0)} analysts)",
+                        body_style
+                    ))
+                elif analyst_info.get('type') == 'recommendation':
+                    story.append(Paragraph(
+                        f"Recommendation: {analyst_info.get('value', 'N/A')}",
+                        body_style
+                    ))
+            story.append(Spacer(1, 0.08*inch))
+
+        # RPO/Backlog
+        rpo = result.get('rpo_backlog')
+        if rpo:
+            story.append(Paragraph("Backlog & Obligations", subheading_style))
+            if rpo.get('rpo_total'):
+                story.append(Paragraph(f"RPO: ${rpo['rpo_total']/1000:.1f}B", body_style))
+            if rpo.get('backlog'):
+                story.append(Paragraph(f"Backlog: ${rpo['backlog']/1000:.1f}B", body_style))
+            story.append(Spacer(1, 0.08*inch))
+
+        # Guidance
+        guidance = result.get('guidance', [])
+        if guidance:
+            story.append(Paragraph("Forward Guidance", subheading_style))
+            for guid in guidance[:2]:  # Show first 2
+                story.append(Paragraph(f"• {guid.get('text', '')[:100]}", body_style))
+            story.append(Spacer(1, 0.08*inch))
+
         # MD&A & Risk Factors
         if sec_data.get('mda_summary'):
             story.append(Paragraph("MD&A from 10-Q", subheading_style))
-            story.append(Paragraph(sec_data['mda_summary'][:250], body_style))
+            story.append(Paragraph(sec_data['mda_summary'][:200], body_style))
             story.append(Spacer(1, 0.08*inch))
 
         if sec_data.get('risk_factors_summary'):
             story.append(Paragraph("Risk Factors from 10-Q", subheading_style))
-            story.append(Paragraph(sec_data['risk_factors_summary'][:250], body_style))
+            story.append(Paragraph(sec_data['risk_factors_summary'][:200], body_style))
 
         story.append(Spacer(1, 0.2*inch))
 
