@@ -13,6 +13,8 @@ from pathlib import Path
 from urllib.parse import urljoin
 import time
 
+from .sec_cik_database import get_cik_from_database
+
 logger = logging.getLogger(__name__)
 
 # SEC EDGAR endpoints
@@ -24,9 +26,11 @@ SEC_TICKER_JSON = "https://www.sec.gov/files/company_tickers.json"
 EDGAR_CACHE_DIR = Path(__file__).parent / '.sec_edgar_cache'
 EDGAR_CACHE_DIR.mkdir(exist_ok=True)
 
-# Local CIK mapping (fallback if SEC API blocked)
+# Local CIK and company name mappings
 TICKER_CIK_MAP_FILE = Path(__file__).parent / 'ticker_cik_mapping.json'
+TICKER_COMPANY_MAP_FILE = Path(__file__).parent / 'ticker_company_mapping.json'
 _TICKER_CIK_CACHE = None
+_TICKER_COMPANY_CACHE = None
 
 def load_ticker_cik_map():
     """Load ticker->CIK mapping from local file."""
@@ -40,6 +44,20 @@ def load_ticker_cik_map():
         return _TICKER_CIK_CACHE
     except Exception as e:
         logger.error(f"Could not load ticker CIK map: {e}")
+        return {}
+
+def load_ticker_company_map():
+    """Load ticker->company name mapping from local file."""
+    global _TICKER_COMPANY_CACHE
+    if _TICKER_COMPANY_CACHE is not None:
+        return _TICKER_COMPANY_CACHE
+
+    try:
+        with open(TICKER_COMPANY_MAP_FILE) as f:
+            _TICKER_COMPANY_CACHE = json.load(f)
+        return _TICKER_COMPANY_CACHE
+    except Exception as e:
+        logger.warning(f"Could not load ticker company map: {e}")
         return {}
 
 
@@ -60,54 +78,22 @@ class SECEdgarFetcher:
     def get_cik(self) -> Optional[str]:
         """
         Look up CIK (Central Index Key) for ticker symbol.
-        Tries online first, falls back to local mapping if blocked.
+        Uses static SEC CIK database (most efficient, avoids SEC API rate limits).
         """
         if self.cik:
             return self.cik
 
-        # Try local mapping first (faster, doesn't require network)
-        local_map = load_ticker_cik_map()
-        if self.ticker in local_map:
-            self.cik = local_map[self.ticker]
-            logger.info(f"Found CIK (local): {self.cik}")
+        # Try static database first (fastest, no network calls)
+        cik = get_cik_from_database(self.ticker)
+        if cik:
+            self.cik = cik
+            logger.info(f"Found CIK (database): {self.cik} for {self.ticker}")
             return self.cik
 
-        # Try online lookup
-        try:
-            logger.info(f"Looking up CIK online for {self.ticker}...")
-
-            # Query SEC EDGAR company search
-            params = {
-                'action': 'getcompany',
-                'CIK': self.ticker,
-                'type': '',
-                'dateb': '',
-                'owner': 'exclude',
-                'count': 10,
-            }
-
-            r = self.session.get(SEC_CIK_LOOKUP, params=params, timeout=15)
-
-            if r.status_code == 403:
-                logger.warning(f"SEC blocked request (rate limit). Using local CIK map only.")
-                return None
-
-            r.raise_for_status()
-
-            # Parse CIK from response
-            # Format: "Central Index Key: 0001018724"
-            match = re.search(r'Central Index Key:\s*(\d+)', r.text)
-            if match:
-                self.cik = match.group(1)
-                logger.info(f"Found CIK (online): {self.cik}")
-                return self.cik
-
-            logger.warning(f"Could not find CIK for {self.ticker}")
-            return None
-
-        except Exception as e:
-            logger.warning(f"Error fetching CIK online: {e}. Ticker not in local map.")
-            return None
+        # If not in database, log warning
+        logger.warning(f"CIK not found for {self.ticker}. Add to sec_cik_database.py if available.")
+        logger.info(f"To find CIK for {self.ticker}: https://www.sec.gov/cgi-bin/browse-edgar")
+        return None
 
     def get_latest_10q_url(self) -> Optional[str]:
         """
