@@ -239,7 +239,7 @@ def main():
     parser.add_argument('--watchlist', type=str,
                         default='/home/dikesh/Downloads/Filtered_Watchlist_Analysis.md',
                         help='Watchlist markdown file path')
-    parser.add_argument('--tickers', type=str,
+    parser.add_argument('--tickers', '--ticker', type=str, dest='tickers',
                         help='Comma-separated tickers (e.g., "BDX,AXON" or "BDX, AXON" with quotes)')
     parser.add_argument('--output', type=str,
                         help='PDF output path')
