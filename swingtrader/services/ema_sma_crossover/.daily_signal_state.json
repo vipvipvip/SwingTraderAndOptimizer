@@ -197,7 +197,7 @@
   },
   "TD": {
     "action": "ENTRY",
-    "date": "2026-07-28"
+    "date": "2026-08-03"
   },
   "TFX": {
     "action": "ENTRY",
@@ -221,7 +221,7 @@
   },
   "OPY": {
     "action": "ENTRY",
-    "date": "2026-07-30"
+    "date": "2026-08-03"
   },
   "SBUX": {
     "action": "ENTRY",
@@ -278,5 +278,33 @@
   "VLO": {
     "action": "ENTRY",
     "date": "2026-07-30"
+  },
+  "AIT": {
+    "action": "ENTRY",
+    "date": "2026-08-03"
+  },
+  "ANET": {
+    "action": "ENTRY",
+    "date": "2026-08-03"
+  },
+  "DD": {
+    "action": "ENTRY",
+    "date": "2026-08-03"
+  },
+  "ESLT": {
+    "action": "ENTRY",
+    "date": "2026-08-03"
+  },
+  "HPE": {
+    "action": "ENTRY",
+    "date": "2026-08-03"
+  },
+  "OVV": {
+    "action": "ENTRY",
+    "date": "2026-08-03"
+  },
+  "TDY": {
+    "action": "ENTRY",
+    "date": "2026-08-03"
   }
 }

@@ -177,7 +177,7 @@ class ComprehensiveAnalysis:
             'watchlist_data': watchlist_data,
             'sec_data': sec_data,
             'data_sources': {
-                '10q_source': getattr(self.sec_analysis.sec_filing.fetcher, 'source', 'Unknown') if hasattr(self.sec_analysis, 'sec_filing') else 'Unknown',
+                '10q_source': sec_data.get('10q_source', 'Unknown'),
                 'analyst_source': 'yfinance',
                 'stock_performance_source': 'yfinance',
             }

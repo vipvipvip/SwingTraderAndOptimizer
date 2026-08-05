@@ -316,6 +316,9 @@ class Analysis:
 
         score_result = self.scorer.score(ticker, criteria)
 
+        # Get 10-Q source for tracking
+        filing_source = getattr(filing.fetcher, 'source', 'Unknown') if hasattr(filing, 'fetcher') else 'Unknown'
+
         return {
             'ticker': ticker,
             'earnings_date': earnings_date,
@@ -327,11 +330,13 @@ class Analysis:
             'press_releases': press_releases,
             'analyst_reports': analyst_reports,
             'news': news,
+            '10q_source': filing_source,
             'sources': {
                 'press_releases_count': len(press_releases),
                 'analyst_reports_count': len(analyst_reports),
                 'news_count': len(news),
                 'sec_filing': 'Found',
+                '10q_source': filing_source,
             }
         }
 
