@@ -210,7 +210,7 @@ def main():
                         default='/home/dikesh/Downloads/Filtered_Watchlist_Analysis.md',
                         help='Watchlist markdown file path')
     parser.add_argument('--tickers', type=str,
-                        help='Comma-separated tickers to analyze (overrides watchlist)')
+                        help='Comma-separated tickers (e.g., "BDX,AXON" or "BDX, AXON" with quotes)')
     parser.add_argument('--output', type=str,
                         help='PDF output path')
     parser.add_argument('--db-only', action='store_true',
@@ -218,9 +218,9 @@ def main():
 
     args = parser.parse_args()
 
-    # Parse tickers
+    # Parse tickers (handle spaces after commas)
     if args.tickers:
-        tickers = [t.strip().upper() for t in args.tickers.split(',')]
+        tickers = [t.strip().upper() for t in args.tickers.split(',') if t.strip()]
     else:
         tickers = None
 
