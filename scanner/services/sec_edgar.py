@@ -199,7 +199,18 @@ class SECEdgarFetcher:
                 logger.info(f"Using cached 10-Q for {self.ticker} ({age_hours:.1f}h old)")
                 return cache_file.read_text(encoding='utf-8', errors='ignore')
 
-        # Try investor relations website first (no rate limiting)
+        # Try SEC current filings feed first (single source for all tickers, no rate limiting)
+        try:
+            from sec_current_filings import SECCurrentFilingsFetcher
+            sec_fetcher = SECCurrentFilingsFetcher()
+            sec_text = sec_fetcher.get_10q_for_ticker(self.ticker)
+            if sec_text:
+                logger.info(f"Successfully fetched 10-Q from SEC current filings for {self.ticker}")
+                return sec_text
+        except Exception as e:
+            logger.warning(f"SEC current filings fetch failed: {e}")
+
+        # Try investor relations website as fallback
         try:
             from investor_relations_fetcher import InvestorRelationsFetcher
             ir_fetcher = InvestorRelationsFetcher(self.ticker)
