@@ -166,6 +166,27 @@ def generate_evidence_based_pdf(analysis, output_path: str):
             h2_style
         ))
 
+        # ─ Data Sources (NEW)
+        data_sources = result.get('data_sources', {})
+        story.append(Paragraph("📊 Data Sources Used", h3_style))
+
+        sources_info = []
+        if data_sources.get('10q_source'):
+            src = data_sources['10q_source']
+            emoji = "✅" if "synthetic" not in src.lower() else "⚠️"
+            sources_info.append(f"{emoji} <b>10-Q:</b> {src}")
+
+        if data_sources.get('analyst_source'):
+            sources_info.append(f"✅ <b>Analyst Data:</b> {data_sources['analyst_source']}")
+
+        if data_sources.get('stock_performance_source'):
+            sources_info.append(f"✅ <b>Stock Performance:</b> {data_sources['stock_performance_source']}")
+
+        for source_line in sources_info:
+            story.append(Paragraph(source_line, body_style))
+
+        story.append(Spacer(1, 0.1*inch))
+
         # ─ Watchlist Tier
         watchlist_tier = result.get('watchlist_tier', 'UNRANKED')
         story.append(Paragraph(f"<b>Watchlist Tier:</b> {watchlist_tier}", h3_style))

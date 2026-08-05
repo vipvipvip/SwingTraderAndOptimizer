@@ -176,6 +176,11 @@ class ComprehensiveAnalysis:
             'watchlist_tier': watchlist_data.get('watchlist_tier', 'UNRANKED'),
             'watchlist_data': watchlist_data,
             'sec_data': sec_data,
+            'data_sources': {
+                '10q_source': getattr(self.sec_analysis.sec_filing.fetcher, 'source', 'Unknown') if hasattr(self.sec_analysis, 'sec_filing') else 'Unknown',
+                'analyst_source': 'yfinance',
+                'stock_performance_source': 'yfinance',
+            }
         }
 
         # Calculate combined score

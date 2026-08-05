@@ -189,14 +189,18 @@ class SECEdgarFetcher:
     def fetch_10q_text(self, use_cache: bool = True) -> Optional[str]:
         """
         Fetch the latest 10-Q filing and return as plain text.
-        Priority: (1) Cache, (2) Investor Relations website, (3) SEC EDGAR, (4) yfinance fallback
+        Priority: (1) Cache, (2) SEC Current Filings, (3) Investor Relations, (4) SEC EDGAR, (5) yfinance fallback
+        Also returns source metadata for tracking.
         """
+        self.source = None  # Track which source provided the data
+
         # Check cache first
         cache_file = EDGAR_CACHE_DIR / f"{self.ticker}_10q_latest.txt"
         if use_cache and cache_file.exists():
             age_hours = (datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)).total_seconds() / 3600
             if age_hours < 7 * 24:  # Use cache if less than 7 days old
                 logger.info(f"Using cached 10-Q for {self.ticker} ({age_hours:.1f}h old)")
+                self.source = "Cache (7-day)"
                 return cache_file.read_text(encoding='utf-8', errors='ignore')
 
         # Try SEC current filings feed first (single source for all tickers, no rate limiting)
@@ -206,6 +210,7 @@ class SECEdgarFetcher:
             sec_text = sec_fetcher.get_10q_for_ticker(self.ticker)
             if sec_text:
                 logger.info(f"Successfully fetched 10-Q from SEC current filings for {self.ticker}")
+                self.source = "SEC Current Filings (XML)"
                 return sec_text
         except Exception as e:
             logger.warning(f"SEC current filings fetch failed: {e}")
@@ -217,6 +222,7 @@ class SECEdgarFetcher:
             ir_text = ir_fetcher.fetch_10q_text()
             if ir_text:
                 logger.info(f"Successfully fetched 10-Q from IR website for {self.ticker}")
+                self.source = "Investor Relations Website"
                 return ir_text
         except Exception as e:
             logger.warning(f"IR website fetch failed: {e}")
@@ -250,10 +256,12 @@ class SECEdgarFetcher:
 
             # If SEC is blocked, use yfinance fallback
             logger.warning(f"SEC EDGAR blocked or filing not found. Using yfinance data fallback for {self.ticker}")
+            self.source = "yfinance (synthetic fallback ⚠️)"
             return self._create_yfinance_fallback()
 
         except Exception as e:
             logger.warning(f"Error fetching 10-Q text: {e}. Falling back to yfinance.")
+            self.source = "yfinance (synthetic fallback ⚠️)"
             return self._create_yfinance_fallback()
 
     def _create_yfinance_fallback(self) -> Optional[str]:
