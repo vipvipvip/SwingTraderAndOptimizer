@@ -171,21 +171,34 @@ def generate_evidence_based_pdf(analysis, output_path: str):
         story.append(Paragraph("📊 Data Sources Used", h3_style))
 
         sources_info = []
+
+        # 10-Q Source
         if data_sources.get('10q_source'):
             src = data_sources['10q_source']
-            emoji = "✅" if "synthetic" not in src.lower() else "⚠️"
-            sources_info.append(f"{emoji} <b>10-Q:</b> {src}")
+            if "synthetic" in src.lower():
+                sources_info.append(f"⚠️ <b>10-Q Source:</b> {src}")
+                sources_info.append(Paragraph("<i>Note: Using synthetic data fallback. Real 10-Q unavailable.</i>", body_style))
+            else:
+                sources_info.append(f"✅ <b>10-Q Source:</b> {src}")
+        else:
+            sources_info.append(f"⚠️ <b>10-Q Source:</b> Not available")
 
+        # Analyst Source
         if data_sources.get('analyst_source'):
             sources_info.append(f"✅ <b>Analyst Data:</b> {data_sources['analyst_source']}")
 
+        # Stock Performance Source
         if data_sources.get('stock_performance_source'):
             sources_info.append(f"✅ <b>Stock Performance:</b> {data_sources['stock_performance_source']}")
 
-        for source_line in sources_info:
-            story.append(Paragraph(source_line, body_style))
+        # Add all sources to story
+        for source_item in sources_info:
+            if isinstance(source_item, Paragraph):
+                story.append(source_item)
+            else:
+                story.append(Paragraph(source_item, body_style))
 
-        story.append(Spacer(1, 0.1*inch))
+        story.append(Spacer(1, 0.15*inch))
 
         # ─ Watchlist Tier
         watchlist_tier = result.get('watchlist_tier', 'UNRANKED')
