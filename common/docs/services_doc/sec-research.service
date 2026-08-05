@@ -1,0 +1,27 @@
+[Unit]
+Description=SEC Research Analysis Service
+Documentation=file:///home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/sec_research.md
+ConditionPathExists=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/sec_research.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
+
+# Run analysis for next 14 days and save to PDF with timestamp
+ExecStart=/bin/bash -c 'source .venv/bin/activate && python3 services/sec_research.py --upcoming 14 --output /tmp/sec_research_$(date +\%%Y\%%m\%%d_\%%H\%%M\%%S).pdf'
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sec-research
+
+Environment="PATH=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Timeout after 30 minutes (SEC EDGAR can be slow)
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

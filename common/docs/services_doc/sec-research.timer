@@ -1,0 +1,13 @@
+[Unit]
+Description=SEC Research Analysis Timer
+Documentation=file:///home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/sec_research.md
+Requires=sec-research.service
+
+[Timer]
+# Run daily at 3:00 PM ET (1900 UTC during EDT) after market close
+OnCalendar=*-*-* 15:00:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

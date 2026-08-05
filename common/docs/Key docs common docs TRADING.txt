@@ -149,6 +149,15 @@ MTF on the 22-ETF universe beats both SPY and equal-weight B&H by ~15-20%, with 
 Verdict: Trade the MTF Top-10 ETFs via --mode etf.
 ======================== 
 
+============ COMMANDS
+sudo systemctl start mtf-daily-runner.service
+To watch it:
+sudo journalctl -u mtf-daily-runner.service -f
+To verify it completed:
+sudo journalctl -u mtf-daily-runner.service -n 10 --no-pager
+Also confirm the executor timer is set for tomorrow 10:00 AM:
+sudo systemctl list-timers mtf-daily-runner.timer mtf-executor.timer
+===================================================================
 
 SwingTrader-MTF-Stocks
 Key: PKF6Y6TUU6QNGNUYVVIA36JWBM
