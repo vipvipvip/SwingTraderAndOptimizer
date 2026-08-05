@@ -150,6 +150,8 @@ class InvestorRelationsFetcher:
                     # Fetch the filings page and look for 10-Q documents there
                     try:
                         r2 = self.session.get(full_url, timeout=10)
+                        r2.raise_for_status()
+
                         doc_patterns = [
                             r'href="([^"]*?10-q[^"]*?\.htm[l]?)"',
                             r'href="([^"]*?10-Q[^"]*?\.htm[l]?)"',
@@ -161,13 +163,12 @@ class InvestorRelationsFetcher:
                                 doc_url = urljoin(full_url, doc_link)
                                 logger.info(f"Found 10-Q document in filings page: {doc_url}")
                                 return doc_url
-                    except:
-                        pass
 
-                    # Return filings page if no direct doc found (will fetch lists)
-                    return full_url
+                        logger.warning(f"No 10-Q documents found on filings page: {full_url}")
+                    except Exception as e:
+                        logger.warning(f"Error fetching filings page {full_url}: {e}")
 
-            logger.warning(f"Could not find 10-Q link on {ir_url}")
+            logger.warning(f"Could not find 10-Q document link on {ir_url}")
             return None
 
         except Exception as e:

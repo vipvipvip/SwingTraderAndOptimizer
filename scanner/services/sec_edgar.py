@@ -98,7 +98,8 @@ class SECEdgarFetcher:
     def get_latest_10q_url(self) -> Optional[str]:
         """
         Find the URL of the most recent 10-Q filing.
-        Returns the filing document URL (not the index page).
+        Returns the filing index URL for browsing (actual documents fetched from there).
+        Uses SEC EDGAR browse URL as fallback when API is blocked.
         """
         cik = self.get_cik()
         if not cik:
@@ -107,7 +108,7 @@ class SECEdgarFetcher:
         try:
             logger.info(f"Fetching latest 10-Q for {self.ticker}...")
 
-            # Query EDGAR company filings
+            # Try EDGAR company filings API
             # Format: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001018724&type=10-Q&dateb=&owner=exclude&count=40
             params = {
                 'action': 'getcompany',
@@ -126,35 +127,48 @@ class SECEdgarFetcher:
             match = re.search(r'href="(/Archives/edgar/\d+/\d+/.*?)"', r.text)
             if match:
                 filing_path = match.group(1)
-                # This is usually an index page, need to find the actual document
                 filing_url = urljoin('https://www.sec.gov', filing_path)
                 logger.info(f"Found filing index: {filing_url}")
                 return filing_url
 
-            logger.warning(f"No 10-Q filings found for {self.ticker}")
-            return None
+            logger.warning(f"No 10-Q filings found for {self.ticker} via API")
+
+            # Fallback: Use SEC EDGAR browse URL (accessible even when API is blocked)
+            # Format: https://www.sec.gov/edgar/browse/?CIK=0001018724&action=getcompany
+            browse_url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik.lstrip('0')}&type=10-Q&dateb=&owner=exclude&count=10"
+            logger.info(f"Using SEC EDGAR browse URL fallback: {browse_url}")
+            return browse_url
 
         except Exception as e:
             logger.error(f"Error fetching latest 10-Q URL: {e}")
+            # Last resort fallback: return browse URL
+            cik = self.get_cik()
+            if cik:
+                browse_url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik.lstrip('0')}&type=10-Q&dateb=&owner=exclude&count=10"
+                logger.info(f"Returning browse URL fallback due to error: {browse_url}")
+                return browse_url
             return None
 
     def get_10q_document_url(self, filing_index_url: str) -> Optional[str]:
         """
         From the filing index page, find the actual 10-Q document file.
         10-Qs are usually in .htm or .html format.
+        Handles both API index pages and browse-mode SEC EDGAR pages.
         """
         try:
+            logger.debug(f"Fetching index page: {filing_index_url}")
             r = self.session.get(filing_index_url, timeout=10)
             r.raise_for_status()
 
             # Look for the main document (usually ends with _10q.htm or 10q.htm)
-            # Pattern: href="0001018724-25-000001.htm"
+            # Pattern: href="0001018724-25-000001.htm" or href="/Archives/edgar/...10q.htm"
             matches = re.findall(r'href="([^"]*10-?q[^"]*\.htm[l]?)"', r.text, re.IGNORECASE)
 
             if matches:
+                logger.debug(f"Found {len(matches)} potential 10-Q documents")
                 # Prefer the one that's not a note/exhibit
                 for match in matches:
-                    if not re.search(r'(ex|exhibit|note|toc)', match, re.IGNORECASE):
+                    if not re.search(r'(ex|exhibit|note|toc|cover)', match, re.IGNORECASE):
                         # Construct full URL
                         doc_url = urljoin(filing_index_url, match)
                         logger.info(f"Found 10-Q document: {doc_url}")
@@ -165,11 +179,11 @@ class SECEdgarFetcher:
                 logger.info(f"Found 10-Q document (from exhibits): {doc_url}")
                 return doc_url
 
-            logger.warning(f"No 10-Q document found in index")
+            logger.warning(f"No 10-Q document found in index: {filing_index_url}")
             return None
 
         except Exception as e:
-            logger.error(f"Error fetching 10-Q document URL: {e}")
+            logger.warning(f"Error fetching 10-Q document URL: {e}")
             return None
 
     def fetch_10q_text(self, use_cache: bool = True) -> Optional[str]:
