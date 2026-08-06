@@ -154,6 +154,51 @@ def show_mtf(label, mode, tsv=False):
     print(','.join(picks))
 
 
+def preview_rotation(mode, label):
+    """Read-only preview of the next rotation: what the executor WOULD sell/buy.
+
+    Uses the latest picks (from mtf_pending if unconsumed, else the pick CSV)
+    vs REAL Alpaca holdings — the same inputs as the executor. Places no
+    orders, writes no DB/state."""
+    # Picks: prefer unconsumed pending (what the executor will actually run)
+    picks = None
+    sig_date = None
+    try:
+        conn = db_module.get_conn()
+        pending = db_module.get_pending(conn, mode)
+        if pending:
+            picks = pending['top_symbols']
+            sig_date = pending['sig_date']
+        conn.close()
+    except Exception:
+        pass
+    if picks is None:
+        rows = _latest_pick_rows(mode)
+        if not rows:
+            print(f'\n  {label}: no picks found (no pending, no CSV)')
+            return
+        picks = [r['symbol'] for r in rows]
+        sig_date = rows[0]['date']
+
+    executor._set_alpaca_keys(mode)
+    alpaca_positions = executor._get_alpaca_positions()
+    held = set(alpaca_positions.keys())
+    target = set(picks)
+
+    sells = sorted(held - target)
+    buys = sorted(target - held)
+
+    print(f'\n  {label} — preview rotation for {sig_date} (no orders placed)')
+    print(f'  Held: {len(held)}   Picks: {len(target)}')
+    if sells:
+        print(f'  SELL: {", ".join(sells)}')
+    if buys:
+        print(f'  BUY : {", ".join(buys)}')
+    if not sells and not buys:
+        print('  No changes (holdings == target)')
+    return bool(sells or buys)
+
+
 def show_daily():
     try:
         txt = open(DS_CSV).read().strip()
@@ -213,6 +258,11 @@ def show_summary():
 
 
 def main():
+    preview = '--preview' in sys.argv or '-p' in sys.argv
+    if preview:
+        preview_rotation('stock', 'MTF Stock')
+        preview_rotation('etf', 'MTF ETF')
+        return
     show_mtf('MTF Stock', 'stock')
     show_mtf('MTF ETF', 'etf', tsv=True)
     show_daily()
