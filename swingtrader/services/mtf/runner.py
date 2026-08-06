@@ -31,6 +31,10 @@ POPULATE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', '
 COMPUTE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'compute_indicators.py')
 DATA_RETRIES = 3
 DATA_RETRY_DELAY = 60
+# Proceed with scoring if only a few tickers lack the latest daily bar
+# (e.g. a single stock whose price feed glitched). Abort only when more than
+# this many are missing — a broad outage would poison the rotation.
+MISSING_TOLERANCE = 5
 
 MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs', 'all': 'stocks+ETFs'}
 CSV_SUFFIX = {'stock': '_stock', 'etf': '_etf'}
@@ -177,6 +181,12 @@ def _ensure_daily_data(conn, mode, now, today):
         if today_count >= expected:
             print(f'[MTF] Data complete: {today_count}/{expected} {MODE_LABEL[mode]}')
             return True, '', conn, required_date
+
+        missing = expected - today_count
+        if missing <= MISSING_TOLERANCE:
+            print(f'[MTF] Data nearly complete: {today_count}/{expected} {MODE_LABEL[mode]} '
+                  f'({missing} missing, within tolerance {MISSING_TOLERANCE}) — proceeding')
+            return True, f'{today_count}/{expected} {MODE_LABEL[mode]} have daily data ({missing} missing)', conn, required_date
 
         msg = f'[{required_date}] {today_count}/{expected} {MODE_LABEL[mode]} have daily data'
         print(f'[MTF] {msg}')
@@ -557,13 +567,14 @@ def _run_single_mode(mode, now, today):
     except Exception:
         pass
 
+    display_n = sorted(top_n, key=lambda t: t['symbol'])
     if is_etf:
         entry_prices = {sym: {'price': entry_map.get(sym) or 0, 'date': ''} for sym in top_symbols}
-        lines.extend(etf_table_lines(top_n, score_detail, entry_prices))
+        lines.extend(etf_table_lines(display_n, score_detail, entry_prices))
     else:
         lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"Fresh":>7}')
         lines.append(f'{"-"*3} {"-"*8} {"-"*5} {"-"*7} {"-"*7}')
-        for i, t in enumerate(top_n, 1):
+        for i, t in enumerate(display_n, 1):
             days_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
             lines.append(
                 f'{i:<3} {t["symbol"]:<8} {t["score"]:>5.1f} '
@@ -586,9 +597,9 @@ def _run_single_mode(mode, now, today):
     lines.append('')
     lines.append(f'MTM: ${mtm_value:,.0f}  |  Positions: {len(held)}  |  Picks: {len(top_symbols)}')
 
-    # Comma-delimited ticker list
+    # Comma-delimited ticker list (alpha-sorted)
     lines.append('')
-    lines.append(','.join(top_symbols))
+    lines.append(','.join(sorted(top_symbols)))
 
     lines.append('```')
 
@@ -717,16 +728,15 @@ def _run_sector_info(conn, now, today):
     lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"Fresh":>7}')
     lines.append(f'{"-"*3} {"-"*8} {"-"*5} {"-"*7} {"-"*7}')
 
-    candidates.sort(key=lambda x: -x['score'])
-    for i, t in enumerate(candidates, 1):
+    for i, t in enumerate(sorted(candidates, key=lambda x: x['symbol']), 1):
         days_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
         lines.append(
             f'{i:<3} {t["symbol"]:<8} {t["score"]:>5.1f} '
             f'{t["gap_w"]:>+6.1f}% {days_str:>7}'
         )
 
-    # Comma-delimited ticker list
-    sector_symbols = [t['symbol'] for t in candidates]
+    # Comma-delimited ticker list (alpha-sorted)
+    sector_symbols = [t['symbol'] for t in sorted(candidates, key=lambda x: x['symbol'])]
     lines.append('')
     lines.append(','.join(sector_symbols))
     lines.append('```')

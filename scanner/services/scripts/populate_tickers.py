@@ -8,6 +8,7 @@ For hourly, tickers are sourced from tbl_scanner_tickers with 3-month lookback.
 import argparse
 import os
 import sys
+import time
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -151,6 +152,43 @@ def fetch_yfinance_bars(symbol, tf_name, start):
     return bars or None
 
 
+def fetch_stockanalysis_price(symbol):
+    """Third fallback: scrape the current price from stockanalysis.com.
+
+    Used when both Alpaca IEX and yfinance fail (e.g. transient yfinance
+    rate-limit). Returns a bare close price or None. The page renders the
+    price in static HTML, so no JS execution is needed. Mirrors the retry
+    convention of stock-analyzer/populate_stock_analyzer.py."""
+    import re
+    url = f'https://stockanalysis.com/stocks/{symbol.lower()}/'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+    }
+    for attempt in range(3):
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+            r.raise_for_status()
+            break
+        except Exception:
+            if attempt < 2:
+                time.sleep(2 ** (attempt + 1))
+                continue
+            return None
+    m = re.search(
+        r'<div class="text-4xl font-bold transition-colors duration-300 inline-block">([0-9,]+\.\d+)</div>',
+        r.text,
+    )
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(',', ''))
+    except ValueError:
+        return None
+
+
 class _SimpleBar:
     """Minimal Alpaca-Bar-compatible object for yfinance fallback rows."""
     def __init__(self, timestamp, open, high, low, close, volume):
@@ -200,8 +238,20 @@ def process_ticker(symbol, client, tf_name, global_start, priority=False):
         if not bars or len(bars) == 0:
             bars = fetch_yfinance_bars(symbol, tf_name, start)
             if not bars or len(bars) == 0:
-                return symbol, 0, 'no new data'
-            source = 'yfinance'
+                # Last resort: stockanalysis.com current price (transient
+                # yfinance rate-limit). Only usable for daily — synthesize
+                # today's bar from the single scrape price.
+                if tf_name == 'day':
+                    price = fetch_stockanalysis_price(symbol)
+                    if price is None:
+                        return symbol, 0, 'no new data'
+                    now = datetime.now(NY)
+                    bars = [_SimpleBar(now, price, price, price, price, 0)]
+                    source = 'stockanalysis'
+                else:
+                    return symbol, 0, 'no new data'
+            else:
+                source = 'yfinance'
 
         rows = []
         for bar in bars:
@@ -238,6 +288,8 @@ def process_ticker(symbol, client, tf_name, global_start, priority=False):
 
         if source == 'yfinance':
             return symbol, len(rows), 'ok (yfinance fallback)'
+        if source == 'stockanalysis':
+            return symbol, len(rows), 'ok (stockanalysis price)'
         return symbol, len(rows), 'ok'
     except Exception as e:
         return symbol, 0, str(e)
