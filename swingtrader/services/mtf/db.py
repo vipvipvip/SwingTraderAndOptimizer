@@ -5,6 +5,9 @@ import json
 from datetime import date, datetime
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS, EMA_PERIOD, SMA_PERIOD, WARMUP_BARS, TS_START, SECTOR_ETFS
 
+# Broad-market gate ETFs whose weekly EMA10>SMA40 state indicates market regime.
+MARKET_GATE_ETFS = ['VTI', 'SPY', 'QQQ', 'VTV']
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS mtf_positions (
     id SERIAL PRIMARY KEY,
@@ -209,6 +212,15 @@ def get_sector_tickers(conn):
         cur.execute(
             'SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND symbol = ANY(%s) ORDER BY symbol',
             (SECTOR_ETFS,))
+        return cur.fetchall()
+
+
+def get_market_gate_tickers(conn):
+    """Ticker IDs+symbols for the 4 broad-market gate ETFs (VTI/SPY/QQQ/VTV)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND symbol = ANY(%s) ORDER BY symbol',
+            (MARKET_GATE_ETFS,))
         return cur.fetchall()
 
 

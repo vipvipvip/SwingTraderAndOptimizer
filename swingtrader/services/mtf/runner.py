@@ -744,6 +744,84 @@ def _run_sector_info(conn, now, today):
     return lines
 
 
+def _run_market_regime(conn, now, today):
+    """Weekly EMA10>SMA40 gate state for VTI/SPY/QQQ/VTV (info-only Slack section).
+    Shows the last 4 weekly bars with BULL/bear per gate ETF plus agreement count."""
+    print('[MTF] Scoring market regime (VTI/SPY/QQQ/VTV weekly)...')
+
+    tickers = db_module.get_market_gate_tickers(conn)
+    if not tickers:
+        return ['  No market gate ETFs found']
+
+    tid_by_sym = {sym: tid for tid, sym in tickers}
+    sym_order = db_module.MARKET_GATE_ETFS
+
+    weekly_data = {}
+    for sym in sym_order:
+        tid = tid_by_sym.get(sym)
+        if tid is None:
+            continue
+        w = db_module.load_weekly(conn, tid)
+        if w and len(w['dates']) >= 40:
+            weekly_data[sym] = w
+
+    if not weekly_data:
+        return ['  No market gate weekly data']
+
+    # Latest weekly date available for the gate ETFs
+    all_dates = sorted(set().union(*[set(w['dates']) for w in weekly_data.values()]))
+    if not all_dates:
+        return ['  No market gate weekly data']
+    last_date = all_dates[-1]
+
+    # Last 4 distinct weekly dates
+    last4 = all_dates[-4:]
+
+    lines = []
+    lines.append(f'*Market Regime — {last_date}*')
+    lines.append('```')
+    hdr = f'{"Week":<12}' + ''.join(f'{sym:<7}' for sym in sym_order) + 'Agree'
+    lines.append(hdr)
+    lines.append('-' * len(hdr))
+
+    def _state_at(sym, d):
+        w = weekly_data.get(sym)
+        if w is None:
+            return '-'
+        try:
+            i = w['dates'].index(d)
+        except ValueError:
+            return '-'
+        ema = w['ema'][i]
+        sma = w['sma'][i]
+        if ema is None or sma is None or ema != ema or sma != sma:  # NaN-safe
+            return '-'
+        return 'BULL' if ema > sma else 'bear'
+
+    for d in last4:
+        agree = 0
+        row = f'{str(d):<12}'
+        for sym in sym_order:
+            st = _state_at(sym, d)
+            row += f'{st:<7}'
+            if st == 'BULL':
+                agree += 1
+        row += f'{agree}/4'
+        lines.append(row)
+
+    # Context hint, only when gates agree
+    agree_now = sum(1 for sym in sym_order if _state_at(sym, last_date) == 'BULL')
+    if agree_now == 4:
+        lines.append('')
+        lines.append('Risk-on (4/4)')
+    elif agree_now == 0:
+        lines.append('')
+        lines.append('⚠️ Risk-off (0/4)')
+    lines.append('```')
+
+    return lines
+
+
 def run(mode='stock', live=False):
     """Run evening scoring (action='score') or morning execution (action='execute')."""
     now = datetime.now(NY)
@@ -831,10 +909,21 @@ def run_all(live=False):
         all_lines.append(f'❌ sector info crashed: {exc}')
         print(f'[MTF] sector info crashed: {exc}')
 
+    # Market regime (informational only)
+    all_lines.append('')
+    try:
+        conn = _get_db_conn()
+        regime_lines = _run_market_regime(conn, now, today)
+        all_lines.extend(regime_lines)
+        conn.close()
+    except Exception as exc:
+        all_lines.append(f'❌ market regime crashed: {exc}')
+        print(f'[MTF] market regime crashed: {exc}')
+
     if not sig_date:
         sig_date = str(today)
 
-    header = f'MTF Top {config.TOP_N} + EMA/SMA Top {config.TOP_N} — {sig_date} (stocks + ETFs + sectors)'
+    header = f'MTF Top {config.TOP_N} + EMA/SMA Top {config.TOP_N} — {sig_date} (stocks + ETFs + sectors + regime)'
     full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
     print(f'\n{full_msg}\n')
     _send_slack(full_msg, 'all')
