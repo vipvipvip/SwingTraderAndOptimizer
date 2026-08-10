@@ -1,0 +1,15 @@
+Here's my R&D Adoption Framework analysis library. 
+I've developed a 15-point scoring system for mid-cap 
+stocks ($5B-$50B) in early R&D product adoption phase.
+
+Current holdings:
+- BDX: Score 6-8/15 (early adoption, +25-30% target)
+- ZBRA: Score 12/15 (proven adoption, +17-25% target)
+- SMTC: Score 2-3/15 (avoid - margin destruction)
+
+Framework accuracy: 5/5 predictions correct (100% through Aug 6, 2026)
+
+[Upload all 5 files above]
+
+Analyze [TICKER] using this framework. 
+Score it 0-15 and compare to BDX/ZBRA/SMTC.
