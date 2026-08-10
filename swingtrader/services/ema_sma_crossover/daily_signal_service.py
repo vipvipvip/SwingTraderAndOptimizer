@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Multi-timeframe EMAC scanner — runs after market close.
+"""Multi-timeframe daily signal scanner — runs after market close.
 
 Scans all S&P 500 stocks for:
 1. Multi-timeframe uptrend (weekly + daily EMA(10) > SMA(40))
@@ -240,7 +240,7 @@ def run():
             regime = '➖ Neutral'
 
         lines = [
-            f'*Multi-TF EMAC Scan* — {today_str}',
+            f'*Daily Signal* — {today_str}',
             f'In uptrend: {uptrend_count}/{total} ({pct_uptrend}%) — {regime}',
         ]
 

@@ -55,8 +55,13 @@ A full-stack algorithmic swing trading system using **Chandelier Exit + Linear R
 │  ─────────────────────────────────────────────────────────────────── │
 │  swingtrader-optimizer   02:00 ET daily     Run optimizer (Python)   │
 │  swingtrader-backup      16:15 ET daily     pg_dump backup           │
-│  scanner-update          09:00 ET Mon–Fri   Populate weekly + daily  │
-│  scanner-hourly          10–16 ET Mon–Fri   Capture hourly bars      │
+│  swingtrader-scanner-update 09:00 Mon–Fri   Populate weekly + daily  │
+│  swingtrader-scanner-backfill 16:30 Mon–Fri Hourly-bar backfill      │
+│  swingtrader-mtf-scorer  16:45 ET Mon–Fri   MTF Top-N evening score  │
+│  swingtrader-daily-signal 17:00 ET Mon–Fri  Daily EMA/SMA signal     │
+│  swingtrader-mtf-executor 10:00 ET Mon–Fri  MTF morning execution    │
+│  swingtrader-earnings-screener 09:30–15:30  Earnings screener (30m)  │
+│  swingtrader-earnings-refresh Sun 06:00 ET  Earnings calendar fetch  │
 │                                                                     │
 │  Also: cron: trades:execute-daily every 5 min (during market hours) │
 └─────────────────────────────────────────────────────────────────────┘
@@ -69,8 +74,8 @@ A full-stack algorithmic swing trading system using **Chandelier Exit + Linear R
 │  compute_indicators.py   — MACD, PPO, SMA crossovers, ATR stop      │
 │  capture_hourly.py       — hourly bar capture during market hours   │
 │                                                                     │
-│  Timer: scanner-update   → 09:00 ET weekdays (week + day timeframes)│
-│  Timer: scanner-hourly   → 10–16 ET hourly (hour timeframe)         │
+│  Timer: swingtrader-scanner-update → 09:00 ET weekdays (week+day)  │
+│  Timer: swingtrader-scanner-backfill → 16:30 ET weekdays (hour)    │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -111,7 +116,9 @@ The CHAND+REG live trading system reads **resampled daily bars** from `tbl_etf_t
 - Live price (`TradeExecutorService::getCurrentPrice`): latest hourly close (no daily filter)
 - Alpaca latest trade API used as fallback for current price
 
-### EMAC 30-min Crossover (Automated)
+### EMAC 30-min Crossover (STOPPED)
+> ⚠️ **EMAC was stopped and replaced by MTF Top-N.** All EMAC services/timers/scripts were removed from systemd and the repo (`backfill-daily`, `emac-runner`, `manageTicker.py`, `health_check.py`). This section is historical only.
+
 A separate EMA(10)/SMA(40) crossover system using **30-min bars built from raw trade ticks**, with a daily EMA/SMA regime filter:
 
 ```
@@ -132,24 +139,24 @@ Alpaca trades API (IEX) ──► emac-runner.service (2-min poll loop)
                                      └── Pass 2: split remaining cash equally among buy signals
 ```
 
-Key differences from CHAND+REG:
+Key differences from CHAND+REG (historical):
 - **Data source**: Raw trade ticks (not pre-computed bars)
 - **Timeframe**: 30-min bars (not 1-hour/daily resampled)
 - **Data pipeline**: Real-time via 2-min poll loop (not nightly batch)
 - **Strategy**: EMA/SMA crossover + daily regime filter (not Chandelier/Regression)
 - **Scope**: QQQ, VTI, VTV (same tickers, independent system)
 - **Account**: Separate Alpaca paper account, separate DB tables (`emac_*`)
-- **Service**: `emac-runner.service` (systemd, long-running daemon, not timer-based)
+- **Service**: `emac-runner.service` (removed — replaced by MTF)
 
 ### Daily Signal Service (Signal-Only)
-A signal-only companion to EMAC that runs **once per day after market close (4:30 PM ET)**:
+A signal-only companion that runs **once per day after market close (5:00 PM ET)**:
 
 ```
-daily-signal.timer (Mon–Fri 16:30 ET)
+swingtrader-daily-signal.timer (Mon–Fri 17:00 ET)
        │
        └── daily_signal_service.py
-             ├── Reads emac_daily_candles (daily OHLCV from DB)
-             ├── Computes EMA(10)/SMA(40) crossover on daily close
+             ├── Reads scanner tables (weekly/daily/hourly)
+             ├── Computes EMA(10)/SMA(40) + multi-TF freshness score
              ├── Fresh crossover detected?
              │     ├── YES → Slack alert [DAILY] + log to data/daily_signals.csv
              │     └── NO  → nothing
@@ -158,18 +165,18 @@ daily-signal.timer (Mon–Fri 16:30 ET)
 
 - **No trading**: Slack alerts + CSV only; user decides to enter at next day's open
 - **Same logic as backtest**: Entry on EMA > SMA, exit on EMA cross below SMA
-- **Same tickers**: QQQ, VTI, VTV
+- **Scope**: S&P 500 (Multi-TF alerts, freshness-based scoring)
 - **Dedup**: State file prevents duplicate alerts for the same bar
-- **Tables used**: `emac_daily_candles` (read-only)
+- **Tables used**: `tbl_scanner_tickers*` (read-only)
 
 ### Stock Scanner Data (SP500, for Screening)
 ```
-Alpaca ───┬── scanner-update (09:00 daily) ──► tbl_scanner_tickers (weekly)
+Alpaca ───┬── swingtrader-scanner-update (09:00 daily) ──► tbl_scanner_tickers (weekly)
            │                                     tbl_scanner_tickers_daily
            │                                     compute_indicators → MACD/PPO/SMA/ATR
            │
-           └── scanner-hourly (hourly)       ──► tbl_scanner_tickers_1hour
-                                                compute_indicators → same indicators
+           └── swingtrader-scanner-backfill (16:30) ──► tbl_scanner_tickers_1hour
+                                                 compute_indicators → same indicators
 ```
 
 ### Live Trading
@@ -339,9 +346,9 @@ Computes per-bar: MACD line/signal/histogram, MACD crossover (bull/bear), PPO li
 ### Timeframes
 | Table | Timeframe | Timer | Data Range |
 |-------|-----------|-------|------------|
-| tbl_scanner_tickers | Weekly | scanner-update (09:00 daily) | 2017–present |
-| tbl_scanner_tickers_daily | Daily | scanner-update (09:00 daily) | 2017–present |
-| tbl_scanner_tickers_1hour | Hourly | scanner-hourly (hourly 10–16) | 90-day lookback |
+| tbl_scanner_tickers | Weekly | swingtrader-scanner-update (09:00 daily) | 2017–present |
+| tbl_scanner_tickers_daily | Daily | swingtrader-scanner-update (09:00 daily) | 2017–present |
+| tbl_scanner_tickers_1hour | Hourly | swingtrader-scanner-backfill (16:30 daily) | 90-day lookback |
 
 ---
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=MTF Top-N Daily Runner Timer (weekdays at 4:45 PM ET after scanner-hourly)
+Description=MTF Top-N Daily Scorer Timer (weekdays at 4:45 PM ET after scanner backfill)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target swingtrader-db.service
 

@@ -1,7 +1,8 @@
 [Unit]
 Description=MTF Top-N Executor (morning trade execution)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
-After=network.target swingtrader-db.service
+After=network-online.target swingtrader-db.service
+Wants=network-online.target
 
 [Service]
 Type=oneshot

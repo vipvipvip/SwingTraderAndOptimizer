@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily hourly bar backfill (30 min after market close, weekdays 4:30 PM ET)
+Description=SwingTrader daily hourly-bar backfill (weekdays 4:30 PM ET after market close)
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 16:30:00 America/New_York

@@ -1,5 +1,5 @@
 [Unit]
-Description=MTF Executor Timer (weekdays at 10:00 AM ET)
+Description=MTF Top-N Executor Timer (weekdays at 10:00 AM ET)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target swingtrader-db.service
 

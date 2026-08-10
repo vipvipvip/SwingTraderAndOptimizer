@@ -35,16 +35,16 @@ python3 services/earnings_screener.py --stats
 
 | Service | Timer | Schedule |
 |---------|-------|----------|
-| earnings-refresh | earnings-refresh.timer | Sun 6:00 AM ET |
-| earnings-screener | earnings-screener.timer | Mon-Fri every 30 min, 9:30 AM - 3:30 PM ET |
+| swingtrader-earnings-refresh | swingtrader-earnings-refresh.timer | Sun 6:00 AM ET |
+| swingtrader-earnings-screener | swingtrader-earnings-screener.timer | Mon-Fri every 30 min, 9:30 AM - 3:30 PM ET |
 
 ## Installation
 
 ```bash
-sudo cp common/docs/services_doc/earnings-*.service /etc/systemd/system/
-sudo cp common/docs/services_doc/earnings-*.timer /etc/systemd/system/
+sudo cp common/docs/services_doc/swingtrader-earnings-*.service /etc/systemd/system/
+sudo cp common/docs/services_doc/swingtrader-earnings-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now earnings-refresh.timer earnings-screener.timer
+sudo systemctl enable --now swingtrader-earnings-refresh.timer swingtrader-earnings-screener.timer
 ```
 
 ## Output

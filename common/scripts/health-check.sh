@@ -152,13 +152,13 @@ else
 fi
 
 # Check for recent scanner service failures
-for sfx in update hourly; do
-    if systemctl is-failed "scanner-${sfx}.service" >/dev/null 2>&1; then
-        warn "scanner-${sfx}.service is in failed state"
+for svc in swingtrader-scanner-update swingtrader-scanner-backfill; do
+    if systemctl is-failed "$svc.service" >/dev/null 2>&1; then
+        warn "$svc.service is in failed state"
     fi
-    RECENT_FAIL=$(journalctl -u "scanner-${sfx}.service" --since "3 days ago" --no-pager 2>/dev/null | grep "Failed with result\|Main process exited, code=exited, status=1" || true)
+    RECENT_FAIL=$(journalctl -u "$svc.service" --since "3 days ago" --no-pager 2>/dev/null | grep "Failed with result\|Main process exited, code=exited, status=1" || true)
     if [ -n "$RECENT_FAIL" ]; then
-        warn "scanner-${sfx}.service had failures in last 3 days:"
+        warn "$svc.service had failures in last 3 days:"
         echo "$RECENT_FAIL" | sed 's/^/    /'
     fi
 done
@@ -241,7 +241,7 @@ echo ""
 echo "--- System Timers ---"
 
 # Strategy timers with next run time
-for timer in scanner-update scanner-hourly mtf-daily-runner daily-signal backfill-daily; do
+for timer in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader-mtf-scorer swingtrader-daily-signal; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
         TRIGGER=$(systemctl show "$timer.timer" -p TriggerOnCalendar --value 2>/dev/null || echo "?")
@@ -252,7 +252,7 @@ for timer in scanner-update scanner-hourly mtf-daily-runner daily-signal backfil
 done
 
 # Earnings timers
-for timer in earnings-refresh earnings-screener; do
+for timer in swingtrader-earnings-refresh swingtrader-earnings-screener; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
         TRIGGER=$(systemctl show "$timer.timer" -p TriggerOnCalendar --value 2>/dev/null || echo "?")
@@ -276,7 +276,7 @@ done
 echo ""
 echo "--- Recent Timer Service Runs ---"
 
-for svc in scanner-update scanner-hourly mtf-daily-runner daily-signal backfill-daily earnings-screener earnings-refresh; do
+for svc in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader-mtf-scorer swingtrader-daily-signal swingtrader-earnings-screener swingtrader-earnings-refresh; do
     STATUS=$(systemctl is-active "$svc" 2>/dev/null || echo "not-found")
     if [ "$STATUS" = "failed" ]; then
         fail "$svc.service FAILED — last run errored"
@@ -306,48 +306,6 @@ for svc in swingtrader-db swingtrader-backend swingtrader-fe-dev; do
     fi
 done
 
-# ---- All Strategy Services (long-running) ----
-echo ""
-echo "--- Strategy Services ---"
-
-for svc in emac-runner mtcs-runner; do
-    STATUS=$(systemctl is-active "$svc" 2>/dev/null || echo "not-found")
-    if [ "$STATUS" = "active" ]; then
-        STARTED=$(systemctl show "$svc" -p ActiveEnterTimestamp --value 2>/dev/null || echo "?")
-        pass "$svc is running (since $STARTED)"
-    elif [ "$STATUS" = "not-found" ]; then
-        warn "$svc service not found"
-    else
-        fail "$svc is $STATUS"
-    fi
-    # Recent errors from log file
-    LOG_FILE="/var/log/${svc}.log"
-    if [ -f "$LOG_FILE" ]; then
-        RECENT_ERRS=$(tail -200 "$LOG_FILE" 2>/dev/null | grep -iE "error|exception|traceback|fail" | tail -3 || true)
-        if [ -n "$RECENT_ERRS" ]; then
-            warn "  $svc recent errors:"
-            echo "$RECENT_ERRS" | sed 's/^/    /'
-        fi
-    fi
-done
-
-# ---- EMAC EMA/SMA + MACD 30-min Crossover ----
-echo ""
-echo "--- EMAC Crossover ---"
-
-EMAC_HEALTH="$PROJECT_DIR/swingtrader/services/ema_sma_crossover/health_check.py"
-if [ -f "$EMAC_HEALTH" ]; then
-    cd "$PROJECT_DIR/swingtrader/services/ema_sma_crossover" && python3 "$EMAC_HEALTH"
-    EMAC_EXIT=$?
-    if [ "$EMAC_EXIT" -eq 0 ]; then
-        pass "EMAC health check passed"
-    else
-        fail "EMAC health check detected issues"
-    fi
-else
-    fail "EMAC health check script not found at $EMAC_HEALTH"
-fi
-
 # ---- Daily EMA/SMA Crossover Signal Service ----
 echo ""
 echo "--- Daily Signal Service ---"
@@ -355,33 +313,18 @@ echo "--- Daily Signal Service ---"
 DAILY_CSV="$PROJECT_DIR/swingtrader/services/ema_sma_crossover/data/daily_signals.csv"
 DAILY_STATE="$PROJECT_DIR/swingtrader/services/ema_sma_crossover/.daily_signal_state.json"
 
-if systemctl is-enabled daily-signal.timer >/dev/null 2>&1; then
-    NEXT=$(systemctl show daily-signal.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
-    pass "daily-signal.timer is enabled (next: $NEXT)"
+if systemctl is-enabled swingtrader-daily-signal.timer >/dev/null 2>&1; then
+    NEXT=$(systemctl show swingtrader-daily-signal.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
+    pass "swingtrader-daily-signal.timer is enabled (next: $NEXT)"
 else
-    warn "daily-signal.timer is not enabled"
+    warn "swingtrader-daily-signal.timer is not enabled"
 fi
 
-if systemctl is-active daily-signal.timer >/dev/null 2>&1; then
-    pass "daily-signal.timer is active"
+if systemctl is-active swingtrader-daily-signal.timer >/dev/null 2>&1; then
+    pass "swingtrader-daily-signal.timer is active"
 else
-    warn "daily-signal.timer is not active"
+    warn "swingtrader-daily-signal.timer is not active"
 fi
-
-# Check daily candle freshness for core ETFs only (emac_daily_candles table)
-for sym in $CORE_ETFS; do
-    DAILY_LATEST=$(PSQL "SELECT MAX(ts)::date FROM emac_daily_candles dc JOIN tbl_etf_tickers t ON dc.ticker_id = t.id WHERE t.symbol='$sym';")
-    if [ -n "$DAILY_LATEST" ] && [ "$DAILY_LATEST" != " " ]; then
-        DAILY_DAYS=$(( ($(date +%s) - $(date -d "$DAILY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
-        if [ "$DAILY_DAYS" -le 7 ] 2>/dev/null; then
-            pass "  $sym daily candles: latest $DAILY_LATEST ($DAILY_DAYS days ago)"
-        else
-            warn "  $sym daily candles: latest $DAILY_LATEST ($DAILY_DAYS days ago - stale)"
-        fi
-    else
-        fail "  $sym: no daily candle data found"
-    fi
-done
 
 # Check CSV signal log
 if [ -f "$DAILY_CSV" ]; then
@@ -404,24 +347,7 @@ else
     warn "Daily signal state file not found (will be created on first run)"
 fi
 
-# ---- MTCS Hilbert Transform Cycle Strategy ----
-echo ""
-echo "--- MTCS Cycle Strategy ---"
-
-MTCS_HEALTH="$PROJECT_DIR/swingtrader/services/mtcs/health_check.py"
-if [ -f "$MTCS_HEALTH" ]; then
-    cd "$PROJECT_DIR/swingtrader/services/mtcs" && python3 "$MTCS_HEALTH"
-    MTCS_EXIT=$?
-    if [ "$MTCS_EXIT" -eq 0 ]; then
-        pass "MTCS health check passed"
-    else
-        fail "MTCS health check detected issues"
-    fi
-else
-    fail "MTCS health check script not found at $MTCS_HEALTH"
-fi
-
-# ---- MTF Top-N Multi-TF Rotation (Phase 1 Paper) ----
+# ---- MTF Top-N Multi-TF Rotation ----
 echo ""
 echo "--- MTF Top-N Rotation ---"
 

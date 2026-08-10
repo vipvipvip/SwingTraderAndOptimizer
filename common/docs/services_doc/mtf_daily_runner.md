@@ -107,8 +107,8 @@ All files live under `swingtrader/services/mtf/`:
 | `.env` | Environment variables (DB creds, Slack webhook URL) |
 | `data/mtf_picks_stock.csv` | Daily stock top-N picks with scores and components (pick history) |
 | `data/mtf_picks_etf.csv` | Daily ETF top-N picks with scores and components (pick history) |
-| `systemd/mtf-daily-runner.{service,timer}` | Evening scorer (weekdays 4:45 PM ET, `--action score --mode all`) |
-| `systemd/mtf-executor.{service,timer}` | Morning executor (weekdays 10:00 AM ET, `--action execute --mode all`) |
+| `systemd/swingtrader-mtf-scorer.{service,timer}` | Evening scorer (weekdays 4:45 PM ET, `--action score --mode all`) |
+| `systemd/swingtrader-mtf-executor.{service,timer}` | Morning executor (weekdays 10:00 AM ET, `--action execute --mode all`) |
 
 ## Backtest Results (Multi-TF Daily Rebalance)
 
@@ -244,29 +244,29 @@ not CSV.
 
 ```bash
 # Evening scorer (manual)
-sudo systemctl start mtf-daily-runner.service
+sudo systemctl start swingtrader-mtf-scorer.service
 
 # Morning executor (manual)
-sudo systemctl start mtf-executor.service
+sudo systemctl start swingtrader-mtf-executor.service
 
 # Journal — scorer
-sudo journalctl -u mtf-daily-runner.service -n 50 --no-pager
+sudo journalctl -u swingtrader-mtf-scorer.service -n 50 --no-pager
 
 # Journal — executor
-sudo journalctl -u mtf-executor.service -n 50 --no-pager
+sudo journalctl -u swingtrader-mtf-executor.service -n 50 --no-pager
 
 # Status — both timers
-sudo systemctl status mtf-daily-runner.timer
-sudo systemctl status mtf-executor.timer
+sudo systemctl status swingtrader-mtf-scorer.timer
+sudo systemctl status swingtrader-mtf-executor.timer
 
 # Tail live — scorer
-sudo journalctl -u mtf-daily-runner.service -f
+sudo journalctl -u swingtrader-mtf-scorer.service -f
 
 # Tail live — executor
-sudo journalctl -u mtf-executor.service -f
+sudo journalctl -u swingtrader-mtf-executor.service -f
 ```
 
-**Dependency**: `mtf-daily-runner.service` declares `After=scanner-hourly.service` + `Wants=scanner-hourly.service`. When the runner starts, it pulls in `scanner-hourly.service` (populate + capture close quote + compute ATR_stop) and waits for it to complete before scoring. This ensures hourly `atr_stop` indicators are always freshly computed, even if `scanner-hourly.timer` is disabled or delayed.
+**Dependency**: `swingtrader-mtf-scorer.service` declares `After=swingtrader-scanner-backfill.service` + `Wants=swingtrader-scanner-backfill.service`. When the runner starts, it pulls in `swingtrader-scanner-backfill.service` (populate + capture close quote + compute ATR_stop) and waits for it to complete before scoring. This ensures hourly `atr_stop` indicators are always freshly computed, even if `swingtrader-scanner-backfill.timer` is disabled or delayed.
 
 **Data completeness guard**: Runner checks all enabled tickers have today's daily bar before scoring. If incomplete, it retries `populate_tickers.py` + `compute_indicators.py` up to 3 times. On failure, sends a red `🚨🔴 DATA INCOMPLETE` Slack alert and aborts. No trades are placed.
 
@@ -274,8 +274,8 @@ sudo journalctl -u mtf-executor.service -f
 
 | Timer | Time | Action | Service |
 |-------|------|--------|---------|
-| `mtf-daily-runner.timer` | Mon–Fri 4:45 PM ET | Evening scoring | `mtf-daily-runner.service` |
-| `mtf-executor.timer` | Mon–Fri 10:00 AM ET | Morning execution | `mtf-executor.service` |
+| `swingtrader-mtf-scorer.timer` | Mon–Fri 4:45 PM ET | Evening scoring | `swingtrader-mtf-scorer.service` |
+| `swingtrader-mtf-executor.timer` | Mon–Fri 10:00 AM ET | Morning execution | `swingtrader-mtf-executor.service` |
 
 ### Manual
 ```bash

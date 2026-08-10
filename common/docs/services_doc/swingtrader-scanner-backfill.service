@@ -1,5 +1,5 @@
 [Unit]
-Description=Scanner hourly price capture + indicator computation
+Description=SwingTrader scanner hourly-bar backfill + indicator computation
 After=network-online.target swingtrader-db.service
 Wants=network-online.target swingtrader-db.service
 

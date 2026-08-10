@@ -1,17 +1,14 @@
 Key docs:
 - common/docs/TRADING_STRATEGIES.md — All strategies overview
 - common/docs/How_System_Works.md — System architecture
-- common/docs/services_doc/mtcs_service.md — MTCS-specific
 
 Quick summary of triggers:
 CHAND (TradeExecutorService.php:599-712): Always-in strategy. Entry via Chandelier Entry filter. Exit when price hits trailing stop = highestHigh_since_entry - ATR * multiplier (configurable per-ticker). Also has a regression slope exit option.
 Account: PA31Z71315NM
 
-EMAC (strategy.py:56-94): BUY when daily EMA(10) > SMA(40) (daily regime filter) AND hourly EMA(10) > SMA(40). SELL when hourly EMA crosses below SMA. Position sizing via equal-weight rebalance across all tickers with signals.
-Account: PA3EHVX93SJT
+EMAC (stopped — replaced by MTF): was BUY when daily EMA(10) > SMA(40) (daily regime filter) AND hourly EMA(10) > SMA(40). SELL when hourly EMA crosses below SMA. Account PA3EHVX93SJT stopped; code deleted 2026-08-10.
 
-MTCS (strategy.py in mtcs/): BUY when Hilbert Transform dominant cycle sine wave crosses above lead wave on last 2 daily bars. SELL when sine crosses below lead.
-Account: PA3NCXU4O2CN
+MTCS (stopped — replaced by MTF): was BUY when Hilbert Transform dominant cycle sine wave crosses above lead wave on last 2 daily bars. Account PA3NCXU4O2CN stopped; code deleted 2026-08-10.
 
 MTF Daily Signal (daily_signal_service.py): BUY signal if weekly EMA(10) > SMA(40) AND daily EMA(10) > SMA(40) AND 1-hour EMA just crossed above SMA(40). Scored by momentum + gap + infancy. Signal-only via Slack. (Multi-TF-EMAC Scan)
 
@@ -28,19 +25,17 @@ MTF Daily Signal (daily_signal_service.py): BUY signal if weekly EMA(10) > SMA(4
 	The MTF score's strength is that gap_w rewards momentum rather than penalizing it. The key insight from the backtest still holds: you want stocks that have already broken out hard and are still running, not stocks that just barely crossed.
 
 ===== Time frames ====
-only QQQ/VTI/VTV have 30-min candles (EMAC system). Everything else (all other ETFs + all stocks) uses 1hr scanner data. It's not ETF vs stock, it's EMAC tickers vs scanner tickers.
-===== Time frames ====
+only the scanner universe uses 1hr data (all stocks + ETFs). The stopped EMAC system was the only consumer of 30-min candles.
+===== Time frames =====
 
-All three live runners operate on $1M paper accounts:
+All live runners operate on $1M paper accounts:
 1. CHAND — ✅ Live (Alpaca paper, key ending DTWMJC) (Slack: CHAND) (QQQ/VTI/VTV)
-2. EMAC — ✅ Live (Alpaca paper, key ending 22RZS, acct #PA3EHVX93SJT) (Slack: EMAC) (QQQ/VTI/VTV)
-3. MTCS — ✅ Live (Alpaca paper, key ending ORIWSH, acct #PA3NCXU4O2CN) (Slack: MTCS) (QQQ/VTI/VTV)
+2. MTF Top-N — ✅ Live Phase 2 (Slack: MTF-TopN stocks / EMA-SMA ETFs) (VTI stocks + 22 ETFs separately)
+3. Daily Signal Service — 📋 Slack-only (manual trades, separate infra) (Slack: Daily Signal) (SP500 stocks)
 
-MTF is in Phase 1 validation; once confirmed it'll replace MTCS (Phase 2):
-4. MTF Top-N — 🚧 Paper only (CSV logs + Slack, no Alpaca orders) (Slack: MTF Top-N) (Sp500 + 22 ETFs seperately)
-
-No Trading - Just Signals/picks on Slack:
-5. Daily Signal Service — 📋 Slack-only (manual trades, separate infra) (Slack: Daily Signal) (SP500 stocks)
+Stopped:
+- EMAC (key ending 22RZS, acct #PA3EHVX93SJT) — replaced by MTF
+- MTCS (key ending ORIWSH, acct #PA3NCXU4O2CN) — replaced by MTF
 
 ================== Explanation
 BAX is in the MTF Top-N picks, not the Daily Signal. Different rules:
@@ -57,11 +52,9 @@ BAX is in a multi-TF uptrend and scores well on momentum metrics — it doesn't 
 Here's the table with the Slack tag column:
 #	Name	Universe
 1	CHAND	QQQ/VTI/VTV
-2	EMAC	QQQ/VTI/VTV
-3	MTCS	QQQ/VTI/VTV
-4	MTF Top-N	S&P 500 (503 stocks + 22 ETFs)
-5	Daily Signal	S&P 500
-All three live runners on $1M Alpaca paper accounts. MTF Phase 1 paper validation underway — replaces MTCS after confirmation (Phase 2).
+2	MTF Top-N	VTI stocks + 22 ETFs
+3	Daily Signal	S&P 500
+Stopped: EMAC (QQQ/VTI/VTV), MTCS (QQQ/VTI/VTV). Live runners on $1M Alpaca paper accounts. MTF Phase 2 replaces MTCS and EMAC.
 
 
 === See results with this utility
@@ -71,28 +64,29 @@ Here's the schedule with actual runtimes:
 All 9 timer files confirmed with America/New_York timezone. Here's the full schedule:
 Time ET	Timer
 02:00	swingtrader-optimizer
-09:00	scanner-update (Mon–Fri)
-08:00 Mon mtf-daily-runner catch-up
-16:15	backfill-daily (Mon–Fri)
+09:00	swingtrader-scanner-update (Mon–Fri)
+10:00	swingtrader-mtf-executor (Mon–Fri)
 16:15	swingtrader-backup
-16:30	scanner-hourly (Mon–Fri)
-16:45	mtf-daily-runner (Mon–Fri)
-17:00	daily-signal (Mon–Fri)
+16:30	swingtrader-scanner-backfill (Mon–Fri)
+16:45	swingtrader-mtf-scorer (Mon–Fri)
+17:00	swingtrader-daily-signal (Mon–Fri)
+Sun 06:00	swingtrader-earnings-refresh
+09:30–15:30	swingtrader-earnings-screener (every 30 min)
 Safe shutdown: 17:05 ET weekdays, 08:15 ET Monday mornings.
 
 
-All 12 trading services consolidated to system-level:
+All trading services consolidated to system-level:
 Service	Type	Timer	Schedule (ET)
 swingtrader-db.service	long-running	—	always on
 swingtrader-backend.service	long-running	—	always on
 swingtrader-fe-dev.service	long-running	—	always on
-emac-runner.service	long-running	—	always on
-mtcs-runner.service	long-running	—	always on
-scanner-hourly.service	oneshot	scanner-hourly.timer	Mon-Fri 16:30
-scanner-update.service	oneshot	scanner-update.timer	Mon-Fri 09:00
-backfill-daily.service	oneshot	backfill-daily.timer	Mon-Fri 16:15
-mtf-daily-runner.service	oneshot	mtf-daily-runner.timer	Mon 08:00 + Mon-Fri 16:45
-daily-signal.service	oneshot	daily-signal.timer	Mon-Fri 17:00
+swingtrader-scanner-update.service	oneshot	swingtrader-scanner-update.timer	Mon-Fri 09:00
+swingtrader-scanner-backfill.service	oneshot	swingtrader-scanner-backfill.timer	Mon-Fri 16:30
+swingtrader-mtf-scorer.service	oneshot	swingtrader-mtf-scorer.timer	Mon-Fri 16:45
+swingtrader-mtf-executor.service	oneshot	swingtrader-mtf-executor.timer	Mon-Fri 10:00
+swingtrader-daily-signal.service	oneshot	swingtrader-daily-signal.timer	Mon-Fri 17:00
+swingtrader-earnings-screener.service	oneshot	swingtrader-earnings-screener.timer	Mon-Fri 09:30-15:30
+swingtrader-earnings-refresh.service	oneshot	swingtrader-earnings-refresh.timer	Sun 06:00
 swingtrader-backup.service	oneshot	swingtrader-backup.timer	daily 16:15
 swingtrader-optimizer.service	oneshot	swingtrader-optimizer.timer	daily 02:00
 Zero user-level service/timer files remaining. Everything runs 24/7 regardless of login.
@@ -135,7 +129,7 @@ You can run this anytime with:
 python3 ~/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/backtest_topn_multitf.py --etf --top-n 10 --rebalance daily --stop-loss 5.0 --top-trades 10
 
 ======================== Get Signals on any ticker - hourly crossover
-python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/ema_sma_crossover/signal_trailing_stop.py [--all-etfs, [<ticker>,<ticker>,<ticker>]]
+(removed 2026-08-10 — was ema_sma_crossover/signal_trailing_stop.py, part of stopped EMAC; hourly crossover signals now come from the MTF / Daily Signal services)
 
 
 === MTF ETF Trading (7/23/26)
@@ -150,19 +144,19 @@ Verdict: Trade the MTF Top-10 ETFs via --mode etf.
 ======================== 
 
 ============ COMMANDS
-sudo systemctl start mtf-daily-runner.service
+sudo systemctl start swingtrader-mtf-scorer.service
 To watch it:
-sudo journalctl -u mtf-daily-runner.service -f
+sudo journalctl -u swingtrader-mtf-scorer.service -f
 To verify it completed:
-sudo journalctl -u mtf-daily-runner.service -n 10 --no-pager
+sudo journalctl -u swingtrader-mtf-scorer.service -n 10 --no-pager
 Also confirm the executor timer is set for tomorrow 10:00 AM:
-sudo systemctl list-timers mtf-daily-runner.timer mtf-executor.timer
+sudo systemctl list-timers swingtrader-mtf-scorer.timer swingtrader-mtf-executor.timer
 ===================================================================
 
 SwingTrader-MTF-Stocks
-Key: PKF6Y6TUU6QNGNUYVVIA36JWBM
-Secret: 2GS8PNRTEiwNF4pSGVZJ6aAcqiPJKeFVPUnrgJBSXgBw
+Key: REDACTED
+Secret: REDACTED
 
 SwingTrader-MTF-ETF 
-Key:PKECKL32A36LWURH5UUFOLRVQN
-Secret: 7oqEA6UjSNNt65aQKbSH8QXSMoFJ725vLvn7wfRh1dDw
+Key: REDACTED
+Secret: REDACTED

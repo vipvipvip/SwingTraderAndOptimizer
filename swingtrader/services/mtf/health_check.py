@@ -35,23 +35,33 @@ def main():
 
     # ── Service timer status ──
     svc_status = os.popen(
-        'systemctl is-active mtf-daily-runner.timer 2>/dev/null || echo "not-found"'
+        'systemctl is-active swingtrader-mtf-scorer.timer 2>/dev/null || echo "not-found"'
     ).read().strip()
     if svc_status == 'active':
-        ok('mtf-daily-runner.timer is active')
+        ok('swingtrader-mtf-scorer.timer is active')
         trigger = os.popen(
-            'systemctl show mtf-daily-runner.timer -p TriggerOnCalendar --value 2>/dev/null'
+            'systemctl show swingtrader-mtf-scorer.timer -p TriggerOnCalendar --value 2>/dev/null'
         ).read().strip()
         if trigger:
             print(f'    Schedule: {trigger}')
     elif svc_status == 'waiting':
-        ok('mtf-daily-runner.timer is waiting')
+        ok('swingtrader-mtf-scorer.timer is waiting')
     else:
-        fail(f'mtf-daily-runner.timer is {svc_status}')
+        fail(f'swingtrader-mtf-scorer.timer is {svc_status}')
+
+    exec_status = os.popen(
+        'systemctl is-active swingtrader-mtf-executor.timer 2>/dev/null || echo "not-found"'
+    ).read().strip()
+    if exec_status == 'active':
+        ok('swingtrader-mtf-executor.timer is active')
+    elif exec_status == 'waiting':
+        ok('swingtrader-mtf-executor.timer is waiting')
+    else:
+        fail(f'swingtrader-mtf-executor.timer is {exec_status}')
 
     # ── Recent journal errors ──
     errors = os.popen(
-        'journalctl -u mtf-daily-runner --since "1 day ago" -p err -q --no-pager 2>/dev/null '
+        'journalctl -u swingtrader-mtf-scorer --since "1 day ago" -p err -q --no-pager 2>/dev/null '
         '| tail -5'
     ).read().strip()
     if errors:

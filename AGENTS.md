@@ -10,17 +10,17 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 4 | **MTF Top-N** (MTF stocks + EMA/SMA ETFs) | VTI stocks + ETFs | Stocks: gap_w + atr_dist + freshness; ETFs: weekly EMA10>SMA40 gap → top 10 | ✅ Live (#PA3PPZAZR76Z stocks / #PA3U8GZ96PEN ETFs) |
-| 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 4:30 PM |
+| 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 5:00 PM |
 
 ## Constraints & Preferences
-- EMAC 30-min runner (QQQ/VTI/VTV, Alpaca paper, Slack tag `[EMAC]`) must remain untouched
-- MTCS (Alpaca paper acct #PA3NCXU4O2CN, Slack tag `[MTCS]`) is **stopped** — service removed from systemd, replaced by MTF Top-N (Phase 2 live)
-- Daily Signal Service (Mon–Fri 4:30 PM ET, Slack tagged `[DAILY]`) is separate and stays
+- EMAC (Alpaca paper acct #PA3EHVX93SJT, Slack tag `[EMAC]`) is **stopped** — replaced by MTF; all EMAC services/timers/scripts removed from systemd and repo (`backfill-daily`, `emac-runner`, `manageTicker.py`, `health_check.py`); remaining EMAC strategy code deleted from `ema_sma_crossover/` (2026-08-10) — dir now holds only the live Daily Signal service
+- MTCS (Alpaca paper acct #PA3NCXU4O2CN, Slack tag `[MTCS]`) is **stopped** — service removed from systemd, replaced by MTF Top-N (Phase 2 live); entire `swingtrader/services/mtcs/` directory deleted (2026-08-10) + `mtcs_positions`/`mtcs_trades` DB tables dropped
+- Daily Signal Service (Mon–Fri 5:00 PM ET, Slack tagged `[DAILY]`) is separate and stays
 - MTF Top-N Phase 2 is live (Slack tag `[MTF-TopN stocks]` / `[EMA-SMA ETFs]`) — places real Alpaca orders
 - CHAND (Alpaca paper, Slack tag `[CHAND]`) runs via Laravel `ExecuteDailyTrades` command on same trio (QQQ/VTI/VTV)
 - All backtests use scanner DB tables (`tbl_scanner_tickers*`), not strategy-specific ETF tables
-- MTCS uses optimizer venv for Python execution; Hilbert chart script (`chart.py`) auto-detects this venv via `os.execv`
-- Three Alpaca paper accounts: CHAND (#PA31Z71315NM), EMAC (#PA3EHVX93SJT), MTCS (#PA3NCXU4O2CN)
+- MTCS uses optimizer venv for Python execution (code deleted 2026-08-10)
+- Three Alpaca paper accounts: CHAND (#PA31Z71315NM), EMAC (#PA3EHVX93SJT), MTCS (#PA3NCXU4O2CN, stopped)
 - Two MTF Alpaca accounts: Stocks (#PA3PPZAZR76Z), ETFs (#PA3U8GZ96PEN)
 - Keep same Slack channel for all services — differentiate via prefix tags
 - One combined Slack message per day for MTF (stocks + ETFs + sector info) via `--mode all`
@@ -53,8 +53,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **SPOF hardening in runner.py**: crash alerting (global try/except → Slack `⚠️ CRASH`), stale data detection (>2d aborts, 1d warns), atomic state writes (tempfile+os.replace), DB connection retry (3 attempts, 5s delay)
 - **Combined Slack message**: refactored runner to `--mode all` (runs both stock + ETF in one shot), single combined Slack alert per day, separate `_run_single_mode()` core logic
 - **Systemd service updated**: single `ExecStart --mode all`, `TimeoutStopSec=300`
-- **Deleted stale scanner-intraday.service + timer** (replaced by scanner-hourly)
-- **Service docs updated**: `common/docs/services_doc/mtf-daily-runner.service` and `mtf_daily_runner.md` reflect `--mode all`, combined message, --user commands
+- **Deleted stale scanner-intraday.service + timer** (replaced by swingtrader-scanner-backfill, formerly scanner-hourly)
+- **Service docs updated**: `common/docs/services_doc/swingtrader-mtf-scorer.service` and `mtf_daily_runner.md` reflect `--mode all`, combined message, --user commands
 - **Backtest fixed**: partial-date bug — excludes dates with <400 tickers so incomplete last trading day doesn't artifact -100% loss
 - **Backtest `--min-score` + `--infancy` flags added** and confirmed: `--min-score 5` alone returns **+9,061%** (33.2% DD, 280 buys) vs unfiltered +5,469% (22.2% DD, 526 buys); adding infancy drops to +688% (59.2% DD, 93 buys) — infancy is the drag, not min-score
 - **Adding `--min-score 5` variant to runner.py**: separate state files (`.mtf_state_min5_stock.json`), separate CSVs (`mtf_picks_min5_stock.csv`), isolated from default pipeline
@@ -70,7 +70,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **Duplicate live_trades entries** — `syncLiveTradesFromAlpaca()` Step 1 in EquityService.php re-opened closed trades via `status => 'open'` (fixed: skip if `status !== 'open'`)
 - **Orphaned order IDs** — `handlePooledEntries()` in TradeExecutorService.php overwrote `alpaca_order_id` on scale-in, causing reconciliation to create duplicate entries for orphaned orders (fixed: removed `alpaca_order_id` from update)
 - **Duplicate entry creation** — Step 1 created new entries for buy orders whose symbol already had an open trade (fixed: check `exists()` by symbol before creating)
-- **Alpaca API keys** — Both CHAND (`PKBMUPEMGYQAKNZDQPDD4KI6O7`) and EMAC (`PKZQGO72QD3G4XDOL5HDV5IARX`) were invalid/expired (replaced with new keys)
+- **Alpaca API keys** — Both CHAND and EMAC keys were invalid/expired (replaced with new keys, keys not stored in repo)
 - **Reset fallout** — Full DB transaction reset required `backfill.py` + `backfill_daily.py` to restore candle data for signal computation
 - **Weekend stale-bar false alarms** — MTCS health check and unified health-check.sh both flagged Friday bars as stale on Monday; fixed both to count trading days (Mon-Fri) instead of raw calendar/hours
 - **MTF runner zero candidates with incomplete daily data** — daily index lookup used exact `.get(sig_date)`, failed when scanner daily table had only 1 row for today; fixed to use `_nearest_date_idx` fallback like weekly/hourly already did
@@ -82,7 +82,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **compute_indicators.py lock contention** — 10 workers × 5,260 individual UPDATEs per ticker causes row-level lock contention (1h 47min runtime). Root cause identified: need partition-aware workers + COPY bulk writes (planned for refactor)
 - **Duplicate sector ETF Slack message** — `_run_sector_info` try/except block was literally pasted twice in runner.py `main`, so the sector table posted twice in one message; removed the second copy (one sector section per combined message)
 - **DNS failure on resume from suspend (2026-08-03)** — system slept S3 09:31→10:11 via GNOME battery-idle timeout (900s); `Persistent=true` timer fired at 10:11 before network came up → `NameResolutionError` for `paper-api.alpaca.markets` + `hooks.slack.com`, executor aborted (no trades, no Slack). Fixed by disabling battery-idle suspend: `gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'`
-- **DNS failure on resume (2026-08-04, root cause was GDM login screen)** — laptop booted 09:09 on battery (external power switch off), sat at GDM login screen (only `gdm-greeter` session, no `dikesh` session until 10:22:56 after resume). Login screen idle-suspended 09:24:50 (its own dconf has default `sleep-inactive-battery-timeout=900`; user gsettings fix doesn't apply to greeter). Resume at 10:22:50 fired `mtf-executor.timer` before WiFi up → DNS fail, no trades. **Fixes**: (1) GDM greeter dconf override `/etc/dconf/db/gdm.d/99-power-suspend` (`sleep-inactive-battery-type/ac-type='nothing'`) + `/etc/dconf/profile/gdm` (`user-db:user` + `system-db:gdm`); (2) `_wait_for_network()` in executor.py polls `socket.gethostbyname` (8.8.8.8, paper-api.alpaca.markets) up to 30s before Alpaca calls; (3) both mtf services switched to `After=network-online.target` + `Wants=network-online.target`
+- **DNS failure on resume (2026-08-04, root cause was GDM login screen)** — laptop booted 09:09 on battery (external power switch off), sat at GDM login screen (only `gdm-greeter` session, no `dikesh` session until 10:22:56 after resume). Login screen idle-suspended 09:24:50 (its own dconf has default `sleep-inactive-battery-timeout=900`; user gsettings fix doesn't apply to greeter). Resume at 10:22:50 fired `swingtrader-mtf-executor.timer` (then `mtf-executor.timer`) before WiFi up → DNS fail, no trades. **Fixes**: (1) GDM greeter dconf override `/etc/dconf/db/gdm.d/99-power-suspend` (`sleep-inactive-battery-type/ac-type='nothing'`) + `/etc/dconf/profile/gdm` (`user-db:user` + `system-db:gdm`); (2) `_wait_for_network()` in executor.py polls `socket.gethostbyname` (8.8.8.8, paper-api.alpaca.markets) up to 30s before Alpaca calls; (3) both mtf services switched to `After=network-online.target` + `Wants=network-online.target`
 - **Pending-overwrite bug** — `save_pending()` deleted ALL unconsumed pending by mode, so when executor failed (DNS) the unconsumed sig 8/3 picks were silently replaced by the next scorer run's sig 8/4 picks; morning executor then ran the wrong sig. Fixed: `save_pending` only replaces same mode+sig_date (idempotent); `clear_pending(mode, sig_date)` only marks that specific pending consumed (runner passes sig_date)
 
 ### MTF Infrastructure Refactor (Done)
@@ -93,6 +93,9 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - **No changes needed** to `populate_tickers.py`, `runner.py`, `db.py` — PostgreSQL handles partition routing/pruning transparently
 
 - **Universe cleanup (2026-07-31)**: removed 41 misclassified funds from `tbl_stock_tickers` — 15 no-data leveraged/currency/inverse ETFs (BKTI, EFO, FLYD, FNGO, FXA, FXC, IGHG, IWDL, NOCT, PFBC, QQUP, QQXL, UAN, USCI, UXI) + 26 leveraged/commodity/currency/preferred instruments (AGQ, ASA, BIB, DDM, DGP, FXE, FXF, FXY, GDXU, GLDM, IAU, MCHPP, QLD, ROM, SATA, SLV, SMCIP, SSO, STRC, STRD, STRF, STRK, URE, USD, UWM + GLD). None ever traded (0 rows in `mtf_positions`/`mtf_trades`/`mtf_pending`). Deleted 13,641 hourly + 28,504 daily + 6,212 weekly rows; `tbl_etf_tickers` dropped GLD (29 rows left). `EXPECTED_STOCKS`/`EXPECTED_ETFS` in `config.py` updated to 1435/28. Daily coverage now 100% of enabled universe.
+- **Service naming + dead-unit cleanup (2026-08-10)**: renamed 7 timer pairs to `swingtrader-` prefix with schedules unchanged — `scanner-update`→`swingtrader-scanner-update`, `scanner-hourly`→`swingtrader-scanner-backfill`, `mtf-daily-runner`→`swingtrader-mtf-scorer`, `mtf-executor`→`swingtrader-mtf-executor`, `daily-signal`→`swingtrader-daily-signal`, `earnings-screener`→`swingtrader-earnings-screener`, `earnings-refresh`→`swingtrader-earnings-refresh`. Removed dead units `backfill-daily.*` + `emac-runner.service` (systemd) and `mtcs-runner.service` (repo). Deleted orphaned helpers (`ema_sma_crossover/health_check.py`, `manageTicker.py`, `mtcs/health_check.py`) and stale logs (`/var/log/emac-runner.log`, `/var/log/mtcs-runner.log`). Updated `health-check.sh`, `mtf/health_check.py`, `executor.py` comment, and unit copies in `scanner/systemd/`, `swingtrader/services/mtf/systemd/`, `swingtrader/services/ema_sma_crossover/systemd/`, `common/docs/services_doc/`. mtf scorer's `After=`/`Wants=` dependency re-pointed at `swingtrader-scanner-backfill.service`.
+- **MTCS code fully deleted (2026-08-10)**: entire `swingtrader/services/mtcs/` directory removed (runner/executor/strategy/spectral/chart/backtest + `.env`); `mtcs_positions`/`mtcs_trades` DB tables dropped; MTCS launch configs removed from `.vscode/launch.json`; `TRADING_STRATEGIES.md` MTCS section marked as deleted historical.
+- **EMAC strategy code deleted (2026-08-10)**: `ema_sma_crossover/` slimmed to live Daily Signal service only — deleted `runner.py`, `executor.py`, `strategy.py`, `backtest*.py`, `backfill*.py`, `candle_builder.py`, `price_collector.py`, `signal_trailing_stop.py`, `analyze_explosives.py`, `compare_all.py`, `market_breadth.py`, `requirements.txt`, `.emac_buffer.json`, `data/market_breadth.csv` (written but never read — MTF computes breadth itself), dead systemd copies (`emac-runner.service`, `backfill-daily.*`, old-name `daily-signal.*`). `.env` slimmed to DB + Slack webhook (dropped dormant EMAC Alpaca/Laravel keys). `launch.json` "EMAC Runner" config removed, "EMAC Signal" renamed "Daily Signal Service". `TRADING_STRATEGIES.md` overview + comparison tables updated (EMAC/MTCS dropped, MTF Phase 2, Daily 5:00 PM).
 
 ### In Progress
 - (none)
@@ -146,7 +149,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - Scanner tables: **1,435 enabled stocks + 28 enabled ETFs** with `is_etf` flag; `tbl_etf_tickers` (29 rows incl. BLENDED) has company names
 - EMA=10, SMA=40, COST=0.0005, CAPITAL=100000
 - MTF Top-N Phase 2 is live: `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` in PostgreSQL; sector ETFs shown in Slack as info-only scoring
-- `mtf-daily-runner.timer` active at 4:45 PM ET weekdays — runs `--action score --mode all` via systemd; `mtf-executor.timer` at 10:00 AM ET runs `--action execute --mode all` (both `Persistent=yes`)
+- `swingtrader-mtf-scorer.timer` active at 4:45 PM ET weekdays — runs `--action score --mode all` via systemd; `swingtrader-mtf-executor.timer` at 10:00 AM ET runs `--action execute --mode all` (both `Persistent=yes`)
 - `mtf_positions` is the source of truth for holdings; MTM in Slack = held qty × latest close; ETF P&L uses real Alpaca fill prices
 - `get_pending`/`save_pending` cast JSONB to `::text` — psycopg2 jsonb handling varies by adapter config
 - `ema10_sma40_crossover` and `sma_crossover` columns in scanner tables are never populated by the pipeline (all false) — must compute inline via window functions
@@ -155,9 +158,9 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - Scanner daily data incomplete for current day — `populate_tickers.py --timeframe day` runs at 9 AM before market close
 - Explorer page: `http://localhost:9000/scanner/explorer` (HTML), data: `/scanner/explorer-data?mode=stock|etf` (JSON, ~6s uncached / 0.16s cached)
 - Backtest results: unfiltered MTF +5,469% (22.2% DD); `--min-score 5` +9,061% (33.2% DD); `--min-score 5 + --infancy` +688% (59.2% DD)
-- **CHAND Alpaca** (key `PK7DIID4NUY5N7HODFQRDTWMJC`): $1M paper, active, 0 positions
-- **EMAC Alpaca** (key `PK6IRYP5QWRVRVYJJYH5Q22RZS`, acct #PA3EHVX93SJT): $1M paper, stopped
-- **MTCS Alpaca** (key `PKQK45DA2ERAXX6XKPUDORIWSH`, acct #PA3NCXU4O2CN): $1M paper, stopped
+- **CHAND Alpaca** (key REDACTED): $1M paper, active, 0 positions
+- **EMAC Alpaca** (key REDACTED, acct #PA3EHVX93SJT): $1M paper, stopped
+- **MTCS Alpaca** (key REDACTED, acct #PA3NCXU4O2CN): $1M paper, stopped (code deleted 2026-08-10)
 
 ## Relevant Files
 - `swingtrader/services/mtf/runner.py`: MTF Top-N Phase 2 — `--action score|execute` + `--mode stock|etf|all` flags, DB-backed state (`mtf_pending`/`mtf_runs`/`mtf_positions`), crash alerting, stale data check, DB retry, sector info, **entry date column in terminal + Slack**. Stocks scored with Multi-TF; ETF leg uses weekly EMA10>SMA40 rotation (`_compute_emasma_score`)
@@ -165,15 +168,15 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - `swingtrader/services/mtf/config.py`: DB config, TOP_N=10, COST=0.0005, CAPITAL=100000
 - `swingtrader/services/mtf/executor.py`: Alpaca order executor (mode keys); `_wait_for_fill` polls to full fill, buy path falls back to Alpaca position qty so fills never under-record; `reconcile_trades()` rebuilds `mtf_trades` from Alpaca order history
 - `swingtrader/services/mtf/reconcile_trades.py`: CLI `--mode all|stock|etf` — idempotent fill-log rebuild (delete + re-insert from Alpaca's authoritative filled orders); use when `mtf_trades` disagrees with real fills
-- `swingtrader/services/mtf/systemd/mtf-daily-runner.service`: Single ExecStart `--action score --mode all`, `TimeoutStopSec=300` (executor service runs `--action execute`)
+- `swingtrader/services/mtf/systemd/swingtrader-mtf-scorer.service`: Single ExecStart `--action score --mode all`, `TimeoutStopSec=300` (executor service runs `--action execute`)
 - `swingtrader/services/mtf/health_check.py`: Checks timer, journal errors, data freshness, `mtf_runs` staleness, `mtf_pending` status — all DB-backed
 - `swingtrader/services/scripts/show_picks.py`: Reads picks from `mtf_picks_*.csv` + holdings from `mtf_positions`, equity from real Alpaca accounts
 - `swingtrader/backend/storage/framework/cache/`: Explorer data cache (5-min TTL) — clear this + `views/` for blade changes
-- `common/docs/services_doc/mtf-daily-runner.service`: Docs copy matching active service (`--mode all`, `TimeoutStopSec=300`)
+- `common/docs/services_doc/swingtrader-mtf-scorer.service`: Docs copy matching active service (`--mode all`, `TimeoutStopSec=300`)
 - `common/docs/services_doc/mtf_daily_runner.md`: Updated with combined Slack message example, per-mode CSVs, `--mode all` CLI docs, `--user` systemd commands
 - `scanner/backend/Controllers/ScannerController.php`: Explorer data endpoint with optimized window function queries
 - `scanner/backend/views/scanner/explorer.blade.php`: Explorer Dashboard — 3-panel charts, all-strategy signal columns, sortable
-- `swingtrader/services/ema_sma_crossover/daily_signal_service.py`: Multi-TF scanner with scoring + infancy + market breadth → Slack
+- `swingtrader/services/ema_sma_crossover/daily_signal_service.py`: Multi-TF scanner with scoring + infancy + market breadth → Slack (dir holds only this live service + `config.py`/`db.py` deps; all EMAC code deleted)
 - `swingtrader/services/mtf/backtest_topn_multitf.py`: Top-N backtest with `--etf --score --min-score --infancy --exit daily-ema` flags, partial-date exclusion fix
 - `swingtrader/services/ppo/`: **CLOSED experiment** — TOS WeeklyAndDailyPPO backtests (`backtest.py` state machine, `backtest_topn.py` rotation, `FINDINGS.md`). Do not revisit.
 - `common/docs/mtf-infra-refactor-plan.md`: **MTF Infrastructure Refactor Plan** — VTI universe, partitioning, worker scheduler, implementation tasks

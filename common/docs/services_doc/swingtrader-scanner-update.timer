@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily scanner data update (weekdays 9 AM ET)
+Description=SwingTrader scanner data update (weekdays 9 AM ET)
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 09:00:00 America/New_York

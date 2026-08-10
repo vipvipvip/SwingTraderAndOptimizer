@@ -1,0 +1,18 @@
+[Unit]
+Description=MTF Top-N Executor (morning trade execution)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network-online.target swingtrader-db.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action execute --mode all
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

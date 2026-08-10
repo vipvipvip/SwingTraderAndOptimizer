@@ -1,12 +1,12 @@
 [Unit]
-Description=MTF Top-N Daily Runner Timer (weekdays at 4:45 PM ET after scanner-hourly)
+Description=MTF Top-N Executor Timer (weekdays at 10:00 AM ET)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target swingtrader-db.service
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 16:45:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 10:00:00 America/New_York
 Persistent=true
-RandomizedDelaySec=120
+RandomizedDelaySec=60
 
 [Install]
 WantedBy=timers.target

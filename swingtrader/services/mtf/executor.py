@@ -47,7 +47,7 @@ def _get_clock():
 def _wait_for_market_open(max_wait_sec=6 * 3600):
     """Block until the regular market session is open.
 
-    Fixes boot-time catch-up runs: mtf-executor.timer has Persistent=yes, so
+    Fixes boot-time catch-up runs: swingtrader-mtf-executor.timer has Persistent=yes, so
     after a multi-day outage the timer fires the moment the machine boots
     (e.g. 09:08), well before the 09:30 open. Market orders placed pre-market
     sit in the queue and exhaust the 5-min _wait_for_fill poll, which logged

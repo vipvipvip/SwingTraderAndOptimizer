@@ -105,7 +105,7 @@ Expand MTF Top-N universe from 503 S&P 500 stocks to ~2,000 VTI constituents, fi
 - PostgreSQL `swingtrader-db` on `127.0.0.1:5432`
 - Scanner tables: `tbl_scanner_tickers_1hour` (2.8M rows), `tbl_scanner_tickers_daily` (790K), `tbl_scanner_tickers` (165K)
 - EMA=10, SMA=40, COST=0.0005, CAPITAL=100000
-- MTF runner fires at 16:45 ET via `mtf-daily-runner.timer`
+- MTF runner fires at 16:45 ET via `swingtrader-mtf-scorer.timer`
 - `compute_indicators.py` currently broken (1h 47min runtime due to lock contention)
 - Three Alpaca paper accounts: CHAND, EMAC, MTCS
 - MTCS still running (separate from this refactor)
