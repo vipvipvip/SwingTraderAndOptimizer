@@ -190,6 +190,75 @@ def _get_alpaca_positions():
     return {p['symbol']: p for p in resp.json()}
 
 
+# Sliding re-entry tolerance: continuous exponential ramp. The longer since
+# the last profit-taking SELL, the more appreciation we tolerate before a
+# buyback counts as "chasing". A(d) = 1% * 10^(d/21): 1% at d=0, ~10% at
+# d=21, and unrestricted beyond 21 days so a sustained uptrend is never
+# locked out forever.
+REBUY_RAMP_DAYS = 21
+REBUY_BASE_TOLERANCE_PCT = 1.0
+REBUY_MAX_TOLERANCE_PCT = 10.0
+
+
+def _rebuy_tolerance_above_pct(days):
+    """Max % above the sell price tolerated at a given days-since-sell.
+
+    Returns (max_above_pct, unrestricted). Continuous exponential curve
+    from REBUY_BASE_TOLERANCE_PCT to REBUY_MAX_TOLERANCE_PCT over
+    REBUY_RAMP_DAYS days; unrestricted (never block) after the ramp."""
+    if days >= REBUY_RAMP_DAYS:
+        return None, True
+    expo = days / REBUY_RAMP_DAYS
+    pct = REBUY_BASE_TOLERANCE_PCT * (REBUY_MAX_TOLERANCE_PCT / REBUY_BASE_TOLERANCE_PCT) ** expo
+    return pct, False
+
+
+def _last_profit_sell(symbol, conn):
+    """Return (sell_price, sell_date) of the most recent SELL for a symbol, or None."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT t.price, t.executed_at FROM mtf_trades t '
+                'JOIN tbl_stock_tickers s ON s.id = t.ticker_id '
+                'WHERE s.symbol = %s AND t.side = \'SELL\' '
+                'ORDER BY t.executed_at DESC LIMIT 1', (symbol,))
+            row = cur.fetchone()
+    except Exception:
+        return None
+    if not row or not row[0]:
+        return None
+    return float(row[0]), row[1]
+
+
+def _block_rebuy(symbol, price, conn):
+    """Block a re-entry that chases the last profit-taking exit.
+
+    Tolerance is a continuous exponential ramp A(d) = 1% * 10^(d/21). A
+    buyback is blocked ONLY when the re-entry price is more than A(d) above
+    the last SELL price (d = days since that SELL), and never once the ramp
+    expires (d >= REBUY_RAMP_DAYS). A pullback re-enters immediately, and a
+    sustained uptrend becomes re-buyable once tolerance catches up — so this
+    never locks a symbol out permanently.
+
+    Returns (blocked, reason) — reason is a human-readable string."""
+    sell = _last_profit_sell(symbol, conn)
+    if not sell:
+        return False, ''
+    sell_price, sell_dt = sell
+    if sell_dt:
+        days = max(0, (datetime.now(NY) - sell_dt.replace(tzinfo=NY)).days)
+    else:
+        days = 0
+    above_pct = (price - sell_price) / sell_price * 100
+    max_pct, unrestricted = _rebuy_tolerance_above_pct(days)
+    if not unrestricted and above_pct > max_pct:
+        reason = (f'chase guard: sold {sell_price:.2f} {days}d ago, '
+                  f're-entry {price:.2f} (+{above_pct:.1f}%) > '
+                  f'+{max_pct:.1f}% allowed at {days}d')
+        return True, reason
+    return False, ''
+
+
 def _latest_trade_price(symbol):
     url = 'https://data.alpaca.markets/v2/stocks/trades/latest'
     try:
@@ -357,6 +426,13 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                 price = sd.get('close') or _latest_trade_price(symbol)
                 if not price or price <= 0:
                     trade_lines.append(f'  ⚠️ BUY {symbol}: no price available, skipping')
+                    continue
+
+                blocked, reason = _block_rebuy(symbol, price, conn)
+                if blocked:
+                    _send_slack_error(f'{symbol} BUY blocked — {reason}')
+                    trade_lines.append(f'  ⚠️ BUY {symbol}: blocked ({reason})')
+                    print(f'[MTF EXECUTOR] ⚠️ BUY {symbol}: blocked ({reason})')
                     continue
 
                 qty = int(per_position * 0.97 / price)
