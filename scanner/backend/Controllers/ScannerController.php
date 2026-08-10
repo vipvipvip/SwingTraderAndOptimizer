@@ -46,32 +46,51 @@ class ScannerController
 
     private function getMarketBreadth(): array
     {
-        $total = DB::table('tbl_stock_tickers')->where('enabled', true)->count();
-        $uptrend = DB::selectOne("
-            WITH weekly_bullish AS (
-                SELECT DISTINCT ON (ticker_id) ticker_id,
-                       CASE WHEN ema10_sma40_crossover THEN true
-                            WHEN ema10_sma40_cross_bearish THEN false
-                       END AS bullish
-                FROM tbl_scanner_tickers
-                WHERE ema10_sma40_crossover OR ema10_sma40_cross_bearish
-                ORDER BY ticker_id, date DESC
+        // NOTE: ema10_sma40_crossover / ema10_sma40_cross_bearish columns are never
+        // populated by the pipeline — breadth must be computed inline via window functions.
+        // ROW_NUMBER + FILTER (last-40 bars only) avoids expensive sliding frames (1.6s cold).
+        // Cached in a file so index/explorer loads don't recompute per request.
+        $cacheFile = storage_path('framework/cache/breadth.json');
+        $cacheTtl = 300; // 5 min
+        if (file_exists($cacheFile) && time() - filemtime($cacheFile) < $cacheTtl) {
+            return json_decode(file_get_contents($cacheFile), true);
+        }
+
+        $row = DB::selectOne("
+            WITH wk AS (
+                SELECT ticker_id,
+                       MAX(CASE WHEN rnd = 1 THEN close END) AS close,
+                       AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40
+                FROM (
+                    SELECT ticker_id, date, close::float8 AS close,
+                           ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
+                    FROM tbl_scanner_tickers
+                ) sub
+                WHERE rnd <= 40
+                GROUP BY ticker_id
             ),
-            daily_bullish AS (
-                SELECT DISTINCT ON (ticker_id) ticker_id,
-                       CASE WHEN ema10_sma40_crossover THEN true
-                            WHEN ema10_sma40_cross_bearish THEN false
-                       END AS bullish
-                FROM tbl_scanner_tickers_daily
-                WHERE ema10_sma40_crossover OR ema10_sma40_cross_bearish
-                ORDER BY ticker_id, date DESC
+            dy AS (
+                SELECT ticker_id,
+                       MAX(CASE WHEN rnd = 1 THEN close END) AS close,
+                       AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40
+                FROM (
+                    SELECT ticker_id, date, close::float8 AS close,
+                           ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
+                    FROM tbl_scanner_tickers_daily
+                ) sub
+                WHERE rnd <= 40
+                GROUP BY ticker_id
             )
-            SELECT COUNT(*) AS cnt
-            FROM weekly_bullish wb
-            JOIN daily_bullish db USING (ticker_id)
-            WHERE wb.bullish AND db.bullish
+            SELECT COUNT(*) FILTER (WHERE wk.close > wk.sma40 AND dy.close > dy.sma40) AS cnt,
+                   COUNT(*) AS total
+            FROM wk
+            JOIN dy ON dy.ticker_id = wk.ticker_id
+            JOIN tbl_stock_tickers s ON s.id = wk.ticker_id
+            WHERE s.is_etf = false AND s.enabled = true
         ");
-        $pct = $total > 0 ? (int)round(($uptrend->cnt ?? 0) / $total * 100) : 0;
+        $total = (int)($row->total ?? 0);
+        $uptrend = (int)($row->cnt ?? 0);
+        $pct = $total > 0 ? (int)round($uptrend / $total * 100) : 0;
         if ($pct < 35) {
             $regime = 'Risk-off';
             $color = '#f85149';
@@ -82,7 +101,9 @@ class ScannerController
             $regime = 'Neutral';
             $color = '#d29922';
         }
-        return ['pct' => $pct, 'regime' => $regime, 'color' => $color];
+        $result = ['pct' => $pct, 'regime' => $regime, 'color' => $color];
+        @file_put_contents($cacheFile, json_encode($result));
+        return $result;
     }
 
     private function indexUndervalued(Request $request, string $timeframe, string $table, array $breadth = [])
