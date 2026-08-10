@@ -111,6 +111,7 @@ def show_mtf(label, mode, tsv=False):
     rows = _latest_pick_rows(mode)
     if not rows:
         return
+    rows.sort(key=lambda r: r['symbol'])
     picks = [r['symbol'] for r in rows]
     date = rows[0]['date']
     positions = _db_positions(mode)
@@ -218,7 +219,7 @@ def show_daily():
 
     entries.sort(key=lambda x: x[1], reverse=True)
     latest_date = entries[0][1] if entries else '?'
-    latest = [e for e in entries if e[1] == latest_date]
+    latest = sorted([e for e in entries if e[1] == latest_date], key=lambda x: x[0])
 
     print(f"\n{'─' * 60}")
     print(f"  Daily Signal — {latest_date}  ({len(latest)} entries)")

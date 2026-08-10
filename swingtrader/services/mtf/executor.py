@@ -36,6 +36,72 @@ def _alpaca_headers():
     }
 
 
+def _get_clock():
+    url = f'{config.ALPACA_BASE_URL}/v2/clock'
+    resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
+    if resp.status_code >= 400:
+        raise Exception(f'Alpaca clock failed: {resp.text}')
+    return resp.json()
+
+
+def _wait_for_market_open(max_wait_sec=6 * 3600):
+    """Block until the regular market session is open.
+
+    Fixes boot-time catch-up runs: mtf-executor.timer has Persistent=yes, so
+    after a multi-day outage the timer fires the moment the machine boots
+    (e.g. 09:08), well before the 09:30 open. Market orders placed pre-market
+    sit in the queue and exhaust the 5-min _wait_for_fill poll, which logged
+    'never filled' and skipped the DB update even though the orders filled at
+    open.
+
+    Returns True if the market is (or became) open; False if it won't open
+    within max_wait_sec (weekend/holiday).
+    """
+    try:
+        clock = _get_clock()
+    except Exception as e:
+        print(f'[MTF EXECUTOR] market-open check failed ({e}); proceeding anyway')
+        return True
+
+    if clock.get('is_open'):
+        return True
+
+    next_open = clock.get('next_open')
+    if not next_open:
+        print('[MTF EXECUTOR] market closed, next_open unknown — proceeding anyway')
+        return True
+
+    try:
+        next_open_dt = datetime.fromisoformat(next_open)
+        now_dt = datetime.now(NY)
+        wait_sec = (next_open_dt - now_dt).total_seconds()
+    except Exception:
+        print('[MTF EXECUTOR] market-open parse failed — proceeding anyway')
+        return True
+
+    if wait_sec < 0:
+        # next_open is in the past but is_open is false — treat as closed day.
+        print('[MTF EXECUTOR] market closed for the day — aborting execution')
+        return False
+    if wait_sec > max_wait_sec:
+        print(f'[MTF EXECUTOR] market opens in {wait_sec/3600:.1f}h (>{max_wait_sec/3600:.0f}h) — aborting execution')
+        return False
+
+    print(f'[MTF EXECUTOR] market not open yet; waiting {wait_sec/60:.0f} min until {next_open}')
+    # Poll the clock until open (bounded by wait_sec).
+    deadline = time.time() + wait_sec + 120
+    while time.time() < deadline:
+        time.sleep(30)
+        try:
+            if _get_clock().get('is_open'):
+                print('[MTF EXECUTOR] market open — proceeding')
+                return True
+        except Exception:
+            pass
+    print('[MTF EXECUTOR] market did not open within wait window — aborting execution')
+    return False
+
+
 def _get_account():
     url = f'{config.ALPACA_BASE_URL}/v2/account'
     resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
@@ -196,6 +262,9 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
     """
     _wait_for_network()
     _set_alpaca_keys(mode)
+    if not _wait_for_market_open():
+        print('[MTF EXECUTOR] skipping execution: market closed')
+        return ['  ⚠️ Market closed — no orders placed (guard)']
     conn = db_module.get_conn()
     now = datetime.now(NY)
     trade_lines = []
