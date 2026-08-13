@@ -65,3 +65,14 @@ swingtrader/services/mtf/data/mtf_portfolio_*.csv
 swingtrader/services/mtf/data/mtf_trades_*.csv
 swingtrader/services/ema_sma_crossover/.env
 swingtrader/services/ema_sma_crossover/.emac_buffer.json
+
+# SwingTrader Laravel runtime (regenerated; not source)
+swingtrader/backend/storage/framework/cache/
+swingtrader/backend/storage/framework/views/
+swingtrader/backend/storage/framework/sessions/
+
+# Runtime state/logs (machine-specific; fresh start on new server)
+scanner/services/.earnings_screener_state.json
+swingtrader/services/ema_sma_crossover/.daily_signal_state.json
+swingtrader/services/ema_sma_crossover/data/daily_signals.csv
+swingtrader/services/optimizer/logs/nightly.log
