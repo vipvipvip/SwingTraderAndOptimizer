@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Fix TOS
+Comment=Clean Thinkorswim zombie processes and stale browser data
+Exec=bash -lc "bash /home/dikesh/data/dev/SwingTraderAndOptimizer/common/scripts/fix-tos.sh; read -p 'Press Enter to close...'"
+Icon=utilities-terminal
+Terminal=true
+Categories=Utility;
