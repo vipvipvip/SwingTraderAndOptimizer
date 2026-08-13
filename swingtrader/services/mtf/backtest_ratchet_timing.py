@@ -109,20 +109,25 @@ def main():
                     help='comma-separated timeframes required (default weekly,daily,hourly)')
     ap.add_argument('--mult', type=float, default=MULT,
                     help=f'ATR multiplier for the ratchet stop (default {MULT})')
+    ap.add_argument('--tickers', default=','.join(CORE),
+                    help='comma-separated tickers to time (default QQQ,VTI,VTV)')
     ap.add_argument('--detail', action='store_true')
     args = ap.parse_args()
     tfs = tuple(t.strip() for t in args.tfs.split(',') if t.strip())
     for t in tfs:
         if t not in TFS:
             raise SystemExit(f'unknown timeframe {t!r} — choose from {", ".join(TFS)}')
+    tickers = [s.strip().upper() for s in args.tickers.split(',') if s.strip()]
+    if not tickers:
+        raise SystemExit('--tickers empty')
 
     conn = db_module.get_conn()
     try:
         bars = {}
-        for sym in CORE:
+        for sym in tickers:
             bars[sym] = {tf: load(conn, sym, tf) for tf in TFS}
 
-        daily_dates = bars['QQQ']['daily'][0]
+        daily_dates = bars[tickers[0]]['daily'][0]
         print(f'  Window: {daily_dates[0]} -> {daily_dates[-1]} '
               f'({len(daily_dates)} trading days), mult={args.mult}, reset={not args.no_reset}, '
               f'tfs={tfs}')
@@ -135,21 +140,21 @@ def main():
                     print(f'  WARN {sym} {tf}: {n_bad} bars without ATR')
 
         tfpos = {sym: {tf: tf_positions(daily_dates, bars[sym][tf][0]) for tf in TFS}
-                 for sym in CORE}
+                 for sym in tickers}
 
         state = {}
-        for sym in CORE:
+        for sym in tickers:
             state[sym] = {'long': False, 'peak': {tf: 0.0 for tf in tfs},
                           'ratchet': {tf: 0.0 for tf in tfs},
                           'tfseen': {tf: -1 for tf in tfs},
                           'entries': 0, 'flats': 0, 'long_days': 0,
                           'break_tf': {tf: 0 for tf in tfs}}
-        long_hist = {sym: np.zeros(len(daily_dates), dtype=bool) for sym in CORE}
+        long_hist = {sym: np.zeros(len(daily_dates), dtype=bool) for sym in tickers}
 
         first_valid = None
         for i, d in enumerate(daily_dates):
             valid = {}
-            for sym in CORE:
+            for sym in tickers:
                 if all(tfpos[sym][tf][i] >= 0 for tf in tfs):
                     cs = {tf: float(bars[sym][tf][1][tfpos[sym][tf][i]]) for tf in tfs}
                     at = {tf: float(bars[sym][tf][2][tfpos[sym][tf][i]]) for tf in tfs}
@@ -199,7 +204,7 @@ def main():
                         if not args.no_reset:
                             st['ratchet'][tf] = cs[tf] - args.mult * at[tf]
                         st['tfseen'][tf] = tfpos[sym][tf][i]
-            for sym in CORE:
+            for sym in tickers:
                 long_hist[sym][i] = state[sym]['long']
 
         # -- portfolio loop --
@@ -213,7 +218,7 @@ def main():
         start = first_valid if first_valid is not None else 0
         for i in range(start, len(daily_dates)):
             sig_date = daily_dates[i]
-            passers = {sym for sym in CORE if long_hist[sym][i]}
+            passers = {sym for sym in tickers if long_hist[sym][i]}
 
             exec_idx = i + 1
             if exec_idx >= len(daily_dates):
@@ -258,19 +263,19 @@ def main():
             pos_counts.append(len(positions))
 
         bh_close = {}
-        for sym in CORE:
+        for sym in tickers:
             bh_close[sym] = [float(bars[sym]['daily'][1][tfpos[sym]['daily'][i]])
                              for i in range(start, len(daily_dates))]
         bh_equity = []
         bh_dates = daily_dates[start:]
-        base = np.array([bh_close[s][0] for s in CORE])
-        base_idx = {s: k for k, s in enumerate(CORE)}
+        base = np.array([bh_close[s][0] for s in tickers])
+        base_idx = {s: k for k, s in enumerate(tickers)}
         for j in range(len(bh_dates)):
             bh_equity.append(sum(CAPITAL / 3.0 * bh_close[s][j] / base[base_idx[s]]
-                                 for s in CORE))
+                                 for s in tickers))
 
         print('\n' + '=' * 70)
-        print(f'  RATCHET-ALL-3 TIMING on {", ".join(CORE)}')
+        print(f'  RATCHET-ALL-3 TIMING on {", ".join(tickers)}')
         print(f'  Rule: long iff close > peak-{args.mult}xATR stop on all three timeframes')
         print(f'        reset-on-re-entry: {not args.no_reset} | cost {COST*100:.2f}%')
         print('=' * 70)
@@ -283,7 +288,7 @@ def main():
         print('\n  PER-ETF')
         print(f'  {"ETF":<6}{"entries":>8}{"flats":>8}{"days long":>12}'
               f'{"% time":>8}  break source')
-        for sym in CORE:
+        for sym in tickers:
             st = state[sym]
             pct = 100 * st['long_days'] / max(1, len(bh_dates))
             bt = ', '.join(f'{tf}:{st["break_tf"][tf]}' for tf in tfs

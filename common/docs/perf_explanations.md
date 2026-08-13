@@ -134,8 +134,20 @@ to ride trends but still ducked the 2024/2025 corrections (7.1% vs 18.8% DD).
 3. Single regime (mostly bullish, Jul 2023–Aug 2026); 7.1% DD unverified in a prolonged bear.
 
 ### Live-rule status
-No strategy changed. Candidate: ETF leg (live 28-ETF EMA/SMA rotation) vs weekly-ratchet
-timing — decisive comparison pending (`--tickers` on the 28 vs `--etf --score emasma`).
+No strategy changed. Decisive ETF-leg comparison (2026-08-13, window 2023-06-30 → 2026-08-12):
+
+| Strategy | Return | Max DD |
+|---|---|---|
+| **Live ETF rotation** (EMA/SMA top-10, daily) | **+149.8%** | **10.5%** |
+| Weekly-ratchet timing, all 28 ETFs | +99.2% | 8.6% |
+| Weekly-ratchet timing, core trio | +98.3% | 7.1% |
+| B&H equal-weight all 28 | +1,508% | 17.4% |
+| B&H equal-weight trio | +82.8% | 18.8% |
+
+Weekly-ratchet timing does **not** beat the live ETF leg: the EMA/SMA rotation concentrates into
+the strongest names (SMH/VGT/XLK...) while timing spreads across every passer, so rotation wins
+on return with comparable drawdown. B&H-all-28 is an untradeable hindsight artifact (equal-weight
+into the melt-up winners). **No live strategy changes.**
 
 ---
 
