@@ -96,8 +96,52 @@ rally), revisit a blended allocation to reduce volatility.
 
 ---
 
+## 3. Ratchet-stop timing on the core ETFs — weekly is a timing rule, not a selection rule
+
+### Question
+"Trade on whether price is above the ratchet stop on all three timeframes (weekly, daily,
+hourly)" — backtest on the core ETFs (QQQ/VTI/VTV), equal-weight passers, 100% cash when
+none pass. Does this replace the EMA/SMA + MACD/PPO stack?
+
+### Answer: for TIMING broad beta, a weekly ratchet alone is sufficient; for SELECTION it says nothing
+`backtest_ratchet_timing.py` (Jul 2023 → Aug 2026, 782 trading days, ATR mult 2.0):
+
+| Ratchet timeframes | Return | Max DD | Trades |
+|---|---|---|---|
+| weekly + daily + hourly | −4.2% | 13.3% | 176 buys / 174 sells |
+| any combo including hourly | −4.2% | 13.3% | whipsaw (~60 exits/ETF) |
+| weekly + daily | +22.4% | 14.6% | — |
+| **weekly only** | **+98.3%** | **7.1%** | **21 buys / 18 sells** |
+| daily only | +22.1% | 14.6% | — |
+| B&H (equal-weight trio) | +82.8% | 18.8% | — |
+
+Weekly-only is robust across ATR multipliers: 1.0× → +137.7% (5.6% DD), 1.5× → +128.9%
+(6.1%), 2.0× → +98.3% (7.1%), 3.0× → +90.1% (9.6%) — all beat B&H on return **and**
+drawdown. Only ~7 flat periods per ETF over 3 years.
+
+Why: the hourly (and daily) 2×ATR stops are tight relative to intraday noise and whip out
+constantly (QQQ exits 53×, 51 from hourly), missing recoveries. Weekly ATR is large enough
+to ride trends but still ducked the 2024/2025 corrections (7.1% vs 18.8% DD).
+
+### What this does NOT mean
+1. It is a **timing** rule on three correlated broad ETFs (market beta), not a **selection**
+   rule. It cannot rank/rotate the 1,400-stock universe — that job stays with the MTF
+   multi-TF score (gap_w + atr_dist + freshness), whose edge is independent (+11,643%).
+2. The weekly ratchet does not transfer to the **stock leg's exit**: with daily top-10
+   rotation already selling non-top-N names, a loose weekly stop almost never fires
+   (9 exits in 3 years, `--ratchet-atr-src weekly` → +10,201% / 21.5% DD vs hourly
+   +11,643% / 20.8%). Tight hourly stop stays for the stock book.
+3. Single regime (mostly bullish, Jul 2023–Aug 2026); 7.1% DD unverified in a prolonged bear.
+
+### Live-rule status
+No strategy changed. Candidate: ETF leg (live 28-ETF EMA/SMA rotation) vs weekly-ratchet
+timing — decisive comparison pending (`--tickers` on the 28 vs `--etf --score emasma`).
+
+---
+
 ## References
 - Ratchet-ATR exit design + backtest: `AGENTS.md` → Key Decisions (2026-08-12)
 - MTF executor: `swingtrader/services/mtf/executor.py` (`_compute_ratchet_stops`), config in `config.py`
 - CHAND executor: `swingtrader/backend/app/Services/TradeExecutorService.php`
 - MTF backtest engine: `swingtrader/services/mtf/backtest_topn_multitf.py`
+- Ratchet timing backtest: `swingtrader/services/mtf/backtest_ratchet_timing.py`

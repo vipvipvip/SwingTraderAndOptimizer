@@ -73,11 +73,14 @@ def load_bars(conn, table, date_col, is_etf=False):
             h_smas = np.array([r[4] for r in sorted_rows], dtype=np.float64)
         elif table == 'tbl_scanner_tickers':
             cur.execute(
-                f'SELECT {date_col}, close FROM {table} WHERE ticker_id = %s ORDER BY {date_col} ASC',
+                f'SELECT {date_col}, close, atr_stop FROM {table} WHERE ticker_id = %s ORDER BY {date_col} ASC',
                 (tid,))
             rows = cur.fetchall()
             dates = [r[0] for r in rows]
             closes = np.array([float(r[1]) for r in rows], dtype=np.float64)
+            w_atrs = np.array([
+                (float(r[1]) - float(r[2])) / 2.0 if r[2] and float(r[2]) > 0 else 0.0
+                for r in rows], dtype=np.float64)
         else:
             cur.execute(
                 f'SELECT {date_col}, open, close, atr_stop FROM {table} WHERE ticker_id = %s ORDER BY {date_col} ASC',
@@ -102,6 +105,8 @@ def load_bars(conn, table, date_col, is_etf=False):
             d['open'] = opens
             d['d_ema'] = d_emas
             d['d_sma'] = d_smas
+        elif table == 'tbl_scanner_tickers':
+            d['w_atr'] = w_atrs
         data[tid] = d
 
     return tickers, data
@@ -133,6 +138,8 @@ def main():
                              'hourly-ema (also sell when hourly EMA10<SMA40), '
                              'ratchet-atr (also sell when close < highest-close-since-entry - 2xATR), '
                              'daily-ema (also sell when daily EMA10<SMA40)')
+    parser.add_argument('--ratchet-atr-src', choices=['hourly', 'weekly'], default='hourly',
+                        help='ATR source for --exit ratchet-atr (default hourly)')
     parser.add_argument('--start', default=None,
                         help='Restrict backtest to dates >= YYYY-MM-DD (fair comparison window)')
     args = parser.parse_args()
@@ -405,18 +412,28 @@ def main():
                 elif args.exit == 'ratchet-atr':
                     pos = positions[tid]
                     d = daily.get(tid)
-                    hp = hourly.get(tid)
-                    if d is not None and hp is not None:
-                        si = _last_idx_before(daily_idx[tid], d['dates'], sig_date)
-                        hxi = _last_idx_before(hourly_idx[tid], hp['dates'], sig_date)
-                        if si is not None and hxi is not None and hp['atr_stop'][hxi]:
-                            close_t = float(d['close'][si])
-                            atr = (float(hp['close'][hxi]) - float(hp['atr_stop'][hxi])) / 2.0
-                            if atr > 0:
-                                pos['peak'] = max(pos.get('peak', pos['entry_price']), close_t)
-                                pos['ratchet'] = max(pos.get('ratchet', 0.0), pos['peak'] - 2.0 * atr)
-                                if close_t < pos['ratchet']:
-                                    reason = 'SELL-RATC'
+                    si = _last_idx_before(daily_idx[tid], d['dates'], sig_date)
+                    if si is None:
+                        continue
+                    close_t = float(d['close'][si])
+                    atr = 0.0
+                    if args.ratchet_atr_src == 'weekly':
+                        w = weekly.get(tid)
+                        if w is not None:
+                            wi = _last_idx_before(weekly_idx[tid], w['dates'], sig_date)
+                            if wi is not None:
+                                atr = float(w['w_atr'][wi]) if np.isfinite(w['w_atr'][wi]) else 0.0
+                    else:
+                        hp = hourly.get(tid)
+                        if hp is not None:
+                            hxi = _last_idx_before(hourly_idx[tid], hp['dates'], sig_date)
+                            if hxi is not None:
+                                atr = (float(hp['close'][hxi]) - float(hp['atr_stop'][hxi])) / 2.0
+                    if atr > 0:
+                        pos['peak'] = max(pos.get('peak', pos['entry_price']), close_t)
+                        pos['ratchet'] = max(pos.get('ratchet', 0.0), pos['peak'] - 2.0 * atr)
+                        if close_t < pos['ratchet']:
+                            reason = 'SELL-RATC'
                 elif args.exit == 'daily-ema':
                     d = daily.get(tid)
                     if d is not None:
@@ -534,6 +551,8 @@ def main():
         if args.hourly_ema_gate:
             print(f'  Entry:  + hourly EMA10>SMA40 required (all 3 timeframes bullish)')
         print(f'  Exit:   {args.exit}' + (' (sell when hourly EMA10<SMA40)' if args.exit == 'hourly-ema' else ' (sell when close < highest-close - 2xATR)' if args.exit == 'ratchet-atr' else ' (sell when daily EMA10<SMA40)' if args.exit == 'daily-ema' else ''))
+        if args.exit == 'ratchet-atr':
+            print(f'  Exit:   ratchet ATR source: {args.ratchet_atr_src}')
         print(f'  Period: {all_dates[0]} to {all_dates[-1]}')
         print(f'{"="*80}')
         print(f'  Initial: ${CAPITAL:,.0f}')
