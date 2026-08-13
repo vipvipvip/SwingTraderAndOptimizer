@@ -19,6 +19,7 @@ Usage:
   python ticker_report.py DELL PAYC BXC
   python ticker_report.py ZBRA BDX V --position "ZBRA:5:300:2026-07-01" \
       --position "BDX:2:170:2026-07-15"         # declare held + get PnL/ratchet
+  python ticker_report.py --positions positions.csv   # holdings from CSV
   python ticker_report.py --holdings            # all current MTF positions
   python ticker_report.py --holdings --json     # machine-readable output
 
@@ -27,6 +28,12 @@ Usage:
   becomes the weighted average cost, and the ratchet anchor uses the earliest
   date. Entry date is required for the ratchet stop; without it the stop is
   skipped. Explicit --position overrides a DB position.
+
+--positions CSV format: symbol,qty,entry_price[,entry_date]
+  One row per buy — repeat a symbol across rows for DCA (same aggregation as
+  --position). Column headers flexible (symbol/qty/entry_price/entry_date or
+  ticker/shares/price/date). Lines starting with '#' are ignored. See
+  sample_positions.csv.
 
 Run with the optimizer venv (same interpreter the MTF services use):
   swingtrader/services/optimizer/venv/bin/python3 swingtrader/services/scripts/ticker_report.py ...
@@ -356,6 +363,16 @@ def _fmt_report(r):
     return "\n".join(lines)
 
 
+def _aggregate_position(manual, sym, qty, entry, entry_at):
+    sym = sym.upper()
+    cur = manual.setdefault(sym, {'qty': 0.0, 'entry_price': 0.0, 'entry_at': None})
+    total = cur['qty'] * cur['entry_price'] + qty * entry
+    cur['qty'] += qty
+    cur['entry_price'] = total / cur['qty']
+    if entry_at and (cur['entry_at'] is None or entry_at < cur['entry_at']):
+        cur['entry_at'] = entry_at
+
+
 def _parse_positions(items):
     """Parse 'SYM:QTY:ENTRY[:YYYY-MM-DD]' entries into per-symbol holdings.
 
@@ -369,19 +386,65 @@ def _parse_positions(items):
         parts = [p.strip() for p in item.split(':')]
         if len(parts) < 3:
             raise SystemExit(f'bad --position "{item}" — expected SYMBOL:QTY:ENTRY[:DATE]')
-        sym, qty, entry = parts[0].upper(), float(parts[1]), float(parts[2])
+        sym, qty, entry = parts[0], float(parts[1]), float(parts[2])
         entry_at = None
         if len(parts) >= 4 and parts[3]:
             try:
                 entry_at = dt_date.fromisoformat(parts[3])
             except ValueError:
                 raise SystemExit(f'bad --position date "{parts[3]}" for {sym} — use YYYY-MM-DD')
-        cur = manual.setdefault(sym, {'qty': 0.0, 'entry_price': 0.0, 'entry_at': None})
-        total = cur['qty'] * cur['entry_price'] + qty * entry
-        cur['qty'] += qty
-        cur['entry_price'] = total / cur['qty']
-        if entry_at and (cur['entry_at'] is None or entry_at < cur['entry_at']):
-            cur['entry_at'] = entry_at
+        _aggregate_position(manual, sym, qty, entry, entry_at)
+    return manual
+
+
+def _parse_positions_csv(path):
+    """Read holdings from a CSV file (symbol,qty,entry_price[,entry_date]).
+
+    One row per buy — repeat a symbol across rows to model accumulation/DCA.
+    Column names are flexible (header row required): symbol/ticker, qty/
+    quantity/shares, entry_price/price/entry, entry_date/date. A comment line
+    starting with '#' is ignored.
+    """
+    import csv
+    from datetime import date as dt_date
+
+    def _date(v):
+        v = (v or '').strip()
+        if not v:
+            return None
+        try:
+            return dt_date.fromisoformat(v)
+        except ValueError:
+            raise SystemExit(f'bad date "{v}" in {path} — use YYYY-MM-DD')
+
+    manual = {}
+    try:
+        with open(path) as fh:
+            reader = csv.DictReader((row for row in fh if not row.strip().startswith('#')))
+            if not reader.fieldnames:
+                raise SystemExit(f'empty CSV {path}')
+            cols = {c.strip().lower(): c for c in reader.fieldnames}
+            sym_col = next((cols[k] for k in ('symbol', 'ticker', 'sym') if k in cols), None)
+            qty_col = next((cols[k] for k in ('qty', 'quantity', 'shares') if k in cols), None)
+            px_col = next((cols[k] for k in ('entry_price', 'entry', 'price', 'cost') if k in cols), None)
+            dt_col = next((cols[k] for k in ('entry_date', 'date', 'bought') if k in cols), None)
+            missing = [name for name, col in (('symbol', sym_col), ('qty', qty_col), ('entry price', px_col))
+                       if col is None]
+            if missing:
+                raise SystemExit(f'CSV {path} missing column(s): {", ".join(missing)} '
+                                 f'(need symbol, qty, entry_price[, entry_date])')
+            for row in reader:
+                sym = (row.get(sym_col) or '').strip()
+                if not sym:
+                    continue
+                try:
+                    qty = float(row.get(qty_col))
+                    entry = float(row.get(px_col))
+                except (TypeError, ValueError):
+                    raise SystemExit(f'bad number for {sym} in {path} (qty/entry_price)')
+                _aggregate_position(manual, sym, qty, entry, _date(row.get(dt_col)))
+    except OSError as e:
+        raise SystemExit(f'cannot read {path}: {e}')
     return manual
 
 
@@ -391,9 +454,14 @@ def main():
     ap.add_argument('--holdings', action='store_true', help='report all current MTF positions')
     ap.add_argument('--position', action='append', metavar='SYM:QTY:ENTRY[:DATE]',
                     help='declare a holding you own (adds PnL + ratchet stop)')
+    ap.add_argument('--positions', metavar='CSV', dest='positions_file',
+                    help='read holdings from a CSV (symbol,qty,entry_price[,entry_date])')
     ap.add_argument('--json', action='store_true', help='emit JSON instead of text')
     args = ap.parse_args()
+
     manual = _parse_positions(args.position)
+    if args.positions_file:
+        manual.update(_parse_positions_csv(args.positions_file))
 
     conn = db_module.get_conn()
     symbols = list(args.tickers)
