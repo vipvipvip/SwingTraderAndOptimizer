@@ -14,6 +14,15 @@ INITIAL_CAPITAL = 100000.0
 WARMUP_BARS = 60
 TS_START = '2023-06-30'
 
+# Ratchet-ATR exit (matches backtest --exit ratchet-atr): exit a held position
+# when its close < (highest close since entry) - RATCHET_ATR_MULT x ATR, where
+# ATR comes from the hourly table (atr_stop = close - 2*ATR on hourly bars).
+# Peak-anchored, so the stop never floats down with a crash (the old
+# close-anchored atr_stop could not trigger during selloffs by construction).
+# Applies to the stock leg only; the ETF leg is a weekly EMA/SMA rotation.
+RATCHET_EXIT = True
+RATCHET_ATR_MULT = 2.0
+
 DB_HOST = os.getenv('DB_HOST', '127.0.0.1')
 DB_PORT = int(os.getenv('DB_PORT', '5432'))
 DB_NAME = os.getenv('DB_DATABASE', 'swingtrader')

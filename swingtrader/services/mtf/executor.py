@@ -273,6 +273,73 @@ def _latest_trade_price(symbol):
     return None
 
 
+def _compute_ratchet_stops(conn, held_symbols):
+    """Compute the ratchet-ATR stop for each held symbol (stateless).
+
+    ratchet = max over holding days t of (running_peak_close(t) - MULT*ATR_t),
+    where the running peak is the highest daily close since entry and ATR_t is
+    the hourly ATR on day t (from the hourly table's atr_stop column, which is
+    close - 2*ATR). Peak-anchored and non-decreasing, so it never floats down
+    with a crash. Rebuilt from source data every run — no stored state to
+    drift or go stale.
+
+    Returns {symbol: ratchet_price}. Symbols with no hourly ATR data are
+    omitted (caller skips the ratchet check for them, conservative)."""
+    import math
+    stops = {}
+    for symbol in held_symbols:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT ticker_id, entry_at FROM mtf_positions WHERE symbol = %s '
+                'ORDER BY updated_at DESC LIMIT 1', (symbol,))
+            row = cur.fetchone()
+        if not row or not row[0]:
+            continue
+        tid, entry_at = row[0], row[1]
+        since = entry_at.date() if entry_at else None
+
+        with conn.cursor() as cur:
+            if since:
+                cur.execute(
+                    'SELECT date, close FROM tbl_scanner_tickers_daily '
+                    'WHERE ticker_id = %s AND date::date >= %s ORDER BY date ASC',
+                    (tid, since))
+            else:
+                cur.execute(
+                    'SELECT date, close FROM tbl_scanner_tickers_daily '
+                    'WHERE ticker_id = %s ORDER BY date ASC', (tid,))
+            d_rows = cur.fetchall()
+        if not d_rows:
+            continue
+
+        # Per-day last hourly bar (close, atr_stop)
+        h_by_day = {}
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT date, close, atr_stop FROM tbl_scanner_tickers_1hour '
+                'WHERE ticker_id = %s ORDER BY date ASC', (tid,))
+            for r in cur.fetchall():
+                h_by_day[r[0].date()] = (float(r[1]) if r[1] else 0.0,
+                                         float(r[2]) if r[2] else 0.0)
+
+        peak = None
+        ratchet = 0.0
+        for r in d_rows:
+            day = r[0].date() if hasattr(r[0], 'date') else r[0]
+            dc = float(r[1]) if r[1] else 0.0
+            peak = max(peak, dc) if peak is not None else dc
+            hb = h_by_day.get(day)
+            if not hb or hb[1] <= 0 or hb[0] <= hb[1]:
+                continue
+            atr = (hb[0] - hb[1]) / 2.0
+            if atr <= 0:
+                continue
+            ratchet = max(ratchet, peak - config.RATCHET_ATR_MULT * atr)
+        if peak is not None:
+            stops[symbol] = ratchet
+    return stops
+
+
 def _send_slack(msg):
     if not config.SLACK_WEBHOOK_URL:
         return
@@ -350,16 +417,50 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
         target_symbols = set(top_symbols)
 
         symbols_to_sell = held_symbols - target_symbols
-        symbols_to_buy = target_symbols - held_symbols
+
+        # ── Ratchet-ATR crash protection (stock leg only) ──
+        # Exit any held position whose close < (highest close since entry) -
+        # RATCHET_ATR_MULT x ATR. Peak-anchored, so it never floats down with a
+        # crash like the close-anchored atr_stop does. Stateless: rebuilt from
+        # the DB every run. Symbols with no hourly data are skipped (conservative).
+        ratchet_sold = set()
+        ratchet_stops = {}
+        close_map = {}
+        if mode == 'stock' and config.RATCHET_EXIT:
+            ratchet_stops = _compute_ratchet_stops(conn, held_symbols)
+            for sym in held_symbols:
+                sd = score_detail.get(sym)
+                c = sd.get('close') if sd else None
+                if not c:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT close FROM tbl_scanner_tickers_daily "
+                            "WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol=%s) "
+                            "ORDER BY date DESC LIMIT 1", (sym,))
+                        r = cur.fetchone()
+                        c = float(r[0]) if r and r[0] else None
+                if c:
+                    close_map[sym] = c
+            for sym in held_symbols:
+                stop = ratchet_stops.get(sym)
+                c = close_map.get(sym)
+                if stop is not None and c is not None and c < stop:
+                    ratchet_sold.add(sym)
+            if ratchet_sold:
+                for sym in sorted(ratchet_sold):
+                    msg_t = f'🛑 {sym} below ratchet stop ${ratchet_stops[sym]:.2f} (close ${close_map[sym]:.2f})'
+                    trade_lines.append(f'  {msg_t}')
+                    print(f'[MTF EXECUTOR] {msg_t}')
 
         # Guard: don't sell positions that weren't scored today — they either
         # failed the bullish filter or had missing data. Preserve to avoid
         # whipsaw on a marginal filter flip (e.g. IJH 07-31: daily EMA 1c below SMA40).
-        data_gap_held = [s for s in symbols_to_sell if s not in score_detail]
+        # Ratchet stops override the guard: crash protection beats whipsaw avoidance.
+        data_gap_held = [s for s in symbols_to_sell if s not in score_detail and s not in ratchet_sold]
         for sym in data_gap_held:
             trade_lines.append(f'  ⚠️ {sym} held but not scored today (filter or data gap) — preserving')
             print(f'[MTF EXECUTOR] ⚠️ {sym} held but not scored today (filter or data gap) — preserving position')
-        symbols_to_sell = symbols_to_sell - set(data_gap_held)
+        symbols_to_sell = (symbols_to_sell - set(data_gap_held)) | ratchet_sold
 
         # Cancel all open orders first
         for symbol in held_symbols | target_symbols:
@@ -412,11 +513,31 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
             msg_str = f'SELL {filled_qty} {symbol} @ ${fill_price:.2f}'
             if entry_price:
                 msg_str += f'  (PnL: {pnl_pct:+.2f}%)'
+            if symbol in ratchet_sold:
+                msg_str += f'  [ratchet stop @ ${ratchet_stops[symbol]:.2f}]'
             sells.append(symbol)
             trade_lines.append(f'  {msg_str}')
             print(f'[MTF EXECUTOR] {msg_str}')
 
         # ── Buy new entries ──
+        # New top-N names not already held, minus ratchet-sold names (avoid
+        # same-day whipsaw). Slots freed by ratchet-sold top-N names are filled
+        # from the next-best scored candidates (rank 11+) so the portfolio
+        # stays fully invested.
+        held_after_sell = held_symbols - symbols_to_sell
+        buy_targets = [s for s in target_symbols
+                       if s not in held_after_sell and s not in ratchet_sold]
+        fillers = []
+        freed = len([s for s in ratchet_sold if s in target_symbols])
+        if freed:
+            ranked = sorted(score_detail.items(), key=lambda kv: -kv[1].get('score', 0))
+            for sym, sd in ranked:
+                if len(fillers) >= freed:
+                    break
+                if (sym not in held_after_sell and sym not in target_symbols
+                        and sym not in ratchet_sold):
+                    fillers.append(sym)
+        symbols_to_buy = buy_targets + fillers
         if symbols_to_buy:
             total_picks = len(top_symbols)
             per_position = equity / total_picks
@@ -485,7 +606,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                 trade_lines.append(f'  {msg_str}')
                 print(f'[MTF EXECUTOR] {msg_str}')
 
-        msg = f'Rotation: {len(sells)} sells, {len(buys)} buys — ${equity:,.0f} equity'
+        msg = f'Rotation: {len(sells)} sells ({len(ratchet_sold)} ratchet), {len(buys)} buys — ${equity:,.0f} equity'
         trade_lines.append(f'  {msg}')
         print(f'[MTF EXECUTOR] {msg}')
         if buys or sells:

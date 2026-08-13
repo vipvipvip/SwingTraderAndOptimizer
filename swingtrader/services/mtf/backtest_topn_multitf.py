@@ -52,17 +52,25 @@ def load_bars(conn, table, date_col, is_etf=False):
         cur = conn.cursor()
         if table == 'tbl_scanner_tickers_1hour':
             cur.execute(
-                f"SELECT date::date AS bar_date, close, atr_stop FROM {table} "
+                f"SELECT date, close, atr_stop FROM {table} "
                 f"WHERE ticker_id = %s AND date >= '2023-06-30' ORDER BY date ASC",
                 (tid,))
             rows = cur.fetchall()
             seen = {}
-            for r in rows:
-                seen[r[0]] = (r[0], float(r[1]) if r[1] else 0.0, float(r[2]) if r[2] else 0.0)
+            if rows:
+                s = pd.Series([float(r[1]) if r[1] else 0.0 for r in rows])
+                hem = s.ewm(span=EMA, adjust=False).mean().to_numpy()
+                hsm = s.rolling(window=SMA).mean().to_numpy()
+                for i, r in enumerate(rows):
+                    d = r[0].date()
+                    seen[d] = (d, float(r[1]) if r[1] else 0.0,
+                               float(r[2]) if r[2] else 0.0, hem[i], hsm[i])
             sorted_rows = sorted(seen.values(), key=lambda x: x[0])
             dates = [r[0] for r in sorted_rows]
             closes = np.array([r[1] for r in sorted_rows], dtype=np.float64)
             atr_stops = np.array([r[2] for r in sorted_rows], dtype=np.float64)
+            h_emas = np.array([r[3] for r in sorted_rows], dtype=np.float64)
+            h_smas = np.array([r[4] for r in sorted_rows], dtype=np.float64)
         elif table == 'tbl_scanner_tickers':
             cur.execute(
                 f'SELECT {date_col}, close FROM {table} WHERE ticker_id = %s ORDER BY {date_col} ASC',
@@ -78,6 +86,9 @@ def load_bars(conn, table, date_col, is_etf=False):
             dates = [r[0] for r in rows]
             opens = np.array([float(r[1]) for r in rows], dtype=np.float64)
             closes = np.array([float(r[2]) for r in rows], dtype=np.float64)
+            s = pd.Series(closes)
+            d_emas = s.ewm(span=EMA, adjust=False).mean().to_numpy()
+            d_smas = s.rolling(window=SMA).mean().to_numpy()
         cur.close()
 
         if len(dates) < WARMUP:
@@ -85,8 +96,12 @@ def load_bars(conn, table, date_col, is_etf=False):
         d = dict(symbol=sym, dates=dates, close=closes)
         if table == 'tbl_scanner_tickers_1hour':
             d['atr_stop'] = atr_stops
+            d['h_ema'] = h_emas
+            d['h_sma'] = h_smas
         elif table == 'tbl_scanner_tickers_daily':
             d['open'] = opens
+            d['d_ema'] = d_emas
+            d['d_sma'] = d_smas
         data[tid] = d
 
     return tickers, data
@@ -111,6 +126,13 @@ def main():
                         help='Print top N winning/losing trades by return %%')
     parser.add_argument('--ppo-filter', action='store_true',
                         help='Hybrid: require TOS WeeklyAndDailyPPO > 0 as an extra entry filter')
+    parser.add_argument('--hourly-ema-gate', action='store_true',
+                        help='Entry requires EMA10>SMA40 on hourly too (all 3 timeframes bullish)')
+    parser.add_argument('--exit', choices=['rebalance', 'hourly-ema', 'ratchet-atr', 'daily-ema'], default='rebalance',
+                        help='Exit rule: rebalance (sell out-of-top-N only), '
+                             'hourly-ema (also sell when hourly EMA10<SMA40), '
+                             'ratchet-atr (also sell when close < highest-close-since-entry - 2xATR), '
+                             'daily-ema (also sell when daily EMA10<SMA40)')
     parser.add_argument('--start', default=None,
                         help='Restrict backtest to dates >= YYYY-MM-DD (fair comparison window)')
     args = parser.parse_args()
@@ -215,6 +237,8 @@ def main():
         positions = {}
         cash = CAPITAL
         equity_curve = []
+        equity_dates = []
+        pos_counts = []
         trade_log = []  # (date, symbol, side, shares, price, ret)
 
         for ri in range(0, len(all_dates), step):
@@ -266,6 +290,12 @@ def main():
                     continue  # weekly or daily not bullish
                 if hc <= ha or hc <= 0:
                     continue
+
+                if args.hourly_ema_gate:
+                    he = hourly[tid]['h_ema'][hi]
+                    hs = hourly[tid]['h_sma'][hi]
+                    if np.isnan(he) or np.isnan(hs) or he <= hs:
+                        continue  # hourly not bullish
 
                 if args.ppo_filter:
                     ws130 = weekly[tid]['ppo_slow'][wi]
@@ -321,6 +351,8 @@ def main():
                     if p is not None:
                         pf_val += positions[tid]['shares'] * float(daily[tid]['close'][p])
                 equity_curve.append(pf_val)
+                equity_dates.append(all_dates[min(ri + 1, len(all_dates) - 1)])
+                pos_counts.append(len(positions))
                 continue
 
             # Sort by score DESC
@@ -357,24 +389,59 @@ def main():
                             print(f'  {exec_date} STOP  {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f} ({drop_pct:.1f}% drop)')
                         del positions[tid]
 
-            # SELL: liquidate positions not in selected
+            # SELL: liquidate positions not in selected, or hourly-EMA / ratchet-ATR exit
             for tid in list(positions):
+                reason = None
                 if tid not in selected:
-                    d = daily.get(tid)
-                    if d is None:
-                        continue
-                    xi = _last_idx_before(daily_idx[tid], daily[tid]['dates'], exec_date)
-                    if xi is None or xi >= len(d['open']):
-                        continue
-                    sp = float(d['open'][xi])
+                    reason = 'SELL'
+                elif args.exit == 'hourly-ema':
+                    hp = hourly.get(tid)
+                    if hp is not None:
+                        hxi = _last_idx_before(hourly_idx[tid], hp['dates'], sig_date)
+                        if (hxi is not None and not np.isnan(hp['h_ema'][hxi])
+                                and not np.isnan(hp['h_sma'][hxi])
+                                and hp['h_ema'][hxi] < hp['h_sma'][hxi]):
+                            reason = 'SELL-H-EMA'
+                elif args.exit == 'ratchet-atr':
                     pos = positions[tid]
-                    proceeds = pos['shares'] * sp * (1 - COST)
-                    ret = (sp - pos['entry_price']) / pos['entry_price'] - COST
-                    cash += proceeds
-                    trade_log.append((exec_date, pos['symbol'], 'SELL', pos['shares'], sp, ret))
-                    if args.detail:
-                        print(f'  {exec_date} SELL {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f}')
-                    del positions[tid]
+                    d = daily.get(tid)
+                    hp = hourly.get(tid)
+                    if d is not None and hp is not None:
+                        si = _last_idx_before(daily_idx[tid], d['dates'], sig_date)
+                        hxi = _last_idx_before(hourly_idx[tid], hp['dates'], sig_date)
+                        if si is not None and hxi is not None and hp['atr_stop'][hxi]:
+                            close_t = float(d['close'][si])
+                            atr = (float(hp['close'][hxi]) - float(hp['atr_stop'][hxi])) / 2.0
+                            if atr > 0:
+                                pos['peak'] = max(pos.get('peak', pos['entry_price']), close_t)
+                                pos['ratchet'] = max(pos.get('ratchet', 0.0), pos['peak'] - 2.0 * atr)
+                                if close_t < pos['ratchet']:
+                                    reason = 'SELL-RATC'
+                elif args.exit == 'daily-ema':
+                    d = daily.get(tid)
+                    if d is not None:
+                        si = _last_idx_before(daily_idx[tid], d['dates'], sig_date)
+                        if (si is not None and not np.isnan(d['d_ema'][si])
+                                and not np.isnan(d['d_sma'][si])
+                                and d['d_ema'][si] < d['d_sma'][si]):
+                            reason = 'SELL-D-EMA'
+                if reason is None:
+                    continue
+                d = daily.get(tid)
+                if d is None:
+                    continue
+                xi = _last_idx_before(daily_idx[tid], daily[tid]['dates'], exec_date)
+                if xi is None or xi >= len(d['open']):
+                    continue
+                sp = float(d['open'][xi])
+                pos = positions[tid]
+                proceeds = pos['shares'] * sp * (1 - COST)
+                ret = (sp - pos['entry_price']) / pos['entry_price'] - COST
+                cash += proceeds
+                trade_log.append((exec_date, pos['symbol'], reason, pos['shares'], sp, ret))
+                if args.detail:
+                    print(f'  {exec_date} {reason} {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f}')
+                del positions[tid]
 
             # BUY: add new selected positions
             to_buy = [tid for tid in selected if tid not in positions]
@@ -392,7 +459,7 @@ def main():
                     cost = shares * bp
                     cash -= cost
                     sym = daily[tid]['symbol']
-                    positions[tid] = dict(shares=shares, entry_price=bp, symbol=sym)
+                    positions[tid] = dict(shares=shares, entry_price=bp, symbol=sym, peak=bp, ratchet=0.0)
                     trade_log.append((exec_date, sym, 'BUY', shares, bp, None))
                     if args.detail:
                         print(f'  {exec_date} BUY  {sym} {shares:.2f} @ ${bp:.2f}')
@@ -407,6 +474,8 @@ def main():
                 if xi is not None:
                     pf_val += pos['shares'] * float(d['close'][xi])
             equity_curve.append(pf_val)
+            equity_dates.append(exec_date)
+            pos_counts.append(len(positions))
 
         # --- Results ---
         if not equity_curve:
@@ -417,8 +486,33 @@ def main():
         peak = np.maximum.accumulate(eq_arr)
         dd = np.max((peak - eq_arr) / peak)
 
-        all_sells = [t for t in trade_log if t[2] in ('SELL', 'SELL-STOP')]
+        # Drawdown episodes (peak -> trough -> recovery)
+        drawdowns = []
+        peak_i = 0
+        peak_val = eq_arr[0]
+        trough_i = 0
+        for i in range(1, len(eq_arr)):
+            if eq_arr[i] > peak_val:
+                if trough_i > peak_i:
+                    depth = (eq_arr[trough_i] - peak_val) / peak_val
+                    drawdowns.append((depth, equity_dates[peak_i], equity_dates[trough_i],
+                                      equity_dates[i], trough_i - peak_i + 1))
+                peak_i = i
+                peak_val = eq_arr[i]
+                trough_i = i
+            elif eq_arr[i] < eq_arr[trough_i]:
+                trough_i = i
+        if trough_i > peak_i:
+            depth = (eq_arr[trough_i] - peak_val) / peak_val
+            drawdowns.append((depth, equity_dates[peak_i], equity_dates[trough_i],
+                              None, len(eq_arr) - peak_i))
+        drawdowns.sort(key=lambda x: x[0])
+
+        all_sells = [t for t in trade_log if t[2] in ('SELL', 'SELL-STOP', 'SELL-H-EMA', 'SELL-RATC', 'SELL-D-EMA')]
         stop_sells = [t for t in trade_log if t[2] == 'SELL-STOP']
+        hem_sells = [t for t in trade_log if t[2] == 'SELL-H-EMA']
+        ratc_sells = [t for t in trade_log if t[2] == 'SELL-RATC']
+        dem_sells = [t for t in trade_log if t[2] == 'SELL-D-EMA']
         all_buys = [t for t in trade_log if t[2] == 'BUY']
         winners = [t for t in all_sells if t[5] is not None and t[5] > 0]
         losers = [t for t in all_sells if t[5] is not None and t[5] <= 0]
@@ -437,13 +531,17 @@ def main():
             print(f'  Score: gap_w/20 + atr_dist/1.5 + freshness')
         if args.ppo_filter:
             print(f'  Hybrid: + WeeklyAndDailyPPO>0 entry filter')
+        if args.hourly_ema_gate:
+            print(f'  Entry:  + hourly EMA10>SMA40 required (all 3 timeframes bullish)')
+        print(f'  Exit:   {args.exit}' + (' (sell when hourly EMA10<SMA40)' if args.exit == 'hourly-ema' else ' (sell when close < highest-close - 2xATR)' if args.exit == 'ratchet-atr' else ' (sell when daily EMA10<SMA40)' if args.exit == 'daily-ema' else ''))
         print(f'  Period: {all_dates[0]} to {all_dates[-1]}')
         print(f'{"="*80}')
         print(f'  Initial: ${CAPITAL:,.0f}')
         print(f'  Final:   ${equity_curve[-1]:,.0f}')
         print(f'  Return:  {total_ret*100:+.2f}%')
         print(f'  Max DD:  {dd*100:.1f}%')
-        print(f'  Trades:  {sells} sells ({len(stop_sells)} stop-loss) / {buys} buys')
+        exit_desc = f'{len(stop_sells)} stop-loss, {len(hem_sells)} hourly-ema, {len(ratc_sells)} ratchet-atr, {len(dem_sells)} daily-ema'
+        print(f'  Trades:  {sells} sells ({exit_desc}) / {buys} buys')
         print(f'  Win:     {len(winners)} ({wr:.0f}%)  avg +{avg_win:+.2f}%')
         print(f'  Loss:    {len(losers)} ({lr:.0f}%)  avg {avg_loss:+.2f}%')
         print(f'  Hold:    {len(all_dates) // max(1, sells) * step:.0f} days')
@@ -466,6 +564,46 @@ def main():
                 mret = (vals[-1] - prev) / prev
                 print(f'  {mk}: {mret*100:+7.2f}%  (${prev:,.0f} -> ${vals[-1]:,.0f})')
                 prev = vals[-1]
+
+        # Exposure
+        n = len(pos_counts)
+        cash_days = sum(1 for c in pos_counts if c == 0)
+        print(f'\n  Exposure: {n - cash_days}/{n} days invested ({100*(n - cash_days)/max(1, n):.0f}%) | '
+              f'{cash_days} days 100% cash | avg {np.mean(pos_counts):.1f} positions | '
+              f'{sum(1 for c in pos_counts if c < 10)} days with <10 positions')
+
+        # Contiguous cash stretches
+        stretches = []
+        s = None
+        for i, c in enumerate(pos_counts):
+            if c == 0 and s is None:
+                s = i
+            elif c > 0 and s is not None:
+                stretches.append((s, i - 1))
+                s = None
+        if s is not None:
+            stretches.append((s, len(pos_counts) - 1))
+        if stretches:
+            print(f'  Cash stretches: {len(stretches)}')
+            for s, e in stretches[:10]:
+                dur = e - s + 1
+                print(f'    {equity_dates[s]} -> {equity_dates[e]}  ({dur} days)')
+
+        # Top 5 drawdowns
+        print(f'\n  TOP-5 DRAWDOWNS:')
+        for i, (depth, pd_, td_, rd, dur) in enumerate(drawdowns[:5], 1):
+            rec = f'-> {rd}' if rd else '-> (open)'
+            print(f'    {i}. {depth*100:6.1f}%  {pd_} -> {td_} {rec}  ({dur} trading days)')
+
+        # Deepest-drawdown window exposure
+        if drawdowns:
+            _, pd_, td_, rd, _ = drawdowns[0]
+            idx = [i for i, d in enumerate(equity_dates) if pd_ <= d <= (td_ or equity_dates[-1])]
+            if idx:
+                sub = [pos_counts[i] for i in idx]
+                print(f'  Crash window ({pd_} -> {td_}): avg {np.mean(sub):.1f} positions, '
+                      f'{sum(1 for c in sub if c < 10)}/{len(sub)} days <10, '
+                      f'{sum(1 for c in sub if c == 0)} days 100% cash')
 
         # --- Top trades ---
         if args.top_trades > 0 and trade_log:
