@@ -10,7 +10,7 @@ This project contains three distinct trading systems that operate independently:
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 4 | **MTF Top-N** (Multi-TF rotation) | VTI stocks + ETFs | gap_w + atr_dist + freshness → top 10 daily | ✅ Live (Phase 2) |
-| 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 5:00 PM |
+| 5 | **Daily Signal** (Multi-TF alerts) | All enabled (VTI stocks + ETFs) | 1-hour fresh cross + score | ✅ Slack @ 5:00 PM |
 
 All systems share the same database (`swingtrader`) and Alpaca data source, but their logic, parameters, and objectives are entirely separate.
 
@@ -302,7 +302,7 @@ Daily rotation into top N S&P 500 stocks ranked by Multi-TF score:
 
 **Service:** `swingtrader-daily-signal.timer` (systemd, Mon–Fri 5:00 PM ET)  
 **Location:** `swingtrader/services/ema_sma_crossover/daily_signal_service.py`  
-**Universe:** S&P 500 (stocks from scanner DB)
+**Universe:** All enabled tickers in `tbl_stock_tickers` — 1,435 VTI stocks + 28 ETFs (same universe as MTF Top-N). *NOT S&P 500; older docs that say "S&P 500" are outdated.*
 
 ### Purpose
 Multi-timeframe EMA(10)/SMA(40) scanner that detects fresh 1-hour entry signals within weekly+daily uptrend. **Does not trade** — sends Slack alerts only.
@@ -317,13 +317,30 @@ Multi-timeframe EMA(10)/SMA(40) scanner that detects fresh 1-hour entry signals 
 - **Slack:** Tagged `[DAILY]` prefix (distinct from `[MTF-TopN]` live runner messages)
 - **CSV:** Columns: `date,ticker,action,close_price,ema,sma,reason`
 
+### Relationship to MTF Top-N — same inputs, different trigger (IMPORTANT)
+
+The Daily Signal and MTF Top-N share the **same universe**, the **same hard filters** (weekly+daily EMA10>SMA40, close above ATR stop), and the **same score formula** (`gap_w/20 + atr_dist/1.5 + freshness`). They are **not connected** — the Daily Signal does not feed into MTF, and neither consumes the other's output. The only difference is the **selection trigger**:
+
+| | MTF Top-N | Daily Signal |
+|---|---|---|
+| **Trigger** | State-driven: highest current score → top 10 | Event-driven: fresh 1-hour EMA>SMA cross on the **last completed bar** |
+| **Question** | "Which names are strongest right now?" | "Who just broke out today?" |
+| **Typical score at listing** | ≥ ~5.0 (extended: big `gap_w`/`atr_dist`) | 1.0–3.5 (fresh cross = price near averages) |
+| **Output** | Real Alpaca orders (stocks + ETFs) | Slack alert + CSV only |
+
+**Why they almost never overlap:** a fresh 1-hour cross happens when a name is *near its averages* — `gap_w` and `atr_dist` are small by definition at that moment, so the score is low and it ranks far below the MTF top-10 cutoff. MTF's top-10 is filled with *extended* names (e.g. ZBRA at `gap_w` 52.9%) that crossed weeks/months ago and therefore don't produce "fresh cross today" events.
+
+**The exception proves the rule:** PBF on 2026-08-10 — fresh hourly cross *and* already-extended (`gap_w` 67%) → score 5.1 → listed by the Daily Signal **and** in the MTF top-10, traded live (+2.9%). This only happens when the gap explodes before the hourly cross.
+
+**Implication:** the Daily Signal is the *early/event* view (fresh triggers), MTF is the *extended/state* view (already-run). Making MTF prefer fresh-cross names is the `--score near`/`early` variant, which backtested decisively worse (−61.5% at scale) — the momentum terms (`gap_w`/`atr_dist`) are what capture the explosive moves.
+
 # 6. Key Differences
 
 | Aspect | CHAND | Scanner | MTF Top-N | Daily Signal |
 |--------|-------|---------|-----------|--------------|
 | **Goal** | Automated live trading | Market screening | Rotation trading | Signal alerts |
 | **Strategy** | Chandelier Exit (always-in) | 3-way crossover convergence | Multi-TF score top-N | Multi-TF fresh crosses |
-| **Universe** | QQQ/VTI/VTV | S&P 500 | VTI stocks + ETFs | S&P 500 |
+| **Universe** | QQQ/VTI/VTV | S&P 500 | VTI stocks + ETFs | All enabled (VTI stocks + ETFs) |
 | **Data Frequency** | Daily bars | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour |
 | **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders (Phase 2) | Slack + CSV only |
 | **Entry** | Always-in (no filter) | 3 aligned crossovers | Top-N by score | Fresh 1-hour cross |
