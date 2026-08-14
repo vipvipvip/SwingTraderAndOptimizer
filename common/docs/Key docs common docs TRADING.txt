@@ -151,7 +151,14 @@ To verify it completed:
 sudo journalctl -u swingtrader-mtf-scorer.service -n 10 --no-pager
 Also confirm the executor timer is set for tomorrow 10:00 AM:
 sudo systemctl list-timers swingtrader-mtf-scorer.timer swingtrader-mtf-executor.timer
+
+Get Signals for tickers in personal holdings:
+swingtrader/services/optimizer/venv/bin/python3 swingtrader/services/scripts/ticker_report.py --positions ./swingtrader/services/scripts/sample_positions.csv
+
+Alpaca P&L:
+swingtrader/services/optimizer/venv/bin/python3 swingtrader/services/scripts/alpaca_report.py
 ===================================================================
+
 
 SwingTrader-MTF-Stocks
 Key: REDACTED

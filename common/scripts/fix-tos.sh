@@ -20,3 +20,8 @@ echo "  done"
 
 echo ""
 echo "TOS cleanup complete. You can now relaunch Thinkorswim."
+
+if [ "${1:-}" = "--launch" ]; then
+    echo "Launching Thinkorswim..."
+    nohup /home/dikesh/thinkorswim/thinkorswim >/dev/null 2>&1 &
+fi

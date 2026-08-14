@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Top-N rotation backtest using Multi-TF score (weekly+daily bullish, gap_w, atr_dist, freshness).
 
-Score = min(gap_w/20, 3) + min(atr_dist/1.5, 3) + max(0, 2 - days_since_weekly/60)
+Score (mtf)   = min(gap_w/20, 3) + min(atr_dist/1.5, 3) + max(0, 2 - days_since_weekly/60)
+Score (near)  = max(0, 3 - gap_w/K_gap) + max(0, 3 - atr_dist/K_atr) + max(0, 2 - days_since_weekly/60)
+                -- favors stocks close to their weekly SMA40 / ATR stop (proximity to the
+                   crossover) instead of extended names -- anti-chase by design.
 Rebalance: sell non-top-N, buy new entrants at next-day open, equal weight.
 """
 
@@ -40,10 +43,14 @@ def _last_idx_before(idx_map, dates, target):
     return None
 
 
-def load_bars(conn, table, date_col, is_etf=False):
-    """Load OHLC data from a table for all tickers."""
+def load_bars(conn, table, date_col, is_etf=False, symbols=None):
+    """Load OHLC data from a table for all tickers (or a symbol subset)."""
     with conn.cursor() as cur:
-        cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=%s ORDER BY symbol', (is_etf,))
+        if symbols:
+            cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=%s AND symbol = ANY(%s) ORDER BY symbol',
+                        (is_etf, list(symbols)))
+        else:
+            cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=%s ORDER BY symbol', (is_etf,))
         tickers = cur.fetchall()
     print(f'  Loading {table} ({len(tickers)} tickers)...')
 
@@ -89,6 +96,8 @@ def load_bars(conn, table, date_col, is_etf=False):
             dates = [r[0] for r in rows]
             opens = np.array([float(r[1]) for r in rows], dtype=np.float64)
             closes = np.array([float(r[2]) for r in rows], dtype=np.float64)
+            d_atr_stops = np.array([
+                float(r[3]) if r[3] else 0.0 for r in rows], dtype=np.float64)
             s = pd.Series(closes)
             d_emas = s.ewm(span=EMA, adjust=False).mean().to_numpy()
             d_smas = s.rolling(window=SMA).mean().to_numpy()
@@ -105,6 +114,7 @@ def load_bars(conn, table, date_col, is_etf=False):
             d['open'] = opens
             d['d_ema'] = d_emas
             d['d_sma'] = d_smas
+            d['d_atr_stop'] = d_atr_stops
         elif table == 'tbl_scanner_tickers':
             d['w_atr'] = w_atrs
         data[tid] = d
@@ -118,9 +128,19 @@ def main():
     parser.add_argument('--rebalance', choices=['daily', 'weekly'], default='daily')
     parser.add_argument('--detail', action='store_true')
     parser.add_argument('--etf', action='store_true', help='Run on ETF universe (is_etf=true)')
-    parser.add_argument('--score', choices=['mtf', 'early', 'emasma'], default='mtf',
+    parser.add_argument('--score', choices=['mtf', 'early', 'emasma', 'near'], default='mtf',
                         help='Sorting score: mtf=gap+atr+fresh, early=signals+fresh-gap, '
-                             'emasma=weekly EMA10>SMA40 gap')
+                             'emasma=weekly EMA10>SMA40 gap, '
+                             'near=proximity to SMA40/ATR stop (anti-chase)')
+    parser.add_argument('--near-gap-k', type=float, default=10.0,
+                        help='near score: gap_w that zeroes gap_pts (3 - gap_w/K, default K=10)')
+    parser.add_argument('--near-atr-k', type=float, default=1.5,
+                        help='near score: atr_dist that zeroes atr_pts (3 - atr_dist/K, default K=1.5)')
+    parser.add_argument('--tickers', default=None,
+                        help='Comma-separated symbol subset to backtest (e.g. ZBRA,AXON,BXC)')
+    parser.add_argument('--above', choices=['none', 'ema-sma', 'ema-sma-daily', 'atr', 'both'], default='none',
+                        help='Extra entry filter: require close above (1) daily+weekly EMA10 & SMA40, '
+                             '(1d) daily EMA10 & SMA40 only, (2) daily ATR stop, or (3) both')
     parser.add_argument('--min-score', type=float, default=None,
                         help='Minimum MTF score to consider (e.g. 5.0 = only stocks with score >= 5)')
     parser.add_argument('--infancy', action='store_true',
@@ -153,10 +173,13 @@ def main():
         else:
             label = 'Stock'
         print(f'\n  Mode: {label} universe\n')
+        symbols = set(args.tickers.split(',')) if args.tickers else None
+        if symbols:
+            print(f'  Subset: {len(symbols)} tickers ({", ".join(sorted(symbols))})')
         # Load three timeframes
-        _, weekly = load_bars(conn, 'tbl_scanner_tickers', 'date', is_etf)
-        _, daily = load_bars(conn, 'tbl_scanner_tickers_daily', 'date', is_etf)
-        _, hourly = load_bars(conn, 'tbl_scanner_tickers_1hour', None, is_etf)
+        _, weekly = load_bars(conn, 'tbl_scanner_tickers', 'date', is_etf, symbols)
+        _, daily = load_bars(conn, 'tbl_scanner_tickers_daily', 'date', is_etf, symbols)
+        _, hourly = load_bars(conn, 'tbl_scanner_tickers_1hour', None, is_etf, symbols)
 
         # Only keep tickers present in all datasets
         common = set(weekly) & set(daily) & set(hourly)
@@ -203,6 +226,8 @@ def main():
             hourly_idx[tid] = {dt: i for i, dt in enumerate(hourly[tid]['dates'])}
 
         MIN_TICKERS = 10 if is_etf else 400
+        if symbols:
+            MIN_TICKERS = min(10, len(common))
         # All trading dates from daily table (union across all tickers)
         all_dates = sorted(set().union(*[set(d['dates']) for d in daily.values()]))
         # Exclude dates where fewer than MIN_TICKERS tickers have data (partial days)
@@ -298,6 +323,17 @@ def main():
                 if hc <= ha or hc <= 0:
                     continue
 
+                if args.above in ('ema-sma', 'ema-sma-daily', 'both'):
+                    if args.above != 'ema-sma-daily':
+                        if wc <= we or wc <= ws:
+                            continue  # weekly close not above weekly EMA10/SMA40
+                    if dc <= de or dc <= ds:
+                        continue  # daily close not above daily EMA10/SMA40
+                if args.above in ('atr', 'both'):
+                    das = daily[tid]['d_atr_stop'][di]
+                    if das is None or np.isnan(das) or das <= 0 or dc <= das:
+                        continue  # daily close not above daily ATR stop
+
                 if args.hourly_ema_gate:
                     he = hourly[tid]['h_ema'][hi]
                     hs = hourly[tid]['h_sma'][hi]
@@ -337,13 +373,22 @@ def main():
                 fresh_pts = max(0, 2 - days_since / 60)
                 mtf_score = round(gap_pts + atr_pts + fresh_pts, 1)
 
+                # Near score: favor proximity to weekly SMA40 / ATR stop (anti-chase).
+                # A stock just past its crossover (small gap_w) or pulled back to its
+                # ratchet (small atr_dist) ranks higher than an extended name.
+                near_gap_pts = max(0.0, 3.0 - gap_w / args.near_gap_k)
+                near_atr_pts = max(0.0, 3.0 - atr_dist / args.near_atr_k)
+                near_score = round(near_gap_pts + near_atr_pts + fresh_pts, 1)
+
                 # Early score: signal count + fresh_pts - gap_pts
                 # Signal count: daily_signal (days_since<60) + emac (daily EMA>SMA) + chand (close>atr_stop)
                 # EMAC and CHAND are already required by the filter, so base is 2
                 signal_cnt = 2 + (1 if days_since < 60 else 0)
                 early_score = round(signal_cnt + fresh_pts - gap_pts, 1)
 
-                decision_score = early_score if args.score == 'early' else mtf_score
+                decision_score = (near_score if args.score == 'near'
+                                  else early_score if args.score == 'early'
+                                  else mtf_score)
                 if args.min_score is not None and mtf_score < args.min_score:
                     continue
                 if args.infancy and days_since >= 60:
@@ -544,12 +589,20 @@ def main():
         print(f'  TOP-{args.top_n} MULTI-TF BACKTEST  ({period_label})')
         if args.score == 'emasma':
             print(f'  Score: weekly EMA10>SMA40 gap (strategy signal)')
+        elif args.score == 'near':
+            print(f'  Score: proximity (3 - gap_w/{args.near_gap_k:g}) + (3 - atr_dist/{args.near_atr_k:g}) + freshness')
         else:
             print(f'  Score: gap_w/20 + atr_dist/1.5 + freshness')
         if args.ppo_filter:
             print(f'  Hybrid: + WeeklyAndDailyPPO>0 entry filter')
         if args.hourly_ema_gate:
             print(f'  Entry:  + hourly EMA10>SMA40 required (all 3 timeframes bullish)')
+        if args.above != 'none':
+            ab = 'close > EMA10 & SMA40 (daily+weekly)' if args.above == 'ema-sma' \
+                 else 'close > EMA10 & SMA40 (daily only)' if args.above == 'ema-sma-daily' \
+                 else 'close > daily ATR stop' if args.above == 'atr' \
+                 else 'close > EMA10 & SMA40 (daily+weekly) AND > daily ATR stop'
+            print(f'  Entry:  + {ab}')
         print(f'  Exit:   {args.exit}' + (' (sell when hourly EMA10<SMA40)' if args.exit == 'hourly-ema' else ' (sell when close < highest-close - 2xATR)' if args.exit == 'ratchet-atr' else ' (sell when daily EMA10<SMA40)' if args.exit == 'daily-ema' else ''))
         if args.exit == 'ratchet-atr':
             print(f'  Exit:   ratchet ATR source: {args.ratchet_atr_src}')
