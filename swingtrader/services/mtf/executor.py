@@ -429,8 +429,15 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
         if mode == 'stock' and config.RATCHET_EXIT:
             ratchet_stops = _compute_ratchet_stops(conn, held_symbols)
             for sym in held_symbols:
-                sd = score_detail.get(sym)
-                c = sd.get('close') if sd else None
+                # Live Alpaca price first — the DB close is stale by a day or
+                # more (score_detail is the previous evening's close), which
+                # false-triggers the ratchet on gap-up opens (e.g. AEHR 08-14:
+                # DB close $123.32 vs live $136.93, sold at +5.8% on a runner).
+                pos = alpaca_positions.get(sym)
+                c = float(pos.get('current_price')) if pos and pos.get('current_price') else None
+                if not c:
+                    sd = score_detail.get(sym)
+                    c = sd.get('close') if sd else None
                 if not c:
                     with conn.cursor() as cur:
                         cur.execute(
