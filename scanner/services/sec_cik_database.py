@@ -38,6 +38,7 @@ CIK_DATABASE = {
     "CSCO": "0000858877",      # Cisco Systems Inc
     "AKAM": "0001086222",      # Akamai Technologies Inc
     "ASTS": "0001706701",      # AST SpaceMobile Inc
+    "ESTC": "0001649809",      # Elastic NV
 
     # Financial Services
     "V": "0001403161",         # Visa Inc
