@@ -153,6 +153,9 @@ def main():
                         help='Hybrid: require TOS WeeklyAndDailyPPO > 0 as an extra entry filter')
     parser.add_argument('--hourly-ema-gate', action='store_true',
                         help='Entry requires EMA10>SMA40 on hourly too (all 3 timeframes bullish)')
+    parser.add_argument('--hourly-daily-gap', type=float, default=None,
+                        help='Block bearish hourly entries when daily gap < N%% (e.g. -5.0 = '
+                             'allow bearish hourly if daily close > ema10 - 5%%)')
     parser.add_argument('--exit', choices=['rebalance', 'hourly-ema', 'ratchet-atr', 'daily-ema'], default='rebalance',
                         help='Exit rule: rebalance (sell out-of-top-N only), '
                              'hourly-ema (also sell when hourly EMA10<SMA40), '
@@ -339,6 +342,18 @@ def main():
                     hs = hourly[tid]['h_sma'][hi]
                     if np.isnan(he) or np.isnan(hs) or he <= hs:
                         continue  # hourly not bullish
+
+                if args.hourly_daily_gap is not None:
+                    he = hourly[tid]['h_ema'][hi]
+                    hs = hourly[tid]['h_sma'][hi]
+                    if not np.isnan(he) and not np.isnan(hs) and he <= hs:
+                        # hourly is bearish — allow only if daily gap is shallow
+                        dc_val = float(d['close'][di]) if di < len(d['close']) else 0
+                        de_val = daily[tid]['ema'][di]
+                        if dc_val > 0 and not np.isnan(de_val) and de_val > 0:
+                            daily_gap_pct = (dc_val - de_val) / de_val * 100
+                            if daily_gap_pct <= args.hourly_daily_gap:
+                                continue  # daily gap too deep, broken trend
 
                 if args.ppo_filter:
                     ws130 = weekly[tid]['ppo_slow'][wi]

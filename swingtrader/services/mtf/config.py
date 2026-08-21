@@ -23,6 +23,12 @@ TS_START = '2023-06-30'
 RATCHET_EXIT = True
 RATCHET_ATR_MULT = 2.0
 
+# Hourly-bearish deep pullback filter: block entry when hourly EMA10 < SMA40
+# AND daily close is more than this % below daily EMA10.  Bearish hourly
+# entries with shallow daily pullback (>-5%) include big winners (AGL +326%,
+# CIEN +181%); deep pullbacks (<=-5%) have 0% win rate in paper trading.
+HOURLY_BEARISH_DAILY_GAP_LIMIT = -5.0
+
 DB_HOST = os.getenv('DB_HOST', '127.0.0.1')
 DB_PORT = int(os.getenv('DB_PORT', '5432'))
 DB_NAME = os.getenv('DB_DATABASE', 'swingtrader')
