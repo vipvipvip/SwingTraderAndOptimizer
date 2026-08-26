@@ -57,7 +57,7 @@ def _send_slack(msg, mode='stock'):
     label = MODE_LABEL.get(mode, mode)
     tag = STRATEGY_TAG.get(mode, 'MTF-TopN')
     try:
-        r = requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'[{tag} {label}] {msg}'}, timeout=10)
+        r = requests.post(config.SLACK_WEBHOOK_URL, json={'text': f'[{tag} {label}] {msg}'}, timeout=30)
         r.raise_for_status()
     except Exception as e:
         print(f'[SLACK] Error: {e}')
@@ -73,7 +73,7 @@ def _send_slack_alert(msg, mode='stock'):
         r = requests.post(config.SLACK_WEBHOOK_URL, json={
             'text': f'🚨🔴 *[{tag} {label}] DATA INCOMPLETE* 🔴🚨',
             'attachments': [{'color': 'danger', 'fallback': msg, 'text': msg}]
-        }, timeout=10)
+        }, timeout=30)
         r.raise_for_status()
     except Exception as e:
         print(f'[SLACK] Error: {e}')

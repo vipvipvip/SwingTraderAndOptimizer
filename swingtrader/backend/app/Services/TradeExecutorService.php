@@ -214,7 +214,16 @@ class TradeExecutorService
         if (!$openTrade) {
             return false;
         }
-        $currentQty = intval($openTrade->quantity ?? 0);
+
+        // Safety guard: verify Alpaca actually holds the position.
+        $alpacaPos = $this->getPositionForSymbol($symbol);
+        if (!$alpacaPos || intval($alpacaPos['qty'] ?? 0) <= 0) {
+            \Log::warning("REBALANCE TRIM $symbol skipped — Alpaca has no position");
+            return false;
+        }
+
+        // Use Alpaca's actual qty, not the DB qty
+        $currentQty = intval($alpacaPos['qty']);
         if ($qty >= $currentQty) {
             $qty = $currentQty;
         }
@@ -682,7 +691,24 @@ class TradeExecutorService
             return null;
         }
 
-        $qty = $openTrade->quantity;
+        // Safety guard: verify Alpaca actually holds the position.
+        // Prevents duplicate sells (DB says open, but Alpaca is already flat).
+        $alpacaPos = $this->getPositionForSymbol($symbol);
+        if (!$alpacaPos || intval($alpacaPos['qty'] ?? 0) <= 0) {
+            \Log::warning("SELL signal for $symbol but Alpaca has no position — closing stale DB trade");
+            LiveTrade::where('symbol', $symbol)->where('status', 'open')->update([
+                'exit_price' => $currentPrice,
+                'exit_at' => now(),
+                'status' => 'closed',
+                'pnl_dollar' => 0,
+                'pnl_pct' => 0,
+                'strategy_signal' => 'STALE_CLOSED',
+            ]);
+            return null;
+        }
+
+        // Use Alpaca's actual qty, not the DB qty
+        $qty = intval($alpacaPos['qty']);
 
         if ($this->dryRun) {
             \Log::info("DRY RUN SELL $symbol: qty=$qty, ~$currentPrice (no order placed)");

@@ -1,5 +1,7 @@
 import time
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -7,6 +9,29 @@ import config
 import db as db_module
 
 NY = ZoneInfo('America/New_York')
+
+# ── Retry-enabled session for Alpaca API ──
+# Retries on transient failures (timeouts, 5xx, 429 rate-limit) with
+# exponential backoff.  Replaces bare `requests.get/post` calls.
+_ALPACA_TIMEOUT = 30  # seconds per attempt (was 10, too aggressive)
+
+
+def _alpaca_session():
+    """Return a requests.Session with automatic retry on transient errors."""
+    s = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=2,          # 0s, 4s, 8s between attempts
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=['GET', 'POST', 'DELETE'],
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    s.mount('https://', adapter)
+    s.mount('http://', adapter)
+    return s
+
+
+_session = _alpaca_session()
 
 # Current Alpaca credentials (set by execute_rotation based on mode)
 _current_api_key = config.ALPACA_API_KEY
@@ -38,7 +63,7 @@ def _alpaca_headers():
 
 def _get_clock():
     url = f'{config.ALPACA_BASE_URL}/v2/clock'
-    resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
+    resp = _session.get(url, headers=_alpaca_headers(), timeout=_ALPACA_TIMEOUT)
     if resp.status_code >= 400:
         raise Exception(f'Alpaca clock failed: {resp.text}')
     return resp.json()
@@ -104,7 +129,7 @@ def _wait_for_market_open(max_wait_sec=6 * 3600):
 
 def _get_account():
     url = f'{config.ALPACA_BASE_URL}/v2/account'
-    resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
+    resp = _session.get(url, headers=_alpaca_headers(), timeout=_ALPACA_TIMEOUT)
     if resp.status_code >= 400:
         raise Exception(f'Alpaca account failed: {resp.text}')
     return resp.json()
@@ -117,7 +142,7 @@ def _get_account_number():
 
 def _get_order(order_id):
     url = f'{config.ALPACA_BASE_URL}/v2/orders/{order_id}'
-    resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
+    resp = _session.get(url, headers=_alpaca_headers(), timeout=_ALPACA_TIMEOUT)
     if resp.status_code >= 400:
         return None
     return resp.json()
@@ -126,14 +151,14 @@ def _get_order(order_id):
 def _cancel_orders_for_symbol(symbol):
     url = f'{config.ALPACA_BASE_URL}/v2/orders'
     params = {'symbols': symbol, 'status': 'open'}
-    resp = requests.get(url, headers=_alpaca_headers(), params=params, timeout=10)
+    resp = _session.get(url, headers=_alpaca_headers(), params=params, timeout=_ALPACA_TIMEOUT)
     if resp.status_code >= 400:
         return
     for order in resp.json():
         oid = order.get('id')
         if oid:
-            requests.delete(f'{config.ALPACA_BASE_URL}/v2/orders/{oid}',
-                            headers=_alpaca_headers(), timeout=5)
+            _session.delete(f'{config.ALPACA_BASE_URL}/v2/orders/{oid}',
+                            headers=_alpaca_headers(), timeout=_ALPACA_TIMEOUT)
             print(f'[MTF EXECUTOR] Cancelled stale order {oid} for {symbol}')
 
 
@@ -146,7 +171,7 @@ def _place_order(symbol, qty, side):
         'type': 'market',
         'time_in_force': 'day',
     }
-    resp = requests.post(url, headers=_alpaca_headers(), json=payload, timeout=10)
+    resp = _session.post(url, headers=_alpaca_headers(), json=payload, timeout=_ALPACA_TIMEOUT)
     if resp.status_code >= 400:
         raise Exception(f'Alpaca order failed ({resp.status_code}): {resp.text}')
     return resp.json()
@@ -172,7 +197,7 @@ def _wait_for_fill(order_id, max_retries=300, delay=1):
 def _get_alpaca_position(symbol):
     url = f'{config.ALPACA_BASE_URL}/v2/positions/{symbol}'
     try:
-        resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
+        resp = _session.get(url, headers=_alpaca_headers(), timeout=_ALPACA_TIMEOUT)
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:
@@ -184,7 +209,7 @@ def _get_alpaca_position(symbol):
 
 def _get_alpaca_positions():
     url = f'{config.ALPACA_BASE_URL}/v2/positions'
-    resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
+    resp = _session.get(url, headers=_alpaca_headers(), timeout=_ALPACA_TIMEOUT)
     if resp.status_code >= 400:
         return {}
     return {p['symbol']: p for p in resp.json()}
@@ -262,8 +287,8 @@ def _block_rebuy(symbol, price, conn):
 def _latest_trade_price(symbol):
     url = 'https://data.alpaca.markets/v2/stocks/trades/latest'
     try:
-        resp = requests.get(url, headers=_alpaca_headers(),
-                            params={'symbols': symbol, 'feed': 'iex'}, timeout=5)
+        resp = _session.get(url, headers=_alpaca_headers(),
+                            params={'symbols': symbol, 'feed': 'iex'}, timeout=_ALPACA_TIMEOUT)
         if resp.status_code < 400:
             trade = resp.json().get('trades', {}).get(symbol)
             if trade and 'p' in trade:
@@ -404,9 +429,9 @@ def _send_slack(msg):
         return
     acct_no = _get_account_number()
     try:
-        requests.post(config.SLACK_WEBHOOK_URL,
+        _session.post(config.SLACK_WEBHOOK_URL,
                       json={'text': f'[{_current_strategy_tag}] [Paper:{acct_no}] {msg}'},
-                      timeout=10)
+                      timeout=_ALPACA_TIMEOUT)
     except Exception as e:
         print(f'[MTF EXECUTOR SLACK] Error: {e}')
 
@@ -416,9 +441,9 @@ def _send_slack_error(msg):
         return
     acct_no = _get_account_number()
     try:
-        requests.post(config.SLACK_WEBHOOK_URL,
+        _session.post(config.SLACK_WEBHOOK_URL,
                       json={'text': f'⚠️ [{_current_strategy_tag}] [Paper:{acct_no}] {msg}'},
-                      timeout=10)
+                      timeout=_ALPACA_TIMEOUT)
     except Exception as e:
         print(f'[MTF EXECUTOR SLACK] Error: {e}')
 
@@ -731,8 +756,8 @@ def reconcile_trades(mode='stock'):
         conn.commit()
 
         url = f'{config.ALPACA_BASE_URL}/v2/orders'
-        resp = requests.get(url, headers=_alpaca_headers(),
-                            params={'status': 'filled', 'direction': 'asc', 'limit': 500}, timeout=15)
+        resp = _session.get(url, headers=_alpaca_headers(),
+                            params={'status': 'filled', 'direction': 'asc', 'limit': 500}, timeout=_ALPACA_TIMEOUT)
         if resp.status_code >= 400:
             raise Exception(f'Alpaca orders failed: {resp.text}')
 
