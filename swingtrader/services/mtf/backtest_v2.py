@@ -41,6 +41,7 @@ class TickerData:
         self.close=np.array([b[1] for b in bars], dtype=float)
         self.ml=np.array([b[2] if b[2] is not None else np.nan for b in bars], dtype=float)
         self.ms=np.array([b[3] if b[3] is not None else np.nan for b in bars], dtype=float)
+        self.atr=np.array([b[4] if b[4] is not None else np.nan for b in bars], dtype=float)
         n=len(self.close)
         s=pd.Series(self.close)
         ema=s.ewm(span=EMASPAN,adjust=False).mean().to_numpy()
@@ -132,13 +133,13 @@ def load(conn, include_etf=False):
             dy_d[tid],dy_b[tid]=ema10gt40_bull_series(dd,cc)
     # hourly per ticker -> TickerData
     hr={}
-    cur.execute("SELECT ticker_id,date,close,macd_line,macd_signal FROM tbl_scanner_tickers_1hour ORDER BY ticker_id,date")
-    for tid,d,c,ml,ms in cur.fetchall():
-        hr.setdefault(tid,[]).append((d,float(c),float(ml) if ml is not None else None,float(ms) if ms is not None else None))
+    cur.execute("SELECT ticker_id,date,close,macd_line,macd_signal,atr_stop FROM tbl_scanner_tickers_1hour ORDER BY ticker_id,date")
+    for tid,d,c,ml,ms,atr in cur.fetchall():
+        hr.setdefault(tid,[]).append((d,float(c),float(ml) if ml is not None else None,float(ms) if ms is not None else None,float(atr) if atr is not None else None))
     tdata={tid:TickerData(bars) for tid,bars in hr.items()}
     return tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata
 
-def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X):
+def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X, TOP_N=None, ATR_MULT=None):
     sess=set()
     for td in tdata.values():
         for d in td.dates: sess.add(d.date())
@@ -157,17 +158,29 @@ def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X
             if idx<0: continue
             p=positions[sym]
             ml=td.ml[idx]; ms=td.ms[idx]
-            if not macd_pos(ml,ms):
+            exit_px=None
+            # A) trailing ATR ratchet stop: close < peak - ATR_MULT*atr
+            if ATR_MULT is not None:
+                atr=td.atr[idx]
+                if not np.isnan(atr) and atr>0:
+                    stop=p['peak']-ATR_MULT*atr
+                    if td.close[idx]<stop:
+                        exit_px=td.close[idx]
+            # B) MACD -ve + bearish CO
+            if exit_px is None and not macd_pos(ml,ms):
                 estart=bisect.bisect_left(td.dates, datetime.combine(p['entry_d'], dtime(9,0)))
-                # any bearish cross in [estart, idx]? (find first bearish cross >= estart)
                 lp=bisect.bisect_left(td.beac_arr, estart)
                 if lp < len(td.beac_arr) and td.beac_arr[lp] <= idx:
                     exit_px=td.close[idx]
-                    cash+=p['shares']*exit_px*(1-COST)
-                    p.update(exit_d=day,exit_px=exit_px,exit_hour=td.dates[idx].hour,
-                             ret=exit_px/p['entry_px']*(1-COST)-1)
-                    trades.append(p)
-                    del positions[sym]
+            if exit_px is not None:
+                cash+=p['shares']*exit_px*(1-COST)
+                p.update(exit_d=day,exit_px=exit_px,exit_hour=td.dates[idx].hour,
+                         ret=exit_px/p['entry_px']*(1-COST)-1)
+                trades.append(p)
+                del positions[sym]
+                continue
+            # update running peak (highest close since entry)
+            p['peak']=max(p['peak'], td.close[idx])
         # ENTRIES
         if True:
             new=[]
@@ -183,17 +196,14 @@ def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X
                 if res is None: continue
                 new.append((sym,res,td.dates[idx].hour))
             if new:
-                above=[c for c in new if c[1]['diff']>0]
-                below=[c for c in new if c[1]['diff']<=0]
-                above.sort(key=lambda c:(c[1]['diff'],-c[1]['bars0']))
-                below.sort(key=lambda c:(-c[1]['diff'],-c[1]['bars0']))
-                ranked=above+below
+                # rank all by freshest CO (lowest cross_age_bars), tie-break by diff desc
+                ranked=sorted(new, key=lambda c:(c[1]['cross_age_bars'], -c[1]['diff']))
+                if TOP_N is not None:
+                    ranked=ranked[:TOP_N]
                 ranked=[c for c in ranked if c[0] not in positions]
-                if not ranked: pass
-                else:
+                if ranked:
                     # total equity = cash + mark-to-market of open positions
                     open_val=0.0
-                    has_missing=False
                     for sym,p in positions.items():
                         td0=tdata.get(sid.get(sym))
                         if td0 is None: open_val+=p['shares']*p['entry_px']; continue
@@ -208,7 +218,7 @@ def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X
                         shares=target/res['price']*(1-COST)
                         if shares<=0: continue
                         positions[sym]=dict(shares=shares,entry_px=res['price'],entry_d=day,sym=sym,
-                                            entry_hour=eh,
+                                            entry_hour=eh,peak=res['price'],
                                             s1=res['s1'],s2=res['s2'],diff=res['diff'],
                                             bars0=res['bars0'],cross_age_bars=res['cross_age_bars'])
                         cash-=shares*res['price']*(1+COST)
@@ -232,6 +242,8 @@ def main():
     ap.add_argument('--max-x',type=int,default=2)
     ap.add_argument('--max-x-none',action='store_true')
     ap.add_argument('--fresh-bars',type=int,default=FRESH_BARS)
+    ap.add_argument('--top-n',type=int,default=None,help='buy only the N freshest CO names per day (None=all)')
+    ap.add_argument('--atr-mult',type=float,default=None,help='trailing ATR ratchet stop multiplier (None=off)')
     ap.add_argument('--out',default=None,help='write per-trade CSV report to this path')
     ap.add_argument('--symbols',default=None,help='comma-separated symbols to backtest only (e.g. QQQ)')
     args=ap.parse_args()
@@ -247,7 +259,8 @@ def main():
     print(f"universe {len(ticketers)}, tdata {len(tdata)}")
     start=datetime.strptime(args.start,'%Y-%m-%d').date()
     end=datetime.strptime(args.end,'%Y-%m-%d').date()
-    trades,records=run(ticketers,sid,wk_d,wk_b,dy_d,dy_b,tdata,start,end,MAX_X)
+    trades,records=run(ticketers,sid,wk_d,wk_b,dy_d,dy_b,tdata,start,end,MAX_X,
+                       TOP_N=args.top_n, ATR_MULT=args.atr_mult)
     wins=[t for t in trades if t['ret']>0]
     print(f"\n=== RESULTS (window {args.start}..{args.end}, MAX_X={MAX_X}) ===")
     print(f"Closed trades: {len(trades)}")
