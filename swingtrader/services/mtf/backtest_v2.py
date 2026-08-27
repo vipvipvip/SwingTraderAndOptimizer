@@ -90,7 +90,7 @@ class TickerData:
         bars0=0; j=bi-1
         while j>=0 and self.ml[j]<0:
             bars0+=1; j-=1
-        return dict(price=price,diff=diff,bars0=bars0,s1=s1,s2=s2)
+        return dict(price=price,diff=diff,bars0=bars0,s1=s1,s2=s2,cross_age_h=age_h)
 
 def ema10gt40_bull_series(dates, closes):
     """Return (dates_arr, bull_arr) where bull_arr[i]= EMA10>SMA40 as of bar i (False if invalid)."""
@@ -186,13 +186,30 @@ def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X
                 below=[c for c in new if c[1]['diff']<=0]
                 above.sort(key=lambda c:(c[1]['diff'],-c[1]['bars0']))
                 below.sort(key=lambda c:(-c[1]['diff'],-c[1]['bars0']))
-                for sym,res in above+below:
-                    if sym in positions: continue
-                    alloc=cash/(len(positions)+1)
-                    shares=alloc/res['price']*(1-COST)
-                    if shares<=0: continue
-                    positions[sym]=dict(shares=shares,entry_px=res['price'],entry_d=day,sym=sym)
-                    cash-=shares*res['price']*(1+COST)
+                ranked=above+below
+                ranked=[c for c in ranked if c[0] not in positions]
+                if not ranked: pass
+                else:
+                    # total equity = cash + mark-to-market of open positions
+                    open_val=0.0
+                    has_missing=False
+                    for sym,p in positions.items():
+                        td0=tdata.get(sid.get(sym))
+                        if td0 is None: open_val+=p['shares']*p['entry_px']; continue
+                        i0=bisect.bisect_right(td0.dates, cutoff)-1
+                        open_val+=p['shares']*(td0.close[i0] if i0>=0 else p['entry_px'])
+                    total_eq=cash+open_val
+                    final_n=len(positions)+len(ranked)
+                    target=total_eq/final_n if final_n>0 else 0
+                    for sym,res in ranked:
+                        if cash < target:      # can't fund a full target -> skip (no phantom trade)
+                            continue
+                        shares=target/res['price']*(1-COST)
+                        if shares<=0: continue
+                        positions[sym]=dict(shares=shares,entry_px=res['price'],entry_d=day,sym=sym,
+                                            s1=res['s1'],s2=res['s2'],diff=res['diff'],
+                                            bars0=res['bars0'],cross_age_h=res['cross_age_h'])
+                        cash-=shares*res['price']*(1+COST)
         # MARK
         equity=cash
         for sym,p in positions.items():
@@ -211,6 +228,7 @@ def main():
     ap.add_argument('--end',default='2026-08-26')
     ap.add_argument('--max-x',type=int,default=2)
     ap.add_argument('--max-x-none',action='store_true')
+    ap.add_argument('--out',default=None,help='write per-trade CSV report to this path')
     args=ap.parse_args()
     MAX_X=None if args.max_x_none else args.max_x
     conn=db.get_conn()
@@ -242,6 +260,26 @@ def main():
         years=max((records[-1][0]-records[0][0]).days/365.25,0.01)
         print(f"\nEquity: {start_eq:.0f} -> {end_eq:.0f}  (total {tot*100:+.1f}%, CAGR {((1+tot)**(1/years)-1)*100:+.1f}% over {years:.1f}y)")
         print(f"  max drawdown: {mdd*100:.1f}%")
+
+    if args.out and trades:
+        import csv
+        with open(args.out,'w',newline='') as f:
+            w=csv.writer(f)
+            w.writerow(['symbol','entry_date','exit_date','entry_px','exit_px','shares',
+                        'gross_pnl','net_pnl','ret_pct','hold_days','diff_pct','s1_15d',
+                        's2_15d','bars_below_zero','cross_age_h','win'])
+            for t in sorted(trades,key=lambda x:x['entry_d']):
+                gross=t['exit_px']-t['entry_px']
+                entry_cost=t['entry_px']*COST; exit_cost=t['exit_px']*COST
+                net=gross-entry_cost-exit_cost
+                w.writerow([t['sym'],t['entry_d'],t['exit_d'],
+                            f"{t['entry_px']:.2f}",f"{t['exit_px']:.2f}",f"{t['shares']:.2f}",
+                            f"{gross*t['shares']:.2f}",f"{net*t['shares']:.2f}",
+                            f"{t['ret']*100:.2f}",(t['exit_d']-t['entry_d']).days,
+                            f"{t['diff']:.2f}",f"{t['s1']:.2f}",f"{t['s2']:.2f}",
+                            t['bars0'],f"{t['cross_age_h']:.1f}",
+                            'W' if t['ret']>0 else 'L'])
+        print(f"\nTrade report written: {args.out} ({len(trades)} rows)")
 
 if __name__=='__main__':
     main()
