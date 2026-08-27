@@ -19,8 +19,7 @@ from datetime import datetime, time as dtime
 
 EMASPAN=10; SMASPAN=40; MA200=200
 CHUNK=120            # 15 trading days = 120 hourly bars
-FRESH_H=48
-XWINDOW=240
+FRESH_BARS=270       # 30 trading days x ~9 hourly bars/day freshness window
 EVAL_HOUR=13
 CAPITAL=100000.0
 COST=0.0005
@@ -33,7 +32,7 @@ def ema_sma_bull(closes):
     return not (pd.isna(e) or pd.isna(m)) and e>m
 
 def macd_pos(ml,ms):
-    return ml is not None and ms is not None and ml>0 and ml>ms
+    return ml is not None and ms is not None and ml>ms
 
 class TickerData:
     """Precomputed hourly indicators for one ticker."""
@@ -55,42 +54,39 @@ class TickerData:
             if np.isnan(ema[i]) or np.isnan(sma[i]) or np.isnan(ema[i-1]) or np.isnan(sma[i-1]):
                 continue
             if ema[i]>sma[i] and ema[i-1]<=sma[i-1]:
-                if self.ml[i]>0 and self.ml[i]>self.ms[i]:
-                    self.bullc.append(i)
+                self.bullc.append(i)
             if ema[i]<sma[i] and ema[i-1]>=sma[i-1]:
                 self.beac.append(i)
         self.bullc_arr=np.array(self.bullc)
         self.beac_arr=np.array(self.beac)
 
     def qual(self, idx, MAX_X):
-        """Return dict if qualifies at bar idx, else None."""
-        if idx<MA200+2*CHUNK-1: return None
-        # freshness: last bull cross <= idx and within FRESH_H
+        """Return dict if qualifies at bar idx, else None.
+        Entry = MACD +ve (histogram green, ml>ms) at eval AND last bullish CO within FRESH_BARS bars."""
+        mlv=self.ml[idx]; msv=self.ms[idx]
+        if not macd_pos(mlv,msv): return None
+        # freshness: last bull CO within FRESH_BARS bars of idx
         pos=bisect.bisect_right(self.bullc_arr, idx)-1
         if pos<0: return None
         bi=int(self.bullc_arr[pos])
-        age_h=(self.dates[idx]-self.dates[bi]).total_seconds()/3600
-        if age_h>FRESH_H: return None
-        ma200v=self.ma200[bi]
-        if np.isnan(ma200v) or ma200v<=0: return None
+        if idx-bi>FRESH_BARS: return None
+        ma200v=self.ma200[idx]
         price=self.close[idx]
-        diff=(price-ma200v)/ma200v*100.0
-        # accelerating 200MA
+        if not np.isnan(ma200v) and ma200v>0:
+            diff=(price-ma200v)/ma200v*100.0
+        else:
+            diff=0.0
         m_now=self.ma200[idx]; m_mid=self.ma200[idx-CHUNK]; m_old=self.ma200[idx-2*CHUNK]
-        if np.isnan(m_now) or np.isnan(m_mid) or np.isnan(m_old): return None
-        s1=(m_mid-m_old)/m_old*100.0
-        s2=(m_now-m_mid)/m_mid*100.0
-        if s1<=0 or s2<=0 or s2<=s1: return None
-        # cross count within XWINDOW
-        if MAX_X is not None:
-            lo=bisect.bisect_left(self.bullc_arr, idx-XWINDOW)
-            xcount=pos-lo+1
-            if xcount>MAX_X: return None
+        if not (np.isnan(m_now) or np.isnan(m_mid) or np.isnan(m_old)):
+            s1=(m_mid-m_old)/m_old*100.0
+            s2=(m_now-m_mid)/m_mid*100.0
+        else:
+            s1=s2=0.0
         # bars below zero before this bull cross
         bars0=0; j=bi-1
         while j>=0 and self.ml[j]<0:
             bars0+=1; j-=1
-        return dict(price=price,diff=diff,bars0=bars0,s1=s1,s2=s2,cross_age_h=age_h)
+        return dict(price=price,diff=diff,bars0=bars0,s1=s1,s2=s2,cross_age_bars=idx-bi)
 
 def ema10gt40_bull_series(dates, closes):
     """Return (dates_arr, bull_arr) where bull_arr[i]= EMA10>SMA40 as of bar i (False if invalid)."""
@@ -110,10 +106,14 @@ def is_bull_on(dates_arr, bull_arr, day, start_t=0):
     if idx<0: return False
     return bool(bull_arr[idx])
 
-def load(conn):
+def load(conn, include_etf=False):
     cur=conn.cursor()
-    cur.execute("SELECT id,symbol FROM tbl_stock_tickers WHERE is_etf=false AND enabled=true")
-    tickers=[(r[0],r[1]) for r in cur.fetchall()]
+    if include_etf:
+        cur.execute("SELECT id,symbol FROM tbl_stock_tickers WHERE enabled=true")
+        tickers=cur.fetchall()
+    else:
+        cur.execute("SELECT id,symbol FROM tbl_stock_tickers WHERE is_etf=false AND enabled=true")
+        tickers=cur.fetchall()
     sid={s:t for t,s in tickers}
     # weekly/daily -> precompute bullish series per ticker
     wk_d={}; wk_b={}; dy_d={}; dy_b={}
@@ -164,7 +164,8 @@ def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X
                 if lp < len(td.beac_arr) and td.beac_arr[lp] <= idx:
                     exit_px=td.close[idx]
                     cash+=p['shares']*exit_px*(1-COST)
-                    p.update(exit_d=day,exit_px=exit_px,ret=exit_px/p['entry_px']*(1-COST)-1)
+                    p.update(exit_d=day,exit_px=exit_px,exit_hour=td.dates[idx].hour,
+                             ret=exit_px/p['entry_px']*(1-COST)-1)
                     trades.append(p)
                     del positions[sym]
         # ENTRIES
@@ -180,7 +181,7 @@ def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X
                 if idx<0: continue
                 res=td.qual(idx, MAX_X)
                 if res is None: continue
-                new.append((sym,res))
+                new.append((sym,res,td.dates[idx].hour))
             if new:
                 above=[c for c in new if c[1]['diff']>0]
                 below=[c for c in new if c[1]['diff']<=0]
@@ -201,14 +202,15 @@ def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X
                     total_eq=cash+open_val
                     final_n=len(positions)+len(ranked)
                     target=total_eq/final_n if final_n>0 else 0
-                    for sym,res in ranked:
+                    for sym,res,eh in ranked:
                         if cash < target:      # can't fund a full target -> skip (no phantom trade)
                             continue
                         shares=target/res['price']*(1-COST)
                         if shares<=0: continue
                         positions[sym]=dict(shares=shares,entry_px=res['price'],entry_d=day,sym=sym,
+                                            entry_hour=eh,
                                             s1=res['s1'],s2=res['s2'],diff=res['diff'],
-                                            bars0=res['bars0'],cross_age_h=res['cross_age_h'])
+                                            bars0=res['bars0'],cross_age_bars=res['cross_age_bars'])
                         cash-=shares*res['price']*(1+COST)
         # MARK
         equity=cash
@@ -223,21 +225,29 @@ def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X
 
 def main():
     import argparse
+    global FRESH_BARS
     ap=argparse.ArgumentParser()
     ap.add_argument('--start',default='2024-01-01')
     ap.add_argument('--end',default='2026-08-26')
     ap.add_argument('--max-x',type=int,default=2)
     ap.add_argument('--max-x-none',action='store_true')
+    ap.add_argument('--fresh-bars',type=int,default=FRESH_BARS)
     ap.add_argument('--out',default=None,help='write per-trade CSV report to this path')
+    ap.add_argument('--symbols',default=None,help='comma-separated symbols to backtest only (e.g. QQQ)')
     args=ap.parse_args()
+    FRESH_BARS=args.fresh_bars
     MAX_X=None if args.max_x_none else args.max_x
     conn=db.get_conn()
     print("loading data...")
-    tickers,sid,wk_d,wk_b,dy_d,dy_b,tdata=load(conn)
-    print(f"universe {len(tickers)}, tdata {len(tdata)}")
+    ticketers,sid,wk_d,wk_b,dy_d,dy_b,tdata=load(conn, include_etf=bool(args.symbols))
+    if args.symbols:
+        want=set(x.strip().upper() for x in args.symbols.split(','))
+        ticketers=[(t,s) for t,s in ticketers if s in want]
+        sid={s:t for t,s in ticketers}
+    print(f"universe {len(ticketers)}, tdata {len(tdata)}")
     start=datetime.strptime(args.start,'%Y-%m-%d').date()
     end=datetime.strptime(args.end,'%Y-%m-%d').date()
-    trades,records=run(tickers,sid,wk_d,wk_b,dy_d,dy_b,tdata,start,end,MAX_X)
+    trades,records=run(ticketers,sid,wk_d,wk_b,dy_d,dy_b,tdata,start,end,MAX_X)
     wins=[t for t in trades if t['ret']>0]
     print(f"\n=== RESULTS (window {args.start}..{args.end}, MAX_X={MAX_X}) ===")
     print(f"Closed trades: {len(trades)}")
@@ -265,19 +275,19 @@ def main():
         import csv
         with open(args.out,'w',newline='') as f:
             w=csv.writer(f)
-            w.writerow(['symbol','entry_date','exit_date','entry_px','exit_px','shares',
+            w.writerow(['symbol','entry_date','entry_hour','exit_date','exit_hour','entry_px','exit_px','shares',
                         'gross_pnl','net_pnl','ret_pct','hold_days','diff_pct','s1_15d',
-                        's2_15d','bars_below_zero','cross_age_h','win'])
+                        's2_15d','bars_below_zero','cross_age_bars','win'])
             for t in sorted(trades,key=lambda x:x['entry_d']):
                 gross=t['exit_px']-t['entry_px']
                 entry_cost=t['entry_px']*COST; exit_cost=t['exit_px']*COST
                 net=gross-entry_cost-exit_cost
-                w.writerow([t['sym'],t['entry_d'],t['exit_d'],
+                w.writerow([t['sym'],t['entry_d'],t.get('entry_hour',''),t['exit_d'],t.get('exit_hour',''),
                             f"{t['entry_px']:.2f}",f"{t['exit_px']:.2f}",f"{t['shares']:.2f}",
                             f"{gross*t['shares']:.2f}",f"{net*t['shares']:.2f}",
                             f"{t['ret']*100:.2f}",(t['exit_d']-t['entry_d']).days,
                             f"{t['diff']:.2f}",f"{t['s1']:.2f}",f"{t['s2']:.2f}",
-                            t['bars0'],f"{t['cross_age_h']:.1f}",
+                            t['bars0'],f"{t['cross_age_bars']:.1f}",
                             'W' if t['ret']>0 else 'L'])
         print(f"\nTrade report written: {args.out} ({len(trades)} rows)")
 
