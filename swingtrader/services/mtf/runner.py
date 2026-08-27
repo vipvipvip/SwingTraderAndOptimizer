@@ -140,7 +140,7 @@ def _ensure_csv():
     os.makedirs(os.path.join(BASE_DIR, 'data'), exist_ok=True)
 
 
-def _ensure_daily_data(conn, mode, now, today):
+def _ensure_daily_data(conn, mode, now, today, fresh=False):
     """Check all enabled tickers have complete daily data. Retry populate+compute if not.
     For evening runs (>= 15:30 ET) requires TODAY's bar; earlier runs fall back to the
     latest available daily date (e.g. yesterday mid-morning).
@@ -148,6 +148,13 @@ def _ensure_daily_data(conn, mode, now, today):
     is_etf = mode == 'etf'
     expected = config.EXPECTED_ETFS if is_etf else config.EXPECTED_STOCKS
     EVENING_CUTOFF = dt_time(15, 30)
+
+    # v2-fresh: score on TODAY and use partial-day bars as-is. The intraday
+    # hourly sampler (swingtrader-scanner-hourly) feeds today's bars; today's
+    # daily bar is partial until the 16:30 backfill, which is accepted here
+    # (matches the user's chosen fresh-13:00 model). No completeness retry.
+    if fresh:
+        return True, f'v2-fresh: scoring on {today} (partial-day data accepted)', conn, today
 
     required_date = today
     if now.time() < EVENING_CUTOFF:
@@ -411,7 +418,7 @@ def _format_regime(pct):
         return f'{pct:.0f}% uptrend \u2705 Risk-on'
 
 
-def _run_single_mode(mode, now, today, strategy='mtf'):
+def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     """Run evening scoring for one mode. Returns (success, slack_lines, sig_date).
     Analytics only — saves pending picks for the morning executor. No Alpaca calls.
     Does NOT send Slack. Does NOT catch exceptions (caller must handle)."""
@@ -426,7 +433,7 @@ def _run_single_mode(mode, now, today, strategy='mtf'):
         return False, [f'Skipped {MODE_LABEL[mode]} — stale data'], None
 
     # Guard: all tickers must have complete daily data before proceeding
-    ok, msg, conn, guard_date = _ensure_daily_data(conn, mode, now, today)
+    ok, msg, conn, guard_date = _ensure_daily_data(conn, mode, now, today, fresh=fresh)
     if not ok:
         db_module.log_run(conn, mode, today, 'score', 'error', msg)
         conn.close()
@@ -511,9 +518,14 @@ def _run_single_mode(mode, now, today, strategy='mtf'):
         conn.close()
         return False, ['No daily data found'], None
 
-    # For pre-evening runs, score on the last COMPLETE date (guard_date),
-    # not the partial current-day bars.
-    sig_date = guard_date if guard_date else latest_date
+    if fresh:
+        # v2-fresh: score on TODAY's bars (intraday hourly sampled at ~13:10;
+        # today's daily bar is partial until the 16:30 backfill — accepted).
+        sig_date = today
+    else:
+        # For pre-evening runs, score on the last COMPLETE date (guard_date),
+        # not the partial current-day bars.
+        sig_date = guard_date if guard_date else latest_date
 
     print(f'[MTF] Signal date: {sig_date}')
 
@@ -707,7 +719,11 @@ def _run_execute_pending(mode, today, dry_run=False):
 
     try:
         if dry_run:
-            held = set(db_module.get_all_positions(conn))
+            try:
+                executor._set_alpaca_keys(mode)
+                held = set(executor._get_alpaca_positions().keys())
+            except Exception:
+                held = set(db_module.get_all_positions(conn))
             t = set(top_symbols)
             lines.append(f'🧪 DRY-RUN — no orders placed. Would buy: {", ".join(sorted(t - held)) or "none"}'
                          f' | would sell: {", ".join(sorted(held - t)) or "none"}')
@@ -906,14 +922,14 @@ def _run_market_regime(conn, now, today):
     return lines
 
 
-def run(mode='stock', live=False, strategy='mtf', dry_run=False):
+def run(mode='stock', live=False, strategy='mtf', dry_run=False, fresh=False):
     """Run evening scoring (action='score') or morning execution (action='execute')."""
     now = datetime.now(NY)
     today = now.date()
     action = 'execute' if live else 'score'
     if action == 'score':
         try:
-            success, lines, sig_date = _run_single_mode(mode, now, today, strategy=strategy)
+            success, lines, sig_date = _run_single_mode(mode, now, today, strategy=strategy, fresh=fresh)
             msg = '\n'.join(lines)
             print(f'\n{msg}\n')
             _send_slack(msg, mode)
@@ -956,7 +972,7 @@ def _run_execute_all(today, dry_run=False):
     _send_slack(full_msg, 'all')
 
 
-def run_all(live=False, strategy='mtf', dry_run=False):
+def run_all(live=False, strategy='mtf', dry_run=False, fresh=False):
     """Evening scoring (default) or morning execution (live=True)."""
     now = datetime.now(NY)
     today = now.date()
@@ -972,7 +988,7 @@ def run_all(live=False, strategy='mtf', dry_run=False):
     for mode in ('stock', 'etf'):
         all_lines.append('')
         try:
-            success, lines, sd = _run_single_mode(mode, now, today, strategy=strategy)
+            success, lines, sd = _run_single_mode(mode, now, today, strategy=strategy, fresh=fresh)
             all_lines.extend(lines)
             if sd:
                 sig_date = sd
@@ -1023,11 +1039,15 @@ if __name__ == '__main__':
                         help='stock-leg scoring: mtf (default) or v2 freshest-crossover top-N')
     parser.add_argument('--dry-run', action='store_true',
                         help='execute path: report pending buys/sells without placing orders')
+    parser.add_argument('--fresh', action='store_true',
+                        help='score/execute path: use TODAY\'s (intraday, partial-day) bars as the '
+                             'signal date instead of the last complete date; requires the '
+                             'swingtrader-scanner-hourly intraday sampler to have run')
     parser.add_argument('--live', action='store_true',
                         help='Deprecated: use --action execute instead')
     args = parser.parse_args()
     live = args.live or args.action == 'execute'
     if args.mode == 'all':
-        run_all(live=live, strategy=args.strategy, dry_run=args.dry_run)
+        run_all(live=live, strategy=args.strategy, dry_run=args.dry_run, fresh=args.fresh)
     else:
-        run(mode=args.mode, live=live, strategy=args.strategy, dry_run=args.dry_run)
+        run(mode=args.mode, live=live, strategy=args.strategy, dry_run=args.dry_run, fresh=args.fresh)

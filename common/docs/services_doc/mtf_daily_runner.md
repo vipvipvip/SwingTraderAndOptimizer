@@ -7,9 +7,13 @@ Uses Multi-TF scoring (weekly gap + ATR distance + freshness) across VTI stocks
 and weekly EMA10>SMA40 rotation (EMASMA) across thematic ETFs to select the top N
 most favorable long candidates daily.
 
-**Two-phase execution**: Afternoon scorer (12:30 PM) runs analytics, scores, saves
-pending trades. Executor (1:00 PM) reads pending trades, places market
-orders when market is open, and records fills immediately.
+**v2 same-day flow**: An intraday sampler (`swingtrader-scanner-hourly`) runs
+during market hours (09:10–13:10 ET) and snapshots latest-trade prices into the
+hourly table + recomputes MACD/EMA/SMA. The executor
+(`swingtrader-mtf-executor`, 1:15 PM ET) then scores **v2** (freshest-CO top-10
+stock leg + EMA/SMA ETF leg) on TODAY's intraday bars (`--fresh`) and places
+orders in the same run. The standalone evening scorer is disabled (score is now
+inline in the executor); the ETF leg keeps the EMA/SMA rotation.
 **v2 strategy** (freshest-CO top-10) drives the stock leg; ETF leg keeps the EMA/SMA rotation.
 
 **State is DB-backed**: pending picks live in `mtf_pending` (JSONB), run history
@@ -46,8 +50,8 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 
 ## Architecture
 
-**Afternoon scorer (12:30 PM)** — `--action score`: scored picks with full scoring, saved to pending, portfolio status, sector info
-**Executor (1:00 PM)** — `--action execute`: performs the actual trades
+**Intraday sampler (`swingtrader-scanner-hourly`)** — 09:10–13:10 ET: captures latest-trade prices into the hourly table, then recomputes MACD/EMA/SMA.
+**Executor (`swingtrader-mtf-executor`, 1:15 PM)** — `--action score` then `--action execute` on TODAY's intraday bars (`--fresh`): v2 stock leg + EMA/SMA ETF leg.
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
 │ DB (PSQL)│───▶│  runner.py       │───▶│  Slack alert (picks) │
@@ -65,7 +69,7 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
                  └───────────────┘
 ```
 
-**Executor (1:00 PM)** — `--action execute`:
+**Executor (1:15 PM)** — `--action execute`:
 ```
                  ┌───────────────┐
                  │ mtf_pending   │ ─── reads unconsumed pending
@@ -109,8 +113,9 @@ All files live under `swingtrader/services/mtf/`:
 | `.env` | Environment variables (DB creds, Slack webhook URL) |
 | `data/mtf_picks_stock.csv` | Daily stock top-N picks with scores and components (pick history) |
 | `data/mtf_picks_etf.csv` | Daily ETF top-N picks with scores and components (pick history) |
-| `systemd/swingtrader-mtf-scorer.{service,timer}` | Afternoon scorer (weekdays 12:30 PM ET, `--action score --mode all --strategy v2`) |
-| `systemd/swingtrader-mtf-executor.{service,timer}` | Executor (weekdays 1:00 PM ET, `--action execute --mode all --strategy v2`) |
+| `systemd/swingtrader-scanner-hourly.{service,timer}` | Intraday hourly sampler (weekdays 09:10–13:10 ET) — feeds the 1 PM v2 signal |
+| `systemd/swingtrader-mtf-scorer.{service,timer}` | DISABLED 2026-08-27 (score is inline in the executor); kept for manual/analytics use |
+| `systemd/swingtrader-mtf-executor.{service,timer}` | v2 same-day executor (weekdays 1:15 PM ET, `--action score` then `--action execute`, both `--strategy v2 --fresh`) |
 
 ## Backtest Results (Multi-TF Daily Rebalance)
 
@@ -223,8 +228,8 @@ MTF + EMA/SMA Execution — 2026-07-14 (stocks + ETFs)
 
 ### Slack
 Two Slack messages per day:
-- **4:45 PM / 12:30 PM** — Afternoon picks with full scoring, portfolio status, sector info
-- **1:00 PM** — Executor fill confirmation (what was bought/sold)
+- **09:10–13:10 ET** — Intraday hourly sampler (snapshot prices + recompute MACD/EMA/SMA)
+- **1:00 PM / 1:15 PM** — Executor scores v2 on fresh intraday bars then fills (what was bought/sold)
 
 Evening message includes:
 - Market breadth regime per universe
@@ -276,26 +281,27 @@ sudo journalctl -u swingtrader-mtf-executor.service -f
 
 | Timer | Time | Action | Service |
 |-------|------|--------|---------|
-| `swingtrader-mtf-scorer.timer` | Mon–Fri 12:30 PM ET | Afternoon scoring | `swingtrader-mtf-scorer.service` |
-| `swingtrader-mtf-executor.timer` | Mon–Fri 1:00 PM ET | Execution | `swingtrader-mtf-executor.service` |
+| `swingtrader-scanner-hourly.timer` | Mon–Fri 09:10–13:10 ET | Intraday hourly capture | `swingtrader-scanner-hourly.service` |
+| `swingtrader-mtf-executor.timer` | Mon–Fri 1:15 PM ET | v2 score+execute | `swingtrader-mtf-executor.service` |
 
 ### Manual
 ```bash
 cd /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
 
-# Afternoon: score only (default; --strategy v2 for the stock-leg freshest-CO top-10)
-python3 runner.py --action score --mode all --strategy v2  # Both modes + sectors
-python3 runner.py --action score --mode stock             # Stocks only
-python3 runner.py --action score --mode etf               # ETFs only
+# v2 same-day run (what the 1:15 PM executor does): score TODAY's intraday bars, then execute
+python3 runner.py --action score --mode all --strategy v2 --fresh   # score on today's bars
+python3 runner.py --action execute --mode all --strategy v2 --fresh # fill pending same day
 
-# Executor: place pending trades (--dry-run reports without placing orders)
-python3 runner.py --action execute --mode all             # Execute pending for both modes
+# Scoring without --fresh (last complete date, e.g. evening re-scoring)
+python3 runner.py --action score --mode all --strategy v2
+python3 runner.py --action score --mode stock
+python3 runner.py --action score --mode etf
+
+# Executor: place pending trades (--dry-run reports per-account buys/sells, no orders)
 python3 runner.py --action execute --mode all --dry-run   # Preview buys/sells, no orders
-python3 runner.py --action execute --mode stock           # Execute pending for stocks only
-python3 runner.py --action execute --mode etf             # Execute pending for ETFs only
-
-# Legacy (deprecated — same as --action execute)
-python3 runner.py --mode all --live
+python3 runner.py --action execute --mode all             # Execute pending for both modes
+python3 runner.py --action execute --mode stock
+python3 runner.py --action execute --mode etf
 ```
 
 Note: `--mode all` runs both stock and ETF modes plus sector ETF info in a single

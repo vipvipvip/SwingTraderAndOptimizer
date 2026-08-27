@@ -1,0 +1,12 @@
+[Unit]
+Description=SwingTrader intraday hourly sampler (weekdays 09:10-13:10 ET, feeds v2 1 PM signal)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target swingtrader-db.service
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:10,10:10,11:10,12:10,13:10:00 America/New_York
+Persistent=true
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

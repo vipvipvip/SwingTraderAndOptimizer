@@ -1,0 +1,18 @@
+[Unit]
+Description=SwingTrader intraday hourly price capture + MACD/EMA recompute (09:10-13:10 ET)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network-online.target swingtrader-db.service
+Wants=network-online.target swingtrader-db.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/capture_hourly.py
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe hour --workers 10
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target
