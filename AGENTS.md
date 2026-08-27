@@ -163,7 +163,8 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - Scanner daily data incomplete for current day — `populate_tickers.py --timeframe day` runs at 9 AM before market close
 - Explorer page: `http://localhost:9000/scanner/explorer` (HTML), data: `/scanner/explorer-data?mode=stock|etf` (JSON, ~6s uncached / 0.16s cached)
 - Backtest results: unfiltered MTF +5,469% (22.2% DD); `--min-score 5` +9,061% (33.2% DD); `--min-score 5 + --infancy` +688% (59.2% DD)
-- **CHAND Alpaca** (key REDACTED): $1M paper, active, 0 positions
+- **Live performance (since Jul 31, 2026)**: MTF Stocks: -$9,910 realized (29% win rate, 83 trades, avg win +$473 vs avg loss -$360); MTF ETFs: -$555 realized (13% win rate, 15 trades, avg win +$113 vs avg loss -$60, currently +$3,295 unrealized); CHAND: +$1,984 (+0.2%). Key issue: single-stock blowups (AAOI -$2,145, DAVE -$3,000) eating winners. New filters (hourly-bearish, chase guard, ratchet) committed to prevent recurrence.
+- **CHAND Alpaca** (key REDACTED): $1M paper, active, 1 position (VTI)
 - **EMAC Alpaca** (key REDACTED, acct #PA3EHVX93SJT): $1M paper, stopped
 - **MTCS Alpaca** (key REDACTED, acct #PA3NCXU4O2CN): $1M paper, stopped (code deleted 2026-08-10)
 
