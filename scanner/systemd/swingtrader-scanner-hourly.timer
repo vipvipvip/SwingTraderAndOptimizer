@@ -4,7 +4,11 @@ Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target swingtrader-db.service
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 09:10,10:10,11:10,12:10,13:10:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 09:10:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 10:10:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 11:10:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 12:10:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 13:10:00 America/New_York
 Persistent=true
 RandomizedDelaySec=30
 
