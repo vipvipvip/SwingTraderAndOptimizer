@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOP_N = 10
+V2_FRESH_BARS = 270   # 30 trading days x ~9 hourly bars/day freshness window (v2 strategy)
 SECTOR_ETFS = ['XLB', 'XLE', 'XLF', 'XLRE', 'XLV', 'XLI', 'XLK', 'XLP', 'XLU', 'XLY', 'XLC']
 EXPECTED_STOCKS = 1435
 EXPECTED_ETFS = 28

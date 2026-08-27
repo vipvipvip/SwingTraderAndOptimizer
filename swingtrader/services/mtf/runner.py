@@ -325,6 +325,74 @@ def _compute_emasma_score(weekly, daily_close, wi, sig_date):
     }
 
 
+def _compute_v2_score(weekly, daily, hourly, wi, di, hi, sig_date):
+    """v2 freshest-crossover score for the stock leg.
+
+    Entry (all must hold, matching backtest_v2.py):
+      weekly + daily EMA10 > SMA40 (bullish trend)
+      hourly MACD +ve: macd_line > macd_signal (histogram green)
+      fresh bullish hourly CO (EMA10>SMA40) within V2_FRESH_BARS bars at hi
+    Rank = score = higher for fresher cross (older cross => lower score), so
+    the daily top-N selects the freshest turnouts (backtest showed ranking by
+    freshest CO beats the MTF score).
+    """
+    import math
+    if wi < config.WARMUP_BARS or di < 1 or hi < 1:
+        return None
+    we = weekly['ema'][wi]; ws = weekly['sma'][wi]
+    de = daily['ema'][di]; ds = daily['sma'][di]
+    if any(math.isnan(x) for x in (we, ws, de, ds)):
+        return None
+    if we <= ws or de <= ds:
+        return None
+
+    e = hourly['ema10']; s = hourly['sma40']
+    ml = hourly['macd_line']; ms = hourly['macd_signal']
+    if hi >= len(e) or hi >= len(ml):
+        return None
+    if ml[hi] is None or ms[hi] is None or math.isnan(ml[hi]) or math.isnan(ms[hi]):
+        return None
+    if not (ml[hi] > ms[hi]):          # MACD +ve (histogram green)
+        return None
+    if e[hi] is None or s[hi] is None or s[hi] <= 0 or math.isnan(e[hi]) or math.isnan(s[hi]):
+        # no EMA/SMA yet (warmup), and CO not determinable
+        return None
+
+    # freshness: last bullish CO (EMA10 crossed above SMA40) within V2_FRESH_BARS
+    cross_age = None
+    for j in range(hi, max(0, hi - config.V2_FRESH_BARS) - 1, -1):
+        if e[j] is None or s[j] is None:
+            continue
+        jp = j - 1
+        if jp >= 0 and e[jp] is not None and s[jp] is not None:
+            if e[j] > s[j] and e[jp] <= s[jp]:
+                cross_age = hi - j
+                break
+        elif jp < 0:
+            if e[j] > s[j]:
+                cross_age = hi - j
+                break
+    if cross_age is None:
+        return None
+
+    wc = weekly['close'][wi]
+    dc = daily['close'][di]
+    gap_w = (wc - ws) / ws * 100
+    # score: prefer freshest cross; also nudge by diff % above weekly SMA40
+    fresh_pts = max(0.0, 10.0 - cross_age / config.V2_FRESH_BARS * 10.0)
+    gap_pts = min(max(gap_w, 0) / 20, 3)
+    score = round(fresh_pts + gap_pts, 2)
+    return {
+        'score': score,
+        'gap_w': round(gap_w, 1),
+        'atr_dist': round((dc - (daily['sma'][di] if not math.isnan(daily['sma'][di]) else dc)) / dc * 100, 2),
+        'freshness': max(1, cross_age // 9),   # bars -> approx days
+        'close': round(dc, 2),
+        'name': None,
+        'cross_age_bars': cross_age,
+    }
+
+
 def _get_ticker_name(conn, tid):
     with conn.cursor() as cur:
         cur.execute('SELECT symbol FROM tbl_stock_tickers WHERE id = %s', (tid,))
@@ -343,7 +411,7 @@ def _format_regime(pct):
         return f'{pct:.0f}% uptrend \u2705 Risk-on'
 
 
-def _run_single_mode(mode, now, today):
+def _run_single_mode(mode, now, today, strategy='mtf'):
     """Run evening scoring for one mode. Returns (success, slack_lines, sig_date).
     Analytics only — saves pending picks for the morning executor. No Alpaca calls.
     Does NOT send Slack. Does NOT catch exceptions (caller must handle)."""
@@ -386,7 +454,10 @@ def _run_single_mode(mode, now, today):
     print(f'[MTF] Loading daily data...', flush=True)
     daily_data_raw = db_module.bulk_load_daily(conn, enabled_tids)
     print(f'[MTF] Loading hourly data...', flush=True)
-    hourly_data_raw = db_module.bulk_load_hourly(conn, enabled_tids)
+    if strategy == 'v2' and not is_etf:
+        hourly_data_raw = db_module.bulk_load_hourly_full(conn, enabled_tids)
+    else:
+        hourly_data_raw = db_module.bulk_load_hourly(conn, enabled_tids)
 
     # Filter to enabled tickers with all 3 timeframes (ETF/EMA-SMA only
     # needs weekly + daily; hourly is used by the MTF score only)
@@ -454,6 +525,12 @@ def _run_single_mode(mode, now, today):
             continue
         if is_etf:
             result = _compute_emasma_score(weekly_data[tid], daily_data[tid]['close'][di], wi, sig_date)
+        elif strategy == 'v2':
+            hi = _nearest_date_idx(hourly_idx[tid], hourly_dates_sorted[tid], sig_date)
+            if hi is None:
+                continue
+            result = _compute_v2_score(weekly_data[tid], daily_data[tid], hourly_data[tid],
+                                       wi, di, hi, sig_date)
         else:
             hi = _nearest_date_idx(hourly_idx[tid], hourly_dates_sorted[tid], sig_date)
             if hi is None:
@@ -608,7 +685,7 @@ def _run_single_mode(mode, now, today):
     return True, lines, sig_date
 
 
-def _run_execute_pending(mode, today):
+def _run_execute_pending(mode, today, dry_run=False):
     """Execute pending picks saved by the evening scorer.
     Returns (success, lines, sig_date)."""
     conn = _get_db_conn()
@@ -629,12 +706,19 @@ def _run_execute_pending(mode, today):
     print(f'[MTF] Executing pending trades for {MODE_LABEL[mode]} (scored {ts})')
 
     try:
-        live_lines = executor.execute_rotation(top_symbols, score_detail, mode)
-        if live_lines:
-            lines.extend(live_lines)
-        db_module.clear_pending(conn, mode, sig_date)
-        db_module.log_run(conn, mode, sig_date, 'execute', 'ok')
-        print(f'[MTF] Pending trades cleared for {MODE_LABEL[mode]}')
+        if dry_run:
+            held = set(db_module.get_all_positions(conn))
+            t = set(top_symbols)
+            lines.append(f'🧪 DRY-RUN — no orders placed. Would buy: {", ".join(sorted(t - held)) or "none"}'
+                         f' | would sell: {", ".join(sorted(held - t)) or "none"}')
+            print(f'[MTF] DRY-RUN {mode}: would buy {sorted(t-held)} / sell {sorted(held-t)}')
+        else:
+            live_lines = executor.execute_rotation(top_symbols, score_detail, mode)
+            if live_lines:
+                lines.extend(live_lines)
+            db_module.clear_pending(conn, mode, sig_date)
+            db_module.log_run(conn, mode, sig_date, 'execute', 'ok')
+            print(f'[MTF] Pending trades cleared for {MODE_LABEL[mode]}')
     except Exception as e:
         db_module.log_run(conn, mode, sig_date, 'execute', 'error', str(e))
         lines.append(f'')
@@ -822,14 +906,14 @@ def _run_market_regime(conn, now, today):
     return lines
 
 
-def run(mode='stock', live=False):
+def run(mode='stock', live=False, strategy='mtf', dry_run=False):
     """Run evening scoring (action='score') or morning execution (action='execute')."""
     now = datetime.now(NY)
     today = now.date()
     action = 'execute' if live else 'score'
     if action == 'score':
         try:
-            success, lines, sig_date = _run_single_mode(mode, now, today)
+            success, lines, sig_date = _run_single_mode(mode, now, today, strategy=strategy)
             msg = '\n'.join(lines)
             print(f'\n{msg}\n')
             _send_slack(msg, mode)
@@ -838,7 +922,7 @@ def run(mode='stock', live=False):
             raise
     else:
         try:
-            success, lines, sig_date = _run_execute_pending(mode, today)
+            success, lines, sig_date = _run_execute_pending(mode, today, dry_run=dry_run)
             msg = '\n'.join(lines)
             print(f'\n{msg}\n')
             if success:
@@ -848,7 +932,7 @@ def run(mode='stock', live=False):
             raise
 
 
-def _run_execute_all(today):
+def _run_execute_all(today, dry_run=False):
     """Execute pending trades for all modes. Sends ONE combined Slack message."""
     all_lines = []
     sig_date = str(today)
@@ -856,7 +940,7 @@ def _run_execute_all(today):
     for mode in ('stock', 'etf'):
         all_lines.append('')
         try:
-            success, lines, sd = _run_execute_pending(mode, today)
+            success, lines, sd = _run_execute_pending(mode, today, dry_run=dry_run)
             all_lines.extend(lines)
             if sd:
                 sig_date = sd
@@ -872,14 +956,14 @@ def _run_execute_all(today):
     _send_slack(full_msg, 'all')
 
 
-def run_all(live=False):
+def run_all(live=False, strategy='mtf', dry_run=False):
     """Evening scoring (default) or morning execution (live=True)."""
     now = datetime.now(NY)
     today = now.date()
     action = 'execute' if live else 'score'
 
     if action == 'execute':
-        _run_execute_all(today)
+        _run_execute_all(today, dry_run=dry_run)
         return
 
     all_lines = []
@@ -888,7 +972,7 @@ def run_all(live=False):
     for mode in ('stock', 'etf'):
         all_lines.append('')
         try:
-            success, lines, sd = _run_single_mode(mode, now, today)
+            success, lines, sd = _run_single_mode(mode, now, today, strategy=strategy)
             all_lines.extend(lines)
             if sd:
                 sig_date = sd
@@ -935,11 +1019,15 @@ if __name__ == '__main__':
                         help='score (evening analytics) or execute (morning trades)')
     parser.add_argument('--mode', choices=['stock', 'etf', 'all'], default='stock',
                         help='Ticker universe (default: stock, use "all" for stocks+ETFs)')
+    parser.add_argument('--strategy', choices=['mtf', 'v2'], default='mtf',
+                        help='stock-leg scoring: mtf (default) or v2 freshest-crossover top-N')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='execute path: report pending buys/sells without placing orders')
     parser.add_argument('--live', action='store_true',
                         help='Deprecated: use --action execute instead')
     args = parser.parse_args()
     live = args.live or args.action == 'execute'
     if args.mode == 'all':
-        run_all(live=live)
+        run_all(live=live, strategy=args.strategy, dry_run=args.dry_run)
     else:
-        run(mode=args.mode, live=live)
+        run(mode=args.mode, live=live, strategy=args.strategy, dry_run=args.dry_run)

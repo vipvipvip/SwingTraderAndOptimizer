@@ -11,7 +11,7 @@ User=dikesh
 WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
 ExecStartPre=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python /home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/scripts/populate_tickers.py --timeframe day --workers 10
 ExecStartPre=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python /home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/scripts/compute_indicators.py --timeframe day --workers 10
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action score --mode all
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action score --mode all --strategy v2
 StandardOutput=journal
 StandardError=journal
 Environment=PYTHONUNBUFFERED=1

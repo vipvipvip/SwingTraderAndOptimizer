@@ -1,10 +1,10 @@
 [Unit]
-Description=MTF Top-N Daily Scorer Timer (weekdays at 4:45 PM ET after scanner backfill)
+Description=MTF Top-N Daily Scorer Timer (weekdays at 12:30 PM ET before 1:00 PM executor)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target swingtrader-db.service
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 16:45:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 12:30:00 America/New_York
 Persistent=true
 RandomizedDelaySec=120
 
