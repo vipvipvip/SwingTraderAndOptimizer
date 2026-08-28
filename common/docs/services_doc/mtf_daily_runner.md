@@ -10,7 +10,7 @@ most favorable long candidates daily.
 **v2 same-day flow**: An intraday sampler (`swingtrader-scanner-hourly`) runs
 during market hours (09:10–13:10 ET) and snapshots latest-trade prices into the
 hourly table + recomputes MACD/EMA/SMA. The executor
-(`swingtrader-mtf-executor`, 1:15 PM ET) then scores **v2** (freshest-CO top-10
+(`swingtrader-mtf-executor`, 1:30 PM ET) then scores **v2** (freshest-CO top-10
 stock leg + EMA/SMA ETF leg) on TODAY's intraday bars (`--fresh`) and places
 orders in the same run. The standalone evening scorer is disabled (score is now
 inline in the executor); the ETF leg keeps the EMA/SMA rotation.
@@ -51,7 +51,7 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 ## Architecture
 
 **Intraday sampler (`swingtrader-scanner-hourly`)** — 09:10–13:10 ET: captures latest-trade prices into the hourly table, then recomputes MACD/EMA/SMA.
-**Executor (`swingtrader-mtf-executor`, 1:15 PM)** — `--action score` then `--action execute` on TODAY's intraday bars (`--fresh`): v2 stock leg + EMA/SMA ETF leg.
+**Executor (`swingtrader-mtf-executor`, 1:30 PM)** — `--action score` then `--action execute` on TODAY's intraday bars (`--fresh`): v2 stock leg + EMA/SMA ETF leg.
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
 │ DB (PSQL)│───▶│  runner.py       │───▶│  Slack alert (picks) │
@@ -69,7 +69,7 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
                  └───────────────┘
 ```
 
-**Executor (1:15 PM)** — `--action execute`:
+**Executor (1:30 PM)** — `--action execute`:
 ```
                  ┌───────────────┐
                  │ mtf_pending   │ ─── reads unconsumed pending
@@ -115,7 +115,7 @@ All files live under `swingtrader/services/mtf/`:
 | `data/mtf_picks_etf.csv` | Daily ETF top-N picks with scores and components (pick history) |
 | `systemd/swingtrader-scanner-hourly.{service,timer}` | Intraday hourly sampler (weekdays 09:10–13:10 ET) — feeds the 1 PM v2 signal |
 | `systemd/swingtrader-mtf-scorer.{service,timer}` | DISABLED 2026-08-27 (score is inline in the executor); kept for manual/analytics use |
-| `systemd/swingtrader-mtf-executor.{service,timer}` | v2 same-day executor (weekdays 1:15 PM ET, `--action score` then `--action execute`, both `--strategy v2 --fresh`) |
+| `systemd/swingtrader-mtf-executor.{service,timer}` | v2 same-day executor (weekdays 1:30 PM ET, `--action score` then `--action execute`, both `--strategy v2 --fresh`) |
 
 ## Backtest Results (Multi-TF Daily Rebalance)
 
@@ -229,7 +229,7 @@ MTF + EMA/SMA Execution — 2026-07-14 (stocks + ETFs)
 ### Slack
 Two Slack messages per day:
 - **09:10–13:10 ET** — Intraday hourly sampler (snapshot prices + recompute MACD/EMA/SMA)
-- **1:00 PM / 1:15 PM** — Executor scores v2 on fresh intraday bars then fills (what was bought/sold)
+- **1:00 PM / 1:30 PM** — Executor scores v2 on fresh intraday bars then fills (what was bought/sold)
 
 Evening message includes:
 - Market breadth regime per universe
@@ -282,13 +282,13 @@ sudo journalctl -u swingtrader-mtf-executor.service -f
 | Timer | Time | Action | Service |
 |-------|------|--------|---------|
 | `swingtrader-scanner-hourly.timer` | Mon–Fri 09:10–13:10 ET | Intraday hourly capture | `swingtrader-scanner-hourly.service` |
-| `swingtrader-mtf-executor.timer` | Mon–Fri 1:15 PM ET | v2 score+execute | `swingtrader-mtf-executor.service` |
+| `swingtrader-mtf-executor.timer` | Mon–Fri 1:30 PM ET | v2 score+execute | `swingtrader-mtf-executor.service` |
 
 ### Manual
 ```bash
 cd /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
 
-# v2 same-day run (what the 1:15 PM executor does): score TODAY's intraday bars, then execute
+# v2 same-day run (what the 1:30 PM executor does): score TODAY's intraday bars, then execute
 python3 runner.py --action score --mode all --strategy v2 --fresh   # score on today's bars
 python3 runner.py --action execute --mode all --strategy v2 --fresh # fill pending same day
 
