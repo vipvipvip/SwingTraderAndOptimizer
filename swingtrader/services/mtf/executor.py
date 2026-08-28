@@ -266,6 +266,8 @@ def _block_rebuy(symbol, price, conn):
     never locks a symbol out permanently.
 
     Returns (blocked, reason) — reason is a human-readable string."""
+    if not config.ENABLE_CHASE_GUARD:
+        return False, ''
     sell = _last_profit_sell(symbol, conn)
     if not sell:
         return False, ''

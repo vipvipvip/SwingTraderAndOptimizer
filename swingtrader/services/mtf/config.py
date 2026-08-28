@@ -30,6 +30,14 @@ RATCHET_ATR_MULT = 2.0
 # CIEN +181%); deep pullbacks (<=-5%) have 0% win rate in paper trading.
 HOURLY_BEARISH_DAILY_GAP_LIMIT = -5.0
 
+# Chase-guard: block re-entry when a symbol's price rises more than a
+# toleranced % above the last SELL (fine-grained against buying back a name
+# right after taking a loss).   It aggressively blocks top-N names the sandbox
+# recently sold at a loss, causing the executor to silently backfill rank-11+
+# names instead of the reported top-10.  NULLED for the v2 sandbox run
+# (set to True to re-enable).
+ENABLE_CHASE_GUARD = False
+
 DB_HOST = os.getenv('DB_HOST', '127.0.0.1')
 DB_PORT = int(os.getenv('DB_PORT', '5432'))
 DB_NAME = os.getenv('DB_DATABASE', 'swingtrader')
