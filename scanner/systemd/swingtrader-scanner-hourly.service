@@ -1,5 +1,5 @@
 [Unit]
-Description=SwingTrader intraday hourly price capture + MACD/EMA recompute (09:10-13:10 ET)
+Description=SwingTrader intraday hourly price capture + MACD/EMA recompute (09:10-15:10 ET)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network-online.target swingtrader-db.service
 Wants=network-online.target swingtrader-db.service

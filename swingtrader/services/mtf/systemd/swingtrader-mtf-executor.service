@@ -1,5 +1,5 @@
 [Unit]
-Description=MTF v2 Stock+ETF Executor (same-day score+execute at 1 PM)
+Description=MTF v2 Stock+ETF Executor (7x/day score+execute on fresh hourly bars)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network-online.target swingtrader-db.service swingtrader-scanner-hourly.service
 Wants=network-online.target

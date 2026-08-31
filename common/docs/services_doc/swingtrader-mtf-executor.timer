@@ -1,10 +1,16 @@
 [Unit]
-Description=MTF v2 Executor Timer (weekdays 1:30 PM ET, after 1:10 PM intraday capture+compute)
+Description=MTF v2 Executor Timer (7x/day, :25 past each hour after capture+compute)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target swingtrader-db.service swingtrader-scanner-hourly.timer
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 13:30:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 10:25:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 11:25:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 12:25:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 13:25:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 14:25:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 15:25:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 15:45:00 America/New_York
 Persistent=true
 RandomizedDelaySec=60
 
