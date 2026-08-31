@@ -621,26 +621,37 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     # preserve (failed filter or missing data) when selling.
     db_module.save_pending(conn, mode, top_symbols, score_detail, sig_date)
 
-    # MTM from real holdings × today's closes
-    mtm_value = 0.0
-    for sym, pos in all_positions.items():
-        if sym not in held:
-            continue
-        sd = score_detail.get(sym)
-        close = sd['close'] if sd else None
-        if not close:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT close FROM tbl_scanner_tickers_daily "
-                        "WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol=%s) "
-                        "ORDER BY date DESC LIMIT 1", (sym,))
-                    row = cur.fetchone()
-                    close = float(row[0]) if row else None
-            except Exception:
-                close = None
-        if close:
-            mtm_value += pos['quantity'] * close
+    # MTM = REAL Alpaca account equity for this mode (position values + cash).
+    # If Alpaca is reachable, report exactly what the account shows so Slack
+    # matches Alpaca. Fall back to DB-held qty x close only if Alpaca fails.
+    mtm_value = None
+    try:
+        executor._set_alpaca_keys(mode)
+        acct = executor._get_account()
+        mtm_value = float(acct.get('equity', 0))
+    except Exception:
+        mtm_value = None
+
+    if mtm_value is None:
+        mtm_value = 0.0
+        for sym, pos in all_positions.items():
+            if sym not in held:
+                continue
+            sd = score_detail.get(sym)
+            close = sd['close'] if sd else None
+            if not close:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT close FROM tbl_scanner_tickers_daily "
+                            "WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol=%s) "
+                            "ORDER BY date DESC LIMIT 1", (sym,))
+                        row = cur.fetchone()
+                        close = float(row[0]) if row else None
+                except Exception:
+                    close = None
+            if close:
+                mtm_value += pos['quantity'] * close
 
     # Build message
     label = MODE_LABEL[mode]
