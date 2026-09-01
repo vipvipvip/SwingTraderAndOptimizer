@@ -361,6 +361,17 @@ def _compute_v2_score(weekly, daily, hourly, wi, di, hi, sig_date):
         return None
     if not (ml[hi] > ms[hi]):          # MACD +ve (histogram green)
         return None
+    # MACD histogram momentum guard: exclude when histogram has faded below
+    # V2_HIST_PEAK_FLOOR of its peak over the trailing lookback window
+    # (shorter bars = decelerating drive, even while EMA/SMA CO is still +ve).
+    hist_now = ml[hi] - ms[hi]
+    _w0 = max(0, hi - config.V2_HIST_PEAK_LOOKBACK)
+    _hist_peak = max((ml[j] - ms[j] for j in range(_w0, hi)
+                      if ml[j] is not None and ms[j] is not None
+                      and not math.isnan(ml[j]) and not math.isnan(ms[j])),
+                     default=None)
+    if _hist_peak is not None and hist_now < _hist_peak * config.V2_HIST_PEAK_FLOOR:
+        return None
     if e[hi] is None or s[hi] is None or s[hi] <= 0 or math.isnan(e[hi]) or math.isnan(s[hi]):
         # no EMA/SMA yet (warmup), and CO not determinable
         return None

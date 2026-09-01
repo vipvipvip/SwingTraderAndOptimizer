@@ -4,9 +4,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOP_N = 10
-V2_FRESH_BARS = 270   # 30 trading days x ~9 hourly bars/day freshness window (v2 strategy)
+V2_FRESH_BARS = 18     # 1-2 trading days x ~9 hourly bars/day freshness window (v2 strategy)
+# MACD histogram momentum guard: exclude an entry (incl. re-buy) when the
+# histogram has faded below V2_HIST_PEAK_FLOOR of its peak over the trailing
+# V2_HIST_PEAK_LOOKBACK hourly bars.  Catches "shorter MACD histogram bars"
+# (decelerating drive) even while EMA/SMA CO is still +ve — this is what made
+# TEAM a bad re-buy after its ratchet stop.
+V2_HIST_PEAK_LOOKBACK = 24
+V2_HIST_PEAK_FLOOR = 0.7
 SECTOR_ETFS = ['XLB', 'XLE', 'XLF', 'XLRE', 'XLV', 'XLI', 'XLK', 'XLP', 'XLU', 'XLY', 'XLC']
-EXPECTED_STOCKS = 1435
+EXPECTED_STOCKS = 1434
 EXPECTED_ETFS = 28
 EMA_PERIOD = 10
 SMA_PERIOD = 40

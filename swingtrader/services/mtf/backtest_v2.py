@@ -19,7 +19,7 @@ from datetime import datetime, time as dtime
 
 EMASPAN=10; SMASPAN=40; MA200=200
 CHUNK=120            # 15 trading days = 120 hourly bars
-FRESH_BARS=270       # 30 trading days x ~9 hourly bars/day freshness window
+FRESH_BARS=18        # 1-2 trading days x ~9 hourly bars/day freshness window
 EVAL_HOUR=13
 CAPITAL=100000.0
 COST=0.0005

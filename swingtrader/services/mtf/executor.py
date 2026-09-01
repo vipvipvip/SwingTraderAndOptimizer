@@ -643,7 +643,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                 if len(fillers) >= freed_count:
                     break
                 if (sym not in held_after_sell and sym not in target_symbols
-                        and sym not in ratchet_sold and sym not in pre_blocked):
+                        and sym not in symbols_to_sell and sym not in ratchet_sold and sym not in pre_blocked):
                     fillers.append(sym)
         symbols_to_buy = [s for s in buy_targets if s not in pre_blocked] + fillers
         if symbols_to_buy:
