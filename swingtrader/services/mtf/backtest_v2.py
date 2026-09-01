@@ -20,6 +20,9 @@ from datetime import datetime, time as dtime
 EMASPAN=10; SMASPAN=40; MA200=200
 CHUNK=120            # 15 trading days = 120 hourly bars
 FRESH_BARS=18        # 1-2 trading days x ~9 hourly bars/day freshness window
+HIST_GUARD=True      # MACD histogram momentum guard (matches live runner config)
+HIST_PEAK_LOOKBACK=24
+HIST_PEAK_FLOOR=0.7
 EVAL_HOUR=13
 CAPITAL=100000.0
 COST=0.0005
@@ -41,6 +44,7 @@ class TickerData:
         self.close=np.array([b[1] for b in bars], dtype=float)
         self.ml=np.array([b[2] if b[2] is not None else np.nan for b in bars], dtype=float)
         self.ms=np.array([b[3] if b[3] is not None else np.nan for b in bars], dtype=float)
+        self.hist=self.ml-self.ms   # MACD histogram (nan-aware)
         self.atr=np.array([b[4] if b[4] is not None else np.nan for b in bars], dtype=float)
         n=len(self.close)
         s=pd.Series(self.close)
@@ -63,9 +67,20 @@ class TickerData:
 
     def qual(self, idx, MAX_X):
         """Return dict if qualifies at bar idx, else None.
-        Entry = MACD +ve (histogram green, ml>ms) at eval AND last bullish CO within FRESH_BARS bars."""
+        Entry = MACD +ve (histogram green, ml>ms) at eval AND last bullish CO within FRESH_BARS bars.
+        HIST_GUARD: exclude when the MACD histogram has faded below
+        HIST_PEAK_FLOOR of its peak over the trailing HIST_PEAK_LOOKBACK bars
+        (shorter bars = decelerating drive, even while EMA/SMA CO is +ve)."""
         mlv=self.ml[idx]; msv=self.ms[idx]
         if not macd_pos(mlv,msv): return None
+        if HIST_GUARD:
+            hist_now=self.hist[idx]
+            w0=max(0, idx-HIST_PEAK_LOOKBACK)
+            w=self.hist[w0:idx]
+            w=w[~np.isnan(w)]
+            if w.size and not np.isnan(hist_now):
+                if hist_now < float(np.max(w))*HIST_PEAK_FLOOR:
+                    return None
         # freshness: last bull CO within FRESH_BARS bars of idx
         pos=bisect.bisect_right(self.bullc_arr, idx)-1
         if pos<0: return None
@@ -235,19 +250,26 @@ def run(tickers, sid, wk_d, wk_b, dy_d, dy_b, tdata, start_date, end_date, MAX_X
 
 def main():
     import argparse
-    global FRESH_BARS
+    global FRESH_BARS, HIST_GUARD, HIST_PEAK_LOOKBACK, HIST_PEAK_FLOOR
     ap=argparse.ArgumentParser()
     ap.add_argument('--start',default='2024-01-01')
     ap.add_argument('--end',default='2026-08-26')
     ap.add_argument('--max-x',type=int,default=2)
     ap.add_argument('--max-x-none',action='store_true')
     ap.add_argument('--fresh-bars',type=int,default=FRESH_BARS)
+    ap.add_argument('--hist-guard',dest='hist_guard',action='store_true',default=HIST_GUARD)
+    ap.add_argument('--no-hist-guard',dest='hist_guard',action='store_false')
+    ap.add_argument('--hist-lookback',type=int,default=HIST_PEAK_LOOKBACK)
+    ap.add_argument('--hist-floor',type=float,default=HIST_PEAK_FLOOR)
     ap.add_argument('--top-n',type=int,default=None,help='buy only the N freshest CO names per day (None=all)')
     ap.add_argument('--atr-mult',type=float,default=None,help='trailing ATR ratchet stop multiplier (None=off)')
     ap.add_argument('--out',default=None,help='write per-trade CSV report to this path')
     ap.add_argument('--symbols',default=None,help='comma-separated symbols to backtest only (e.g. QQQ)')
     args=ap.parse_args()
     FRESH_BARS=args.fresh_bars
+    HIST_GUARD=args.hist_guard
+    HIST_PEAK_LOOKBACK=args.hist_lookback
+    HIST_PEAK_FLOOR=args.hist_floor
     MAX_X=None if args.max_x_none else args.max_x
     conn=db.get_conn()
     print("loading data...")
