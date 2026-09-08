@@ -4,6 +4,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOP_N = 10
+# ETF-leg pilot (2026-09-08): concentration to 3 was the edge in backtests —
+# ETF-28 top-3 +1,122.7% / 15.7% DD vs top-10 +422.6% / 20.3% DD (same window,
+# audited & ledger-reconciled). Stocks stay at TOP_N. Set ETF_TOP_N equal to
+# TOP_N to revert.
+ETF_TOP_N = 3
 V2_FRESH_BARS = 18     # 1-2 trading days x ~9 hourly bars/day freshness window (v2 strategy)
 # MACD histogram momentum guard: exclude an entry (incl. re-buy) when the
 # histogram has faded below V2_HIST_PEAK_FLOOR of its peak over the trailing

@@ -339,6 +339,14 @@ def main():
         costs = float(sum(r['buy_fee'] + r['sell_fee'] for r in strat_rt))
         exposure = sum(1 for c in pc if c > 0) / len(pc) * 100
 
+        # Auditor gate: the ledger (every SELL incl. open marks) + initial
+        # capital must equal the engine's final equity. Any real gap (drift in
+        # the engine's equity labeling, missing fees, etc.) FAILS the audit.
+        ledger_sum = CAPITAL + float(np.sum([r['net_pnl'] for r in roundtrips]))
+        ledger_delta = float(final - ledger_sum)
+        RECON_TOL = 1.0  # USD; residual is float/display rounding only
+        recon_ok = abs(ledger_delta) <= RECON_TOL
+
         # benchmarks
         bench = {}
         for s in ('SPY', 'VTI'):
@@ -416,8 +424,9 @@ def main():
             ('days_invested_pct', round(exposure, 2)),
             ('avg_positions', round(float(np.mean(pc)), 2) if pc else 'n/a'),
             ('cost_per_side_bps', COST * 10000),
-            ('ledger_reconciliation', 'sum(net_pnl) + capital == final equity '
-             'within display rounding'),
+            ('ledger_sum_usd', round(ledger_sum, 2)),
+            ('ledger_delta_usd', round(ledger_delta, 2)),
+            ('ledger_reconciliation', 'PASS' if recon_ok else 'FAIL'),
             ('note_open_marks', 'end-of-sample positions valued at last close; '
              'no exit cost applied (engine MTMs at close)'),
             ('note_hourly_fields', 'hourly-derived snapshot fields (atr_dist, '
@@ -468,14 +477,21 @@ def main():
         if not cli.quiet:
             report(label, out, all_dates, final, cagr, sharpe, sortino, vol,
                    maxdd, calmar, nets, hol, streak, costs, exposure, pc,
-                   bench, strat_rt, open_rt)
+                   bench, strat_rt, open_rt, ledger_sum, ledger_delta, recon_ok)
+        if not recon_ok:
+            print(f'[AUDIT] ✗ FAIL: ledger {ledger_sum:,.2f} vs final equity '
+                  f'{final:,.2f} (delta {ledger_delta:+,.2f}) — not reconcilable')
+            return 1
+        if not cli.quiet:
+            print('[AUDIT] ✓ ledger reconciliation PASS')
         return 0
     finally:
         conn.close()
 
 
 def report(label, out, all_dates, final, cagr, sharpe, sortino, vol, maxdd,
-           calmar, nets, hol, streak, costs, exposure, pc, bench, strat_rt, open_rt):
+           calmar, nets, hol, streak, costs, exposure, pc, bench, strat_rt, open_rt,
+           ledger_sum, ledger_delta, recon_ok):
     nets = np.asarray(nets)
     w = nets[nets > 0]
     ls = nets[nets < 0]
@@ -492,6 +508,8 @@ def report(label, out, all_dates, final, cagr, sharpe, sortino, vol, maxdd,
         print(f'  Avg hold {hol.mean():.1f} td | max losing streak {streak} | costs ${costs:,.2f}')
     print(f'  Exposure {exposure:.1f}% days invested, avg {np.mean(pc):.1f} positions '
           f'({len(open_rt)} open at sample end, {len(strat_rt)} closed)')
+    print(f'  Ledger     ${ledger_sum:,.2f} vs final ${final:,.2f} '
+          f'(delta {ledger_delta:+,.2f}) — {"PASS" if recon_ok else "FAIL"}')
     print('  Benchmarks')
     for k, v in bench.items():
         print(f'    {k:<18} {v["ret"]:+8.1f}%   CAGR {v["cagr"]:+.1f}%')

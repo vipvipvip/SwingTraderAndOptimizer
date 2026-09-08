@@ -105,7 +105,7 @@ All files live under `swingtrader/services/mtf/`:
 | File | Purpose |
 |------|---------|
 | `runner.py` | Two-phase: `--action score` (evening analytics) or `--action execute` (morning trades). Stocks scored with Multi-TF, ETFs with EMA/SMA |
-| `config.py` | DB creds, scoring params (TOP_N=10, EMA/SMA periods, cost, capital) |
+| `config.py` | DB creds, scoring params (TOP_N=10, ETF_TOP_N=3, EMA/SMA periods, cost, capital) |
 | `db.py` | Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state |
 | `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA3H8RAWIS0C, etf #PA3U8GZ96PEN); `reconcile_trades()` rebuilds `mtf_trades` from Alpaca fills |
 | `reconcile_trades.py` | CLI wrapper: `--mode all\|stock\|etf` — idempotent fill-log rebuild from Alpaca's authoritative order history |
@@ -153,6 +153,28 @@ Backtest confirmed infancy as a hard filter *drags* performance (min-score 5 + i
 Multi-TF score (weekly+daily bullish filter) eliminates weak stocks completely.
 Long scanner's MACD/PPO zero-line crosses are noisy (50% win rate = coin flip).
 Multi-TF daily doesn't churn because scores are stable day-to-day.
+
+### ETF-leg top-3 concentration pilot (2026-09-08)
+
+The ETF leg was holding top-10 of 28 (too diversified — little selection power).
+Audited backtest (same window 2020-03-02 → 2026-09-08, `--score emasma`, daily
+rebalance, ledger reconciliation = PASS within $0.03):
+
+| Config | Final | Return | MaxDD | Sharpe | Sortino |
+|--------|-------|--------|-------|--------|---------|
+| ETF-28 **top-3** (pilot) | $1,222,649 | **+1,122.7%** | **15.7%** | **1.94** | **1.87** |
+| ETF-28 top-10 (prior live) | $522,568 | +422.6% | 20.3% | 1.56 | 1.44 |
+| Sector-11 top-3 (info-only) | $657,254 | +557.3% | 21.8% | 1.68 | 1.56 |
+
+Concentration, not the sector universe, is the edge: applying top-3 to the full
+28-ETF universe strictly dominates the sector-11 top-3 (return AND drawdown).
+`config.ETF_TOP_N = 3` (stocks stay `TOP_N = 10`); revert by setting
+`ETF_TOP_N = TOP_N`. Full artifacts: `audit/etf_audit/` (top-3/top-10) and
+`audit/sector_etf_audit/`. The audit also exposed & fixed an engine off-by-one:
+the no-candidates MTM path valued equity at the *prior* date's close while
+stamping the next day's label (understated the final equity point). Canonical
+risk metrics moved slightly (sector MaxDD −20.2% → −21.8%, Sharpe 1.75 → 1.68);
+final equity unchanged (+557.25%).
 
 ## Slack Messages
 

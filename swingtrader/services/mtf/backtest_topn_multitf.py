@@ -416,14 +416,19 @@ def backtest(argv=None):
                 candidates.append((tid, decision_score))
 
             if not candidates:
-                # MTM — fall back to last available close if sig_date missing
+                # MTM at the label date's close — same convention as the
+                # candidate path (value the portfolio at exec_date close).
+                # Using sig_date's close here labels tomorrow's date with
+                # today's value: an off-by-one that understated the final
+                # equity point (surfaced by the audit template reconciliation).
                 pf_val = cash
+                label_date = all_dates[min(ri + 1, len(all_dates) - 1)]
                 for tid in list(positions):
-                    p = _last_idx_before(daily_idx[tid], daily[tid]['dates'], sig_date)
+                    p = _last_idx_before(daily_idx[tid], daily[tid]['dates'], label_date)
                     if p is not None:
                         pf_val += positions[tid]['shares'] * float(daily[tid]['close'][p])
                 equity_curve.append(pf_val)
-                equity_dates.append(all_dates[min(ri + 1, len(all_dates) - 1)])
+                equity_dates.append(label_date)
                 pos_counts.append(len(positions))
                 continue
 

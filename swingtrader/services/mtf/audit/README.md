@@ -56,8 +56,9 @@ python mtf_audit_template.py --out ../audit/outputs --label mtf_ratchet_top10 --
   instead of fabricated values.
 - **Cost basis** — buy fee is embedded in share sizing (`shares=(alloc/bp)*(1-COST)`).
   Round-trip net P/L = `gross − sell_fee`; summing `net_pnl` across ALL rows +
-  initial capital equals the engine's end-of-sample equity within the display
-  rounding (2 decimal places).
+  initial capital equals the engine's end-of-sample equity. This is a REAL
+  gate: the auditor FAILS (exit code 1) if the delta exceeds $1.00 (`_ledger_`
+  columns in `_performance.csv` record the sum / delta / PASS-FAIL).
 - **Open positions** — marked to the last available close with **no exit cost**
   (the engine's MTM adds no cost), so the ledger reconciles exactly. They are
   excluded from win-rate/profit-factor and flagged in `exit_reason` as

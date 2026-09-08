@@ -31,7 +31,7 @@ def main():
     print()
     print('--- MTF Top-N (Multi-TF Score Rotation) ---')
     print(f'  Time: {now_ny.strftime("%a %Y-%m-%d %H:%M %Z")} ({market_label})')
-    print(f'  Top-N: {config.TOP_N} | Score: gap_w/20 + atr_dist/1.5 + freshness')
+    print(f'  Top-N: stocks {config.TOP_N} | ETFs {config.ETF_TOP_N} | Score: gap_w/20 + atr_dist/1.5 + freshness')
 
     # ── Service timer status ──
     svc_status = os.popen(

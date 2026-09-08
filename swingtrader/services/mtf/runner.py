@@ -660,7 +660,7 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
         return False, lines, sig_date
 
     candidates.sort(key=lambda x: -x['score'])
-    top_n = candidates[:config.TOP_N]
+    top_n = candidates[:config.ETF_TOP_N if is_etf else config.TOP_N]
 
     score_detail = {}
     for t in candidates:
@@ -752,7 +752,7 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     # Build message
     label = MODE_LABEL[mode]
     strategy_name = STRATEGY_NAME.get(mode, 'Multi-TF')
-    lines.append(f'*{strategy_name} Top {config.TOP_N} — {sig_date} ({label})*')
+    lines.append(f'*{strategy_name} Top {config.ETF_TOP_N if is_etf else config.TOP_N} — {sig_date} ({label})*')
     lines.append('```')
 
     try:
@@ -1166,7 +1166,8 @@ def run_all(live=False, strategy='mtf', dry_run=False, fresh=False):
     if not sig_date:
         sig_date = str(today)
 
-    header = f'MTF Top {config.TOP_N} + EMA/SMA Top {config.TOP_N} — {sig_date} (stocks + ETFs + sectors + regime)'
+    header = (f'MTF Top {config.TOP_N} + EMA/SMA Top {config.ETF_TOP_N} '
+          f'— {sig_date} (stocks + ETFs + sectors + regime)')
     full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
     print(f'\n{full_msg}\n')
     _send_slack(full_msg, 'all')
