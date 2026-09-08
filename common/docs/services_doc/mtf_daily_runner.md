@@ -193,10 +193,16 @@ Breadth: 64% uptrend ✅ Risk-on
 MTM: $105,282  |  Positions: 11  |  Picks: 10
 XLF,XLV,SCHD,XLE,IJR,VTV,XLI,XLRE,DIA,RSP
 
-Sector ETFs — 2026-07-13
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 1. XLK     3.5  gap +18.2%  atr 1.80%  45d
- ...
+Sector ETFs — top-3 (ema-sma) — 2026-09-08
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   Ticker  Score     Gap   Fresh     Close   ATR%    WkEMA    WkSMA
+--- ------- ----- ------- ------- --------- ------ -------- --------
+1   XLE       3.4  +17.2%    379d $   64.94  +0.8% $   61.1 $   55.3
+2   XLK       3.3  +16.4%    148d $  188.16  +0.6% $  183.4 $  161.8
+3   XLV       1.6   +8.3%     99d $  167.72  +0.8% $  165.7 $  154.9
+
+Next: XLF 1.6 | XLB 0.7 | XLRE 0.5 | XLI 0.4 | XLP 0.2
+Flat (weekly EMA10<=SMA40): XLC, XLU, XLY
 ```
 
 - **NEW/OUT** lines show picks added/removed vs real `mtf_positions` holdings
@@ -207,8 +213,12 @@ Sector ETFs — 2026-07-13
 ### Sector ETFs (Informational)
 
 Sector ETF scores appear in the daily Slack for situational awareness — which sectors have
-strong momentum. No portfolio, no state, no CSVs. Just score rankings so you can see
-where the rotational strength is.
+strong momentum. No portfolio, no state, no CSVs. Ranked by the audited sector strategy
+(weekly EMA10>SMA40 gap, `--score emasma`, top-3 rotation): the top 3 rows are the picks,
+`Score` = min(gap/5, 5), `Gap` = weekly close vs SMA40 gap, `Fresh` = days since the
+weekly cross, `ATR%` = distance above the hourly ATR stop, `WkEMA`/`WkSMA` = the weekly
+trend reference levels. The trailing comma list (all 11, alpha-sorted) is preserved for
+tooling/quick copy.
 
 **Morning (10:00 AM)** — fill confirmation, tagged `[MTF+EMA-SMA stocks+ETFs]`:
 ```

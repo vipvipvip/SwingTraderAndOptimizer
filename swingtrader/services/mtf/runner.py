@@ -908,42 +908,78 @@ def _run_sector_info(conn, now, today):
             if cur.fetchone():
                 sig_date = last_trading
 
-    candidates = []
+    rows = []
+    flat = []
     for tid in weekly_data:
         di = _nearest(daily_idx[tid], daily_data[tid]['dates'], sig_date)
         wi = _nearest(weekly_idx[tid], weekly_data[tid]['dates'], sig_date)
         hi = _nearest(hourly_idx[tid], hourly_data[tid]['dates'], sig_date)
         if di is None or wi is None or hi is None:
             continue
-        result = _compute_score(weekly_data[tid], daily_data[tid], hourly_data[tid],
-                                wi, di, hi, sig_date)
-        if result is None:
+        sym = ticker_names[tid]
+        # Official ranking = the audited sector strategy: weekly EMA10>SMA40
+        # gap (--score emasma, top-3 rotation). Adds price/trend/ATR context.
+        res = _compute_emasma_score(weekly_data[tid], daily_data[tid]['close'][di],
+                                    wi, sig_date)
+        if res is None:
+            flat.append(sym)  # weekly bearish — not eligible
             continue
-        result['symbol'] = ticker_names[tid]
-        candidates.append(result)
+        ctx = _compute_score(weekly_data[tid], daily_data[tid], hourly_data[tid],
+                             wi, di, hi, sig_date)
+        rows.append({
+            'symbol': sym,
+            'score': res['score'],
+            'gap_w': res['gap_w'],
+            'freshness': res['freshness'],
+            'close': res['close'],
+            'atr_dist': ctx['atr_dist'] if ctx else None,
+            'wk_ema': float(weekly_data[tid]['ema'][wi]),
+            'wk_sma': float(weekly_data[tid]['sma'][wi]),
+        })
 
     lines = []
-    lines.append(f'*Sector ETFs — {sig_date}*')
+    lines.append(f'*Sector ETFs — top-3 (ema-sma) — {sig_date}*')
     lines.append('```')
 
-    if not candidates:
-        lines.append('  No qualifying sector ETFs')
+    if not rows and not flat:
+        lines.append('  No sector ETFs with data')
         lines.append('```')
         return lines
 
-    # Tabular header
-    lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"Fresh":>7}')
-    lines.append(f'{"-"*3} {"-"*8} {"-"*5} {"-"*7} {"-"*7}')
+    rows.sort(key=lambda x: -x['score'])
+    top3 = rows[:3]
+    rest = rows[3:]
 
-    for i, t in enumerate(sorted(candidates, key=lambda x: x['symbol']), 1):
-        days_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
-        lines.append(
-            f'{i:<3} {t["symbol"]:<8} {t["score"]:>5.1f} '
-            f'{t["gap_w"]:>+6.1f}% {days_str:>7}'
-        )
+    # Tabular header
+    lines.append(f'{"#":<3} {"Ticker":<7} {"Score":>5} {"Gap":>7} {"Fresh":>7} '
+                 f'{"Close":>9} {"ATR%":>6} {"WkEMA":>8} {"WkSMA":>8}')
+    lines.append(f'{"-"*3} {"-"*7} {"-"*5} {"-"*7} {"-"*7} '
+                 f'{"-"*9} {"-"*6} {"-"*8} {"-"*8}')
+
+    if not rows:
+        lines.append('  All sectors weekly bearish (flat)')
+    else:
+        for i, t in enumerate(top3, 1):
+            days_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
+            atr_col = (f'{t["atr_dist"]:+.1f}%' if t['atr_dist'] is not None
+                       else '—')
+            lines.append(
+                f'{i:<3} {t["symbol"]:<7} {t["score"]:>5.1f} {t["gap_w"]:>+6.1f}% {days_str:>7} '
+                f'${t["close"]:>8,.2f} {atr_col:>6} '
+                f'${t["wk_ema"]:>7,.1f} ${t["wk_sma"]:>7,.1f}'
+            )
+
+        if rest:
+            lines.append('')
+            lines.append('Next: ' + ' | '.join(
+                f'{t["symbol"]} {t["score"]:.1f}' for t in rest))
+
+    if flat:
+        lines.append('')
+        lines.append(f'Flat (weekly EMA10<=SMA40): {", ".join(flat)}')
 
     # Comma-delimited ticker list (alpha-sorted)
-    sector_symbols = [t['symbol'] for t in sorted(candidates, key=lambda x: x['symbol'])]
+    sector_symbols = sorted(t['symbol'] for t in rows) + sorted(flat)
     lines.append('')
     lines.append(','.join(sector_symbols))
     lines.append('```')

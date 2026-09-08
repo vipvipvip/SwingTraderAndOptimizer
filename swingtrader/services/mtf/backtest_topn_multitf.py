@@ -122,7 +122,12 @@ def load_bars(conn, table, date_col, is_etf=False, symbols=None):
     return tickers, data
 
 
-def main():
+def backtest(argv=None):
+    """Run the backtest and return structured results (CLI prints also happen).
+
+    Returns dict with: equity (np.array), equity_dates, trades (trade_log),
+    all_dates, positions, pos_counts, args. Uses sys.argv when argv is None.
+    """
     parser = argparse.ArgumentParser(description='Top-N Multi-TF rotation backtest')
     parser.add_argument('--top-n', type=int, default=10)
     parser.add_argument('--rebalance', choices=['daily', 'weekly'], default='daily')
@@ -165,7 +170,7 @@ def main():
                         help='ATR source for --exit ratchet-atr (default hourly)')
     parser.add_argument('--start', default=None,
                         help='Restrict backtest to dates >= YYYY-MM-DD (fair comparison window)')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     db_module.init_db()
     conn = db_module.get_conn()
@@ -749,9 +754,26 @@ def main():
                     print(f'  Avg loss: {np.mean([t["return_pct"] for t in losses]):.2f}%  (${np.mean([t["dollar_pnl"] for t in losses]):+,.0f})')
         print()
 
+        return {
+            'equity': eq_arr,
+            'equity_dates': equity_dates,
+            'trades': trade_log,
+            'all_dates': all_dates,
+            'positions': positions,
+            'pos_counts': pos_counts,
+            'args': args,
+            'CAPITAL': CAPITAL,
+            'COST': COST,
+        }
+
     finally:
         conn.close()
 
 
+def main():
+    backtest()
+
+
 if __name__ == '__main__':
+    main()
     main()
