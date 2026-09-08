@@ -151,9 +151,85 @@ into the melt-up winners). **No live strategy changes.**
 
 ---
 
+## 4. MTF Stock v2: churn investigation, three fixes, and before/after backtest
+
+### Question
+Live MTF Stock v2 (`--strategy v2`, freshest-CO top-10, run 7×/day on fresh hourly bars)
+showed suspicious trades on 2026-09-01: SENEA sold and re-bought in the SAME run seconds
+apart, TEAM ratchet-stopped then re-bought the next hour, and OKTA bought on a cross that
+was 2-3 days old. "Some other logic seems to be taking over." What was actually happening,
+and what does the strategy backtest to after the fixes?
+
+### Answer: three distinct implementation gaps — all identified and fixed
+
+Forensic result from `mtf_runs`/`mtf_trades`/`mtf_pending` + scorer code:
+
+| Symptom | Root cause | Fix (commit `f748bce`) |
+|---|---|---|
+| SENEA: SELL 42 → re-BUY 42, same run, same second | **Filler rebuy bug** — the rank-11+ backfill (`executor.py`) didn't exclude names being sold as dropouts this run (`symbols_to_sell`). SENEA dropped out, was sold to fund rotation, then instantly re-picked as a "filler." | Exclude `symbols_to_sell` from fillers so a just-sold dropout can't be re-bought same run |
+| TEAM: ratchet-sold 15:26, re-bought 16:26 | **Hourly-cadence whipsaw** — ratchet exit fires (close < peak−2×ATR), but TEAM stays rank 9 in the top-10, so the *next* hourly run re-buys it. Ratchet was designed for once-daily cadence. | MACD histogram momentum guard: exclude entries (incl. rebuys) when hist < 70% of peak over trailing 24 hourly bars (`V2_HIST_PEAK_LOOKBACK=24`, `V2_HIST_PEAK_FLOOR=0.7`) |
+| OKTA: bought on 2-3-day-old cross | **Freshness window too wide** — `V2_FRESH_BARS=270` (~30 trading days). OKTA's cross is ~1-2 days old → near-max freshness (9.4/10) + `gap_w 68.5%` → score 12.93 = top-10. "Fresh" effectively meant "any cross in the last month." | Tighten `V2_FRESH_BARS` 270 → **18** (≈1-2 trading days × ~9 hourly bars/day) |
+
+None of the suspicious trades were the freshest-CO signal misbehaving — they were the
+execution layer (filler backfill, ratchet + hourly re-entry, loose freshness window)
+acting on top of it.
+
+### The fixes changed the live book exactly as intended
+After deploy, the 14:25/15:25 ET runs scored **"no qualifying picks"** for stocks:
+zero names had a genuine cross within the trailing 18 bars, so the book sat flat/in-cash
+rather than churning. This is the intended behavior of the tightened window — the stock
+leg will be 0-position on days without fresh crosses (previously ~always a full top-10).
+
+### Before/after backtest — top-10 fresh-CO (live shape), 2024-01-01 → 2026-08-26
+
+| Metric | BEFORE<br>FRESH=270, no guard | AFTER fresh<br>FRESH=18, no guard | AFTER full (live)<br>FRESH=18 + hist guard |
+|---|---|---|---|
+| **Total return** | +61.7% | **+63.8%** | +59.8% |
+| CAGR | +19.9% | +20.5% | +19.4% |
+| **Max DD** | -13.4% | -11.7% | **-10.8%** |
+| Win rate | 40.4% | 40.3% | 40.5% |
+| Avg trade return | +0.47% | +0.49% | +0.45% |
+| Trades | 3,631 | 3,274 | **3,009** |
+| Best / worst | +58.4% / -22.3% | +58.4% / -22.3% | +55.3% / -23.5% |
+
+Reading:
+- **Freshness alone (270→18)** is the win: +61.7% → +63.8%, DD -13.4% → -11.7%, ~10% fewer trades.
+- **Histogram guard** trades ~4 pts of backtest return for ~1 pt less DD + ~8% fewer trades
+  (it trims the best-trade tail similarly to losers). Not visible in backtest: the guard's
+  real job is preventing 7×/day churn (TEAM-style rebuys), which the once-daily backtest
+  can't model.
+- **Persistent-pool variant** (hold all qualified, not top-10): 270→18 is +51.8%→+50.8%
+  (-1.0 pt) but DD -14.1%→-12.0%. The freshness tightening behaves differently without the
+  top-10 cap.
+
+### Canonical "after" logic (locked in as defaults)
+- `config.py`: `V2_FRESH_BARS = 18`, `V2_HIST_PEAK_LOOKBACK = 24`, `V2_HIST_PEAK_FLOOR = 0.7`
+- `backtest_v2.py`: defaults now mirror live. Reproduce:
+  - live logic: `--top-n 10` → **+59.8% / -10.8% DD**
+  - old baseline: `--top-n 10 --fresh-bars 270 --no-hist-guard` → **+61.7% / -13.4% DD**
+- Soften the guard later if desired: `HIST_PEAK_FLOOR` 0.7 → 0.5 recovers ~half the punched
+  return at slightly higher DD.
+
+### Clean-slate live test (2026-09-01)
+All MTF stock positions were manually liquidated in the Alpaca paper UI → account flat.
+`reconcile_trades.py --mode stock` rebuilt `mtf_trades` from Alpaca's authoritative fill
+history (234 fills; CRNX skips expected post-deletion). Executor reads holdings from Alpaca
+as source of truth, so no state sync needed — next top-10 builds from scratch.
+**Note:** Alpaca has NO API to reset a paper account to $100K. Reset = delete/recreate the
+paper account in the dashboard + regenerate keys; the stock leg hardcodes `PA3H8RAWIS0C`.
+
+### Verdict
+Keep the "after" logic (FRESH=18 + hist guard): it beats the pre-change config on drawdown
+while staying within ~2 pts of the best-return variant, and it targets the live churn mode
+(7×/day) that backtests can't see.
+
+---
+
 ## References
 - Ratchet-ATR exit design + backtest: `AGENTS.md` → Key Decisions (2026-08-12)
-- MTF executor: `swingtrader/services/mtf/executor.py` (`_compute_ratchet_stops`), config in `config.py`
+- MTF executor: `swingtrader/services/mtf/executor.py` (`_compute_ratchet_stops`, filler logic ~:640, `reconcile_trades`), config in `config.py`
+- MTF runner / v2 scorer: `swingtrader/services/mtf/runner.py` (`_compute_v2_score`, `V2_FRESH_BARS`/hist-guard)
+- MTF v2 backtest engine: `swingtrader/services/mtf/backtest_v2.py` (`--top-n`, `--fresh-bars`, `--no-hist-guard`)
 - CHAND executor: `swingtrader/backend/app/Services/TradeExecutorService.php`
 - MTF backtest engine: `swingtrader/services/mtf/backtest_topn_multitf.py`
 - Ratchet timing backtest: `swingtrader/services/mtf/backtest_ratchet_timing.py`

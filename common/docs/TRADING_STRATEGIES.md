@@ -272,7 +272,7 @@ and generate BUY/SELL signals at cycle turning points.
 **Service:** `swingtrader-mtf-scorer.service` (systemd, oneshot — Phase 2 live)  
 **Location:** `swingtrader/services/mtf/runner.py`  
 **Universe:** VTI stocks + ETFs (Phase 2)  
-**Account:** Alpaca paper (stocks #PA3PPZAZR76Z / ETFs #PA3U8GZ96PEN)
+**Account:** Alpaca paper (stocks #PA3H8RAWIS0C / ETFs #PA3U8GZ96PEN)
 
 ### Strategy
 Daily rotation into top N S&P 500 stocks ranked by Multi-TF score:

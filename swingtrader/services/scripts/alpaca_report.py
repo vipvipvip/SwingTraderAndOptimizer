@@ -11,7 +11,7 @@ order + position history) and prints a summary since inception:
   - Totals: realized + unrealized + overall PnL since inception
 
 Strategies and their accounts:
-  mtf-stock  MTF Top-N stocks  #PA3PPZAZR76Z  (keys: swingtrader/services/mtf/.env)
+  mtf-stock  MTF Top-N stocks  #PA3H8RAWIS0C  (keys: swingtrader/services/mtf/.env)
   mtf-etf    EMA/SMA ETF leg   #PA3U8GZ96PEN  (keys: swingtrader/services/mtf/.env)
   chand      CHAND             #PA31Z71315NM  (keys: swingtrader/backend/.env)
 
@@ -39,7 +39,7 @@ BACKEND_DIR = os.path.join(BASE, '..', '..', 'backend')
 PAPER_URL = 'https://paper-api.alpaca.markets'
 
 STRATEGIES = {
-    'mtf-stock': {'name': 'MTF Top-N stocks', 'acct': 'PA3PPZAZR76Z',
+    'mtf-stock': {'name': 'MTF Top-N stocks', 'acct': 'PA3H8RAWIS0C',
                   'env': os.path.join(MTF_DIR, '.env'),
                   'keys': ('ALPACA_API_KEY', 'ALPACA_SECRET_KEY'),
                   'initial_capital': 100000.0},

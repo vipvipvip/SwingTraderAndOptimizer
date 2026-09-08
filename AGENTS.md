@@ -9,7 +9,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 | 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/VTV | Optimized trailing stop | ✅ Live (Laravel) |
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
-| 4 | **MTF Top-N** (MTF stocks + EMA/SMA ETFs) | VTI stocks + ETFs | Stocks: gap_w + atr_dist + freshness; ETFs: weekly EMA10>SMA40 gap → top 10 | ✅ Live (#PA3PPZAZR76Z stocks / #PA3U8GZ96PEN ETFs) |
+| 4 | **MTF Top-N** (MTF stocks + EMA/SMA ETFs) | VTI stocks + ETFs | Stocks: gap_w + atr_dist + freshness; ETFs: weekly EMA10>SMA40 gap → top 10 | ✅ Live (#PA3H8RAWIS0C stocks / #PA3U8GZ96PEN ETFs) |
 | 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 5:00 PM |
 
 ## Constraints & Preferences
@@ -21,7 +21,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - All backtests use scanner DB tables (`tbl_scanner_tickers*`), not strategy-specific ETF tables
 - MTCS uses optimizer venv for Python execution (code deleted 2026-08-10, dir removed from repo on merged branch `396aa07`)
 - Three Alpaca paper accounts: CHAND (#PA31Z71315NM), EMAC (#PA3EHVX93SJT), MTCS (#PA3NCXU4O2CN, stopped)
-- Two MTF Alpaca accounts: Stocks (#PA3PPZAZR76Z), ETFs (#PA3U8GZ96PEN)
+- Two MTF Alpaca accounts: Stocks (#PA3H8RAWIS0C), ETFs (#PA3U8GZ96PEN)
 - Keep same Slack channel for all services — differentiate via prefix tags
 - One combined Slack message per day for MTF (stocks + ETFs + sector info) via `--mode all`
 - **MTF state is DB-backed** (PostgreSQL), not files: `mtf_pending` (evening picks → morning executor), `mtf_runs` (ops/staleness log), `mtf_positions` (real Alpaca holdings = source of truth), `mtf_trades` (fill log). No `.mtf_state_*.json`, no portfolio/trades CSVs, no paper accounting — MTM in Slack is real positions × close

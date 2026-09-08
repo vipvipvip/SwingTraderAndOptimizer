@@ -159,6 +159,25 @@ Alpaca P&L:
 swingtrader/services/optimizer/venv/bin/python3 swingtrader/services/scripts/alpaca_report.py
 ===================================================================
 
+===================================================================
+Manually trigger services:
+# 1. Score both modes (evening run, writes to mtf_pending)
+cd /home/dikesh/data/dev/SwingTraderAndOptimizer
+./swingtrader/services/optimizer/venv/bin/python3 swingtrader/services/mtf/runner.py --action score --mode all
+
+# 2. Execute both modes (morning run, places real orders)
+./swingtrader/services/optimizer/venv/bin/python3 swingtrader/services/mtf/runner.py --action execute --mode all
+
+# 3. Execute stocks only
+./swingtrader/services/optimizer/venv/bin/python3 swingtrader/services/mtf/runner.py --action execute --mode stock
+
+# 4. Execute ETFs only
+./swingtrader/services/optimizer/venv/bin/python3 swingtrader/services/mtf/runner.py --action execute --mode etf
+
+# 5. Check executor logs
+journalctl -u swingtrader-mtf-executor.service --since today --no-pager
+===================================================================
+
 
 SwingTrader-MTF-Stocks
 Key: REDACTED
@@ -167,3 +186,4 @@ Secret: REDACTED
 SwingTrader-MTF-ETF 
 Key: REDACTED
 Secret: REDACTED
+
