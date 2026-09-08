@@ -97,22 +97,56 @@ def _get_db_conn():
     raise RuntimeError(f'Could not connect to database after {MAX_DB_RETRIES} attempts')
 
 
-def _check_data_freshness(conn, mode='stock'):
-    """Verify daily + hourly scanner data is fresh enough to generate reliable signals."""
+def _check_data_freshness(conn, mode='stock', fresh=False):
+    """Verify daily + hourly scanner data is fresh enough to generate reliable signals.
+
+    Resilient to server-off days: when data is stale but the machine has just
+    booted (a missed-day catch-up scenario), this triggers the scanner daily
+    backfill (populate + compute) and retries before giving up — so a boot
+    after an outage always has a chance to trade the current day instead of
+    silently skipping it (the previous behavior). `fresh` accepts a partial
+    current-day daily bar (v2 intraday cap).
+    """
     latest = db_module.get_latest_daily_bar_date(conn)
     if latest is None:
         _send_slack('❌ No daily bar data found in scanner tables — aborting', mode)
         return False
     age = (dt_date.today() - latest).days
+
+    # self-heal: for a boot-day catch-up, run the daily backfill and recheck.
     if age > MAX_STALE_DAYS:
+        print(f'[MTF] {mode} data stale ({latest}, {age}d old) — triggering backfill to self-heal')
         _send_slack(
-            f'❌ Stale daily data: latest bar {latest} ({age}d old) — skipping run',
-            mode)
-        return False
+            f'⚠️ {MODE_LABEL[mode]} data {age}d old (latest {latest}) — server was likely down; '
+            f'running daily backfill + retry', mode)
+        healed = False
+        for attempt in range(1, DATA_RETRIES + 1):
+            _backfill_daily(conn, mode)
+            time.sleep(DATA_RETRY_DELAY)
+            # READ COMMITTED: the caller's conn re-snapshots each statement, so
+            # re-reading through it sees the freshly committed backfill data.
+            latest = db_module.get_latest_daily_bar_date(conn)
+            if latest is None:
+                continue
+            age = (dt_date.today() - latest).days
+            if age <= MAX_STALE_DAYS:
+                print(f'[MTF] {mode} data healed: latest bar now {latest} ({age}d old)')
+                healed = True
+                break
+        if not healed:
+            _send_slack(
+                f'❌ Stale daily data after {DATA_RETRIES} backfill retries: latest bar {latest} '
+                f'({age}d old) — skipping {MODE_LABEL[mode]} run today', mode)
+            return False
+
     if age > 1:
         _send_slack(
             f'⚠️  Daily bar data is {age}d old (latest: {latest}) — picks may be based on stale prices',
             mode)
+
+    # v2-fresh accepts the partial current-day bar, so no hourly staleness check.
+    if fresh:
+        return True
 
     # Check hourly ATR data freshness — critical for MTF scoring only
     # (ETF leg runs EMA/SMA rotation on weekly data, no hourly needed).
@@ -136,6 +170,30 @@ def _check_data_freshness(conn, mode='stock'):
     return True
 
 
+def _backfill_daily(conn, mode='stock'):
+    """Run the scanner daily backfill (populate + compute) to self-heal stale data.
+    Invested tickers are force-fetched so exit signals always have fresh prices.
+    Best-effort; returns nothing. Presence callback already refreshed conn."""
+    invested = ''
+    try:
+        invested = ','.join(sorted(db_module.get_all_positions(conn).keys()))
+    except Exception:
+        invested = ''
+    try:
+        cmd = [SCANNER_VENV_PYTHON, POPULATE_SCRIPT, '--timeframe', 'day', '--workers', '10']
+        if invested:
+            cmd += ['--priority', invested]
+        subprocess.run(cmd, check=True, capture_output=True, timeout=300)
+        subprocess.run(
+            [SCANNER_VENV_PYTHON, COMPUTE_SCRIPT, '--timeframe', 'day', '--workers', '10'],
+            check=True, capture_output=True, timeout=300)
+        print(f'[MTF] {mode} daily backfill complete')
+    except subprocess.CalledProcessError as e:
+        print(f'[MTF] Backfill script failed: {e}')
+    except subprocess.TimeoutExpired:
+        print(f'[MTF] Backfill script timed out')
+
+
 def _ensure_csv():
     os.makedirs(os.path.join(BASE_DIR, 'data'), exist_ok=True)
 
@@ -146,7 +204,9 @@ def _ensure_daily_data(conn, mode, now, today, fresh=False):
     latest available daily date (e.g. yesterday mid-morning).
     Returns (success, message, conn). conn may be a new connection after retry."""
     is_etf = mode == 'etf'
-    expected = config.EXPECTED_ETFS if is_etf else config.EXPECTED_STOCKS
+    # Fix #3: derive the expected count from the live enabled universe so the
+    # completeness guard never drifts from reality (config values were stale).
+    expected = db_module.count_enabled_tickers(conn, is_etf=is_etf)
     EVENING_CUTOFF = dt_time(15, 30)
 
     # v2-fresh: score on TODAY and use partial-day bars as-is. The intraday
@@ -203,24 +263,8 @@ def _ensure_daily_data(conn, mode, now, today, fresh=False):
 
         print(f'[MTF] Retry {attempt}/{DATA_RETRIES}: running populate_tickers + compute_indicators...')
         # Force-fetch invested tickers so exit signals always have fresh prices.
-        invested = ''
-        try:
-            invested = ','.join(sorted(db_module.get_all_positions(conn).keys()))
-        except Exception:
-            invested = ''
+        _backfill_daily(conn, mode)
         conn.close()
-        try:
-            cmd = [SCANNER_VENV_PYTHON, POPULATE_SCRIPT, '--timeframe', 'day', '--workers', '10']
-            if invested:
-                cmd += ['--priority', invested]
-            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
-            subprocess.run(
-                [SCANNER_VENV_PYTHON, COMPUTE_SCRIPT, '--timeframe', 'day', '--workers', '10'],
-                check=True, capture_output=True, timeout=300)
-        except subprocess.CalledProcessError as e:
-            print(f'[MTF] Retry script failed: {e}')
-        except subprocess.TimeoutExpired:
-            print(f'[MTF] Retry script timed out')
 
         print(f'[MTF] Waiting {DATA_RETRY_DELAY}s before recheck...')
         time.sleep(DATA_RETRY_DELAY)
@@ -437,8 +481,9 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     is_etf = mode == 'etf'
     print(f'[MTF] Mode: {MODE_LABEL[mode]}')
 
-    # Data freshness check
-    if not _check_data_freshness(conn, mode):
+    # Data freshness check — self-heals via daily backfill on boot-day catch-up.
+    # `fresh` accepts a partial current-day daily bar (v2 intraday cap).
+    if not _check_data_freshness(conn, mode, fresh=fresh):
         db_module.log_run(conn, mode, today, 'score', 'error', 'stale data')
         conn.close()
         return False, [f'Skipped {MODE_LABEL[mode]} — stale data'], None
@@ -540,11 +585,35 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
 
     print(f'[MTF] Signal date: {sig_date}')
 
+    # Fix #2 per-ticker freshness baseline: the most recent daily date with
+    # (near-)full coverage of the mode's enabled universe — i.e. the last
+    # COMPLETE trading day. This is robust to the intraday partial backfill
+    # (e.g. a Tue-morning run where ~950 tickers already have today's bar but
+    # ~484 still sit on the prior complete day). Comparing each ticker's last
+    # bar against this baseline (NOT the absolute frontier, which partial data
+    # skews) isolates only genuinely stale tickers — those lagging the baseline
+    # by more than one trading day (fetch failures), like HIFS (last bar Sep 2
+    # while the cohort baseline is Sep 4). Such tickers had been getting scored
+    # on stale prices via the nearest-date fallback and traded as NEW entries.
+    baseline = db_module.get_last_complete_daily_date(conn, is_etf=is_etf)
+    if baseline is None:
+        conn.close()
+        return False, ['No complete daily data date found'], None
+    STALE_LAG_DAYS = 1  # allow a single missing trading day; flag >=2
+
     candidates = []
     for tid in weekly_data:
         di = _nearest_date_idx(daily_idx[tid], daily_dates_sorted[tid], sig_date)
         wi = _nearest_date_idx(weekly_idx[tid], weekly_dates_sorted[tid], sig_date)
         if di is None or wi is None:
+            continue
+        # Fix #2: exclude tickers whose last daily bar lags the prior complete
+        # trading day by more than one day. Preserves held positions (the
+        # executor keeps held-but-unscored symbols) but never enters them NEW.
+        daily_bar_date = daily_data[tid]['dates'][di]
+        if (baseline - daily_bar_date).days > STALE_LAG_DAYS:
+            print(f'[MTF] ⚠️ {ticker_names[tid]} excluded — stale daily bar {daily_bar_date} '
+                  f'(baseline {baseline})')
             continue
         if is_etf:
             result = _compute_emasma_score(weekly_data[tid], daily_data[tid]['close'][di], wi, sig_date)

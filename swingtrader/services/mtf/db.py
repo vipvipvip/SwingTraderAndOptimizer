@@ -297,6 +297,45 @@ def get_latest_daily_bar_date(conn):
         return cur.fetchone()[0]
 
 
+def count_enabled_tickers(conn, is_etf=False):
+    """Return the number of enabled tickers in the live universe (stock or ETF).
+    Used to make the data-completeness guard dynamic so it never drifts from the
+    actual universe (previously a hardcoded constant in config.py)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT COUNT(*) FROM tbl_stock_tickers WHERE enabled=true AND is_etf=%s',
+            (is_etf,))
+        return cur.fetchone()[0]
+
+
+def get_last_complete_daily_date(conn, is_etf=False):
+    """Return the last SETTLED trading day's date for the mode — the most recent
+    daily date with high coverage of the enabled universe. Used as the staleness
+    baseline for the per-ticker freshness guard.
+
+    Threshold is a coverage FRACTION (default 90%) of enabled tickers. 90% is
+    robust to the intraday partial backfill: e.g. a Tue-morning run where the
+    current day is only ~2/3 populated (well below 90%) correctly bumps the
+    baseline to the prior settled trading day (which has near-full coverage).
+    The prior strict fixed-tolerance (expected-5) was too brittle and fell back
+    to progressively older dates during outages. Returns a date or None if no
+    date reaches the coverage bar."""
+    expected = count_enabled_tickers(conn, is_etf=is_etf)
+    required = max(int(expected * 0.90), 1)
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT d.date::date '
+            'FROM tbl_scanner_tickers_daily d '
+            'JOIN tbl_stock_tickers s ON d.ticker_id = s.id '
+            'WHERE s.enabled = true AND s.is_etf = %s '
+            'GROUP BY d.date::date '
+            'HAVING COUNT(DISTINCT d.ticker_id) >= %s '
+            'ORDER BY d.date::date DESC LIMIT 1',
+            (is_etf, required))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
 def bulk_load_weekly(conn, ticker_ids=None):
     """Load weekly data in one query. If ticker_ids provided, only load those."""
     import pandas as pd
