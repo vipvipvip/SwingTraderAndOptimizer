@@ -29,6 +29,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(BASE_DIR)))
 SCANNER_VENV_PYTHON = os.path.join(PROJECT_ROOT, 'scanner', '.venv', 'bin', 'python')
 POPULATE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'populate_tickers.py')
 COMPUTE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'compute_indicators.py')
+DATA_GATE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'data_readiness.py')
 DATA_RETRIES = 3
 DATA_RETRY_DELAY = 60
 # Proceed with scoring if only a few tickers lack the latest daily bar
@@ -144,30 +145,14 @@ def _check_data_freshness(conn, mode='stock', fresh=False):
             f'⚠️  Daily bar data is {age}d old (latest: {latest}) — picks may be based on stale prices',
             mode)
 
-    # v2-fresh accepts the partial current-day bar, so no hourly staleness check.
-    if fresh:
-        return True
-
-    # Check hourly ATR data freshness — critical for MTF scoring only
-    # (ETF leg runs EMA/SMA rotation on weekly data, no hourly needed).
-    if mode == 'etf':
-        return True
-    with conn.cursor() as cur:
-        cur.execute('SELECT MAX(date) FROM tbl_scanner_tickers_1hour')
-        latest_hourly = cur.fetchone()[0]
-    if latest_hourly is None:
-        _send_slack('❌ No hourly bar data found — aborting', mode)
-        return False
-    # hourly date is a datetime; compare as date
-    hourly_date = latest_hourly.date() if hasattr(latest_hourly, 'date') else latest_hourly
-    h_age = (dt_date.today() - hourly_date).days
-    if h_age > 1:
-        _send_slack(
-            f'❌ Stale hourly data: latest bar {latest_hourly} ({h_age}d old) — ATR stops not computed, aborting',
-            mode)
-        return False
-
-    return True
+    # Deep data-readiness gate: verifies that bars (incl. hourly — which the
+    # old `fresh` shortcut skipped entirely, and which capture_hourly cannot
+    # heal across a multi-day server-off gap) AND stored indicators (atr_stop)
+    # are complete on the newest bars before any scoring/trading. If not, it
+    # self-heals (calendar-aware backfill + recompute) and re-verifies.
+    # `fresh` is intentionally no longer consulted here: the gate already
+    # tolerates a partial current-day bar via its coverage-based rules.
+    return _run_readiness_gate(mode)
 
 
 def _backfill_daily(conn, mode='stock'):
@@ -192,6 +177,37 @@ def _backfill_daily(conn, mode='stock'):
         print(f'[MTF] Backfill script failed: {e}')
     except subprocess.TimeoutExpired:
         print(f'[MTF] Backfill script timed out')
+
+
+def _run_readiness_gate(mode='stock'):
+    """Invoke the scanner Data Readiness Gate (data_readiness.py) for the mode.
+
+    Gate = verify -> repair (calendar-aware backfill of missing bars incl. the
+    hourly holes capture_hourly can't heal, + indicator recompute) -> re-verify.
+    Subspawns the scanner venv (this process runs under the optimizer venv).
+    Returns True only if ALL checked timeframes are READY (exit 0)."""
+    # ETF v2 relies on weekly EMA/SMA; stock v2 on hourly ratchet + fresh hourly.
+    tfs = {'stock': 'day,hour', 'etf': 'day,week'}.get(mode, 'day,hour')
+    cmd = [SCANNER_VENV_PYTHON, DATA_GATE_SCRIPT, '--ensure', '--tf', tfs,
+           '--mode', mode]
+    print(f'[MTF] Running data-readiness gate for {mode} (tfs: {tfs})...', flush=True)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        if r.stdout:
+            print(r.stdout[-1500:])
+        if r.returncode != 0:
+            _send_slack(
+                f'❌ Data readiness NOT met for {MODE_LABEL[mode]} (exit {r.returncode}) — '
+                f'skipping run today', mode)
+            print(f'[MTF] Readiness stderr: {r.stderr[-800:]}' if r.stderr else '')
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        _send_slack(f'❌ Data readiness gate timed out for {MODE_LABEL[mode]} — skipping', mode)
+        return False
+    except Exception as e:
+        _send_slack(f'⚠️  Data readiness gate crashed for {MODE_LABEL[mode]}: {e}', mode)
+        return False
 
 
 def _ensure_csv():

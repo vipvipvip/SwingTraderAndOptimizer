@@ -43,6 +43,12 @@ DEFAULT_START = date(2015, 1, 1)          # week/day no-history window
 HOUR_LOOKBACK_DAYS = 90                    # hour no-history window
 
 
+def get_trading_calendar(start, end):
+    """Return a sorted list of valid NYSE trading dates in [start, end] via Alpaca calendar.
+    Public alias used by the data-readiness gate."""
+    return _get_trading_calendar(start, end)
+
+
 def _get_trading_calendar(start, end):
     """Return a sorted list of valid NYSE trading dates in [start, end] via Alpaca calendar."""
     from alpaca.trading.client import TradingClient
@@ -179,6 +185,64 @@ def _recompute_indicators(timeframes):
             print('  ' + (' | '.join(tail[-3:]) if tail else 'done'))
 
 
+def backfill_timeframes(timeframes, symbols=None, workers=10, dry_run=False,
+                        start_date=None, recompute=True):
+    """Backfill missing bars for the given timeframes (all tickers unless `symbols`).
+
+    Returns (ok, per_tf_results) where ok is False if any error occurred. Used both
+    by the CLI and by the data-readiness gate (data_readiness.py)."""
+    print(f'[BACKFILL] Loading trading calendar (2015-01-01..today)...')
+    calendar_start = min(start_date, DEFAULT_START) if start_date else DEFAULT_START
+    calendar_end = datetime.now(NY).date()
+    trading_days = _get_trading_calendar(calendar_start, calendar_end)
+    if not trading_days:
+        print('[BACKFILL] ERROR: could not fetch trading calendar — aborting')
+        return False, {}
+
+    syms = symbols
+    if syms is None:
+        conn = get_db_conn()
+        try:
+            import pandas as pd
+            syms = pd.read_sql(
+                "SELECT symbol FROM tbl_stock_tickers WHERE enabled ORDER BY symbol", conn
+            )['symbol'].tolist()
+        finally:
+            conn.close()
+
+    per_tf = {}
+    for tf in timeframes:
+        print(f'\n[BACKFILL] == timeframe: {tf} ==', flush=True)
+        client = pt.StockHistoricalDataClient(API_KEY, SECRET_KEY)
+        results = []
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(_backfill_ticker, s, client, tf, trading_days,
+                              start_date, dry_run): s for s in syms}
+            for idx, fut in enumerate(as_completed(futs), 1):
+                results.append(fut.result())
+                if idx % 100 == 0:
+                    print(f'  {idx}/{len(syms)} done', flush=True)
+
+        ok = sum(1 for _, _, st, _ in results if st in ('ok', 'would fetch'))
+        uptodate = sum(1 for _, _, st, _ in results if st in ('up to date',))
+        no_new = sum(1 for _, _, st, _ in results if st == 'no new data')
+        errs = [(s, st) for s, _, st, _ in results if st not in ('ok', 'would fetch', 'up to date', 'no new data')]
+        total = sum(n for _, _, _, n in results)
+        action_label = 'would-fetch' if dry_run else 'ok'
+        print(f'[BACKFILL] {tf}: {ok} {action_label} ({total} bars), {uptodate} up-to-date, '
+              f'{no_new} no-new-data, {len(errs)} errors')
+        for s, st in errs[:20]:
+            print(f'   ERR {s}: {st}')
+        per_tf[tf] = {'ok': ok, 'up_to_date': uptodate, 'no_new': no_new,
+                      'errors': errs, 'bars': total}
+
+    if recompute and not dry_run:
+        _recompute_indicators(timeframes)
+
+    all_ok = not any(per_tf[tf]['errors'] for tf in per_tf)
+    return all_ok, per_tf
+
+
 def main():
     ap = argparse.ArgumentParser(description='Backfill missing price data for all tickers x timeframes')
     ap.add_argument('--timeframes', default='week,day,hour',
@@ -194,59 +258,19 @@ def main():
     timeframes = [t.strip() for t in args.timeframes.split(',') if t.strip()]
     start_date = date.fromisoformat(args.start) if args.start else None
 
-    print(f'[BACKFILL] Loading trading calendar (2015-01-01..today)...')
-    calendar_start = min(start_date, DEFAULT_START) if start_date else DEFAULT_START
-    calendar_end = datetime.now(NY).date()
-    trading_days = _get_trading_calendar(calendar_start, calendar_end)
-    if not trading_days:
-        print('[BACKFILL] ERROR: could not fetch trading calendar — aborting')
-        sys.exit(1)
-    print(f'[BACKFILL] {len(trading_days)} trading days in window '
-          f'({len([d for d in trading_days if d.weekday() < 5])} weekdays = weekends/holidays skipped)')
-
-    conn = get_db_conn()
-    try:
-        import pandas as pd
-        syms = pd.read_sql(
-            "SELECT symbol FROM tbl_stock_tickers WHERE enabled ORDER BY symbol", conn
-        )['symbol'].tolist()
-    finally:
-        conn.close()
+    symbols = None
     if args.symbols:
-        allowed = {s.strip().upper() for s in args.symbols.split(',') if s.strip()}
-        syms = [s for s in syms if s in allowed]
+        symbols = [s.strip().upper() for s in args.symbols.split(',') if s.strip()]
 
-    print(f'[BACKFILL] {len(syms)} enabled tickers')
-
-    for tf in timeframes:
-        print(f'\n[BACKFILL] == timeframe: {tf} ==', flush=True)
-        client = pt.StockHistoricalDataClient(API_KEY, SECRET_KEY)
-        results = []
-        with ThreadPoolExecutor(max_workers=args.workers) as ex:
-            futs = {ex.submit(_backfill_ticker, s, client, tf, trading_days,
-                              start_date, args.dry_run): s for s in syms}
-            for idx, fut in enumerate(as_completed(futs), 1):
-                results.append(fut.result())
-                if idx % 100 == 0:
-                    print(f'  {idx}/{len(syms)} done', flush=True)
-
-        ok = sum(1 for _, _, st, _ in results if st in ('ok', 'would fetch'))
-        uptodate = sum(1 for _, _, st, _ in results if st in ('up to date',))
-        no_new = sum(1 for _, _, st, _ in results if st == 'no new data')
-        errs = [(s, st) for s, _, st, _ in results if st not in ('ok', 'would fetch', 'up to date', 'no new data')]
-        total = sum(n for _, _, _, n in results)
-        action_label = 'would-fetch' if args.dry_run else 'ok'
-        print(f'[BACKFILL] {tf}: {ok} {action_label} ({total} bars), {uptodate} up-to-date, '
-              f'{no_new} no-new-data, {len(errs)} errors')
-        for s, st in errs[:20]:
-            print(f'   ERR {s}: {st}')
-
+    ok, _ = backfill_timeframes(timeframes, symbols=symbols, workers=args.workers,
+                                dry_run=args.dry_run, start_date=start_date)
     if not args.dry_run:
-        _recompute_indicators(timeframes)
+        print('[BACKFILL] done' + ('' if ok else ' (WITH ERRORS)'))
     else:
-        print('\n[BACKFILL] DRY-RUN — no bars fetched, no indicators recomputed.')
-    print('[BACKFILL] done.')
+        print('\n[BACKFILL] DRY-RUN — no bars fetched, no indicators recomputed.'
+              if not ok else '[BACKFILL] DRY-RUN done.')
+    return 0 if ok else 1
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

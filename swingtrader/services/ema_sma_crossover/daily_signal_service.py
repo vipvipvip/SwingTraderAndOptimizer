@@ -10,6 +10,7 @@ Sends Slack summary and logs entry signals to CSV.
 """
 import json
 import os
+import subprocess
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -24,6 +25,10 @@ NY = ZoneInfo('America/New_York')
 SIGNALS_CSV = os.path.join(os.path.dirname(__file__), 'data', 'daily_signals.csv')
 STATE_FILE = os.path.join(os.path.dirname(__file__), '.daily_signal_state.json')
 TS_START = datetime(2023, 6, 30).date()
+SCANNER_VENV_PYTHON = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                   'scanner', '.venv', 'bin', 'python')
+DATA_GATE_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                'scanner', 'services', 'scripts', 'data_readiness.py')
 
 def _send_slack(msg):
     if not config.SLACK_WEBHOOK_URL:
@@ -58,6 +63,25 @@ def _log_csv(date_str, ticker, action, price, reason):
         f.write(f'{date_str},{ticker},{action},{price:.2f},{reason}\n')
 
 
+def _ensure_data_ready():
+    """Gate: verify bar integrity + indicator coverage before scoring.  Returns False
+    (skip run + Slack alert) if the gate cannot confirm data readiness."""
+    try:
+        r = subprocess.run(
+            [SCANNER_VENV_PYTHON, DATA_GATE_SCRIPT, '--ensure', '--tf', 'day,hour,week',
+             '--mode', 'all', '--workers', '10'],
+            capture_output=True, text=True, timeout=1800)
+        if r.stdout:
+            print(r.stdout[-1200:])
+        if r.returncode != 0:
+            _send_slack('⚠️ scanner data not ready after repair — skipping Daily Signal run')
+            return False
+        return True
+    except Exception as e:
+        _send_slack(f'⚠️ data-readiness gate crashed: {e} — skipping Daily Signal run')
+        return False
+
+
 def _batch_load_bars(conn, ticker_ids, table, date_col, limit=80):
     """Load most recent bars for all tickers in one query."""
     import psycopg2.extras
@@ -88,6 +112,12 @@ def run():
     conn = db_module.get_conn()
     state = _load_state()
     _ensure_csv()
+
+    # Data-integrity gate: verify bar completeness + indicator coverage (and
+    # repair if a server was off for days) BEFORE any scoring/trading.
+    if not _ensure_data_ready():
+        conn.close()
+        return
 
     try:
         # Load all enabled tickers
