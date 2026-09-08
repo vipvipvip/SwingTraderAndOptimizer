@@ -150,6 +150,13 @@ class ParameterOptimizer:
         reg_threshold = params.get('reg_slope_threshold')
         reg_type = params.get('reg_slope_type')
 
+        # Profit-lock exit params (off by default)
+        profit_lock_ratio = params.get('profit_lock_ratio', 0.0)
+        if profit_lock_ratio is None:
+            profit_lock_ratio = 0.0
+        profit_lock_ratio = float(profit_lock_ratio)
+        profit_lock_arm_gain = float(params.get('profit_lock_arm_gain', 0.01))
+
         # Pre-extract numpy arrays for speed
         open_p = data['open'].values.astype(float)
         high_p = data['high'].values.astype(float)
@@ -295,6 +302,14 @@ class ParameterOptimizer:
                     if reg_slope[i] < reg_threshold:
                         pending_exit = True
                         exit_type = 'regression'
+                # Profit-lock exit: exit when close < entry + ratio * (high_since - entry)
+                if not pending_exit and profit_lock_ratio > 0:
+                    gain_pct = (high_since - entry_price) / entry_price if entry_price > 0 else 0
+                    if gain_pct >= profit_lock_arm_gain:
+                        lock_level = entry_price + profit_lock_ratio * (high_since - entry_price)
+                        if pc < lock_level:
+                            pending_exit = True
+                            exit_type = 'profit_lock'
 
             if i == n - 1 and position_active:
                 simulated_close = not pending_exit
@@ -547,6 +562,19 @@ class ParameterOptimizer:
                         if not np.isnan(reg_val) and rt is not None and reg_val < rt:
                             pend_exit[sym] = True
                             exit_type[sym] = 'regression'
+                    # Profit-lock exit: exit when close < entry + ratio * (high_since - entry)
+                    pl_ratio = ticker_params[sym].get('profit_lock_ratio', 0.0)
+                    if pl_ratio is None:
+                        pl_ratio = 0.0
+                    if not pend_exit[sym] and float(pl_ratio) > 0.0:
+                        pl_arm = float(ticker_params[sym].get('profit_lock_arm_gain', 0.01))
+                        ep = positions[sym]['entry_price']
+                        gain_pct = (high_since[sym] - ep) / ep if ep > 0 else 0
+                        if gain_pct >= pl_arm:
+                            lock_level = ep + float(pl_ratio) * (high_since[sym] - ep)
+                            if close < lock_level:
+                                pend_exit[sym] = True
+                                exit_type[sym] = 'profit_lock'
 
                 if sym not in positions and not pend_entry[sym]:
                     em = ticker_params[sym].get('chandelier_entry_mult')

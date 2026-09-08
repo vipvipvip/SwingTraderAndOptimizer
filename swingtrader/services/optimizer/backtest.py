@@ -26,7 +26,7 @@ def validate_sync(symbol, trades, metrics, db):
 
     return True
 
-def backtest_ticker(symbol, timeframe, allocation_weight=None):
+def backtest_ticker(symbol, timeframe, allocation_weight=None, profit_lock_ratio=None, profit_lock_arm_gain=0.01):
     """Backtest a single ticker with current parameters from DB"""
 
     # Load current parameters from database
@@ -64,6 +64,10 @@ def backtest_ticker(symbol, timeframe, allocation_weight=None):
     if chandelier_entry_mult is not None:
         params['chandelier_entry_mult'] = chandelier_entry_mult
 
+    if profit_lock_ratio is not None:
+        params['profit_lock_ratio'] = float(profit_lock_ratio)
+        params['profit_lock_arm_gain'] = float(profit_lock_arm_gain)
+
     entry_mode = 'chandelier_entry' if chandelier_entry_mult is not None else 'always'
 
     print(f"\n[{symbol}] Backtesting with current parameters:")
@@ -72,6 +76,8 @@ def backtest_ticker(symbol, timeframe, allocation_weight=None):
         print(f", entry_mult={chandelier_entry_mult}")
     else:
         print()
+    if profit_lock_ratio is not None:
+        print(f"  Profit-lock: ON (ratio={profit_lock_ratio}, arm_gain={profit_lock_arm_gain})")
 
     # Load price data
     data_df = load_data_from_db(symbol)
@@ -165,6 +171,10 @@ def main():
     parser.add_argument('--allocation', type=float, default=None, help='Capital allocation percentage per trade (default: load from database)')
     parser.add_argument('--mode', choices=['baseline', 'candidates', 'all'], default='baseline',
                         help='baseline: test base_case=1, candidates: test base_case=0, all: compare both')
+    parser.add_argument('--profit-lock-ratio', type=float, default=None,
+                        help='Enable profit-lock exit with this ratio (e.g. 0.5 = keep 50%% of peak gain)')
+    parser.add_argument('--profit-lock-arm-gain', type=float, default=0.01,
+                        help='Minimum peak gain (fraction) before profit-lock arms (default: 0.01)')
 
     args = parser.parse_args()
 
@@ -174,7 +184,8 @@ def main():
         # Test only base_case=1 (current locked parameters)
         success_count = 0
         for ticker in args.tickers:
-            if backtest_ticker(ticker, args.timeframe, args.allocation):
+            if backtest_ticker(ticker, args.timeframe, args.allocation,
+                               args.profit_lock_ratio, args.profit_lock_arm_gain):
                 success_count += 1
         print(f"\n[{datetime.now(ZoneInfo('America/New_York')).strftime('%Y-%m-%d %H:%M:%S')}] Baseline backtest complete ({success_count}/{len(args.tickers)} successful)")
 

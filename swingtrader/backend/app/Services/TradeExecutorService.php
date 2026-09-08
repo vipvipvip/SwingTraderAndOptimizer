@@ -834,6 +834,7 @@ class TradeExecutorService
         if ($openTrade) {
             // We have a position — check Chandelier stop
             $entryDate = $openTrade->entry_at;
+            $entryPrice = floatval($openTrade->entry_price);
 
             // Get bars since entry for highest high
             $barsSinceEntry = [];
@@ -863,6 +864,20 @@ class TradeExecutorService
             if ($currentPrice < $stopLevel) {
                 \Log::info("$symbol SELL SIGNAL (Chandelier stop): price=$currentPrice < stop=$stopLevel");
                 return 'sell';
+            }
+
+            // Profit-lock exit: keep at least (1-ratio) of peak gain once armed
+            $profitLockRatio = $params['profit_lock_ratio'] ?? 0.5;
+            $profitLockArmGain = $params['profit_lock_arm_gain'] ?? 0.01;
+            if ($profitLockRatio > 0 && $highestHigh > $entryPrice) {
+                $peakGainPct = ($highestHigh - $entryPrice) / $entryPrice;
+                if ($peakGainPct >= $profitLockArmGain) {
+                    $lockLevel = $entryPrice + $profitLockRatio * ($highestHigh - $entryPrice);
+                    if ($currentPrice < $lockLevel) {
+                        \Log::info("$symbol SELL SIGNAL (profit lock): price=$currentPrice < lock=$lockLevel, entry=$entryPrice, high=$highestHigh, peakGain=" . round($peakGainPct * 100, 2) . "%");
+                        return 'sell';
+                    }
+                }
             }
 
             // Regression exit check: exit when linear regression slope drops below threshold
