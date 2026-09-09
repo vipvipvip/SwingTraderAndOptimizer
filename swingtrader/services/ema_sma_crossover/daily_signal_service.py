@@ -25,10 +25,9 @@ NY = ZoneInfo('America/New_York')
 SIGNALS_CSV = os.path.join(os.path.dirname(__file__), 'data', 'daily_signals.csv')
 STATE_FILE = os.path.join(os.path.dirname(__file__), '.daily_signal_state.json')
 TS_START = datetime(2023, 6, 30).date()
-SCANNER_VENV_PYTHON = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                                   'scanner', '.venv', 'bin', 'python')
-DATA_GATE_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                                'scanner', 'services', 'scripts', 'data_readiness.py')
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+SCANNER_VENV_PYTHON = os.path.join(PROJECT_ROOT, 'scanner', '.venv', 'bin', 'python')
+DATA_GATE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'data_readiness.py')
 
 def _send_slack(msg):
     if not config.SLACK_WEBHOOK_URL:

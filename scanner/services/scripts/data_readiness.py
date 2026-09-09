@@ -81,9 +81,15 @@ def _expected_session_date(tf_name, trading_days, now):
     def prev_session():
         return trading_days[-2] if len(trading_days) >= 2 else last_td
 
-    if tf_name in ('day', 'week'):
-        # daily/weekly expect the newest fully-completed session. An intraday
-        # run before 16:00 ET expects data through yesterday (today is partial).
+    if tf_name == 'week':
+        # Alpaca timestamps every weekly bar at the ISO-week start (Monday),
+        # holiday or not: the current week's bar is stamped this week's Monday
+        # and is NOT re-stamped on later sessions. Expect that Monday — never
+        # "today" — or the week gate would fail on every non-Monday session.
+        return today - timedelta(days=today.weekday())
+    if tf_name == 'day':
+        # daily expects the newest fully-completed session. An intraday run
+        # before 16:00 ET expects data through yesterday (today is partial).
         if last_td == today and now.time() < datetime.strptime('16:00', '%H:%M').time():
             return prev_session()
         return last_td
