@@ -9,7 +9,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 | 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/VTV | Optimized trailing stop | ✅ Live (Laravel) |
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
-| 4 | **MTF Top-N** (MTF stocks + EMA/SMA ETFs) | VTI stocks + ETFs | Stocks: gap_w + atr_dist + freshness; ETFs: weekly EMA10>SMA40 gap → top 10 | ✅ Live (#PA3H8RAWIS0C stocks / #PA3U8GZ96PEN ETFs) |
+| 4 | **MTF Top-N** (MTF stocks + EMA/SMA ETFs) | VTI stocks + ETFs | Stocks: gap_w + atr_dist + freshness; ETFs: weekly EMA10>SMA40 gap → top 10 | ✅ Live (#PA368CPXNS13 stocks / #PA3U8GZ96PEN ETFs) |
 | 5 | **Daily Signal** (Multi-TF alerts) | S&P 500 | 1-hour fresh cross + score | ✅ Slack @ 5:00 PM |
 
 ## Constraints & Preferences
@@ -21,7 +21,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - All backtests use scanner DB tables (`tbl_scanner_tickers*`), not strategy-specific ETF tables
 - MTCS uses optimizer venv for Python execution (code deleted 2026-08-10, dir removed from repo on merged branch `396aa07`)
 - Three Alpaca paper accounts: CHAND (#PA31Z71315NM), EMAC (#PA3EHVX93SJT), MTCS (#PA3NCXU4O2CN, stopped)
-- Two MTF Alpaca accounts: Stocks (#PA3H8RAWIS0C), ETFs (#PA3U8GZ96PEN)
+- Two MTF Alpaca accounts: Stocks (#PA368CPXNS13, fresh $100K paper since 2026-09-08 reset; old #PA3H8RAWIS0C abandoned — keys dead/401, cannot liquidate), ETFs (#PA3U8GZ96PEN)
 - Keep same Slack channel for all services — differentiate via prefix tags
 - One combined Slack message per day for MTF (stocks + ETFs + sector info) via `--mode all`
 - **MTF state is DB-backed** (PostgreSQL), not files: `mtf_pending` (evening picks → morning executor), `mtf_runs` (ops/staleness log), `mtf_positions` (real Alpaca holdings = source of truth), `mtf_trades` (fill log). No `.mtf_state_*.json`, no portfolio/trades CSVs, no paper accounting — MTM in Slack is real positions × close
@@ -30,6 +30,11 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 
 ## Progress
 ### Done
+- **MTF Stocks reset to new paper account (2026-09-08)**: swapped `mtf/.env` stock keys to #PA368CPXNS13 ($100K fresh paper, 0 positions); wiped stock-leg history (`mtf_positions` 11, `mtf_trades` 55, `mtf_pending` 18, `mtf_runs` 37 rows deleted; ETF leg + ETF pilot untouched). Old stock account #PA3H8RAWIS0C orphaned — its API keys are now 401 (Alpaca disabled them when new keys were issued), so it cannot be liquidated programmatically. Also updated `alpaca_report.py` mtf-stock acct ref.
+- **Root-caused the 2026-09-08 intraday churn (CNXN/HOOD/MU/SFST, ~-$672)**: same-day sell+rebuy is the **ratchet stop whipsaw** + **no cross-cycle re-entry block**. Proof for CNXN: 10:26 bought @83.16 (top-9); 11:26 `symbols_to_sell` empty (held==targets) so ONLY the ratchet could sell → stop = daily peak close 84.38 − 2×hourly ATR 0.60 = **$83.17**, live price 82.76 < 83.17 → sold @82.76; 12:26 position gone from DB so ratchet stops watching it, still top-9 (pending 191), chase-guard NULLED (`ENABLE_CHASE_GUARD=False`) and `ratchet_sold` is per-invocation (`executor.py:512`) → re-bought @83.45. Fix candidates (research first, not deployed during ETF pilot): re-enable chase-guard, persist `ratchet_sold` as same-day cool-off, or require hourly-bar-close below stop instead of live tick.
+- **Same-day ratchet cool-off fix deployed (2026-09-09, stock leg only, TOP_N=10 kept)**: new `mtf_ratchet_cooldown(mode, symbol, cooldown_date)` table (DDL in `mtf/db.py` SCHEMA_SQL, `CREATE TABLE IF NOT EXISTS` on `init_db`) + helpers `insert/get/purge_ratchet_cooldowns`. Executor (`executor.py`) purges stale rows and seeds `cooled_out` at run start; a ratchet-sold symbol can't be re-bought until the next trading day — its slot is backfilled from rank 11+ (`blocked_buys = ratchet_sold | cooled_out`; `cooled_out` only blocks buys, it never force-sells a still-held name). Cooldown row persisted after a ratchet sell fill; `🧊 same-day ratchet cool-off` trace line in Slack. ETF leg fully untouched (ratchet/cool-off gated `mode=='stock'`). Verified by 3 mocked end-to-end tests (cooldown blocks re-buy + backfill, fresh sell persists + no same-run re-buy, ETF ignores ratchet).
+- **2026-09-08 data-gap review**: NOT a botched-trade driver. The 09:28 boot catch-up correctly aborted on the stale gate (`mtf_runs` 287/288 `error`); hourly capture ran all 7 slots; 7 executions = 7 matched pending pairs, no double-execution. Realized −$4,171.25 = ~−$3,500 rotation of 09-02/09-03 names (NVS −$1,425, CTVA −$887, etc.) + ~−$672 intraday churn (friction the daily-rebalance backtest never models at 7x/day cadence).
+- Fixed daily-signal data-readiness gate: path-depth bug (`dirname×3`→`PROJECT_ROOT`×4 in `daily_signal_service.py`) + `_expected_session_date` weekly expectation = ISO-week Monday (Alpaca stamps weekly bars Monday only); gate now `--check day,hour,week` → READY/exit 0. Daily signal re-ran clean for 2026-09-08.
 - Fixed MTF runner daily fallback: `_nearest_date_idx` replaces exact `.get(sig_date)` so picks still generate when scanner daily table hasn't finished updating
 - Fixed weekend stale-bar false alarms in MTCS health check and unified health-check.sh: count trading days (Mon-Fri) instead of raw calendar/hours
 - Merged `rnd/signal-processing` → `main` (22 commits, 58 files, ~8,900 additions)
@@ -163,7 +168,7 @@ Find and trade the best entry among ALL strategies through systematic backtestin
 - Scanner daily data incomplete for current day — `populate_tickers.py --timeframe day` runs at 9 AM before market close
 - Explorer page: `http://localhost:9000/scanner/explorer` (HTML), data: `/scanner/explorer-data?mode=stock|etf` (JSON, ~6s uncached / 0.16s cached)
 - Backtest results: unfiltered MTF +5,469% (22.2% DD); `--min-score 5` +9,061% (33.2% DD); `--min-score 5 + --infancy` +688% (59.2% DD)
-- **Live performance (since Jul 31, 2026)**: MTF Stocks: -$9,910 realized (29% win rate, 83 trades, avg win +$473 vs avg loss -$360); MTF ETFs: -$555 realized (13% win rate, 15 trades, avg win +$113 vs avg loss -$60, currently +$3,295 unrealized); CHAND: +$1,984 (+0.2%). Key issue: single-stock blowups (AAOI -$2,145, DAVE -$3,000) eating winners. New filters (hourly-bearish, chase guard, ratchet) committed to prevent recurrence.
+- **Live performance (PRE-RESET, since Jul 31, 2026)**: MTF Stocks: -$9,910 realized (29% win rate, 83 trades, avg win +$473 vs avg loss -$360); MTF ETFs: -$555 realized (13% win rate, 15 trades, avg win +$113 vs avg loss -$60, currently +$3,295 unrealized); CHAND: +$1,984 (+0.2%). Key issue: single-stock blowups (AAOI -$2,145, DAVE -$3,000) eating winners. New filters (hourly-bearish, chase guard, ratchet) committed to prevent recurrence. **Stock-leg history wiped 2026-09-08 — these numbers belong to old #PA3H8RAWIS0C; #PA368CPXNS13 starts at $100K.**
 - **CHAND Alpaca** (key REDACTED): $1M paper, active, 1 position (VTI)
 - **EMAC Alpaca** (key REDACTED, acct #PA3EHVX93SJT): $1M paper, stopped
 - **MTCS Alpaca** (key REDACTED, acct #PA3NCXU4O2CN): $1M paper, stopped (code deleted 2026-08-10)

@@ -216,7 +216,8 @@ All MTF stock positions were manually liquidated in the Alpaca paper UI → acco
 history (234 fills; CRNX skips expected post-deletion). Executor reads holdings from Alpaca
 as source of truth, so no state sync needed — next top-10 builds from scratch.
 **Note:** Alpaca has NO API to reset a paper account to $100K. Reset = delete/recreate the
-paper account in the dashboard + regenerate keys; the stock leg hardcodes `PA3H8RAWIS0C`.
+paper account in the dashboard + regenerate keys (done 2026-09-08 → fresh #PA368CPXNS13; old keys 401).
+The stock account is read from `mtf/.env` (`ALPACA_API_KEY`/`ALPACA_SECRET_KEY`), not hardcoded.
 
 ### Verdict
 Keep the "after" logic (FRESH=18 + hist guard): it beats the pre-change config on drawdown

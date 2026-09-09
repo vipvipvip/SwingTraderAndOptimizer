@@ -1006,7 +1006,15 @@ def _run_market_regime(conn, now, today):
             continue
         w = db_module.load_weekly(conn, tid)
         if w and len(w['dates']) >= 40:
-            weekly_data[sym] = w
+            # Keep exactly one bar per ISO week: the Monday-stamped (full-week)
+            # one. The yfinance fallback in populate_tickers.py can stamp the
+            # in-progress week with the capture date instead of Monday (e.g.
+            # QQQ recorded a bar dated 2026-09-08 for the 09-07 week after a
+            # 09-08 IEX miss), which otherwise shows as a '-' row and a bogus
+            # 1/4 agreement in the regime table.
+            keep = [i for i, d in enumerate(w['dates']) if d.weekday() == 0]
+            if len(keep) >= 40:
+                weekly_data[sym] = {k: [w[k][i] for i in keep] for k in ('dates', 'close', 'ema', 'sma')}
 
     if not weekly_data:
         return ['  No market gate weekly data']

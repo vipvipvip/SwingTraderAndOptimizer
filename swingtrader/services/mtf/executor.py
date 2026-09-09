@@ -510,9 +510,18 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
         # crash like the close-anchored atr_stop does. Stateless: rebuilt from
         # the DB every run. Symbols with no hourly data are skipped (conservative).
         ratchet_sold = set()
+        cooled_out = set()
         ratchet_stops = {}
         close_map = {}
         if mode == 'stock' and config.RATCHET_EXIT:
+            # Same-day ratchet cool-off (persisted in DB): a symbol ratchet-sold
+            # earlier today cannot be re-bought until the next trading day.
+            # Fixes the CNXN/HOOD/MU/SFST same-day sell+re-buy whipsaw — the live
+            # price dips below the peak-anchored stop intraday, the next hourly
+            # cycle re-buys it. Stale rows purge on date rollover; blocked slots
+            # are backfilled from rank 11+ so the book still holds ~TOP_N names.
+            db_module.purge_ratchet_cooldowns(conn, mode, now.date())
+            cooled_out |= db_module.get_ratchet_cooldowns(conn, mode, now.date())
             ratchet_stops = _compute_ratchet_stops(conn, held_symbols)
             for sym in held_symbols:
                 # Live Alpaca price first — the DB close is stale by a day or
@@ -541,7 +550,11 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                     ratchet_sold.add(sym)
             if ratchet_sold:
                 for sym in sorted(ratchet_sold):
-                    msg_t = f'🛑 {sym} below ratchet stop ${ratchet_stops[sym]:.2f} (close ${close_map[sym]:.2f})'
+                    stop = ratchet_stops.get(sym)
+                    c = close_map.get(sym)
+                    if stop is None or c is None:
+                        continue
+                    msg_t = f'🛑 {sym} below ratchet stop ${stop:.2f} (close ${c:.2f})'
                     trade_lines.append(f'  {msg_t}')
                     print(f'[MTF EXECUTOR] {msg_t}')
 
@@ -607,19 +620,25 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
             if entry_price:
                 msg_str += f'  (PnL: {pnl_pct:+.2f}%)'
             if symbol in ratchet_sold:
-                msg_str += f'  [ratchet stop @ ${ratchet_stops[symbol]:.2f}]'
+                if config.RATCHET_EXIT and mode == 'stock':
+                    db_module.insert_ratchet_cooldown(conn, mode, symbol, now.date())
+                stop = ratchet_stops.get(symbol)
+                if stop is not None:
+                    msg_str += f'  [ratchet stop @ ${stop:.2f}]'
             sells.append(symbol)
             trade_lines.append(f'  {msg_str}')
             print(f'[MTF EXECUTOR] {msg_str}')
 
         # ── Buy new entries ──
-        # New top-N names not already held, minus ratchet-sold names (avoid
-        # same-day whipsaw). Slots freed by ratchet-sold OR chase-guard-blocked
-        # top-N names are filled from the next-best scored candidates
-        # (rank 11+) so the portfolio stays fully invested.
+        # New top-N names not already held, minus ratchet-sold AND same-day
+        # cool-off names (avoid the CNXN/HOOD/MU/SFST re-buy whipsaw). Slots
+        # freed by ratchet/cool-off OR chase-guard-blocked top-N names are
+        # filled from the next-best scored candidates (rank 11+) so the
+        # portfolio stays fully invested.
+        blocked_buys = ratchet_sold | cooled_out
         held_after_sell = held_symbols - symbols_to_sell
         buy_targets = [s for s in target_symbols
-                       if s not in held_after_sell and s not in ratchet_sold]
+                       if s not in held_after_sell and s not in blocked_buys]
         # Pre-check chase-guard blocks AND hourly-bearish deep pullback so we
         # can backfill from rank 11+.
         pre_blocked = set()
@@ -634,8 +653,13 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
             blocked, _ = _block_hourly_bearish_deep_pullback(sym, conn)
             if blocked:
                 pre_blocked.add(sym)
-        # Backfill slots freed by ratchet-sold AND blocked names.
-        freed_count = len([s for s in ratchet_sold if s in target_symbols]) + len(pre_blocked)
+        # Backfill slots freed by ratchet-sold (incl. same-day cool-off) AND blocked names.
+        blocked_buy_ban = sorted(s for s in target_symbols if s in blocked_buys)
+        if blocked_buy_ban:
+            msg_ban = ', '.join(blocked_buy_ban)
+            trade_lines.append(f'  🧊 same-day ratchet cool-off (re-buy skipped, slot backfilled): {msg_ban}')
+            print(f'[MTF EXECUTOR] 🧊 ratchet cool-off blocks re-buy: {msg_ban}')
+        freed_count = len(blocked_buy_ban) + len(pre_blocked)
         fillers = []
         if freed_count:
             ranked = sorted(score_detail.items(), key=lambda kv: -kv[1].get('score', 0))
@@ -643,7 +667,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                 if len(fillers) >= freed_count:
                     break
                 if (sym not in held_after_sell and sym not in target_symbols
-                        and sym not in symbols_to_sell and sym not in ratchet_sold and sym not in pre_blocked):
+                        and sym not in symbols_to_sell and sym not in blocked_buys and sym not in pre_blocked):
                     fillers.append(sym)
         symbols_to_buy = [s for s in buy_targets if s not in pre_blocked] + fillers
         if symbols_to_buy:

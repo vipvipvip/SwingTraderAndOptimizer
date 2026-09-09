@@ -56,6 +56,16 @@ CREATE TABLE IF NOT EXISTS mtf_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mtf_runs_mode_time
     ON mtf_runs(mode, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS mtf_ratchet_cooldown (
+    mode VARCHAR(10) NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    cooldown_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (mode, symbol, cooldown_date)
+);
+CREATE INDEX IF NOT EXISTS idx_mtf_ratchet_cooldown_date
+    ON mtf_ratchet_cooldown(mode, cooldown_date);
 """
 
 
@@ -72,6 +82,29 @@ def init_db():
         print('[MTF DB] mtf_ tables ready')
     finally:
         conn.close()
+
+
+def purge_ratchet_cooldowns(conn, mode, d):
+    """Delete ratchet cool-off rows older than date d (session = trading day)."""
+    with conn.cursor() as cur:
+        cur.execute('DELETE FROM mtf_ratchet_cooldown WHERE mode = %s AND cooldown_date < %s', (mode, d))
+    conn.commit()
+
+
+def get_ratchet_cooldowns(conn, mode, d):
+    """Return the set of symbols under same-day ratchet cool-off for mode on date d."""
+    with conn.cursor() as cur:
+        cur.execute('SELECT symbol FROM mtf_ratchet_cooldown WHERE mode = %s AND cooldown_date = %s', (mode, d))
+        return {r[0] for r in cur.fetchall()}
+
+
+def insert_ratchet_cooldown(conn, mode, symbol, d):
+    """Persist a same-day ratchet cool-off (idempotent)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'INSERT INTO mtf_ratchet_cooldown (mode, symbol, cooldown_date) VALUES (%s, %s, %s) '
+            'ON CONFLICT (mode, symbol, cooldown_date) DO NOTHING', (mode, symbol, d))
+    conn.commit()
 
 
 def get_ticker_id_from_symbol(conn, symbol):
