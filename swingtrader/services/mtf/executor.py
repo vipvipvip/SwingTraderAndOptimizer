@@ -426,6 +426,31 @@ def _compute_ratchet_stops(conn, held_symbols):
     return stops
 
 
+def latest_hourly_closes(conn, held_symbols):
+    """Map held symbol -> last settled hourly bar close (ratchet price source).
+
+    The backtest evaluates exits on bar closes, but the live ratchet used to
+    compare against the instantaneous Alpaca quote — which fires on transient
+    intra-hour wicks (CNXN/HOOD/MU/SFST 09-08, GLW 09-10) that never became a
+    bar close. This returns the most recently captured hourly bar close written
+    by capture_hourly.py (~10 min into the hour, i.e. a settled snapshot), so
+    the ratchet reacts to bar closes like the backtest, not live ticks.
+
+    Returns {symbol: close}; symbols with no hourly bars are omitted (caller
+    skips the ratchet check, conservative)."""
+    closes = {}
+    for symbol in held_symbols:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT close FROM tbl_scanner_tickers_1hour '
+                'WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol=%s) '
+                'ORDER BY date DESC LIMIT 1', (symbol,))
+            r = cur.fetchone()
+        if r and r[0]:
+            closes[symbol] = float(r[0])
+    return closes
+
+
 def _send_slack(msg):
     if not config.SLACK_WEBHOOK_URL:
         return
@@ -509,6 +534,9 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
         # RATCHET_ATR_MULT x ATR. Peak-anchored, so it never floats down with a
         # crash like the close-anchored atr_stop does. Stateless: rebuilt from
         # the DB every run. Symbols with no hourly data are skipped (conservative).
+        # The comparison close is the last SETTLED HOURLY BAR close (not the live
+        # tick) so transient intra-hour wicks can't trigger — matching the
+        # backtest's bar-close evaluation.
         ratchet_sold = set()
         cooled_out = set()
         ratchet_stops = {}
@@ -516,33 +544,14 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
         if mode == 'stock' and config.RATCHET_EXIT:
             # Same-day ratchet cool-off (persisted in DB): a symbol ratchet-sold
             # earlier today cannot be re-bought until the next trading day.
-            # Fixes the CNXN/HOOD/MU/SFST same-day sell+re-buy whipsaw — the live
-            # price dips below the peak-anchored stop intraday, the next hourly
+            # Fixes the CNXN/HOOD/MU/SFST same-day sell+re-buy whipsaw — the bar
+            # close dips below the peak-anchored stop intraday, the next hourly
             # cycle re-buys it. Stale rows purge on date rollover; blocked slots
             # are backfilled from rank 11+ so the book still holds ~TOP_N names.
             db_module.purge_ratchet_cooldowns(conn, mode, now.date())
             cooled_out |= db_module.get_ratchet_cooldowns(conn, mode, now.date())
             ratchet_stops = _compute_ratchet_stops(conn, held_symbols)
-            for sym in held_symbols:
-                # Live Alpaca price first — the DB close is stale by a day or
-                # more (score_detail is the previous evening's close), which
-                # false-triggers the ratchet on gap-up opens (e.g. AEHR 08-14:
-                # DB close $123.32 vs live $136.93, sold at +5.8% on a runner).
-                pos = alpaca_positions.get(sym)
-                c = float(pos.get('current_price')) if pos and pos.get('current_price') else None
-                if not c:
-                    sd = score_detail.get(sym)
-                    c = sd.get('close') if sd else None
-                if not c:
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            "SELECT close FROM tbl_scanner_tickers_daily "
-                            "WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol=%s) "
-                            "ORDER BY date DESC LIMIT 1", (sym,))
-                        r = cur.fetchone()
-                        c = float(r[0]) if r and r[0] else None
-                if c:
-                    close_map[sym] = c
+            close_map = latest_hourly_closes(conn, held_symbols)
             for sym in held_symbols:
                 stop = ratchet_stops.get(sym)
                 c = close_map.get(sym)
