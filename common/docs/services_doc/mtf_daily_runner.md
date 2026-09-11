@@ -97,6 +97,13 @@ live/partial bar) and fills at market at ~10:25 — the fill is the only place a
 live price enters, and it approximates the backtest's fill-at-next-open.
 Everything upstream (selection, ratchet exit) is decided on settled bars only.
 
+`_ensure_daily_data` (pre-evening 10:25 run) picks the latest `date::date < today`
+whose enabled-ticker coverage is `>= expected - MISSING_TOLERANCE` (5). So a day
+with a couple of missing bars (e.g. 1432/1433 stocks) is still scored instead of
+falling back to a stale date, and today's in-progress bar is never scored. This
+guards against both failure modes seen on 2026-09-11: stocks scored a stale
+09-02 signal (09-10 was 1432/1433) and ETFs scored today's partial bar.
+
 ## Files
 
 All files live under `swingtrader/services/mtf/`:
