@@ -28,31 +28,23 @@ paper-portfolio accounting — the live Alpaca positions are the source of truth
 
 ## Scoring Formula
 
-Stocks use **Multi-TF** scoring:
-
-```
-Score = min(gap_w / 20, 3)   (weekly gap from SMA(40), points)
-      + min(atr_dist / 1.5, 3)  (distance above ATR stop, points)
-      + max(0, 2 - days_since_weekly / 60)  (freshness bonus, 0-2 pts)
-```
-
-- **gap_w**: `(close - SMA(40)) / SMA(40) * 100` on weekly bars. Captures momentum
-  strength. Capped at 3 pts (gap_w >= 60%).
-- **atr_dist**: `(close - ATR_stop) / close * 100` on 1-hour bars. Measures room
-  above the trailing stop. Capped at 3 pts (atr_dist >= 4.5%).
-- **freshness**: Days since last weekly EMA(10) > SMA(40) crossover. 2 pts at day 0,
-  linearly decays to 0 at day 120. Preserves explosive early entries while still
-  favoring fresh breakouts.
-
-ETFs use **EMA/SMA** scoring (pure weekly rotation, no daily/hourly/ATR filters):
+Both legs use **EMA/SMA** scoring (emasma) — a pure weekly rotation with **no
+daily/hourly/ATR filters** (removed in v3 to match the backtest exactly: the
+live strategy never touches hourly data, and scoring reads only settled
+weekly/daily bars):
 
 ```
 Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 ```
 
-- Long only while weekly EMA(10) > SMA(40); flat otherwise. Same top-N rotation
-  mechanics, no additional filters. Backtested at **+143% (10.5% DD)** vs MTF
-  +66% (15.4% DD) over Jul 2023 – Jul 2026 on the same 28-ETF universe.
+- Long only while weekly EMA(10) > SMA(40); flat otherwise.
+- Stocks rank top-10 (`TOP_N = 10`), ETFs top-3 (`ETF_TOP_N = 3`).
+- Backtested (2021-09-20 → 2026-09-10): **stocks +17,052% / −23.6% DD / 74% win**
+  (with daily-ATR ratchet exit, ledger-audited PASS); **ETFs +1,122.7% / −15.7% DD**
+  (top-3 pilot, ledger PASS).
+- The old **Multi-TF** score (`min(gap_w/20,3) + min(atr_dist/1.5,3) + freshness`)
+  and the v2 **freshest-crossover** score remain implemented (`--strategy mtf|v2`)
+  for research only — neither is live.
 
 ## Architecture
 
@@ -75,7 +67,7 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
                  └───────────────┘
 ```
 
-**Executor (7×/day)** — `--action execute`:
+**Executor (once/day, 10:25 ET)** — `--action execute`:
 ```
                  ┌───────────────┐
                  │ mtf_pending   │ ─── reads unconsumed pending
@@ -100,8 +92,10 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
                 └────────────────┘
 ```
 
-Key principle: **All analytics happen in the evening. Morning only acts.**
-No guessing after-hours fills — market orders at 10 AM record fills immediately.
+Key principle: the executor scores on the last **settled** daily bar (never the
+live/partial bar) and fills at market at ~10:25 — the fill is the only place a
+live price enters, and it approximates the backtest's fill-at-next-open.
+Everything upstream (selection, ratchet exit) is decided on settled bars only.
 
 ## Files
 
@@ -109,7 +103,7 @@ All files live under `swingtrader/services/mtf/`:
 
 | File | Purpose |
 |------|---------|
-| `runner.py` | Two-phase: `--action score` (evening analytics) or `--action execute` (morning trades). Stocks scored with Multi-TF, ETFs with EMA/SMA |
+| `runner.py` | Two-phase in one daily run: `--action score` (settled-bar scoring on `sig_date=guard_date`, saves pending) then `--action execute` (morning fills). Both legs scored with emasma (`--strategy emasma`) |
 | `config.py` | DB creds, scoring params (TOP_N=10, ETF_TOP_N=3, EMA/SMA periods, cost, capital) |
 | `db.py` | Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state |
 | `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA368CPXNS13, etf #PA3U8GZ96PEN — from `mtf/.env`); `reconcile_trades()` rebuilds `mtf_trades` from Alpaca fills |
@@ -183,7 +177,7 @@ final equity unchanged (+557.25%).
 
 ## Slack Messages
 
-**Evening (4:45 PM)** — picks and analytics, tagged `[MTF+EMA-SMA stocks+ETFs]`:
+**Morning (10:25 ET)** — picks and analytics, tagged `[MTF+EMA-SMA stocks+ETFs]`:
 ```
 MTF Top 10 + EMA/SMA Top 10 — 2026-07-13 (stocks + ETFs + sectors)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -247,7 +241,8 @@ weekly cross, `ATR%` = distance above the hourly ATR stop, `WkEMA`/`WkSMA` = the
 trend reference levels. The trailing comma list (all 11, alpha-sorted) is preserved for
 tooling/quick copy.
 
-**Morning (10:00 AM)** — fill confirmation, tagged `[MTF+EMA-SMA stocks+ETFs]`:
+**Morning (10:25 ET)** — two combined messages: first the picks (score), then the
+fill confirmation (execute), both tagged `[MTF+EMA-SMA stocks+ETFs]`:
 ```
 MTF + EMA/SMA Execution — 2026-07-14 (stocks + ETFs)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -266,10 +261,10 @@ MTF + EMA/SMA Execution — 2026-07-14 (stocks + ETFs)
 
 ### Slack
 Multiple Slack messages per day:
-- **Sampler (09:10–15:10 ET)** — intraday hourly capture + recompute (silent unless an alert).
-- **Executor 1×/day (10:25 ET)** — scores emasma on the last complete daily bar then fills (what was bought/sold).
+- **Sampler (09:10–15:10 ET)** — intraday hourly capture + recompute (silent unless an alert; retained for the scanner, not consumed by emasma).
+- **Executor 1×/day (10:25 ET)** — scores emasma on the last complete daily bar, fills the rotation, then posts one combined picks message and one combined fills message.
 
-Evening message includes:
+Morning messages include:
 - Market breadth regime per universe
 - Top-10 stock picks with full scoring breakdown
 - Top-10 ETF picks with P&L vs real fill prices
@@ -311,7 +306,7 @@ sudo journalctl -u swingtrader-mtf-scorer.service -f
 sudo journalctl -u swingtrader-mtf-executor.service -f
 ```
 
-**Dependency**: `swingtrader-mtf-scorer.service` declares `After=swingtrader-scanner-backfill.service` + `Wants=swingtrader-scanner-backfill.service`. When the runner starts, it pulls in `swingtrader-scanner-backfill.service` (populate + capture close quote + compute ATR_stop) and waits for it to complete before scoring. This ensures hourly `atr_stop` indicators are always freshly computed, even if `swingtrader-scanner-backfill.timer` is disabled or delayed.
+**Dependency**: `swingtrader-mtf-executor.service` declares `After=network-online.target swingtrader-db.service` (network + DB up before scoring). emasma scoring reads only weekly/daily bars, so it does not depend on the hourly sampler or the `atr_stop` indicators being fresh — the risk is stale **daily** data, handled by the guard below.
 
 **Data completeness guard**: Runner checks all enabled tickers have today's daily bar before scoring. If incomplete, it retries `populate_tickers.py` + `compute_indicators.py` up to 3 times. On failure, sends a red `🚨🔴 DATA INCOMPLETE` Slack alert and aborts. No trades are placed.
 
@@ -352,7 +347,8 @@ re-running the scorer replaces that mode's pending, and executing marks it consu
 |-------|--------|--------|
 | 1 | Paper trading — log picks, track portfolio, Slack alerts alongside MTCS | ✅ Done |
 | 2 | Stop MTCS/EMAC, wire MTF picks into Alpaca executor (--live flag, top-n 10) | ✅ Live |
-| 3 | Scale top-N, add stop-loss/trailing exit if needed | ⏳ Pending |
+| 3 | Optimize top-N size, add exit rules (stop-loss, trailing) | ✅ Done — daily-ATR ratchet live on stock leg; ETF top-3 pilot live |
+| — | **Stock leg v2 → v3 (emasma)** | ✅ Done 2026-09-10 — replace freshest-crossover (40.5% win) with emasma top-10 + daily-ATR ratchet (74% win, settled-daily-only, once/day at 10:25) |
 
 ## DB Schema
 

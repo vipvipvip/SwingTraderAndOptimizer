@@ -6,6 +6,10 @@ optimizer/data/
 optimizer/backtest_results/
 optimizer/logs/
 
+# Python bytecode cache (anywhere)
+__pycache__/
+*.pyc
+
 # Secrets
 optimizer/.env
 backend/.env
