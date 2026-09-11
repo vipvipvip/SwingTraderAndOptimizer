@@ -681,7 +681,9 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
         conn.close()
         return False, lines, sig_date
 
-    candidates.sort(key=lambda x: -x['score'])
+    # Sort by score DESC, then by weekly gap DESC for a deterministic,
+    # replicable selection when many tickers tie at the emasma score cap (5).
+    candidates.sort(key=lambda x: (-x['score'], -x['gap_w']))
     top_n = candidates[:config.ETF_TOP_N if is_etf else config.TOP_N]
 
     score_detail = {}

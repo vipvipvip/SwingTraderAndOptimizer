@@ -317,7 +317,7 @@ def backtest(argv=None):
                         continue
                     gap_w = (wc - ws) / ws * 100
                     emasma_score = round(min(gap_w / 5, 5), 2)
-                    candidates.append((tid, emasma_score))
+                    candidates.append((tid, emasma_score, gap_w))
                     continue
 
                 if args.daily_only:
@@ -438,7 +438,7 @@ def backtest(argv=None):
                     continue
                 if args.infancy and days_since >= 60:
                     continue
-                candidates.append((tid, decision_score))
+                candidates.append((tid, decision_score, gap_w))
 
             if not candidates:
                 # MTM at the label date's close — same convention as the
@@ -457,8 +457,9 @@ def backtest(argv=None):
                 pos_counts.append(len(positions))
                 continue
 
-            # Sort by score DESC
-            candidates.sort(key=lambda x: -x[1])
+            # Sort by score DESC, then by weekly gap DESC for a deterministic,
+            # replicable selection when many tickers tie at the score cap.
+            candidates.sort(key=lambda x: (-x[1], -x[2]))
             selected = {c[0] for c in candidates[:args.top_n]}
 
             exec_idx = ri + 1

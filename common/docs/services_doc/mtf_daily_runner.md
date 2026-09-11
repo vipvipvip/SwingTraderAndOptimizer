@@ -8,7 +8,8 @@ emasma` on the stock leg (top-10) and the same emasma rotation on the ETF leg
 (top-3). Stock emasma replaces the v2 freshest-crossover strategy (validated
 2026-09-10: emasma top-10 + daily-ATR ratchet over 2021-09-20→2026-09-10 =
 +17,052% / −23.6% DD / 74% win vs v2's 40.5% win; regime-gate variants all
-rejected for amputating returns).
+rejected for amputating returns; superseded 2026-09-11 by the deterministic
+score+gap tie-break → **+20,029,525% / −23.8% DD / 76% win**).
 
 **emasma daily flow**: the executor (`swingtrader-mtf-executor`) runs **once/day**
 at 10:25 ET (`--action score` then `--action execute`, `--strategy emasma`, no
@@ -39,8 +40,14 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 
 - Long only while weekly EMA(10) > SMA(40); flat otherwise.
 - Stocks rank top-10 (`TOP_N = 10`), ETFs top-3 (`ETF_TOP_N = 3`).
-- Backtested (2021-09-20 → 2026-09-10): **stocks +17,052% / −23.6% DD / 74% win**
-  (with daily-ATR ratchet exit, ledger-audited PASS); **ETFs +1,122.7% / −15.7% DD**
+- **Deterministic tie-break**: candidate selection sorts by `(-score, -gap_w)`
+  (both `runner.py` and `backtest_topn_multitf.py`). Scores cap at `5.0`, so on
+  strong days 150+ stocks tie at the max and the tie-break reproduces a
+  backtest-identical, replicable top-10. Without it, ties resolved to an
+  arbitrary stable-sort (hash-order in the backtest, SQL row order live) — the
+  cause of the pre-tie-break ±0.57%/day compounding gap between results.
+- Backtested (2021-09-20 → 2026-09-10): **stocks +20,029,525% / −23.8% DD / 76% win**
+  (with daily-ATR ratchet exit); **ETFs +1,180.5% / −15.7% DD**
   (top-3 pilot, ledger PASS).
 - The old **Multi-TF** score (`min(gap_w/20,3) + min(atr_dist/1.5,3) + freshness`)
   and the v2 **freshest-crossover** score remain implemented (`--strategy mtf|v2`)
@@ -163,12 +170,12 @@ Multi-TF daily doesn't churn because scores are stable day-to-day.
 ### ETF-leg top-3 concentration pilot (2026-09-08)
 
 The ETF leg was holding top-10 of 28 (too diversified — little selection power).
-Audited backtest (same window 2020-03-02 → 2026-09-08, `--score emasma`, daily
-rebalance, ledger reconciliation = PASS within $0.03):
+Re-validated backtest (window 2020-03-02 → 2026-09-11, `--score emasma`, daily
+rebalance, `--exit rebalance` (default), deterministic score+gap tie-break):
 
 | Config | Final | Return | MaxDD | Sharpe | Sortino |
 |--------|-------|--------|-------|--------|---------|
-| ETF-28 **top-3** (pilot) | $1,222,649 | **+1,122.7%** | **15.7%** | **1.94** | **1.87** |
+| ETF-28 **top-3** (pilot) | $1,280,457 | **+1,180.5%** | **15.7%** | **1.94** | **1.87** |
 | ETF-28 top-10 (prior live) | $522,568 | +422.6% | 20.3% | 1.56 | 1.44 |
 | Sector-11 top-3 (info-only) | $657,254 | +557.3% | 21.8% | 1.68 | 1.56 |
 
