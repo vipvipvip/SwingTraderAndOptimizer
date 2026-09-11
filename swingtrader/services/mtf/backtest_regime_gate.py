@@ -112,9 +112,10 @@ def compute_mkt_agreement(mkt_weekly, all_dates):
     return out
 
 
-def run_backtest(weekly, daily, hourly, all_dates, breadth, mkt_agr, gate='none', top_n=10):
+def run_backtest(weekly, daily, hourly, all_dates, breadth, mkt_agr, gate='none', top_n=10, score='mtf'):
     """Replicates backtest_topn_multitf daily-rebalance loop with optional regime gate.
     gate: 'none' | 'breadth' | 'mkt' | 'both' | 'mktstrong'
+    score: 'mtf' (Multi-TF: weekly+daily bull, hourly ATR) | 'emasma' (weekly EMA10>SMA40 gap)
     """
     common = set(weekly) & set(daily) & set(hourly)
     daily_idx = {tid: {dt: i for i, dt in enumerate(d['dates'])} for tid, d in daily.items()}
@@ -182,15 +183,29 @@ def run_backtest(weekly, daily, hourly, all_dates, breadth, mkt_agr, gate='none'
             equity_curve.append(pf_val)
             continue
 
-        # Compute MTF scores (same as backtest)
+        # Compute selection scores (mtf or emasma)
         candidates = []
         for tid in common:
-            di = daily_idx[tid].get(sig_date)
             wi = weekly_idx[tid].get(sig_date)
-            hi = hourly_idx[tid].get(sig_date)
-            if di is None or wi is None or hi is None:
+            if wi is None or wi < WARMUP:
                 continue
-            if di < 1 or wi < WARMUP or hi < 1:
+            if score == 'emasma':
+                we = weekly[tid]['ema'][wi]
+                ws = weekly[tid]['sma'][wi]
+                wc = weekly[tid]['close'][wi]
+                if any(np.isnan(x) for x in (we, ws, wc)):
+                    continue
+                if we <= ws:
+                    continue
+                gap_w = (wc - ws) / ws * 100
+                emasma_score = round(min(gap_w / 5, 5), 2)
+                candidates.append((tid, emasma_score))
+                continue
+            di = daily_idx[tid].get(sig_date)
+            hi = hourly_idx[tid].get(sig_date)
+            if di is None or hi is None:
+                continue
+            if di < 1 or hi < 1:
                 continue
             wc = weekly[tid]['close'][wi]
             we = weekly[tid]['ema'][wi]
@@ -301,6 +316,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--top-n', type=int, default=10)
     parser.add_argument('--start', default=None)
+    parser.add_argument('--score', choices=['mtf', 'emasma'], default='mtf',
+                        help='Selection score: mtf=Multi-TF, emasma=weekly EMA10>SMA40 gap')
     args = parser.parse_args()
 
     db_module.init_db()
@@ -357,7 +374,7 @@ def main():
               f'==0 on {sum(1 for a in avals if a == 0)} days')
 
         print(f'\n{"="*92}')
-        print(f'  TOP-{args.top_n} MTF BACKTEST — REGIME GATE COMPARISON')
+        print(f'  TOP-{args.top_n} {args.score.upper()} BACKTEST — REGIME GATE COMPARISON')
         print(f'  Period: {all_dates[0]} to {all_dates[-1]}')
         print(f'{"="*92}')
         hdr = (f'  {"gate":<12} {"Return":>9} {"MaxDD":>7} {"Buys":>5} {"Sells":>6} '
@@ -366,7 +383,7 @@ def main():
         print('  ' + '-' * 88)
         results = {}
         for gate in ['none', 'breadth', 'mkt', 'both', 'mktstrong']:
-            r = run_backtest(weekly, daily, hourly, all_dates, breadth, mkt_agr, gate=gate, top_n=args.top_n)
+            r = run_backtest(weekly, daily, hourly, all_dates, breadth, mkt_agr, gate=gate, top_n=args.top_n, score=args.score)
             results[gate] = r
             print(f'  {gate:<12} {r["ret"]*100:+8.2f}% {r["dd"]*100:6.1f}% {r["buys"]:>5} '
                   f'{r["sells"]:>6} {r["gate_sells"]:>9} {r["winrate"]:>5.0f}% '
@@ -387,17 +404,26 @@ def main():
             for d in sample:
                 nq = 0
                 for tid in common:
-                    di = daily_idx[tid].get(d); wi = weekly_idx[tid].get(d); hi = hourly_idx[tid].get(d)
-                    if di is None or wi is None or hi is None or di < 1 or wi < WARMUP or hi < 1:
+                    wi = weekly_idx[tid].get(d)
+                    if wi is None or wi < WARMUP:
                         continue
                     wc = weekly[tid]['close'][wi]; we = weekly[tid]['ema'][wi]; ws = weekly[tid]['sma'][wi]
+                    if any(np.isnan(x) for x in (wc, we, ws)):
+                        continue
+                    if args.score == 'emasma':
+                        if we > ws:
+                            nq += 1
+                        continue
+                    di = daily_idx[tid].get(d); hi = hourly_idx[tid].get(d)
+                    if di is None or hi is None or di < 1 or hi < 1:
+                        continue
                     dc = daily[tid]['close'][di]; de = daily[tid]['ema'][di]; ds = daily[tid]['sma'][di]
                     hc = hourly[tid]['close'][hi]; ha = hourly[tid]['atr_stop'][hi]
                     if any(np.isnan(x) for x in (wc, we, ws, dc, de, ds, hc, ha)):
                         continue
                     if we > ws and de > ds and hc > ha:
                         nq += 1
-                print(f'    {d}: agreement={mkt_agr[d]}/4, MTF-qualifying stocks={nq}')
+                print(f'    {d}: agreement={mkt_agr[d]}/4, {args.score.upper()}-qualifying stocks={nq}')
         else:
             print('  No days with agreement <=2 in period.')
 

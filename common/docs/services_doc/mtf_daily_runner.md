@@ -1,21 +1,26 @@
-# MTF Top-N Daily Runner — Multi-TF Rotation Strategy
+# MTF Top-N Daily Runner — emasma Rotation Strategy
 
 ## Overview
 
 MTF Top-N replaces MTCS (Hilbert sine/lead) as the primary rotation strategy.
-Uses Multi-TF scoring (weekly gap + ATR distance + freshness) across VTI stocks
-and weekly EMA10>SMA40 rotation (EMASMA) across thematic ETFs to select the top N
-most favorable long candidates daily.
+Both legs now run the weekly EMA10>SMA40 gap rotation (**emasma**): `--strategy
+emasma` on the stock leg (top-10) and the same emasma rotation on the ETF leg
+(top-3). Stock emasma replaces the v2 freshest-crossover strategy (validated
+2026-09-10: emasma top-10 + daily-ATR ratchet over 2021-09-20→2026-09-10 =
++17,052% / −23.6% DD / 74% win vs v2's 40.5% win; regime-gate variants all
+rejected for amputating returns).
 
-**v2 same-day flow**: An intraday sampler (`swingtrader-scanner-hourly`) runs
- during market hours (09:10–15:10 ET) every hour and snapshots latest-trade
- prices into the hourly table + recomputes MACD/EMA/SMA. **7×/day** the executor
- (`swingtrader-mtf-executor`, at :25 past 10/11/12/13/14/15 + 15:45 ET, i.e. right
- after each hour's capture+compute) then scores **v2** (freshest-CO top-10 stock
- leg + EMA/SMA ETF leg) on TODAY's newest intraday bar (`--fresh`) and places
- orders in the same run. The standalone evening scorer is disabled (score is now
- inline in the executor); the ETF leg keeps the EMA/SMA rotation.
-**v2 strategy** (freshest-CO top-10) drives the stock leg; ETF leg keeps the EMA/SMA rotation.
+**emasma daily flow**: the executor (`swingtrader-mtf-executor`) runs **once/day**
+at 10:25 ET (`--action score` then `--action execute`, `--strategy emasma`, no
+`--fresh`) scoring on the last COMPLETE daily bar (settled bars only — never
+intraday/partial bars) and fills the rotation same-run. Exit protection is the
+**daily-ATR ratchet** (`executor._compute_ratchet_stops`): sells when the last
+settled daily close < (highest daily close since entry − 2×daily ATR from the
+daily table's atr_stop column). Live == backtest: both the ATR and the
+comparison close come from settled daily bars only, so the ratchet fires only
+after a daily bar genuinely closes below the stop (signal on day D's close →
+fill at day D+1's open). The standalone evening scorer is disabled (score is now
+inline in the executor).
 
 **State is DB-backed**: pending picks live in `mtf_pending` (JSONB), run history
 in `mtf_runs`, and real holdings in `mtf_positions`. No state files, no R&D
@@ -51,8 +56,8 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 
 ## Architecture
 
-**Intraday sampler (`swingtrader-scanner-hourly`)** — 09:10–15:10 ET: captures latest-trade prices into the hourly table, then recomputes MACD/EMA/SMA.
-**Executor (`swingtrader-mtf-executor`)** — 7×/day at :25 past 10/11/12/13/14/15 + 15:45: `--action score` then `--action execute` on TODAY's newest intraday bar (`--fresh`): v2 stock leg + EMA/SMA ETF leg.
+**Intraday sampler (`swingtrader-scanner-hourly`)** — 09:10–15:10 ET: captures latest-trade prices into the hourly table, then recomputes MACD/EMA/SMA (retained; emasma scoring doesn't consume hourly data).
+**Executor (`swingtrader-mtf-executor`)** — once/day at 10:25: `--action score` then `--action execute` on the last COMPLETE daily bar (no `--fresh`): emasma stock leg (top-10) + EMA/SMA ETF leg (top-3), with the daily-ATR ratchet exit on the stock leg.
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
 │ DB (PSQL)│───▶│  runner.py       │───▶│  Slack alert (picks) │
@@ -116,7 +121,7 @@ All files live under `swingtrader/services/mtf/`:
 | `data/mtf_picks_etf.csv` | Daily ETF top-N picks with scores and components (pick history) |
 | `systemd/swingtrader-scanner-hourly.{service,timer}` | Intraday hourly sampler (weekdays 09:10–15:10 ET) — captures prices + recomputes MACD/EMA/SMA each hour |
 | `systemd/swingtrader-mtf-scorer.{service,timer}` | DISABLED 2026-08-27 (score is inline in the executor); kept for manual/analytics use |
-| `systemd/swingtrader-mtf-executor.{service,timer}` | v2 same-day executor (7×/day, `--action score` then `--action execute`, both `--strategy v2 --fresh`) |
+| `systemd/swingtrader-mtf-executor.{service,timer}` | emasma executor (once/day at 10:25, `--action score` then `--action execute`, both `--strategy emasma` on settled daily bars; no `--fresh`) |
 
 ## Backtest Results (Multi-TF Daily Rebalance)
 
@@ -262,7 +267,7 @@ MTF + EMA/SMA Execution — 2026-07-14 (stocks + ETFs)
 ### Slack
 Multiple Slack messages per day:
 - **Sampler (09:10–15:10 ET)** — intraday hourly capture + recompute (silent unless an alert).
-- **Executor 7×/day (10:25, 11:25, 12:25, 13:25, 14:25, 15:25, 15:45 ET)** — scores v2 on the newest fresh intraday bar then fills (what was bought/sold).
+- **Executor 1×/day (10:25 ET)** — scores emasma on the last complete daily bar then fills (what was bought/sold).
 
 Evening message includes:
 - Market breadth regime per universe
@@ -315,18 +320,18 @@ sudo journalctl -u swingtrader-mtf-executor.service -f
 | Timer | Time | Action | Service |
 |-------|------|--------|---------|
 | `swingtrader-scanner-hourly.timer` | Mon–Fri 09:10–15:10 ET | Intraday hourly capture + recompute | `swingtrader-scanner-hourly.service` |
-| `swingtrader-mtf-executor.timer` | Mon–Fri 7×/day (:25 past 10–15 + 15:45) | v2 score+execute | `swingtrader-mtf-executor.service` |
+| `swingtrader-mtf-executor.timer` | Mon–Fri 10:25 ET (once/day) | emasma score+execute on settled daily bars | `swingtrader-mtf-executor.service` |
 
 ### Manual
 ```bash
 cd /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
 
-# v2 same-day run (what each hourly executor does): score TODAY's newest intraday bar, then execute
-python3 runner.py --action score --mode all --strategy v2 --fresh   # score on today's bars
-python3 runner.py --action execute --mode all --strategy v2 --fresh # fill pending same day
+# emasma daily run (what the 10:25 executor does): score on the last complete daily bar, then execute
+python3 runner.py --action score --mode all --strategy emasma   # score on settled daily bars
+python3 runner.py --action execute --mode all --strategy emasma # fill pending same day
 
 # Scoring without --fresh (last complete date, e.g. evening re-scoring)
-python3 runner.py --action score --mode all --strategy v2
+python3 runner.py --action score --mode all --strategy emasma
 python3 runner.py --action score --mode stock
 python3 runner.py --action score --mode etf
 

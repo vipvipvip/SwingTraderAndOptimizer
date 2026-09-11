@@ -39,7 +39,9 @@ MISSING_TOLERANCE = 5
 
 MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs', 'all': 'stocks+ETFs'}
 CSV_SUFFIX = {'stock': '_stock', 'etf': '_etf'}
-# ETF leg now runs the weekly EMA10>SMA40 rotation (EMASMA), not Multi-TF.
+# ETF leg runs the weekly EMA10>SMA40 rotation (EMASMA), not Multi-TF.
+# Stock-leg --strategy emasma also uses the same weekly EMA/SMA rotation
+# (validated to replace the v2 freshest-crossover strategy).
 STRATEGY_TAG = {'stock': 'MTF-TopN', 'etf': 'EMA-SMA', 'all': 'MTF+EMA-SMA'}
 STRATEGY_NAME = {'stock': 'Multi-TF', 'etf': 'EMA/SMA'}
 
@@ -532,14 +534,20 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     weekly_data = db_module.bulk_load_weekly(conn, enabled_tids)
     print(f'[MTF] Loading daily data...', flush=True)
     daily_data_raw = db_module.bulk_load_daily(conn, enabled_tids)
-    print(f'[MTF] Loading hourly data...', flush=True)
-    if strategy == 'v2' and not is_etf:
-        hourly_data_raw = db_module.bulk_load_hourly_full(conn, enabled_tids)
+    uses_hourly = (not is_etf) and strategy in ('mtf', 'v2')
+    if uses_hourly:
+        print(f'[MTF] Loading hourly data...', flush=True)
+        if strategy == 'v2':
+            hourly_data_raw = db_module.bulk_load_hourly_full(conn, enabled_tids)
+        else:
+            hourly_data_raw = db_module.bulk_load_hourly(conn, enabled_tids)
     else:
-        hourly_data_raw = db_module.bulk_load_hourly(conn, enabled_tids)
+        hourly_data_raw = {}
 
-    # Filter to enabled tickers with all 3 timeframes (ETF/EMA-SMA only
-    # needs weekly + daily; hourly is used by the MTF score only)
+    # Filter to enabled tickers with all needed timeframes. emasma (stock or
+    # ETF) is weekly-only scoring — needs weekly + daily (daily for close);
+    # the stock MTF/v2 score additionally needs hourly. ETF leg always stays
+    # emasma regardless of the --strategy flag.
     weekly_data = {tid: d for tid, d in weekly_data.items()
                    if tid in enabled_tids and len(d['dates']) >= config.WARMUP_BARS}
     daily_data = {}
@@ -549,14 +557,15 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
             daily_data[tid] = daily_data_raw[tid]
         if tid in hourly_data_raw and len(hourly_data_raw[tid]['dates']) >= 2:
             hourly_data[tid] = hourly_data_raw[tid]
-    if is_etf:
-        valid_tids = set(weekly_data) & set(daily_data)
-    else:
+    if uses_hourly:
         valid_tids = set(weekly_data) & set(daily_data) & set(hourly_data)
+    else:
+        valid_tids = set(weekly_data) & set(daily_data)
     weekly_data = {tid: weekly_data[tid] for tid in valid_tids}
     daily_data = {tid: daily_data[tid] for tid in valid_tids}
-    hourly_data = {tid: hourly_data[tid] for tid in valid_tids}
-    print(f'[MTF] Tickers with all 3 timeframes: {len(weekly_data)}')
+    if uses_hourly:
+        hourly_data = {tid: hourly_data[tid] for tid in valid_tids}
+    print(f'[MTF] Tickers with all required timeframes: {len(weekly_data)}')
 
     daily_idx = {}
     daily_dates_sorted = {}
@@ -631,7 +640,7 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
             print(f'[MTF] ⚠️ {ticker_names[tid]} excluded — stale daily bar {daily_bar_date} '
                   f'(baseline {baseline})')
             continue
-        if is_etf:
+        if is_etf or strategy == 'emasma':
             result = _compute_emasma_score(weekly_data[tid], daily_data[tid]['close'][di], wi, sig_date)
         elif strategy == 'v2':
             hi = _nearest_date_idx(hourly_idx[tid], hourly_dates_sorted[tid], sig_date)
@@ -752,6 +761,8 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     # Build message
     label = MODE_LABEL[mode]
     strategy_name = STRATEGY_NAME.get(mode, 'Multi-TF')
+    if strategy_name == 'Multi-TF' and strategy == 'emasma':
+        strategy_name = 'EMA/SMA'
     lines.append(f'*{strategy_name} Top {config.ETF_TOP_N if is_etf else config.TOP_N} — {sig_date} ({label})*')
     lines.append('```')
 
@@ -1187,8 +1198,9 @@ if __name__ == '__main__':
                         help='score (evening analytics) or execute (morning trades)')
     parser.add_argument('--mode', choices=['stock', 'etf', 'all'], default='stock',
                         help='Ticker universe (default: stock, use "all" for stocks+ETFs)')
-    parser.add_argument('--strategy', choices=['mtf', 'v2'], default='mtf',
-                        help='stock-leg scoring: mtf (default) or v2 freshest-crossover top-N')
+    parser.add_argument('--strategy', choices=['mtf', 'v2', 'emasma'], default='mtf',
+                        help='stock-leg scoring: mtf (default), v2 freshest-crossover '
+                             'top-N, or emasma (weekly EMA10>SMA40 rotation, same as ETF leg)')
     parser.add_argument('--dry-run', action='store_true',
                         help='execute path: report pending buys/sells without placing orders')
     parser.add_argument('--fresh', action='store_true',

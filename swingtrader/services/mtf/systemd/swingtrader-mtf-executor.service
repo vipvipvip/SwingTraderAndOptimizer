@@ -1,15 +1,15 @@
 [Unit]
-Description=MTF v2 Stock+ETF Executor (7x/day score+execute on fresh hourly bars)
+Description=MTF emasma Stock+ETF Executor (once/day score+execute on settled daily bars)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
-After=network-online.target swingtrader-db.service swingtrader-scanner-hourly.service
+After=network-online.target swingtrader-db.service swingtrader-scanner-backfill.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 User=dikesh
 WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action score --mode all --strategy v2 --fresh
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action execute --mode all --strategy v2 --fresh
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action score --mode all --strategy emasma
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action execute --mode all --strategy emasma
 StandardOutput=journal
 StandardError=journal
 Environment=PYTHONUNBUFFERED=1

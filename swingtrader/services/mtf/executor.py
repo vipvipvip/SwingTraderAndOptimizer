@@ -363,88 +363,95 @@ def _compute_ratchet_stops(conn, held_symbols):
     """Compute the ratchet-ATR stop for each held symbol (stateless).
 
     ratchet = max over holding days t of (running_peak_close(t) - MULT*ATR_t),
-    where the running peak is the highest daily close since entry and ATR_t is
-    the hourly ATR on day t (from the hourly table's atr_stop column, which is
-    close - 2*ATR). Peak-anchored and non-decreasing, so it never floats down
-    with a crash. Rebuilt from source data every run — no stored state to
-    drift or go stale.
+    where the running peak is the highest DAILY close since entry and ATR_t is
+    that day's ATR (from the daily table's atr_stop column, which is
+    close - 2*ATR on daily bars). Peak-anchored and non-decreasing, so it
+    never floats down with a crash. Rebuilt from source data every run — no
+    stored state to drift or go stale.
 
-    Returns {symbol: ratchet_price}. Symbols with no hourly ATR data are
-    omitted (caller skips the ratchet check for them, conservative)."""
+    Live == backtest (backtest_topn_multitf.py --ratchet-atr-src daily): the
+    backtest evaluates the ratchet on completed DAILY closes and sells at the
+    next day's open. We therefore exclude today's in-progress bar (date < now)
+    from both the ATR/peak math and the comparison close (see
+    latest_settled_daily_closes), so the stop only reacts to a settled daily
+    close — matching the backtest and avoiding intraday wicks.
+
+    Returns {symbol: ratchet_price}. Symbols with no completed daily ATR bars
+    since entry are omitted (caller skips the ratchet check, conservative)."""
     import math
+    today = datetime.now(NY).date()
     stops = {}
     for symbol in held_symbols:
         with conn.cursor() as cur:
             cur.execute(
-                'SELECT ticker_id, entry_at FROM mtf_positions WHERE symbol = %s '
-                'ORDER BY updated_at DESC LIMIT 1', (symbol,))
+                'SELECT ticker_id, entry_at, entry_price FROM mtf_positions '
+                'WHERE symbol = %s ORDER BY updated_at DESC LIMIT 1', (symbol,))
             row = cur.fetchone()
         if not row or not row[0]:
             continue
-        tid, entry_at = row[0], row[1]
+        tid = row[0]
+        entry_at = row[1]
+        entry_price = float(row[2]) if row[2] else 0.0
         since = entry_at.date() if entry_at else None
 
+        # Completed daily bars (close + the day's own atr_stop) since entry.
+        # date < today mirrors the settled-close convention of the backtest.
         with conn.cursor() as cur:
             if since:
                 cur.execute(
-                    'SELECT date, close FROM tbl_scanner_tickers_daily '
-                    'WHERE ticker_id = %s AND date::date >= %s ORDER BY date ASC',
-                    (tid, since))
+                    'SELECT date, close, atr_stop FROM tbl_scanner_tickers_daily '
+                    'WHERE ticker_id = %s AND date::date >= %s AND date::date < %s '
+                    'ORDER BY date ASC', (tid, since, today))
             else:
                 cur.execute(
-                    'SELECT date, close FROM tbl_scanner_tickers_daily '
-                    'WHERE ticker_id = %s ORDER BY date ASC', (tid,))
+                    'SELECT date, close, atr_stop FROM tbl_scanner_tickers_daily '
+                    'WHERE ticker_id = %s AND date::date < %s ORDER BY date ASC',
+                    (tid, today))
             d_rows = cur.fetchall()
         if not d_rows:
             continue
 
-        # Per-day last hourly bar (close, atr_stop)
-        h_by_day = {}
-        with conn.cursor() as cur:
-            cur.execute(
-                'SELECT date, close, atr_stop FROM tbl_scanner_tickers_1hour '
-                'WHERE ticker_id = %s ORDER BY date ASC', (tid,))
-            for r in cur.fetchall():
-                h_by_day[r[0].date()] = (float(r[1]) if r[1] else 0.0,
-                                         float(r[2]) if r[2] else 0.0)
-
-        peak = None
+        # Backtest parity: peak is seeded from the entry price (fill), then
+        # grows to the highest settled daily close. ATR is the day's own ATR
+        # from the daily table (atr_stop = close - 2*ATR on daily bars).
+        peak = entry_price if entry_price > 0 else 0.0
         ratchet = 0.0
         for r in d_rows:
-            day = r[0].date() if hasattr(r[0], 'date') else r[0]
             dc = float(r[1]) if r[1] else 0.0
-            peak = max(peak, dc) if peak is not None else dc
-            hb = h_by_day.get(day)
-            if not hb or hb[1] <= 0 or hb[0] <= hb[1]:
+            peak = max(peak, dc)
+            atr_stop = float(r[2]) if r[2] else 0.0
+            if atr_stop <= 0 or dc <= atr_stop:
                 continue
-            atr = (hb[0] - hb[1]) / 2.0
+            atr = (dc - atr_stop) / 2.0
             if atr <= 0:
                 continue
             ratchet = max(ratchet, peak - config.RATCHET_ATR_MULT * atr)
-        if peak is not None:
+        if peak > 0:
             stops[symbol] = ratchet
     return stops
 
 
-def latest_hourly_closes(conn, held_symbols):
-    """Map held symbol -> last settled hourly bar close (ratchet price source).
+def latest_settled_daily_closes(conn, held_symbols):
+    """Map held symbol -> last SETTLED daily bar close (ratchet price source).
 
-    The backtest evaluates exits on bar closes, but the live ratchet used to
-    compare against the instantaneous Alpaca quote — which fires on transient
-    intra-hour wicks (CNXN/HOOD/MU/SFST 09-08, GLW 09-10) that never became a
-    bar close. This returns the most recently captured hourly bar close written
-    by capture_hourly.py (~10 min into the hour, i.e. a settled snapshot), so
-    the ratchet reacts to bar closes like the backtest, not live ticks.
+    Live == backtest: the backtest signals the ratchet exit on day D's daily
+    close and fills at day D+1's open. The executor runs once a day during the
+    session, so 'day D' is the most recent completed daily bar — the last daily
+    row with date strictly before today. Returning it for the comparison means
+    the ratchet fires only after a daily bar has genuinely closed below the
+    stop, never on an intraday tick or in-progress bar (CNXN/HOOD/MU/SFST
+    09-08, GLW 09-10 wick cases).
 
-    Returns {symbol: close}; symbols with no hourly bars are omitted (caller
-    skips the ratchet check, conservative)."""
+    Returns {symbol: close}; symbols with no completed daily bar are omitted
+    (caller skips the ratchet check, conservative)."""
+    today = datetime.now(NY).date()
     closes = {}
     for symbol in held_symbols:
         with conn.cursor() as cur:
             cur.execute(
-                'SELECT close FROM tbl_scanner_tickers_1hour '
+                'SELECT close FROM tbl_scanner_tickers_daily '
                 'WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol=%s) '
-                'ORDER BY date DESC LIMIT 1', (symbol,))
+                'AND date::date < %s ORDER BY date DESC LIMIT 1', (symbol, today))
             r = cur.fetchone()
         if r and r[0]:
             closes[symbol] = float(r[0])
@@ -530,13 +537,15 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
         symbols_to_sell = held_symbols - target_symbols
 
         # ── Ratchet-ATR crash protection (stock leg only) ──
-        # Exit any held position whose close < (highest close since entry) -
-        # RATCHET_ATR_MULT x ATR. Peak-anchored, so it never floats down with a
-        # crash like the close-anchored atr_stop does. Stateless: rebuilt from
-        # the DB every run. Symbols with no hourly data are skipped (conservative).
-        # The comparison close is the last SETTLED HOURLY BAR close (not the live
-        # tick) so transient intra-hour wicks can't trigger — matching the
-        # backtest's bar-close evaluation.
+        # Exit any held position whose close < (highest daily close since entry)
+        # - RATCHET_ATR_MULT x DAILY ATR. Peak-anchored, so it never floats
+        # down with a crash like the close-anchored atr_stop does. Stateless:
+        # rebuilt from the DB every run. Live == backtest
+        # (backtest_topn_multitf.py --ratchet-atr-src daily): both the ATR and
+        # the comparison close come from SETTLED DAILY bars only (today's
+        # in-progress bar is excluded), so the ratchet fires only after a daily
+        # bar has genuinely closed below the stop — matching the backtest that
+        # signals on day D's daily close and fills at day D+1's open.
         ratchet_sold = set()
         cooled_out = set()
         ratchet_stops = {}
@@ -551,7 +560,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
             db_module.purge_ratchet_cooldowns(conn, mode, now.date())
             cooled_out |= db_module.get_ratchet_cooldowns(conn, mode, now.date())
             ratchet_stops = _compute_ratchet_stops(conn, held_symbols)
-            close_map = latest_hourly_closes(conn, held_symbols)
+            close_map = latest_settled_daily_closes(conn, held_symbols)
             for sym in held_symbols:
                 stop = ratchet_stops.get(sym)
                 c = close_map.get(sym)

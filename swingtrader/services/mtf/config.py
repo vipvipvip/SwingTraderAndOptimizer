@@ -25,9 +25,12 @@ INITIAL_CAPITAL = 100000.0
 WARMUP_BARS = 60
 TS_START = '2023-06-30'
 
-# Ratchet-ATR exit (matches backtest --exit ratchet-atr): exit a held position
-# when its close < (highest close since entry) - RATCHET_ATR_MULT x ATR, where
-# ATR comes from the hourly table (atr_stop = close - 2*ATR on hourly bars).
+# Ratchet-ATR exit (matches backtest --exit ratchet-atr --ratchet-atr-src
+# daily): exit a held position when its close < (highest daily close since
+# entry) - RATCHET_ATR_MULT x DAILY ATR, where ATR comes from the daily table
+# (atr_stop = close - 2*ATR on daily bars). Both the ATR and the comparison
+# close come from settled daily bars only (today's in-progress bar excluded),
+# so live == backtest (signals on day D's close, fills at day D+1's open).
 # Peak-anchored, so the stop never floats down with a crash (the old
 # close-anchored atr_stop could not trigger during selloffs by construction).
 # Applies to the stock leg only; the ETF leg is a weekly EMA/SMA rotation.

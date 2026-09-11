@@ -166,8 +166,12 @@ def backtest(argv=None):
                              'hourly-ema (also sell when hourly EMA10<SMA40), '
                              'ratchet-atr (also sell when close < highest-close-since-entry - 2xATR), '
                              'daily-ema (also sell when daily EMA10<SMA40)')
-    parser.add_argument('--ratchet-atr-src', choices=['hourly', 'weekly'], default='hourly',
+    parser.add_argument('--ratchet-atr-src', choices=['hourly', 'weekly', 'daily'], default='hourly',
                         help='ATR source for --exit ratchet-atr (default hourly)')
+    parser.add_argument('--daily-only', action='store_true',
+                        help='Drop all hourly inputs: gate + atr_dist on daily ATR stop, '
+                             'ratchet ATR from daily closes. Matches a live SUT that only '
+                             'acts on settled daily bars (ignores the hourly)')
     parser.add_argument('--start', default=None,
                         help='Restrict backtest to dates >= YYYY-MM-DD (fair comparison window)')
     args = parser.parse_args(argv)
@@ -184,13 +188,19 @@ def backtest(argv=None):
         symbols = set(args.tickers.split(',')) if args.tickers else None
         if symbols:
             print(f'  Subset: {len(symbols)} tickers ({", ".join(sorted(symbols))})')
-        # Load three timeframes
+        # Load three timeframes (hourly optional with --daily-only)
         _, weekly = load_bars(conn, 'tbl_scanner_tickers', 'date', is_etf, symbols)
         _, daily = load_bars(conn, 'tbl_scanner_tickers_daily', 'date', is_etf, symbols)
-        _, hourly = load_bars(conn, 'tbl_scanner_tickers_1hour', None, is_etf, symbols)
+        if args.daily_only:
+            hourly = {}
+            print('  --daily-only: hourly skipped, all signals/inputs on daily+weekly')
+        else:
+            _, hourly = load_bars(conn, 'tbl_scanner_tickers_1hour', None, is_etf, symbols)
 
         # Only keep tickers present in all datasets
-        common = set(weekly) & set(daily) & set(hourly)
+        common = set(weekly) & set(daily)
+        if not args.daily_only:
+            common = common & set(hourly)
         print(f'  Tickers with all 3 timeframes: {len(common)}')
         for tid in list(weekly.keys()):
             if tid not in common:
@@ -198,9 +208,10 @@ def backtest(argv=None):
         for tid in list(daily.keys()):
             if tid not in common:
                 del daily[tid]
-        for tid in list(hourly.keys()):
-            if tid not in common:
-                del hourly[tid]
+        if not args.daily_only:
+            for tid in list(hourly.keys()):
+                if tid not in common:
+                    del hourly[tid]
 
         # Pre-compute weekly and daily EMA/SMA
         for tid in weekly:
@@ -289,7 +300,7 @@ def backtest(argv=None):
             for tid in common:
                 di = daily_idx[tid].get(sig_date)
                 wi = weekly_idx[tid].get(sig_date)
-                hi = hourly_idx[tid].get(sig_date)
+                hi = hourly_idx[tid].get(sig_date) if hourly_idx else None
 
                 if args.score == 'emasma':
                     # Strategy signal: weekly EMA10 > SMA40 (long), flat otherwise.
@@ -309,10 +320,16 @@ def backtest(argv=None):
                     candidates.append((tid, emasma_score))
                     continue
 
-                if di is None or wi is None or hi is None:
-                    continue
-                if di < 1 or wi < WARMUP or hi < 1:
-                    continue
+                if args.daily_only:
+                    if di is None or wi is None:
+                        continue
+                    if di < 1 or wi < WARMUP:
+                        continue
+                else:
+                    if di is None or wi is None or hi is None:
+                        continue
+                    if di < 1 or wi < WARMUP or hi < 1:
+                        continue
 
                 wc = weekly[tid]['close'][wi]
                 we = weekly[tid]['ema'][wi]
@@ -320,16 +337,17 @@ def backtest(argv=None):
                 dc = daily[tid]['close'][di]
                 de = daily[tid]['ema'][di]
                 ds = daily[tid]['sma'][di]
-                hc = hourly[tid]['close'][hi]
-                ha = hourly[tid]['atr_stop'][hi]
+                hc = hourly[tid]['close'][hi] if not args.daily_only else 0
+                ha = hourly[tid]['atr_stop'][hi] if not args.daily_only else 0
 
                 # NaN checks
-                if any(np.isnan(x) for x in (wc, we, ws, dc, de, ds, hc, ha)):
+                if any(np.isnan(x) for x in (wc, we, ws, dc, de, ds)):
                     continue
                 if we <= ws or de <= ds:
                     continue  # weekly or daily not bullish
-                if hc <= ha or hc <= 0:
-                    continue
+                if not args.daily_only:
+                    if hc <= ha or hc <= 0:
+                        continue
 
                 if args.above in ('ema-sma', 'ema-sma-daily', 'both'):
                     if args.above != 'ema-sma-daily':
@@ -342,13 +360,13 @@ def backtest(argv=None):
                     if das is None or np.isnan(das) or das <= 0 or dc <= das:
                         continue  # daily close not above daily ATR stop
 
-                if args.hourly_ema_gate:
+                if args.hourly_ema_gate and not args.daily_only:
                     he = hourly[tid]['h_ema'][hi]
                     hs = hourly[tid]['h_sma'][hi]
                     if np.isnan(he) or np.isnan(hs) or he <= hs:
                         continue  # hourly not bullish
 
-                if args.hourly_daily_gap is not None:
+                if args.hourly_daily_gap is not None and not args.daily_only:
                     he = hourly[tid]['h_ema'][hi]
                     hs = hourly[tid]['h_sma'][hi]
                     if not np.isnan(he) and not np.isnan(hs) and he <= hs:
@@ -371,8 +389,15 @@ def backtest(argv=None):
 
                 # gap_w: weekly gap from SMA
                 gap_w = (wc - ws) / ws * 100
-                # atr_dist: distance from ATR stop (using hourly data)
-                atr_dist = (hc - ha) / hc * 100 if ha > 0 else 0
+                if args.daily_only:
+                    # atr_dist: distance from DAILY ATR stop (no hourly inputs)
+                    das = daily[tid]['d_atr_stop'][di]
+                    if das is None or np.isnan(das) or das <= 0:
+                        das = 0.0
+                    atr_dist = (dc - das) / dc * 100 if das > 0 else 0
+                else:
+                    # atr_dist: distance from ATR stop (using hourly data)
+                    atr_dist = (hc - ha) / hc * 100 if ha > 0 else 0
 
                 # Days since last weekly EMA > SMA cross
                 days_since = 999
@@ -471,7 +496,7 @@ def backtest(argv=None):
                 reason = None
                 if tid not in selected:
                     reason = 'SELL'
-                elif args.exit == 'hourly-ema':
+                elif args.exit == 'hourly-ema' and not args.daily_only:
                     hp = hourly.get(tid)
                     if hp is not None:
                         hxi = _last_idx_before(hourly_idx[tid], hp['dates'], sig_date)
@@ -493,6 +518,9 @@ def backtest(argv=None):
                             wi = _last_idx_before(weekly_idx[tid], w['dates'], sig_date)
                             if wi is not None:
                                 atr = float(w['w_atr'][wi]) if np.isfinite(w['w_atr'][wi]) else 0.0
+                    elif args.ratchet_atr_src == 'daily' or args.daily_only:
+                        if si is not None and np.isfinite(d['d_atr_stop'][si]) and d['d_atr_stop'][si] > 0:
+                            atr = (float(d['close'][si]) - float(d['d_atr_stop'][si])) / 2.0
                     else:
                         hp = hourly.get(tid)
                         if hp is not None:
