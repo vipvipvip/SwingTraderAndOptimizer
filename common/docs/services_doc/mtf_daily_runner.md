@@ -6,10 +6,10 @@ MTF Top-N replaces MTCS (Hilbert sine/lead) as the primary rotation strategy.
 Both legs now run the weekly EMA10>SMA40 gap rotation (**emasma**): `--strategy
 emasma` on the stock leg (top-10) and the same emasma rotation on the ETF leg
 (top-3). Stock emasma replaces the v2 freshest-crossover strategy (validated
-2026-09-10: emasma top-10 + daily-ATR ratchet over 2021-09-20→2026-09-10 =
-+17,052% / −23.6% DD / 74% win vs v2's 40.5% win; regime-gate variants all
-rejected for amputating returns; superseded 2026-09-11 by the deterministic
-score+gap tie-break → **+20,029,525% / −23.8% DD / 76% win**).
+2026-09-10 for signal quality; backtested emasma top-10 + daily-ATR ratchet
+2021-09-20→2026-09-10 ≈ +17,052% nominal, but ⚠️ see "Backtest honesty" —
+absolute returns are not trustworthy; the number is relative-signal reference
+only, superseded 2026-09-11 by the deterministic score+gap tie-break).
 
 **emasma daily flow**: the executor (`swingtrader-mtf-executor`) runs **once/day**
 at 10:25 ET (`--action score` then `--action execute`, `--strategy emasma`, no
@@ -43,12 +43,21 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 - **Deterministic tie-break**: candidate selection sorts by `(-score, -gap_w)`
   (both `runner.py` and `backtest_topn_multitf.py`). Scores cap at `5.0`, so on
   strong days 150+ stocks tie at the max and the tie-break reproduces a
-  backtest-identical, replicable top-10. Without it, ties resolved to an
-  arbitrary stable-sort (hash-order in the backtest, SQL row order live) — the
-  cause of the pre-tie-break ±0.57%/day compounding gap between results.
-- Backtested (2021-09-20 → 2026-09-10): **stocks +20,029,525% / −23.8% DD / 76% win**
-  (with daily-ATR ratchet exit); **ETFs +1,180.5% / −15.7% DD**
-  (top-3 pilot, ledger PASS).
+  backtest-identical, replicable top-10 — live == backtest, manual re-runs give
+  identical picks. Without it, ties resolved to an arbitrary stable-sort
+  (hash-order in the backtest, SQL row order live).
+- **Position sizing**: new entries are sized `notional = equity / top_n`
+  (10% each stocks, ~33% each ETFs); held positions are **not trimmed** to
+  equal weight, so winners drift up as price rises (matches backtest, which
+  also sizes new entries only).
+- ⚠️ **Backtest returns are NOT trustworthy as returns — relative signal
+  quality only** (see "Backtest honesty" in AGENTS.md): the stock-leg universe
+  is survivorship-biased (only today's 1,433 enabled tickers, no delisted/
+  bankrupt names), fills are idealized at next-open, and untrimmed winner
+  weights compound into impossible numbers (+17,052% → +20,029,525% from a
+  tie-break change alone). The **ETF leg is more defensible** — curated 28-ETF
+  universe, no survivorship issue (emasma top-3 backtested +1,180.5% / −15.7%
+  DD, but still idealized fills + untrimmed weights).
 - The old **Multi-TF** score (`min(gap_w/20,3) + min(atr_dist/1.5,3) + freshness`)
   and the v2 **freshest-crossover** score remain implemented (`--strategy mtf|v2`)
   for research only — neither is live.
@@ -131,7 +140,12 @@ All files live under `swingtrader/services/mtf/`:
 | `systemd/swingtrader-mtf-scorer.{service,timer}` | DISABLED 2026-08-27 (score is inline in the executor); kept for manual/analytics use |
 | `systemd/swingtrader-mtf-executor.{service,timer}` | emasma executor (once/day at 10:25, `--action score` then `--action execute`, both `--strategy emasma` on settled daily bars; no `--fresh`) |
 
-## Backtest Results (Multi-TF Daily Rebalance)
+## Backtest Results (Multi-TF Daily Rebalance) — ⚠️ signal-quality only, not returns
+
+> See "Backtest honesty" in AGENTS.md: stock-leg universe is survivorship-biased,
+> fills are idealized at next-open, and held winners are never trimmed to equal
+> weight. These figures compare **strategy A vs B under identical engine
+> assumptions** — they do not predict what live trading will return.
 
 | Metric | Value |
 |--------|-------|
@@ -185,7 +199,10 @@ Concentration, not the sector universe, is the edge: applying top-3 to the full
 `ETF_TOP_N = TOP_N`. Full artifacts: `audit/etf_audit/` (top-3/top-10) and
 `audit/sector_etf_audit/`. The audit also exposed & fixed an engine off-by-one:
 the no-candidates MTM path valued equity at the *prior* date's close while
-stamping the next day's label (understated the final equity point). Canonical
+stamping the next day's label (understated the final equity point). ⚠️ Return
+figures above are still idealized (next-open fills, untrimmed winner weights);
+use as relative ranking, not expected return (see "Backtest honesty" in
+AGENTS.md). Canonical
 risk metrics moved slightly (sector MaxDD −20.2% → −21.8%, Sharpe 1.75 → 1.68);
 final equity unchanged (+557.25%).
 
@@ -362,7 +379,7 @@ re-running the scorer replaces that mode's pending, and executing marks it consu
 | 1 | Paper trading — log picks, track portfolio, Slack alerts alongside MTCS | ✅ Done |
 | 2 | Stop MTCS/EMAC, wire MTF picks into Alpaca executor (--live flag, top-n 10) | ✅ Live |
 | 3 | Optimize top-N size, add exit rules (stop-loss, trailing) | ✅ Done — daily-ATR ratchet live on stock leg; ETF top-3 pilot live |
-| — | **Stock leg v2 → v3 (emasma)** | ✅ Done 2026-09-10 — replace freshest-crossover (40.5% win) with emasma top-10 + daily-ATR ratchet (74% win, settled-daily-only, once/day at 10:25) |
+| — | **Stock leg v2 → v3 (emasma)** | ✅ Done 2026-09-10 — replace freshest-crossover (40.5% win) with emasma top-10 + daily-ATR ratchet (settled-daily-only, once/day at 10:25; win rates relative signal-quality, see "Backtest honesty") |
 
 ## DB Schema
 
