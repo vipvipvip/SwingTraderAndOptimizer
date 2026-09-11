@@ -169,12 +169,20 @@ def get_all_tickers(conn, is_etf=False):
 
 
 def save_pending(conn, mode, top_symbols, score_detail, sig_date):
-    """Store the evening scorer's picks for the morning executor.
-    Replaces any existing unconsumed pending for the same mode+sig_date (idempotency).
-    Does NOT delete unconsumed pending with a different sig_date (preserves failed executions)."""
+    """Store the scorer's picks for the executor.
+
+    UPSERT by mode: the partial unique index idx_mtf_pending_unconsumed allows
+    exactly ONE unconsumed row per mode, so any existing unconsumed pending for
+    this mode is replaced (regardless of sig_date) before inserting the new row.
+
+    Safe in the current inline flow because score+execute run back-to-back in
+    the same 10:25 service invocation: a stale unconsumed row can only be the
+    leftover of a FAILED previous execution, and the newest picks must supersede
+    it (re-executing an old sig_date's picks a day+ late is wrong at a 10:25
+    market fill). Do NOT add sig_date back to the DELETE — it would reinstate
+    the UniqueViolation crash against the per-mode index."""
     with conn.cursor() as cur:
-        cur.execute('DELETE FROM mtf_pending WHERE mode = %s AND sig_date = %s AND consumed_at IS NULL', 
-                    (mode, sig_date))
+        cur.execute('DELETE FROM mtf_pending WHERE mode = %s AND consumed_at IS NULL', (mode,))
         cur.execute(
             'INSERT INTO mtf_pending (mode, top_symbols, score_detail, sig_date) '
             'VALUES (%s, %s::jsonb, %s::jsonb, %s)',

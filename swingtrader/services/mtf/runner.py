@@ -236,22 +236,30 @@ def _ensure_daily_data(conn, mode, now, today, fresh=False):
 
     required_date = today
     if now.time() < EVENING_CUTOFF:
+        # Pre-evening: pick the latest SETTLED daily date (strictly before
+        # today, so today's in-progress/partial bar is never scored) with
+        # near-full universe coverage (within MISSING_TOLERANCE). This keeps
+        # emasma on the last genuinely complete daily close even when a few
+        # tickers are missing one bar (e.g. 1432/1433) — previously the strict
+        # full-count filter fell back to a stale date (09-02) for stocks while
+        # the ETF leg scored today's partial bar.
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT d.date::date
                 FROM tbl_scanner_tickers_daily d
                 JOIN tbl_stock_tickers s ON d.ticker_id = s.id
                 WHERE s.enabled = true AND s.is_etf = %s
+                  AND d.date::date < %s::date
                 GROUP BY d.date::date
                 HAVING COUNT(DISTINCT d.ticker_id) >= %s
                 ORDER BY d.date::date DESC
                 LIMIT 1
-            """, (is_etf, expected))
+            """, (is_etf, today, expected - MISSING_TOLERANCE))
             row = cur.fetchone()
         if row is None:
             return False, f'No complete daily data date found for {MODE_LABEL[mode]}', conn, None
         required_date = row[0]
-        print(f'[MTF] Pre-evening run — latest complete date: {required_date}')
+        print(f'[MTF] Pre-evening run — latest settled date: {required_date}')
 
     for attempt in range(1, DATA_RETRIES + 2):
         with conn.cursor() as cur:
