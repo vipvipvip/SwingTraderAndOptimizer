@@ -49,7 +49,7 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 ## Architecture
 
 **Intraday sampler (`swingtrader-scanner-hourly`)** — 09:10–15:10 ET: captures latest-trade prices into the hourly table, then recomputes MACD/EMA/SMA (retained; emasma scoring doesn't consume hourly data).
-**Executor (`swingtrader-mtf-executor`)** — once/day at 10:25: `--action score` then `--action execute` on the last COMPLETE daily bar (no `--fresh`): emasma stock leg (top-10) + EMA/SMA ETF leg (top-3), with the daily-ATR ratchet exit on the stock leg.
+**Executor (`swingtrader-mtf-executor`)** — once/day at 10:25: `--action score` then `--action execute` on the last COMPLETE daily bar (no `--fresh`): emasma stock leg (top-10) + EMA/SMA ETF leg (top-3), with the daily-ATR ratchet exit on the stock leg. Execute has a **freshness guard** (`FRESH_PENDING_MAX_AGE_HOURS = 6`): if the pending row is older than 6 hours it is refused — a failed score step can never leave stale picks to be traded at a 10:25 fill.
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
 │ DB (PSQL)│───▶│  runner.py       │───▶│  Slack alert (picks) │
@@ -346,8 +346,8 @@ python3 runner.py --action execute --mode etf
 
 Note: `--mode all` runs both stock and ETF modes plus sector ETF info in a single
 execution. State lives in PostgreSQL (`mtf_pending` unconsumed row per mode);
-re-running the scorer replaces that mode's pending, and executing marks it consumed.
 
+re-running the scorer replaces that mode's pending, and executing marks it consumed. Execute refuses pending older than 6 hours (failed score = stale picks are never traded).
 ## Phases
 
 | Phase | Action | Status |
@@ -369,5 +369,5 @@ re-running the scorer replaces that mode's pending, and executing marks it consu
 ### Read-write (mtf_ tables, created by init_db())
 - `mtf_positions` — Real open positions (ticker_id, symbol, quantity, entry_price, entry_at) — source of truth for holdings/MTM
 - `mtf_trades` — Historical trade log (ticker_id, symbol, side, quantity, price, pnl, executed_at). **Source of truth for fills is Alpaca** — if the log ever disagrees with real fills, rebuild it with `python3 reconcile_trades.py --mode all`
-- `mtf_pending` — Evening scorer's picks for the morning executor (mode, top_symbols JSONB, score_detail JSONB, sig_date, consumed_at)
+- `mtf_pending` — Scorer's picks for the executor (mode, top_symbols JSONB, score_detail JSONB, sig_date, consumed_at). Written and consumed within the same 10:25 run; a stale unconsumed row from a failed prior execution is refused by the execute freshness guard and superseded by the next run's pick.
 - `mtf_runs` — Run history for ops/staleness (mode, sig_date, action, status, detail, created_at)
