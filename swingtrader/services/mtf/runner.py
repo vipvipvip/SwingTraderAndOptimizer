@@ -36,6 +36,11 @@ DATA_RETRY_DELAY = 60
 # (e.g. a single stock whose price feed glitched). Abort only when more than
 # this many are missing — a broad outage would poison the rotation.
 MISSING_TOLERANCE = 5
+# Decoupled score+execute: the 10:25 service runs --action score THEN
+# --action execute in sequence. Execute must only trade the pending written by
+# that same run — anything older (e.g. leftover from a failed prior score) is
+# refused so stale picks never fill at a 10:25 market order.
+FRESH_PENDING_MAX_AGE_HOURS = 6
 
 MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs', 'all': 'stocks+ETFs'}
 CSV_SUFFIX = {'stock': '_stock', 'etf': '_etf'}
@@ -824,13 +829,31 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
 
 
 def _run_execute_pending(mode, today, dry_run=False):
-    """Execute pending picks saved by the evening scorer.
+    """Execute pending picks saved by the inline score step (same 10:25 run).
     Returns (success, lines, sig_date)."""
     conn = _get_db_conn()
     pending = db_module.get_pending(conn, mode)
     if not pending:
         msg = f'No pending trades for {MODE_LABEL[mode]}'
         print(f'[MTF] {msg}')
+        conn.close()
+        return False, [msg], None
+
+    # Freshness guard (decoupled-score failures): ONLY trade pending written by
+    # this morning's inline score ExecStart. Anything older is residue of a
+    # failed prior run (e.g. the 2026-09-11 leftover that got traded at 10:26
+    # "by luck") and must NOT execute at a 10:25 fill. Score+execute run
+    # back-to-back in the same service, so a healthy pending is minutes old.
+    created_raw = pending['created_at']
+    created_utc = created_raw.replace(tzinfo=None)
+    age_hours = (datetime.utcnow().replace(tzinfo=None) - created_utc).total_seconds() / 3600
+    if age_hours > FRESH_PENDING_MAX_AGE_HOURS:
+        msg = (f'⏸ Skipping stale pending for {MODE_LABEL[mode]} '
+               f'(created {created_raw:%Y-%m-%d %H:%M} UTC, sig {pending["sig_date"]}, '
+               f'{age_hours:.1f}h old) — score step did not refresh today; no trades.')
+        print(f'[MTF] {msg}')
+        db_module.log_run(conn, mode, pending['sig_date'], 'execute', 'skipped',
+                          'stale pending (score step did not refresh)')
         conn.close()
         return False, [msg], None
 
