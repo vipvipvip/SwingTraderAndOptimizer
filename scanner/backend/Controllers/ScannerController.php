@@ -740,13 +740,17 @@ class ScannerController
                 SELECT ticker_id, date, close,
                        AVG(close) OVER (PARTITION BY ticker_id ORDER BY date ASC ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) AS sma40
                 FROM ranked WHERE rnd <= 60
+            ),
+            sma2 AS (
+                SELECT ticker_id, date, close, sma40,
+                       LAG(close) OVER (PARTITION BY ticker_id ORDER BY date ASC) AS prev_close,
+                       LAG(sma40) OVER (PARTITION BY ticker_id ORDER BY date ASC) AS prev_sma40
+                FROM sma
             )
-            SELECT DISTINCT ON (a.ticker_id) a.ticker_id, a.date
-            FROM sma a
-            JOIN sma b ON b.ticker_id = a.ticker_id
-               AND b.date = (SELECT MAX(c.date) FROM sma c WHERE c.ticker_id = a.ticker_id AND c.date < a.date)
-            WHERE a.close > a.sma40 AND b.close <= b.sma40
-            ORDER BY a.ticker_id, a.date DESC
+            SELECT DISTINCT ON (ticker_id) ticker_id, date
+            FROM sma2
+            WHERE close > sma40 AND prev_close <= prev_sma40
+            ORDER BY ticker_id, date DESC
         ");
         $crossDateById = [];
         foreach ($crossDates as $r) {
@@ -800,19 +804,19 @@ class ScannerController
             $fresh_pts = max(0, 2 - $daysSince / 60);
             $score = round($gap_pts + $atr_pts + $fresh_pts, 1);
 
-            // CHAND: close > ATR stop on hourly = bullish
-            $chand = $close_h > $atr_stop ? 'bull' : 'bear';
+            // CoreEW: close > ATR stop on hourly = bullish (legacy CHAND read)
+            $coreew = $close_h > $atr_stop ? 'bull' : 'bear';
             // EMAC: daily EMA10 > SMA40 = bullish (SMA10 proxy for EMA10)
             $emac = ($d && $d->ema10 !== null && $d->sma40 !== null && (float)$d->ema10 > (float)$d->sma40)
                 ? 'bull' : 'bear';
             // Daily Signal: fresh weekly SMA40 cross within 60 days (infancy)
             $daily_signal = ($daysSince < 60) ? 'bull' : 'bear';
-            // Combined: mtf score +2 per bullish daily signal +1 per bullish emac/chand
+            // Combined: mtf score +2 per bullish daily signal +1 per bullish emac/coreew
             $combined = round($score + ($daily_signal === 'bull' ? 2 : 0)
-                + ($emac === 'bull' ? 1 : 0) + ($chand === 'bull' ? 1 : 0), 1);
+                + ($emac === 'bull' ? 1 : 0) + ($coreew === 'bull' ? 1 : 0), 1);
             // Early Score: favors fresh all-green stocks that haven't run up yet
             // = signal count (3 max) + fresh_pts - gap_pts
-            $signal_count = ($daily_signal === 'bull' ? 1 : 0) + ($emac === 'bull' ? 1 : 0) + ($chand === 'bull' ? 1 : 0);
+            $signal_count = ($daily_signal === 'bull' ? 1 : 0) + ($emac === 'bull' ? 1 : 0) + ($coreew === 'bull' ? 1 : 0);
             $early = round($signal_count + $fresh_pts - $gap_pts, 1);
 
             $results[] = [
@@ -822,7 +826,7 @@ class ScannerController
                 'mtf_score' => $score,
                 'daily_signal' => $daily_signal,
                 'emac' => $emac,
-                'chand' => $chand,
+                'coreew' => $coreew,
                 'mtcs' => null,
                 'combined' => $combined,
                 'early' => $early,
