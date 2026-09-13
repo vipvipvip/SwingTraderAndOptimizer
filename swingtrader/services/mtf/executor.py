@@ -688,7 +688,151 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                         and sym not in symbols_to_sell and sym not in blocked_buys and sym not in pre_blocked):
                     fillers.append(sym)
         symbols_to_buy = [s for s in buy_targets if s not in pre_blocked] + fillers
-        if symbols_to_buy:
+
+        # Equal-weight book (CoreEW-style): held names still in the top-N target
+        # ∪ new buys ∪ backfill fillers. Preserved data-gap names (held but not
+        # scored / not in target) stay untouched — they're a whipsaw guard, not
+        # part of the rotation book, so they neither get trimmed nor topped up.
+        in_play_names = [s for s in held_after_sell if s in target_symbols] + symbols_to_buy
+        in_play_names = [s for s in in_play_names if s not in blocked_buys]
+
+        if config.EQUAL_WEIGHT and mode == 'stock' and in_play_names:
+            # ── CoreEW-style equal-weight sizing (mirrors backtest --equal-weight) ──
+            # Desired book = held-in-target (excluding ratchet/cool-off blocked,
+            # plus chase-guard pre-blocked) ∪ new buys+fillers. per_position =
+            # equity / len(book). Re-fetch holdings AFTER the sells so trims and
+            # top-ups see the true post-rotation book. Trims run first (releasing
+            # cash), then underweight/new names are brought up to target — same
+            # order as CHAND's rebalanceEqualWeight (trim then buy).
+            fresh_pos = _get_alpaca_positions()
+            try:
+                fresh_acct = _get_account()
+                equity = float(fresh_acct.get('equity', equity))
+            except Exception:
+                pass
+            in_play = sorted(in_play_names)
+            per_position = equity / max(1, len(in_play))
+            qty_map = {s: abs(int(float(p.get('qty', 0))))
+                       for s, p in fresh_pos.items() if p}
+
+            # 1) TRIM overweight held in-play names down to the target.
+            for symbol in sorted(in_play_names):
+                pos = fresh_pos.get(symbol)
+                if not pos:
+                    continue
+                qty_now = abs(int(float(pos.get('qty', 0))))
+                if qty_now < 1:
+                    continue
+                price = score_detail.get(symbol, {}).get('close') or _latest_trade_price(symbol)
+                if not price or price <= 0:
+                    continue
+                value = qty_now * price
+                if value <= per_position:
+                    continue
+                sell_qty = int((value - per_position) / price)
+                if sell_qty < 1:
+                    continue
+                sell_qty = min(sell_qty, qty_now - 1)  # never fully close a target name
+                try:
+                    order = _place_order(symbol, sell_qty, 'sell')
+                except Exception as e:
+                    _send_slack_error(f'{symbol} TRIM failed: {e}')
+                    trade_lines.append(f'  ❌ TRIM {symbol} failed: {e}')
+                    continue
+                filled_order = order
+                if order.get('status') != 'filled':
+                    filled_order = _wait_for_fill(order.get('id')) or order
+                filled_qty = int(float(filled_order.get('filled_qty', sell_qty)))
+                fill_price = float(filled_order['filled_avg_price']) if filled_order.get('filled_avg_price') else None
+                if filled_qty < 1:
+                    _send_slack_error(f'{symbol} TRIM order {order.get("id")} never filled')
+                    trade_lines.append(f'  ❌ TRIM {symbol} qty={sell_qty} never filled')
+                    continue
+                if not fill_price:
+                    fill_price = price
+
+                ticker_id = db_module.get_ticker_id_from_symbol(conn, symbol)
+                entry_price = None
+                if ticker_id:
+                    db_pos = db_module.get_position(conn, ticker_id)
+                    if db_pos:
+                        entry_price = float(db_pos[2]) if db_pos[2] else None
+                    new_qty = qty_now - filled_qty
+                    qty_map[symbol] = new_qty
+                    db_module.adjust_position_qty(conn, ticker_id, symbol, new_qty, fill_price)
+                    db_module.insert_trade(conn, ticker_id, symbol, 'SELL',
+                                           filled_qty, fill_price, now,
+                                           pnl_dollar=(fill_price - (entry_price or fill_price)) * filled_qty,
+                                           pnl_pct=((fill_price - (entry_price or fill_price)) / (entry_price or fill_price) * 100) if entry_price else 0)
+                msg_str = f'TRIM {filled_qty} {symbol} @ ${fill_price:.2f} (target ${per_position:,.0f})'
+                sells.append(symbol)
+                trade_lines.append(f'  {msg_str}')
+                print(f'[MTF EXECUTOR] {msg_str}')
+
+            # 2) BUY / TOP-UP every underweight or new in-play name up to target.
+            for symbol in sorted(in_play):
+                price = score_detail.get(symbol, {}).get('close') or _latest_trade_price(symbol)
+                if not price or price <= 0:
+                    trade_lines.append(f'  ⚠️ BUY {symbol}: no price available, skipping')
+                    continue
+
+                held_qty = qty_map.get(symbol, 0)
+                needed = per_position - held_qty * price
+                if needed <= 0:
+                    continue
+                buy_qty = int(needed / price)
+                if buy_qty < 1:
+                    trade_lines.append(f'  ⚠️ BUY {symbol}: {needed:,.0f} < 1 share (${price:.2f}), skipping')
+                    continue
+
+                try:
+                    order = _place_order(symbol, buy_qty, 'buy')
+                except Exception as e:
+                    _send_slack_error(f'{symbol} BUY failed: {e}')
+                    trade_lines.append(f'  ❌ BUY {symbol} failed: {e}')
+                    continue
+
+                filled_order = order
+                if order.get('status') != 'filled':
+                    filled_order = _wait_for_fill(order.get('id')) or order
+
+                filled_qty = int(float(filled_order.get('filled_qty', buy_qty)))
+                fill_price = float(filled_order['filled_avg_price']) if filled_order.get('filled_avg_price') else None
+                if filled_qty < buy_qty:
+                    pos2 = _get_alpaca_position(symbol)
+                    if pos2:
+                        pos_qty = abs(int(float(pos2.get('qty', 0))))
+                        if pos_qty > filled_qty:
+                            filled_qty = pos_qty
+                if filled_qty < 1:
+                    _send_slack_error(f'{symbol} BUY order {order.get("id")} never filled')
+                    trade_lines.append(f'  ❌ BUY {symbol} qty={buy_qty} never filled')
+                    continue
+                if not fill_price:
+                    fill_price = price
+
+                spent = fill_price * filled_qty
+
+                ticker_id = db_module.get_ticker_id_from_symbol(conn, symbol)
+                if not ticker_id:
+                    trade_lines.append(f'  ⚠️ BUY {symbol}: no ticker_id in scanner DB')
+                    continue
+
+                if held_qty >= 1:
+                    # Top-up of an existing position: keep original entry_price/at
+                    # (ratchet seeds its peak from entry_price).
+                    new_qty = held_qty + filled_qty
+                    db_module.adjust_position_qty(conn, ticker_id, symbol, new_qty, fill_price)
+                else:
+                    db_module.upsert_position(conn, ticker_id, symbol, filled_qty, fill_price, now)
+                db_module.insert_trade(conn, ticker_id, symbol, 'BUY', filled_qty, fill_price, now)
+
+                msg_str = f'BUY {filled_qty} {symbol} @ ${fill_price:.2f} (${spent:.2f})'
+                buys.append(symbol)
+                trade_lines.append(f'  {msg_str}')
+                print(f'[MTF EXECUTOR] {msg_str}')
+
+        elif symbols_to_buy:
             total_picks = len(top_symbols)
             per_position = equity / total_picks
 

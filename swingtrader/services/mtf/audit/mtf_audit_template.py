@@ -62,11 +62,13 @@ ENGINE_FLAGS = {'--top-n', '--rebalance', '--detail', '--etf', '--score',
                 '--tickers', '--above', '--min-score', '--infancy',
                 '--stop-loss', '--top-trades', '--ppo-filter',
                 '--hourly-ema-gate', '--hourly-daily-gap', '--exit',
-                '--ratchet-atr-src', '--start', '--near-gap-k', '--near-atr-k'}
+                '--ratchet-atr-src', '--start', '--near-gap-k', '--near-atr-k',
+                '--equal-weight', '--cost'}
 
 EXIT_REASONS = {'SELL': 'rotation (out of top-N)', 'SELL-STOP': 'stop-loss',
                 'SELL-H-EMA': 'hourly-EMA exit', 'SELL-RATC': 'ratchet-ATR exit',
-                'SELL-D-EMA': 'daily-EMA exit'}
+                'SELL-D-EMA': 'daily-EMA exit',
+                'SELL-TRIM': 'equal-weight sizing trim'}
 
 
 def parse_cli():
@@ -132,11 +134,13 @@ def bh_benchmark(conn, sym, w0, w1):
 
 
 def main():
+    global COST
     cli, bt_argv = parse_cli()
     res = bt.backtest(bt_argv)
     if res is None:
         print('backtest returned no results (empty sample).')
         return 1
+    COST = res['COST']  # engine-effected COST (--cost override); keep ledger reconcilable
     a = res['args']
     label = cli.label or default_label(a)
     out = cli.out or os.path.join(DEFAULT_OUT, label)
@@ -197,7 +201,7 @@ def main():
             dc, de, ds = d_['close'][di], d_['ema'][di], d_['sma'][di]
             if any(np.isnan(v) for v in (sc, se, ss, dc, de, ds)):
                 return None
-            hi = _last_idx_before(hidx[tid], hourly[tid]['dates'], sig_date)
+            hi = _last_idx_before(hidx[tid], hourly[tid]['dates'], sig_date) if tid in hourly else None
             hc = ha = float('nan')
             if hi is not None:
                 hc = hourly[tid]['close'][hi]
@@ -243,9 +247,17 @@ def main():
             return all_dates[i - 1] if i > 0 else None
 
         # ---- replay: pair buys/sells into round trips, engine-exact cash ----
+        # Account-based (avg-cost-basis): equal-weight runs emit partial
+        # SELL-TRIM / BUY-ADD legs that resize an existing open position rather
+        # than open/close it. A single BUY opens (assigns trade_id); adds reuse
+        # the same trade_id; sells consume avg basis.
         sell_by_date, buy_by_date = {}, {}
         for t in trades:
-            (sell_by_date if t[2].startswith('SELL') else buy_by_date).setdefault(t[0], []).append(t)
+            sid = t[2]
+            if sid in EXIT_REASONS:
+                sell_by_date.setdefault(t[0], []).append(t)
+            else:  # BUY / BUY-ADD
+                buy_by_date.setdefault(t[0], []).append(t)
 
         ev = []
         rep_cash = CAPITAL
@@ -254,55 +266,76 @@ def main():
         for d in all_dates:
             for t in sell_by_date.get(d, []):
                 sym, sh, sp = t[1], t[3], t[4]
-                pr = open_pos.pop(sym)
+                pr = open_pos.get(sym)
+                if pr is None or pr['sh'] <= 0:
+                    continue
+                avg_px = pr['basis'] / pr['sh']
+                rel_basis = sh * avg_px
                 sf = sh * sp * COST
-                gross = sh * (sp - pr['px'])
+                gross = sh * sp - rel_basis
                 net = gross - sf
                 rep_cash += sh * sp * (1 - COST)
+                pr['sh'] -= sh
+                pr['basis'] -= rel_basis
+                if pr['sh'] <= 1e-9:
+                    del open_pos[sym]
                 s_date = sig_before(d)
                 s_snap = snap(sym_of.get(sym), s_date)
                 ev.append(dict(kind='SELL', trade_id=pr['tid'], symbol=sym,
                                exec_date=d, exec_price=round(sp, 2),
                                shares=round(sh, 2),
-                               buy_date=pr['d'], buy_price=round(pr['px'], 2),
-                               buy_fee=round(sh * pr['px'] * COST, 2),
+                               buy_date=pr['d'], buy_price=round(avg_px, 2),
+                               buy_fee=round(rel_basis * COST, 2),
                                sell_fee=round(sf, 2),
                                gross_pnl=round(gross, 2), net_pnl=round(net, 2),
-                               net_return_pct=round(net / (sh * pr['px']) * 100, 2),
+                               net_return_pct=round(net / rel_basis * 100, 2) if rel_basis else None,
                                hold_days=date_idx[d] - date_idx[pr['d']],
-                               exit_reason=EXIT_REASONS[t[2]],
+                               exit_reason=EXIT_REASONS[t[2]] if t[2] in EXIT_REASONS else t[2],
                                snap=s_snap))
             for t in buy_by_date.get(d, []):
                 sym, sh, bp_ = t[1], t[3], t[4]
-                buy_tid += 1
-                rep_cash -= sh * bp_
-                open_pos[sym] = dict(sh=sh, px=bp_, d=d, tid=buy_tid)
-                ev.append(dict(kind='BUY', trade_id=buy_tid, symbol=sym,
-                               exec_date=d, exec_price=round(bp_, 2),
-                               shares=round(sh, 2), buy_date=None, buy_price=None,
-                               buy_fee=round(sh * bp_ * COST, 2), sell_fee=None,
-                               gross_pnl=None, net_pnl=None, net_return_pct=None,
-                               hold_days=None, exit_reason=None,
-                               snap=snap(sym_of.get(sym), sig_before(d))))
+                if sym in open_pos:
+                    pr = open_pos[sym]
+                    pr['sh'] += sh
+                    pr['basis'] += sh * bp_
+                    rep_cash -= sh * bp_
+                    ev.append(dict(kind='BUY', trade_id=pr['tid'], symbol=sym,
+                                   exec_date=d, exec_price=round(bp_, 2),
+                                   shares=round(sh, 2), buy_date=None, buy_price=None,
+                                   buy_fee=round(sh * bp_ * COST, 2), sell_fee=None,
+                                   gross_pnl=None, net_pnl=None, net_return_pct=None,
+                                   hold_days=None, exit_reason=None,
+                                   snap=snap(sym_of.get(sym), sig_before(d))))
+                else:
+                    buy_tid += 1
+                    rep_cash -= sh * bp_
+                    open_pos[sym] = dict(sh=sh, basis=sh * bp_, d=d, tid=buy_tid)
+                    ev.append(dict(kind='BUY', trade_id=buy_tid, symbol=sym,
+                                   exec_date=d, exec_price=round(bp_, 2),
+                                   shares=round(sh, 2), buy_date=None, buy_price=None,
+                                   buy_fee=round(sh * bp_ * COST, 2), sell_fee=None,
+                                   gross_pnl=None, net_pnl=None, net_return_pct=None,
+                                   hold_days=None, exit_reason=None,
+                                   snap=snap(sym_of.get(sym), sig_before(d))))
 
         # end-of-sample marks for still-open positions (reporting only)
         last = all_dates[-1]
         for sym, pr in list(open_pos.items()):
-            sh, entry = pr['sh'], pr['px']
+            sh, entry_basis = pr['sh'], pr['basis']
             xi = _last_idx_before(didx[sym_of[sym]], daily[sym_of[sym]]['dates'], last)
             if xi is None:
                 continue
             sp = float(daily[sym_of[sym]]['close'][xi])
-            net = sh * (sp - entry)          # no exit cost on open marks (engine MTMs at close)
+            net = sh * sp - entry_basis   # no exit cost on open marks (engine MTMs at close)
             rep_cash += sh * sp
             ev.append(dict(kind='SELL', trade_id=pr['tid'], symbol=sym,
                            exec_date=last, exec_price=round(sp, 2),
                            shares=round(sh, 2),
-                           buy_date=pr['d'], buy_price=round(entry, 2),
-                           buy_fee=round(sh * entry * COST, 2),
+                           buy_date=pr['d'], buy_price=round(entry_basis / sh, 2),
+                           buy_fee=round(entry_basis * COST, 2),
                            sell_fee=None,
                            gross_pnl=round(net, 2), net_pnl=round(net, 2),
-                           net_return_pct=round(net / (sh * entry) * 100, 2),
+                           net_return_pct=round(net / entry_basis * 100, 2) if entry_basis else None,
                            hold_days=date_idx[last] - date_idx[pr['d']],
                            exit_reason='end-of-sample mark-to-market', snap=None))
 

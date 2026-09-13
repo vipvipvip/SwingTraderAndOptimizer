@@ -3,7 +3,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TOP_N = 10
+# Equal-weight sizing (research impl 2026-09-12, flip along with TOP_N).
+# CoreEW-style: trim every overweight held position and top up/re-buy every
+# underweight in-play name to equity/len(in_play) each cycle, instead of sizing
+# only NEW entries at cash/len(to_buy). Held winners stop drifting untrimmed.
+# Backtest top-25 EW (--exit ratchet-atr --ratchet-atr-src daily --equal-weight
+# --cost 0): +2,114,701% / -20.3% DD / 86% win vs new-entry-only top-25
+# +1,153,856% / -20.1% DD. Returns are fantasy (survivorship), but 25 equal
+# slots keeps the book demonstrably unconcentrated.
+EQUAL_WEIGHT = True
+TOP_N = 25
 # ETF-leg pilot (2026-09-08): concentration to 3 was the edge in backtests —
 # ETF-28 top-3 +1,122.7% / 15.7% DD vs top-10 +422.6% / 20.3% DD (same window,
 # audited & ledger-reconciled). Stocks stay at TOP_N. Set ETF_TOP_N equal to

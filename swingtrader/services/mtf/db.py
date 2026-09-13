@@ -141,6 +141,22 @@ def upsert_position(conn, ticker_id, symbol, qty, entry_price, entry_at):
     conn.commit()
 
 
+def adjust_position_qty(conn, ticker_id, symbol, qty, current_price=None):
+    """Partial-qty update for equal-weight trims/top-ups. Preserves the original
+    entry_price and entry_at (the ratchet seeds its peak from entry_price, so a
+    top-up must not re-anchor the stop); only quantity/updated_at change.
+    Inserts a fresh row if none exists (e.g. Alpaca holds it but mtf_positions
+    is empty)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'INSERT INTO mtf_positions (ticker_id, symbol, quantity, entry_price, entry_at, updated_at) '
+            'VALUES (%s, %s, %s, %s, NOW(), NOW()) '
+            'ON CONFLICT (ticker_id) DO UPDATE SET '
+            'quantity = EXCLUDED.quantity, updated_at = NOW()',
+            (ticker_id, symbol, qty, round(current_price, 4) if current_price else 0))
+    conn.commit()
+
+
 def delete_position(conn, ticker_id):
     with conn.cursor() as cur:
         cur.execute('DELETE FROM mtf_positions WHERE ticker_id = %s', (ticker_id,))

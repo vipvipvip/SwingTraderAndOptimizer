@@ -128,6 +128,7 @@ def backtest(argv=None):
     Returns dict with: equity (np.array), equity_dates, trades (trade_log),
     all_dates, positions, pos_counts, args. Uses sys.argv when argv is None.
     """
+    global COST
     parser = argparse.ArgumentParser(description='Top-N Multi-TF rotation backtest')
     parser.add_argument('--top-n', type=int, default=10)
     parser.add_argument('--rebalance', choices=['daily', 'weekly'], default='daily')
@@ -172,9 +173,23 @@ def backtest(argv=None):
                         help='Drop all hourly inputs: gate + atr_dist on daily ATR stop, '
                              'ratchet ATR from daily closes. Matches a live SUT that only '
                              'acts on settled daily bars (ignores the hourly)')
+    parser.add_argument('--equal-weight', action='store_true',
+                        help='CoreEW-style sizing: each cycle, trim every overweight held '
+                             'position and top-up every underweight in-play name so all '
+                             'positions sit at equity/len(in_play). Without this, only NEW '
+                             'entries are sized (per_stock = cash/len(to_buy)) and held '
+                             'winners drift untrimmed. Ratchet-sold names are excluded from '
+                             'in_play for the cycle (same-day cool-off), their slots '
+                             'backfilled from the rank-N+ tier.')
+    parser.add_argument('--cost', type=float, default=None,
+                        help='Per-side cost fraction (override config.COST_PER_TRADE; '
+                             'e.g. 0 = no commissions). The audit + ledger rebuild use '
+                             'the engine-effected COST, keeping them reconcilable.')
     parser.add_argument('--start', default=None,
                         help='Restrict backtest to dates >= YYYY-MM-DD (fair comparison window)')
     args = parser.parse_args(argv)
+    if args.cost is not None:
+        COST = args.cost
 
     db_module.init_db()
     conn = db_module.get_conn()
@@ -493,6 +508,7 @@ def backtest(argv=None):
                         del positions[tid]
 
             # SELL: liquidate positions not in selected, or hourly-EMA / ratchet-ATR exit
+            ratchet_sold_cycle = set()
             for tid in list(positions):
                 reason = None
                 if tid not in selected:
@@ -557,11 +573,84 @@ def backtest(argv=None):
                 trade_log.append((exec_date, pos['symbol'], reason, pos['shares'], sp, ret))
                 if args.detail:
                     print(f'  {exec_date} {reason} {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f}')
+                if reason == 'SELL-RATC':
+                    ratchet_sold_cycle.add(tid)
                 del positions[tid]
 
-            # BUY: add new selected positions
+            # BUY / SIZING: equal-weight the whole book (CoreEW-style) or add new
+            # selected positions (legacy new-entry-only sizing).
             to_buy = [tid for tid in selected if tid not in positions]
-            if to_buy:
+            if args.equal_weight:
+                # in-play = selected names minus same-day ratchet-sold (cool-off);
+                # vacated slots backfilled from the rank-N+ tier.
+                in_play = [tid for tid in selected if tid not in ratchet_sold_cycle]
+                if len(in_play) < args.top_n:
+                    for c in candidates:
+                        if len(in_play) >= args.top_n:
+                            break
+                        if c[0] not in in_play and c[0] not in ratchet_sold_cycle:
+                            in_play.append(c[0])
+                # mark the book at exec-date open (same price we transact at)
+                eq_open = cash
+                open_px = {}
+                for tid, pos in positions.items():
+                    d = daily.get(tid)
+                    if d is None:
+                        continue
+                    xi = _last_idx_before(daily_idx[tid], d['dates'], exec_date)
+                    if xi is None or xi >= len(d['open']):
+                        continue
+                    op = float(d['open'][xi])
+                    open_px[tid] = op
+                    eq_open += pos['shares'] * op
+                if in_play:
+                    per_position = eq_open / len(in_play)
+                    # 1) TRIM overweight held positions down to the target.
+                    for tid in list(positions):
+                        if tid not in in_play:
+                            continue
+                        op = open_px.get(tid)
+                        if op is None or op <= 0:
+                            continue
+                        pos = positions[tid]
+                        excess = pos['shares'] * op - per_position
+                        if excess <= 0:
+                            continue
+                        sell_sh = excess / op
+                        proceeds = sell_sh * op * (1 - COST)
+                        cash += proceeds
+                        pos['shares'] -= sell_sh
+                        trade_log.append((exec_date, pos['symbol'], 'SELL-TRIM', sell_sh, op, None))
+                        if args.detail:
+                            print(f'  {exec_date} TRIM {pos["symbol"]} {sell_sh:.2f} @ ${op:.2f}')
+                    # 2) BUY / TOP-UP underweight in-play names up to the target.
+                    for tid in in_play:
+                        d = daily.get(tid)
+                        if d is None:
+                            continue
+                        xi = _last_idx_before(daily_idx[tid], d['dates'], exec_date)
+                        if xi is None or xi >= len(d['open']):
+                            continue
+                        bp = float(d['open'][xi])
+                        cur_val = positions[tid]['shares'] * bp if tid in positions else 0.0
+                        needed = per_position - cur_val
+                        if needed <= 0:
+                            continue
+                        buy_sh = (needed / bp) * (1 - COST)
+                        cost = buy_sh * bp
+                        cash -= cost
+                        if tid in positions:
+                            positions[tid]['shares'] += buy_sh
+                            trade_log.append((exec_date, daily[tid]['symbol'], 'BUY-ADD', buy_sh, bp, None))
+                            if args.detail:
+                                print(f'  {exec_date} ADD  {daily[tid]["symbol"]} {buy_sh:.2f} @ ${bp:.2f}')
+                        else:
+                            sym = daily[tid]['symbol']
+                            positions[tid] = dict(shares=buy_sh, entry_price=bp, symbol=sym, peak=bp, ratchet=0.0)
+                            trade_log.append((exec_date, sym, 'BUY', buy_sh, bp, None))
+                            if args.detail:
+                                print(f'  {exec_date} BUY  {sym} {buy_sh:.2f} @ ${bp:.2f}')
+            elif to_buy:
                 per_stock = cash / len(to_buy)
                 for tid in to_buy:
                     d = daily.get(tid)

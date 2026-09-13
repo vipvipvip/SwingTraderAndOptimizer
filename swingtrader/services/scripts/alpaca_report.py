@@ -13,13 +13,13 @@ order + position history) and prints a summary since inception:
 Strategies and their accounts:
   mtf-stock  MTF Top-N stocks  #PA368CPXNS13  (keys: swingtrader/services/mtf/.env)
   mtf-etf    EMA/SMA ETF leg   #PA3U8GZ96PEN  (keys: swingtrader/services/mtf/.env)
-  chand      CHAND             #PA31Z71315NM  (keys: swingtrader/backend/.env)
+  coreew    CoreEW trio        #PA3GKZYLVO68  (keys: swingtrader/backend/.env)
 
 Never places orders and never writes state. Only reads Alpaca + the DB.
 
 Usage:
   python3 alpaca_report.py                # all strategies
-  python3 alpaca_report.py --strategy mtf-stock mtf-etf chand
+  python3 alpaca_report.py --strategy mtf-stock mtf-etf coreew
   python3 alpaca_report.py --json         # machine-readable
   python3 alpaca_report.py --open-only    # skip closed-trade detail, positions only
 """
@@ -47,10 +47,10 @@ STRATEGIES = {
                 'env': os.path.join(MTF_DIR, '.env'),
                 'keys': ('ALPACA_ETF_API_KEY', 'ALPACA_ETF_SECRET_KEY'),
                 'initial_capital': 100000.0},
-    'chand': {'name': 'CHAND', 'acct': 'PA31Z71315NM',
+    'coreew': {'name': 'CoreEW trio', 'acct': 'PA3GKZYLVO68',
               'env': os.path.join(BACKEND_DIR, '.env'),
               'keys': ('ALPACA_API_KEY', 'ALPACA_SECRET_KEY'),
-              'initial_capital': 1000000.0},
+              'initial_capital': 100000.0},
 }
 
 
@@ -390,7 +390,7 @@ def _fmt_report(r):
 
 def main():
     ap = argparse.ArgumentParser(description='Per-strategy Alpaca trading report.')
-    ap.add_argument('--strategy', nargs='*', choices=['mtf-stock', 'mtf-etf', 'chand'],
+    ap.add_argument('--strategy', nargs='*', choices=['mtf-stock', 'mtf-etf', 'coreew'],
                     help='which strategies to report (default: all)')
     ap.add_argument('--json', action='store_true', help='emit JSON')
     ap.add_argument('--open-only', action='store_true',
