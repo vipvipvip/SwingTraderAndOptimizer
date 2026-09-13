@@ -164,7 +164,7 @@
     <div class="params">
       <div class="param-row">
         <span>Exit:</span>
-        <span>CHAND({strategy.params?.chandelier_period}, {(+strategy.params?.chandelier_mult).toFixed(1)}× ATR){#if strategy.params?.reg_slope_window != null} + REG({strategy.params.reg_slope_type} {strategy.params.reg_slope_window}d th={strategy.params.reg_slope_threshold}){/if}</span>
+        <span>CoreEW: weekly EW rebalance (no signals){#if strategy.params?.reg_slope_window != null} + REG({strategy.params.reg_slope_type} {strategy.params.reg_slope_window}d th={strategy.params.reg_slope_threshold}){/if}</span>
       </div>
       <div class="param-row">
         <span>Entry:</span>

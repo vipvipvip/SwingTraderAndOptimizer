@@ -8,11 +8,11 @@ use App\Services\EquityService;
 use Illuminate\Console\Command;
 use GuzzleHttp\Client;
 
-class ExecuteDailyTrades extends Command
+class ExecuteEWETF extends Command
 {
-    protected $signature = 'trades:execute-daily {--force-test : Force a buy+sell round-trip per ticker (paper account test mode)} {--override : Manual override. force-check entry for all tickers including in-position, deploy idle cash}';
+    protected $signature = 'trades:execute-EW-ETF {--force-test : Force a buy+sell round-trip per ticker (paper account test mode)} {--override : Manual override. force rebalance mid-week} {--dry-run : Preview the weekly EW rebalance without placing orders}';
 
-    protected $description = 'Execute daily trades for all enabled tickers';
+    protected $description = 'Weekly equal-weight CoreEW trio rebalance (QQQ/VTI/VTV)';
 
     public function handle()
     {
@@ -20,8 +20,10 @@ class ExecuteDailyTrades extends Command
         $tradeExecutor = app(TradeExecutorService::class);
         $equityService = app(EquityService::class);
         $forceTest = $this->option('force-test');
+        $override = $this->option('override');
+        $dryRun = $this->option('dry-run');
 
-        // Get CHAND Alpaca account number
+        // Get CoreEW Alpaca account number
         try {
             $chandAccount = $alpacaService->getAccount();
             $chandAcctNo = $chandAccount['account_number'] ?? '?';
@@ -31,6 +33,32 @@ class ExecuteDailyTrades extends Command
 
         // Record execution time
         $this->recordExecutionTime();
+
+        // CoreEW is a weekly equal-weight trio book (QQQ/VTI/VTV @ equity/3).
+        // Rebalance only on configured weekday(s) (ET) — COREEW_REBALANCE_DAYS
+        // in .env, 1..7 (Mon..Sun), comma-separated; currently Monday, plan to
+        // flip to Friday later. --override forces a manual run on any day.
+        $ny = now()->setTimezone('America/New_York');
+        $rebalanceDays = array_values(array_filter(array_map('intval', explode(',', (string) env('COREEW_REBALANCE_DAYS', '1')))));
+        if (count($rebalanceDays) < 1) {
+            $rebalanceDays = [1];
+        }
+        $isRebalanceDay = in_array($ny->dayOfWeek, $rebalanceDays, true);
+        if (!$isRebalanceDay && !$override) {
+            $this->info("Not a rebalance day ({$ny->format('D Y-m-d')}) — CoreEW rebalances on weekday(s) " . implode(',', $rebalanceDays) . " (Mon=1..Sun=7). No trades.");
+            return 0;
+        }
+
+        // Rebalance at most once per calendar day (the 5-min scheduler fires
+        // repeatedly; the marker keeps it to a single daily execution).
+        $markerFile = storage_path('chand_last_rebalance.txt');
+        if (!$override && !$dryRun && $isRebalanceDay && is_file($markerFile)) {
+            $lastRebalance = trim((string) file_get_contents($markerFile));
+            if ($lastRebalance === $ny->format('Y-m-d')) {
+                $this->info("Already rebalanced today ({$lastRebalance}) — skipping weekly EW rebalance.");
+                return 0;
+            }
+        }
 
         try {
             $clock = $alpacaService->getClock();
@@ -44,10 +72,15 @@ class ExecuteDailyTrades extends Command
             if ($forceTest) {
                 $this->info('FORCE-TEST mode: placing buy+sell round-trip for each ticker...');
                 $results = $tradeExecutor->forceTestAllTickers(1);
+            } elseif ($dryRun) {
+                $this->info('DRY-RUN: previewing EW rebalance (no orders placed)...');
+                $results = $tradeExecutor->rebalanceEqualWeightWeekly(true);
             } else {
-                $override = $this->option('override');
-                $this->info('Market is open. Executing trades' . ($override ? ' with manual override...' : '...'));
-                $results = $tradeExecutor->executeForAllTickers($override);
+                $this->info('Market is open. Equal-weight weekly rebalance...');
+                $results = $tradeExecutor->rebalanceEqualWeightWeekly();
+                if ($isRebalanceDay && !$override) {
+                    @file_put_contents($markerFile, $ny->format('Y-m-d'));
+                }
             }
             $equity = $equityService->snapshotAccountEquity($alpacaService);
 
@@ -59,9 +92,9 @@ class ExecuteDailyTrades extends Command
             // Sync positions cache after trades
             $this->call('positions:sync');
 
-            // Only send Slack report if trades occurred
+            // Only send Slack report if trades occurred (and not a dry-run)
             $hasTrades = count($results['buys'] ?? []) > 0 || count($results['sells'] ?? []) > 0;
-            if ($hasTrades) {
+            if ($hasTrades && !$dryRun) {
                 $this->sendSlackReport($results, $equity, true, null, $chandAcctNo);
             }
 
@@ -94,7 +127,7 @@ class ExecuteDailyTrades extends Command
 
         if (!$success) {
             $payload = [
-                'text' => '[CHAND] :x: Trade Execution Failed  |  acct #' . $acctNo,
+                'text' => '[CoreEW] :x: Trade Execution Failed  |  acct #' . $acctNo,
                 'attachments' => [
                     [
                         'color' => 'danger',
@@ -119,7 +152,7 @@ class ExecuteDailyTrades extends Command
             $color = ($buyCounts > 0 || $sellCount > 0) ? 'good' : '#cccccc';
 
             $payload = [
-                'text' => '[CHAND] :chart_with_upwards_trend: Trade Execution Summary  |  acct #' . $acctNo,
+                'text' => '[CoreEW] :chart_with_upwards_trend: Trade Execution Summary  |  acct #' . $acctNo,
                 'attachments' => [
                     [
                         'color' => $color,

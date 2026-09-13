@@ -116,7 +116,7 @@ class AdminController extends Controller
             $phpPath = PHP_BINDIR . DIRECTORY_SEPARATOR . 'php';
             $artisanPath = base_path('artisan');
 
-            $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' trades:execute-daily --override > /dev/null 2>&1 &';
+            $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' trades:execute-EW-ETF --override > /dev/null 2>&1 &';
             exec($command);
 
             return response()->json(['message' => 'Trade executor triggered in background']);

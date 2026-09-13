@@ -1,5 +1,10 @@
+# ⛔ DISABLED (2026-09-12): old CHAND strategy (now CoreEW) converted to a pure weekly equal-weight trio
+# book (QQQ/VTI/VTV @ equity/3, rebalanced each Friday). No chandelier params
+# are used by the executor anymore, so the nightly brute-force parameter grid
+# search is dead weight. Service stopped via `sudo systemctl disable --now
+# swingtrader-optimizer.timer`; unit files kept in repo for reference only.
 [Unit]
-Description=SwingTrader Nightly Optimizer (oneshot)
+Description=SwingTrader Nightly Optimizer (oneshot) (DISABLED - CoreEW is EW-only now)
 After=network.target docker.service swingtrader-db.service
 Wants=docker.service swingtrader-db.service
 

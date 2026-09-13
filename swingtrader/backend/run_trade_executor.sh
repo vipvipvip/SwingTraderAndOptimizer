@@ -12,6 +12,6 @@ LOG="$SCRIPT_DIR/storage/logs/trade_executor.log"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Trade executor starting..." >> "$LOG"
 
 # Run Laravel command via PHP artisan (handles database bootstrapping properly)
-/mnt/c/php/php.exe artisan trades:execute-daily >> "$LOG" 2>&1
+/mnt/c/php/php.exe artisan trades:execute-EW-ETF >> "$LOG" 2>&1
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Trade executor finished (exit: $?)" >> "$LOG"

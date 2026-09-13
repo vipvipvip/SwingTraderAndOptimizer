@@ -137,7 +137,7 @@ class TradeExecutorService
     }
 
     /**
-     * MTF-style rotation for the CHAND trio.
+     * MTF-style rotation for the CoreEW trio.
      *
      * In-play tickers (held positions + tickers with a buy signal this cycle)
      * are sized toward equity/N each. Overweight held tickers are trimmed to
@@ -205,6 +205,103 @@ class TradeExecutorService
     }
 
     /**
+     * Weekly equal-weight rebalance for the CoreEW trio (QQQ/VTI/VTV), Fridays.
+     *
+     * NO strategy logic — no chandelier entry/exit, no signals. The book is
+     * always long all three at equity/3 each; this method only brings drift
+     * back to equal weight (trim overweights, top up underweights) and never
+     * fully closes a position (trim qty < held qty by construction).
+     */
+    public function rebalanceEqualWeightWeekly(bool $dryRun = false): array
+    {
+        $this->dryRun = $dryRun;
+
+        if (!$dryRun) {
+            try {
+                $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+            } catch (\Exception $e) {
+                \Log::warning("EW rebalance reconciliation failed: " . $e->getMessage());
+            }
+        }
+
+        $account = [];
+        $positions = [];
+        try {
+            $account = $this->alpacaService->getAccount();
+            $positions = $this->alpacaService->getPositions();
+        } catch (\Exception $e) {
+            \Log::warning("EW rebalance failed to fetch account/positions: " . $e->getMessage());
+            $results = ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => [$e->getMessage()]];
+            return $results;
+        }
+
+        $symbols = Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        if (count($symbols) < 1) {
+            return ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => []];
+        }
+
+        $results = ['total' => count($symbols), 'buys' => [], 'sells' => [], 'errors' => []];
+        $accountEquity = floatval($account['equity'] ?? 0);
+        if ($accountEquity <= 0) {
+            $results['errors'][] = 'Account equity <= 0';
+            return $results;
+        }
+
+        $perPosition = $accountEquity / count($symbols);
+
+        $held = [];
+        foreach ($positions ?? [] as $pos) {
+            $held[$pos['symbol']] = floatval($pos['market_value'] ?? 0);
+        }
+
+        // Pass 1: trim overweights down to equity/N.
+        foreach ($symbols as $sym) {
+            $currentValue = $held[$sym] ?? 0;
+            if ($currentValue <= $perPosition) {
+                continue;
+            }
+            $excess = $currentValue - $perPosition;
+            $price = $this->getCurrentPrice($sym);
+            if (!$price) {
+                continue;
+            }
+            $sellQty = intval($excess / $price);
+            if ($sellQty < 1) {
+                continue;
+            }
+            if ($this->rebalanceTrim($sym, $sellQty)) {
+                $results['sells'][] = "$sym (EW trim $sellQty)";
+            }
+        }
+
+        // Pass 2: top up underweights (and re-establish any missing leg) to equity/N.
+        foreach ($symbols as $sym) {
+            $currentValue = $held[$sym] ?? 0;
+            $needed = $perPosition - $currentValue;
+            if ($needed <= 0) {
+                continue;
+            }
+            $price = $this->getCurrentPrice($sym);
+            if (!$price) {
+                continue;
+            }
+            $buyQty = intval($needed / $price);
+            if ($buyQty < 1) {
+                continue;
+            }
+            if ($this->rebalanceTopUp($sym, $buyQty, $price)) {
+                $results['buys'][] = $sym;
+            }
+        }
+
+        return $results;
+    }
+
+    /**
      * Partial sell for rebalance trims. Reduces the open trade's quantity; a
      * closed SELL trade records the trimmed portion so reconciliation skips it.
      */
@@ -255,7 +352,7 @@ class TradeExecutorService
                     'pnl_dollar' => $pnlDollar,
                     'pnl_pct' => $pnlPct,
                     'alpaca_order_id' => $orderId,
-                    'strategy_signal' => 'CHANDELIER_REBALANCE_TRIM',
+                    'strategy_signal' => 'COREEW_REBALANCE_TRIM',
                 ]);
             } else {
                 $openTrade->update(['quantity' => $newQty]);
@@ -272,7 +369,7 @@ class TradeExecutorService
                     'pnl_dollar' => $pnlDollar,
                     'pnl_pct' => $pnlPct,
                     'alpaca_order_id' => $orderId,
-                    'strategy_signal' => 'CHANDELIER_REBALANCE_TRIM',
+                    'strategy_signal' => 'COREEW_REBALANCE_TRIM',
                 ]);
             }
             \Log::info("REBALANCE TRIM $symbol: qty=$qty, fill=$fillPrice, newQty=$newQty");
@@ -310,12 +407,70 @@ class TradeExecutorService
                 'entry_at' => now(),
                 'status' => 'open',
                 'alpaca_order_id' => $orderId,
-                'strategy_signal' => 'CHANDELIER_REBALANCE_ENTRY',
+                'strategy_signal' => 'COREEW_REBALANCE_ENTRY',
             ]);
             \Log::info("REBALANCE BUY $symbol: qty=$qty, fill=$fillPrice");
             return true;
         } catch (\Exception $e) {
             \Log::error("Rebalance buy failed for $symbol: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Top-up buy for weekly equal-weight rebalance.
+     *
+     * If an open trade already exists the quantity is increased and entry_price
+     * becomes the fill-weighted average (same semantics as handlePooledEntries);
+     * if the leg is missing entirely a fresh open trade is created. Never
+     * closes anything — this is a top-up only.
+     */
+    private function rebalanceTopUp(string $symbol, int $qty, float $price): bool
+    {
+        if ($this->dryRun) {
+            \Log::info("DRY RUN EW TOP-UP $symbol: qty=$qty, ~$price (no order placed)");
+            return true;
+        }
+
+        $ticker = Ticker::where('symbol', $symbol)->first();
+        if (!$ticker) {
+            return false;
+        }
+        try {
+            $order = $this->alpacaService->placeOrder($symbol, $qty, 'buy');
+            $fillPrice = floatval($order['filled_avg_price'] ?? $price);
+            $orderId = $order['id'] ?? null;
+
+            $openTrade = LiveTrade::where('symbol', $symbol)->where('status', 'open')->first();
+            if ($openTrade) {
+                $oldQty = intval($openTrade->quantity ?? 0);
+                $oldPrice = floatval($openTrade->entry_price ?? 0);
+                $newQty = $oldQty + $qty;
+                $weightedPrice = $newQty > 0
+                    ? round(($oldPrice * $oldQty + $fillPrice * $qty) / $newQty, 4)
+                    : $fillPrice;
+                $openTrade->update([
+                    'quantity' => $newQty,
+                    'entry_price' => $weightedPrice,
+                ]);
+                \Log::info("EW TOP-UP $symbol (merged): qty=$qty, fill=$fillPrice, newQty=$newQty, entry=$weightedPrice");
+            } else {
+                LiveTrade::create([
+                    'ticker_id' => $ticker->id,
+                    'symbol' => $symbol,
+                    'side' => 'BUY',
+                    'quantity' => $qty,
+                    'entry_price' => $fillPrice,
+                    'entry_at' => now(),
+                    'status' => 'open',
+                    'alpaca_order_id' => $orderId,
+                    'strategy_signal' => 'COREEW_REBALANCE_ENTRY',
+                ]);
+                \Log::info("EW TOP-UP $symbol (new leg): qty=$qty, fill=$fillPrice");
+            }
+            return true;
+        } catch (\Exception $e) {
+            \Log::error("EW top-up failed for $symbol: " . $e->getMessage());
             return false;
         }
     }

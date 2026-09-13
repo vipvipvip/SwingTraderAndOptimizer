@@ -148,6 +148,7 @@ class AlpacaService
                 'buying_power' => $data['buying_power'] ?? 0,
                 'cash' => $data['cash'] ?? 0,
                 'portfolio_value' => $data['portfolio_value'] ?? 0,
+                'account_number' => $data['account_number'] ?? null,
             ];
             $this->cacheSet('account', $result);
             return $result;

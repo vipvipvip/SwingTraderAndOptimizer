@@ -53,7 +53,7 @@ Run trade executor manually during market hours:
 
 ```bash
 cd backend
-php artisan trades:execute-daily -v
+php artisan trades:execute-EW-ETF -v
 
 # Monitor signal output
 sudo journalctl -u swingtrader-backend -f | grep -i "signal\|chandelier\|atr\|stop"

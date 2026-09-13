@@ -105,7 +105,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
         <th data-sort="mtf_score" class="sortable" style="text-align:right;">MTF Score <span class="sort-arrow"></span></th>
         <th data-sort="daily_signal" class="sortable" style="text-align:center;">Daily Signal <span class="sort-arrow"></span></th>
         <th data-sort="emac" class="sortable" style="text-align:center;">EMAC <span class="sort-arrow"></span></th>
-        <th data-sort="chand" class="sortable" style="text-align:center;">CHAND <span class="sort-arrow"></span></th>
+        <th data-sort="coreew" class="sortable" style="text-align:center;">CoreEW <span class="sort-arrow"></span></th>
         <th data-sort="mtcs" class="sortable" style="text-align:center;">MTCS <span class="sort-arrow"></span></th>
         <th data-sort="combined" class="sortable" style="text-align:right;">Combined <span class="sort-arrow"></span></th>
         <th data-sort="early" class="sortable" style="text-align:right;">Early <span class="sort-arrow"></span></th>
@@ -135,7 +135,7 @@ let sortDir = -1;
 function getSortValue(p, field) {
   if (field === 'symbol') return p.symbol.toUpperCase();
   if (field === 'name') return (p.name || '').toUpperCase();
-  if (field === 'chand' || field === 'emac' || field === 'mtcs' || field === 'daily_signal') {
+  if (field === 'coreew' || field === 'emac' || field === 'mtcs' || field === 'daily_signal') {
     if (p[field] === 'bull') return 1;
     if (p[field] === 'bear') return -1;
     return 0;
@@ -220,7 +220,7 @@ function renderTable() {
       + '<td class="num ' + scoreClass + '">' + p.mtf_score.toFixed(1) + '</td>'
       + '<td style="text-align:center;">' + signalHtml(p.daily_signal) + '</td>'
       + '<td style="text-align:center;">' + signalHtml(p.emac) + '</td>'
-      + '<td style="text-align:center;">' + signalHtml(p.chand) + '</td>'
+      + '<td style="text-align:center;">' + signalHtml(p.coreew) + '</td>'
       + '<td style="text-align:center;">' + signalHtml(p.mtcs) + '</td>'
       + '<td class="num ' + combinedClass + '">' + p.combined.toFixed(1) + '</td>'
       + '<td class="num ' + (p.early >= 2 ? 'score-high' : p.early >= 0 ? 'score-mid' : 'score-low') + '">' + p.early.toFixed(1) + '</td>'

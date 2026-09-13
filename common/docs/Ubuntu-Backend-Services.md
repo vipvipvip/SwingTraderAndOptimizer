@@ -135,7 +135,7 @@ crontab -l | grep -v '#0 8 \* \* \* /home/dikesh/data/dev/SwingTraderAndOptimize
 Verify the result:
 ```bash
 crontab -l
-# Should only show: * * * * * /usr/bin/php /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/backend/artisan trades:execute-daily >> /dev/null 2>&1
+# Should only show: * * * * * /usr/bin/php /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/backend/artisan trades:execute-EW-ETF >> /dev/null 2>&1
 ```
 
 ---

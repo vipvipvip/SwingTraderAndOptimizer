@@ -59,7 +59,7 @@ curl http://localhost:9000/api/health | jq '.'
 
 **If trades aren't executing:**
 - Check backend logs: `sudo journalctl -u swingtrader-backend -f`
-- Test manually: `php swingtrader/backend/artisan trades:execute-daily`
+- Test manually: `php swingtrader/backend/artisan trades:execute-EW-ETF`
 - Verify market is open: Check Alpaca calendar
 
 **Reconciliation check (verify DB matches Alpaca):**
@@ -76,7 +76,7 @@ php swingtrader/backend/artisan positions:sync && php swingtrader/backend/artisa
 
 ```bash
 # 1. Check total trades executed
-sudo journalctl -u swingtrader-backend | grep -c "ExecuteDailyTrades"
+sudo journalctl -u swingtrader-backend | grep -c "ExecuteEWETF"
 
 # 2. View backend errors (if any)
 sudo journalctl -u swingtrader-backend | grep -i "error" | head -10
@@ -208,7 +208,7 @@ sudo systemctl status swingtrader-backend
 sudo journalctl -u swingtrader-backend | tail -20
 
 # Run manually to test
-php swingtrader/backend/artisan trades:execute-daily
+php swingtrader/backend/artisan trades:execute-EW-ETF
 ```
 
 ---

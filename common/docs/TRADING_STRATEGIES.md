@@ -6,7 +6,7 @@ This project contains three distinct trading systems that operate independently:
 
 | # | Name | Universe | Signals | Status |
 |---|------|----------|---------|--------|
-| 1 | **CHAND** (Chandelier Exit) | QQQ/VTI/VTV | Optimized trailing stop | ✅ Live (Laravel) |
+| 1 | **CHAND** (trio EW book) | QQQ/VTI/VTV | Weekly equal-weight rebalance (weekday via `CHAND_REBALANCE_DAYS`; Mon now, Fri next) — NO signals | ✅ Live (Laravel) |
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 4 | **MTF Top-N** (Multi-TF rotation) | VTI stocks + ETFs | gap_w + atr_dist + freshness → top 10 daily | ✅ Live (Phase 2) |
@@ -16,54 +16,52 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 
 ---
 
-# 1. Swing Trading (Chandelier Exit)
+# 1. CHAND — Weekly Equal-Weight Trio Book
 
 **Service:** `TradeExecutorService` (execution), `StrategyService` (parameter management), `AlpacaService` (broker API)  
-**Command:** `trades:execute-daily` (runs every 30 min via cron during market hours)  
-**Optimizer:** `parameter_optimizer.py`, `nightly_optimizer.py` (runs daily at 8:18 AM ET via `optimize:nightly`)
+**Command:** `trades:execute-EW-ETF` (gated to `CHAND_REBALANCE_DAYS` in `.env`, one rebalance per week)
+
+> **Status: converted 2026-09-12.** CHAND previously ran per-ticker Chandelier
+> Exit (trailing ATR stop) tuned by a nightly brute-force grid-search optimizer.
+> It is now a **pure equal-weight book**: long QQQ/VTI/VTV, each at `equity/3`,
+> rebalanced ONCE per eligible weekday (`CHAND_REBALANCE_DAYS`, Mon=1..Sun=7;
+> currently **Monday**, plan to switch to **Friday** — edit the `.env` value).
+> No entry/exit signals, no stop-loss, no optimizer. The chandelier logic +
+> `nightly_optimizer.py` remain in the repo as legacy (not called on the live
+> path); the nightly optimizer timer/systemd unit is DISABLED.
 
 ### Strategy Type
 
-**Always-In Trend Following with Chandelier Exit**
+**Always-In Equal-Weight Beta** — the trio is the whole-market regime book (the "what's CHAND for?" answer from the trio comparison).
 
-The strategy maintains a continuous long position in each ticker. There is no discretionary entry filter — it is always in the market. The only decision is when to exit via a trailing stop.
+Backtest comparison (`swingtrader/services/mtf/backtest_trio_ew.py`, 2023-06-30 → 2026-09-11, 803d, cost 0.05%):
+A. EW weekly-rebalance **+81.67% / 18.7% DD / 58.4% weekly-up** — identical to B&H (+81.45%)
+B. EW + weekly-ratchet gate +85.73% / 8.7% DD / 57.2% — the only variant that cuts drawdown
+Decision: run **A** (pure EW). Rationale: it is sound, zero-parameter, no brute force, and the user's "winner" definition (highest win% + fewest trades) lands on "just hold the trio".
 
-### Entry Rule
-
-```
-IF no open position AND not exited today:
-    Enter at next bar open (market buy)
-```
-
-### Exit Rule (Chandelier Stop)
+### Rebalance Rule
 
 ```
-WHILE in position:
-    highest_high = max(high of all bars since entry)
-    stop_level   = highest_high - ATR(period) * multiplier
-    IF close < stop_level:
-        Exit at next bar open (market sell)
+ON rebalance day (ET), once per day:
+    equity_N = account_equity / 3
+    for each of QQQ / VTI / VTV:
+        if market_value > equity_N:  trim excess shares (REBALANCE_TRIM)
+        if market_value < equity_N:  top up qty (weighted-avg entry merge / new leg)
 ```
 
-After exit, the strategy re-enters on the following bar (same-day re-entry is blocked).
+- Trims never fully close a leg; top-ups re-establish a missing leg from scratch.
+- Rebalance day(s): `CHAND_REBALANCE_DAYS` in `swingtrader/backend/.env` (Mon=1..Sun=7, comma-separated; currently `1`, plan `5` for Friday).
+- Executor: `TradeExecutorService::rebalanceEqualWeightWeekly()`.
+- Once-per-day marker file: `storage_path('chand_last_rebalance.txt')`.
+- `trades:execute-EW-ETF --override` forces a manual run on any day (recovery/testing) and `--dry-run` previews the rebalance without orders.
 
 ### Parameters
 
-Each ticker has its own optimized parameters stored in `strategy_parameters` (managed by `StrategyService`):
-
-| Parameter | DB Column | Role | Grid Search Range |
-|-----------|-----------|------|------------------|
-| Chandelier Period | `macd_fast` | ATR lookback window | [14, 18, 22] |
-| Multiplier | `bb_std` | Stop distance multiplier | [2.5, 3.0, 3.5] |
-| ATR Period | `bb_period` | Set equal to `macd_fast` | (derived) |
-
-**Optimization target:** Maximize Sharpe ratio (annualized, 252-day).
+None — the strategy has no tunable input. `strategy_parameters` rows for QQQ/VTI/VTV/BLENDED are legacy and unused on the live path.
 
 ### Capital Allocation
 
-- Each ticker has an `allocation_weight` (0–100%, default 33.33%) in the `tickers` table.
-- Position size: `qty = floor(equity * allocation_weight / current_price)`
-- Multi-ticker portfolio uses a shared capital pool; when cash runs out, entries wait for exits to free cash.
+Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 
 ### Backtest Cost Model
 
@@ -71,48 +69,32 @@ Each ticker has its own optimized parameters stored in `strategy_parameters` (ma
 |-----------|-------|
 | Round-trip cost | 0.05% |
 | Initial capital | 100,000 |
-| Sharpe periods | 252 days |
+| Window | Jul 2023 → now (settled bars) |
 
 ### Live Execution Flow (`TradeExecutorService`)
 
-1. `executeForAllTickers()` is triggered by `trades:execute-daily` via cron.
-2. For each enabled ticker:
-   - `AlpacaService.getAccount()` → check trading permissions.
-   - `AlpacaService.getPositions()` → check current open positions.
-   - `TradeExecutorService.computeChandelierSignal()` → fetch OHLC bars from `tbl_etf_tickers_1hour` table, compute ATR, check Chandelier stop.
-   - On buy signal: calculate allocation, `AlpacaService.placeOrder(market, buy)`.
-   - On sell signal: `AlpacaService.placeOrder(market, sell)`, calculate P&L, save to `live_trades`.
-
-### Nightly Optimization Flow (`nightly_optimizer.py`)
-
-1. Fetch incremental prices via `fetch_prices.py`.
-2. Run grid search on [14,18,22] × [2.5,3.0,3.5] for each ticker (parallel via `joblib`).
-3. Save top candidate per ticker.
-4. **Portfolio Coordinate Ascent:**
-   - For each ticker, test current vs top 5 candidates in a multi-ticker portfolio context.
-   - Pick the parameter set that maximizes portfolio-level Sharpe ratio.
-   - Update `base_case=true` row for each ticker.
-   - Create/update BLENDED synthetic ticker with portfolio metrics.
+1. `ExecuteEWETF` (laravel) gates to the configured rebalance day(s) (ET), checks the once-per-day marker, then calls `rebalanceEqualWeightWeekly()`.
+2. `syncLiveTradesFromAlpaca()` reconciles DB → Alpaca order history first (self-healing).
+3. Fetch account equity + positions; compute `equity/3` per leg.
+4. Trim overweights (partial sell, preserves/open-trade P&L), top-up underweights (weighted-avg entry merge via `rebalanceTopUp`).
+5. Snapshot equity, sync positions cache, Slack `[CHAND]` summary when trades occurred.
 
 ### Risk Characteristics
 
-- No take-profit level — purely trailing stop.
-- No independent stop-loss; the Chandelier exit serves as both.
-- Wider multiplier (`bb_std` = 3.5) → fewer exits, larger drawdowns.
-- Tighter multiplier (`bb_std` = 2.5) → more exits, smaller drawdowns.
-- Works best in trending markets; whipsaws in sideways/choppy markets.
+- Full market beta: a 2022-style bear takes the book down with it (max DD ≈ trio B&H ≈ 18.7%).
+- No stops, no timing, no whipsaws — highest win% / fewest-trades design.
+- The weekly-ratchet gate (variant B, DD 8.7%) was the researched alternative but adds ~400-500 trades/3y and was **not adopted** (user prefers pure EW hold).
 
 ### Console Commands
 
 | Command | Description |
 |---------|-------------|
-| `trades:execute-daily` | Run trade signals for all tickers |
-| `trades:execute-daily --force-test` | Place 1-share round-trips for testing |
-| `trade:manual buy {symbol} --qty=` | Manual buy override |
-| `trade:manual sell {symbol} --qty=` | Manual sell override |
-| `optimize:nightly` | Run full optimizer pipeline |
+| `trades:execute-EW-ETF` | Weekly EW rebalance (Fridays only, once/day) |
+| `trades:execute-EW-ETF --override` | Force a mid-week manual rebalance |
+| `trades:execute-EW-ETF --force-test` | Place 1-share round-trips for testing |
 | `equity:snapshot` | Snapshot current account equity to DB |
 | `positions:sync` | Sync Alpaca positions to `positions_cache` |
+| `optimize:nightly` | **LEGACY** chandelier optimizer — do not run (CHAND is EW-only) |
 
 ---
 
@@ -338,16 +320,16 @@ The Daily Signal and MTF Top-N share the **same universe**, the **same hard filt
 
 | Aspect | CHAND | Scanner | MTF Top-N | Daily Signal |
 |--------|-------|---------|-----------|--------------|
-| **Goal** | Automated live trading | Market screening | Rotation trading | Signal alerts |
-| **Strategy** | Chandelier Exit (always-in) | 3-way crossover convergence | Multi-TF score top-N | Multi-TF fresh crosses |
+| **Goal** | Whole-market beta book | Market screening | Rotation trading | Signal alerts |
+| **Strategy** | EW weekly rebalance (no signals) | 3-way crossover convergence | Multi-TF score top-N | Multi-TF fresh crosses |
 | **Universe** | QQQ/VTI/VTV | S&P 500 | VTI stocks + ETFs | All enabled (VTI stocks + ETFs) |
-| **Data Frequency** | Daily bars | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour |
+| **Data Frequency** | Daily bars (weekly trigger) | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour |
 | **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders (Phase 2) | Slack + CSV only |
-| **Entry** | Always-in (no filter) | 3 aligned crossovers | Top-N by score | Fresh 1-hour cross |
-| **Exit** | ATR trailing stop | N/A (scanner only) | Dropped from top N | N/A |
-| **Parameters** | Optimized per ticker | Fixed | Fixed | Fixed |
-| **Return (backtest)** | 97.8% | N/A | +5,469% (unfiltered) | N/A |
-| **Max DD** | 10.0% | N/A | 22.2% | N/A |
+| **Entry** | Always-in (all three, equity/3) | 3 aligned crossovers | Top-N by score | Fresh 1-hour cross |
+| **Exit** | None (hold) | N/A (scanner only) | Dropped from top N | N/A |
+| **Parameters** | None (fixed weights) | Fixed | Fixed | Fixed |
+| **Return (backtest)** | +81.7% (EW weekly rebal) | N/A | +5,469% (unfiltered) | N/A |
+| **Max DD** | 18.7% (≈ trio B&H) | N/A | 22.2% | N/A |
 
 ---
 
@@ -355,9 +337,9 @@ The Daily Signal and MTF Top-N share the **same universe**, the **same hard filt
 
 | Parameter | CHAND | Scanner | MTF Top-N | Daily Signal |
 |-----------|-------|---------|-----------|--------------|
-| Fast MA | `macd_fast` [14,18,22] | 24 | 10 (EMA) | 10 (EMA) |
-| Slow MA | N/A (uses ATR) | 52 | 40 (SMA) | 40 (SMA) |
+| Fast MA | **none (EW-only since 2026-09-12)** | 24 | 10 (EMA) | 10 (EMA) |
+| Slow MA | N/A | 52 | 40 (SMA) | 40 (SMA) |
 | Signal Line | N/A | 18 (MACD), 9 (PPO) | N/A | N/A |
-| ATR Period | `macd_fast` (same as chandelier) | 14 | N/A | N/A |
-| ATR Multiplier | `bb_std` [2.5, 3.0, 3.5] | 2.0 | N/A | N/A |
-| Primary Metric | Sharpe Ratio | Crossover recency | Score (gap+atr+fresh) | Momentum score |
+| ATR Period | legacy chandelier only | 14 | N/A | N/A |
+| ATR Multiplier | legacy chandelier only | 2.0 | N/A | N/A |
+| Primary Metric | **none — fixed equity/3 weights** | Crossover recency | Score (gap+atr+fresh) | Momentum score |

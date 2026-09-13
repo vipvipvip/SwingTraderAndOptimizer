@@ -60,13 +60,13 @@ EOF
 ### Trade Executor Command
 ```bash
 # Run trade executor manually (normally runs via systemd every minute)
-php artisan trades:execute-daily
+php artisan trades:execute-EW-ETF
 
 # Run with output logging
-php artisan trades:execute-daily -v
+php artisan trades:execute-EW-ETF -v
 
 # View recent trade execution logs
-tail -50 backend/storage/logs/laravel.log | grep ExecuteDailyTrades
+tail -50 backend/storage/logs/laravel.log | grep ExecuteEWETF
 journalctl -u swingtrader-backend -f | grep signal
 ```
 
@@ -87,7 +87,7 @@ php artisan schedule:run
 php artisan schedule:list
 
 # Test a specific command
-php artisan schedule:test trades:execute-daily
+php artisan schedule:test trades:execute-EW-ETF
 ```
 
 **Purpose:** Manage Laravel's internal task scheduler. The crontab entry calls `schedule:run` which executes commands defined in `app/Console/Kernel.php`.

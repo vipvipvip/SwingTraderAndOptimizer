@@ -17,7 +17,7 @@ A full-stack algorithmic swing trading system using **Chandelier Exit + Linear R
 │  EquityService.php          — account equity snapshots               │
 │                                                                     │
 │  Scheduler (Laravel Kernel.php, runs inside backend process):       │
-│    trades:execute-daily  → every 5 min, Mon–Fri 09:30–16:05 ET     │
+│    trades:execute-EW-ETF  → every 5 min, Mon–Fri 09:30–16:05 ET     │
 │    positions:sync        → every 5 min, Mon–Fri 09:30–16:05 ET     │
 │    equity:snapshot       → daily 16:05 ET                           │
 │    logs:check-and-alert  → daily 09:15 ET + 16:10 ET weekdays      │
@@ -63,7 +63,7 @@ A full-stack algorithmic swing trading system using **Chandelier Exit + Linear R
 │  swingtrader-earnings-screener 09:30–15:30  Earnings screener (30m)  │
 │  swingtrader-earnings-refresh Sun 06:00 ET  Earnings calendar fetch  │
 │                                                                     │
-│  Also: cron: trades:execute-daily every 5 min (during market hours) │
+│  Also: cron: trades:execute-EW-ETF every 5 min (during market hours) │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -181,13 +181,17 @@ Alpaca ───┬── swingtrader-scanner-update (09:00 daily) ──► tbl
 
 ### Live Trading
 ```
-cron (5 min) ──► trades:execute-daily ──► TradeExecutorService
+cron (5 min) ──► trades:execute-EW-ETF ──► TradeExecutorService
                     │                           │
-                    ├── RECONCILE:              ├── Pass 1: exits for each ticker
-                    │   syncLiveTradesFromAlpaca│   (Chandelier + Regression check)
-                    │   (self-heal DB from      ├── Pass 2: pooled cash entry
-                    │    Alpaca order history)   │   (split equally among buy signals)
-                    ├── getAccount() (Alpaca)   └── placeOrder() (Alpaca MARKET)
+                    ├── FRIDAY GATE: rebalance  ├── rebalanceEqualWeightWeekly()
+                    │   only on Fridays (ET),   │   (trim overweights + top up
+                    │   once/day via marker     │    underweights → equity/3 each;
+                    │   file; --override forces │    NO chandelier/regression logic)
+                    ├── RECONCILE:              │
+                    │   syncLiveTradesFromAlpaca│
+                    │   (self-heal DB from      │
+                    │    Alpaca order history)  └── placeOrder() (Alpaca MARKET)
+                    ├── getAccount() (Alpaca)
                     ├── getPositions() (Alpaca)
                     │                           └── positions:sync (after trades)
                     │                                 (populate positions_cache)
@@ -199,9 +203,18 @@ cron (5 min) ──► trades:execute-daily ──► TradeExecutorService
 ## Strategy
 
 ### Tickers
-QQQ, VTI, VTV (enabled in `tbl_etf_tickers`). BLENDED is the portfolio composite.
+QQQ, VTI, VTV (enabled in `tbl_etf_tickers`). BLENDED is the portfolio composite (legacy).
 
-### Exit — Chandelier Exit (always active)
+### Current (2026-09-12): Weekly Equal-Weight Rebalance
+```
+every Friday (ET), once/day:
+  per_leg = account_equity / 3
+  each leg (QQQ/VTI/VTV): if market_value > per_leg → trim excess
+                          if market_value < per_leg → top up  (weighted-avg entry)
+No signals, no stops — pure always-in equal-weight beta book.
+```
+
+### Legacy Exits (not called on live path — kept for reference)
 ```
 highest_high = max(high since entry, ... , current high)
 stop_level   = highest_high - ATR(period) × multiplier
@@ -248,7 +261,7 @@ All orders are Alpaca MARKET orders. Exit type (`chandelier`, `regression`, `for
 
 ### Scheduler
 ```
-cron: */5 * * * * /usr/bin/php ... artisan trades:execute-daily >> /dev/null 2>&1
+cron: */5 * * * * /usr/bin/php ... artisan trades:execute-EW-ETF >> /dev/null 2>&1
 ```
 Runs every 5 min regardless of market hours. The command checks `alpacaService->getClock()['is_open']` and exits early if market is closed.
 
