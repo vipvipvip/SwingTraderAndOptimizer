@@ -181,12 +181,15 @@ Alpaca ───┬── swingtrader-scanner-update (09:00 daily) ──► tbl
 
 ### Live Trading
 ```
-cron (5 min) ──► trades:execute-EW-ETF ──► TradeExecutorService
+cron (*/5 min) ──► trades:execute-EW-ETF ──► TradeExecutorService
                     │                           │
-                    ├── FRIDAY GATE: rebalance  ├── rebalanceEqualWeightWeekly()
-                    │   only on Fridays (ET),   │   (trim overweights + top up
-                    │   once/day via marker     │    underweights → equity/3 each;
-                    │   file; --override forces │    NO chandelier/regression logic)
+                    ├── INTRADAY (every tick): ├── rebalanceEqualWeightWeekly()
+                    │   market-open only,      │   (trim overweights + top up
+                    │   drift gate:            │    underweights → equity/3 each;
+                    │   blend only if |value−  │    NO chandelier/regression logic)
+                    │   equity/3| > DRIFT_PCT  │
+                    │   (COREEW_DRIFT_PCT,     │
+                    │   default 0.5% of equity)│
                     ├── RECONCILE:              │
                     │   syncLiveTradesFromAlpaca│
                     │   (self-heal DB from      │
@@ -195,7 +198,8 @@ cron (5 min) ──► trades:execute-EW-ETF ──► TradeExecutorService
                     ├── getPositions() (Alpaca)
                     │                           └── positions:sync (after trades)
                     │                                 (populate positions_cache)
-                    └── Slack webhook ──► report if trades occurred
+                    └── Slack webhook ──► report only if trades occurred
+                    (--dry-run previews, --override forces exact, --drift= overrides)
 ```
 
 ---
@@ -205,13 +209,15 @@ cron (5 min) ──► trades:execute-EW-ETF ──► TradeExecutorService
 ### Tickers
 QQQ, VTI, VTV (enabled in `tbl_etf_tickers`). BLENDED is the portfolio composite (legacy).
 
-### Current (2026-09-12): Weekly Equal-Weight Rebalance
+### Current (2026-09-14): Intraday Drift-Gated Equal-Weight Rebalance
 ```
-every Friday (ET), once/day:
+every 5-min cron tick, market open only:
   per_leg = account_equity / 3
-  each leg (QQQ/VTI/VTV): if market_value > per_leg → trim excess
-                          if market_value < per_leg → top up  (weighted-avg entry)
-No signals, no stops — pure always-in equal-weight beta book.
+  drift_threshold = account_equity × COREEW_DRIFT_PCT (default 0.5%)
+  each leg (QQQ/VTI/VTV): if market_value > per_leg + drift_threshold → trim excess
+                          if market_value < per_leg − drift_threshold → top up (weighted-avg entry)
+No signals, no stops — pure always-in equal-weight beta book. Weekly day-gating
++ once-per-day marker removed 2026-09-14; --override forces exact rebalance.
 ```
 
 ### Legacy Exits (not called on live path — kept for reference)

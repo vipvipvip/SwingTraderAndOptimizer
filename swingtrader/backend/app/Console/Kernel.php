@@ -16,8 +16,9 @@ class Kernel extends ConsoleKernel
         // Price fetching is handled by trade executor (calls fetchLatestPrices internally every 5 min)
 
         // NOTE: live trigger is the crontab entry (artisan trades:execute-EW-ETF
-        // every 5 min; the command day-gates + marker make it run once per
-        // rebalance day). This Laravel-scheduler copy is not cronned (schedule:run absent).
+        // every 5 min; the command gates on market-open + drift threshold so it
+        // trades only when a CoreEW leg has drifted off equal weight). This
+        // Laravel-scheduler copy is not cronned (schedule:run absent).
         $schedule->command('trades:execute-EW-ETF')
             ->everyFiveMinutes()
             ->weekdays()

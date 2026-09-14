@@ -3,8 +3,9 @@ set -euo pipefail
 
 # ============================================================
 # SwingTrader System Health Check
-# Verifies: DB, bars data (ETF + scanner), optimizer runs,
-#           strategy params, backend/frontend services, market status
+# Verifies: DB, bars data (ETF + scanner), CoreEW intraday cron,
+#           optimizer retired status, backend/frontend services,
+#           timers, MTF Top-N, daily signal, API endpoints
 # ============================================================
 
 RED='\033[0;31m'
@@ -163,77 +164,50 @@ for svc in swingtrader-scanner-update swingtrader-scanner-backfill; do
     fi
 done
 
-# ---- Strategy Parameters ----
+# ---- CoreEW (formerly CHAND) ----
 echo ""
-echo "--- Strategy Parameters ---"
+echo "--- CoreEW Intraday Rebalance ---"
 
-PARAM_ROWS=$(PSQL "SELECT COUNT(*) FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.symbol IN ('QQQ','VTI','VTV') AND sp.base_case=true;")
-CORE_COUNT=$(echo "$CORE_ETFS" | wc -w)
-if [ "$PARAM_ROWS" -ge "$CORE_COUNT" ] 2>/dev/null; then
-    pass "All $CORE_COUNT core ETFs (QQQ/VTI/VTV) have base_case=true parameters"
+# Live trigger is the 5-min crontab entry that runs artisan trades:execute-EW-ETF.
+if crontab -l 2>/dev/null | grep -q "trades:execute-EW-ETF"; then
+    pass "CoreEW cron entry present (every 5 min)"
 else
-    fail "Expected $CORE_COUNT core ETFs with base_case=true, found $PARAM_ROWS"
+    fail "CoreEW cron entry MISSING — trades:execute-EW-ETF not in crontab"
 fi
 
-LAST_PARAM_UPDATE=$(PSQL "SELECT MAX(sp.updated_at)::date FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id WHERE t.enabled=true AND sp.base_case=true AND t.symbol != 'BLENDED';")
-PARAM_DAYS=$(( ($(date +%s) - $(date -d "$LAST_PARAM_UPDATE" +%s 2>/dev/null || echo 0)) / 86400 ))
-echo "  Parameters last updated: $LAST_PARAM_UPDATE ($PARAM_DAYS days ago)"
-
-# Per-ticker active params (core ETFs only)
-for sym in $CORE_ETFS; do
-    PARAM_LINE=$(PSQL "
-        SELECT CONCAT('period=', sp.chandelier_period, ' mult=', sp.chandelier_mult,
-            CASE WHEN sp.chandelier_entry_mult IS NOT NULL THEN CONCAT(' entry=', sp.chandelier_entry_mult) ELSE '' END,
-            CASE WHEN sp.reg_slope_window IS NOT NULL THEN CONCAT(' reg=', sp.reg_slope_type, ' ', sp.reg_slope_window, 'd th=', sp.reg_slope_threshold) ELSE '' END,
-            ' sharpe=', ROUND(sp.sharpe_ratio::numeric, 2))
-        FROM strategy_parameters sp JOIN tbl_etf_tickers t ON sp.ticker_id = t.id
-        WHERE t.symbol='$sym' AND sp.base_case=true;
-    ")
-    if [ -n "$PARAM_LINE" ]; then
-        echo "    $sym: $PARAM_LINE"
-    fi
-done
-
-# ---- Optimization History (per ticker) ----
-echo ""
-echo "--- Nightly Optimizer ---"
-
-OPT_RUNS=$(PSQL "SELECT COUNT(*) FROM optimization_history oh JOIN tbl_etf_tickers t ON oh.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';")
-if [ "$OPT_RUNS" -gt 0 ] 2>/dev/null; then
-    pass "Optimization history has $OPT_RUNS recorded runs for enabled tickers"
-else
-    warn "No optimization history found"
-fi
-
-LAST_OPT_GLOBAL=$(PSQL "SELECT MAX(run_date)::date FROM optimization_history;")
-OPT_GLOBAL_DAYS=$(( ($(date +%s) - $(date -d "$LAST_OPT_GLOBAL" +%s 2>/dev/null || echo 0)) / 86400 ))
-echo "  Last optimizer run (any ticker): $LAST_OPT_GLOBAL ($OPT_GLOBAL_DAYS days ago)"
-
-# Per-ticker latest optimizer run details (core ETFs only)
-for sym in BLENDED $CORE_ETFS; do
-    OPT_LINE=$(PSQL "
-        SELECT CONCAT(oh.run_date::date, ' sharpe=', ROUND(oh.best_sharpe::numeric, 2),
-            ' return=', ROUND(oh.best_return::numeric, 2),
-            ' win=', ROUND(oh.best_win_rate::numeric, 3),
-            ' combos=', oh.total_combinations,
-            ' promoted=', oh.promoted)
-        FROM optimization_history oh JOIN tbl_etf_tickers t ON oh.ticker_id = t.id
-        WHERE t.symbol='$sym'
-        ORDER BY oh.run_date DESC LIMIT 1;
-    ")
-    if [ -n "$OPT_LINE" ]; then
-        echo "    $sym: $OPT_LINE"
+# Freshness marker: the command stamps storage/trades_last_run.txt on every run
+# (market open or closed), so a modern mtime proves cron is firing.
+COREEW_MARKER="$PROJECT_DIR/swingtrader/backend/storage/trades_last_run.txt"
+if [ -f "$COREEW_MARKER" ]; then
+    # Count minutes since the last CoreEW run marker
+    NOW_EPOCH=$(date +%s)
+    MARKER_EPOCH=$(stat -c %Y "$COREEW_MARKER" 2>/dev/null || echo 0)
+    MIN_SINCE=$(( (NOW_EPOCH - MARKER_EPOCH) / 60 ))
+    if [ "$MIN_SINCE" -le 15 ]; then
+        pass "CoreEW last run $MIN_SINCE min ago (fresh)"
+    elif [ "$MIN_SINCE" -le 60 ]; then
+        warn "CoreEW last run $MIN_SINCE min ago — expect <=15 min during market hours"
     else
-        echo "    $sym: no optimization runs found"
+        fail "CoreEW last run $MIN_SINCE min ago — cron may be stalled"
     fi
-done
-
-# Also check the nightly log
-if [ -f "$PROJECT_DIR/swingtrader/services/optimizer/logs/nightly.log" ]; then
-    LAST_LOG=$(tail -1 "$PROJECT_DIR/swingtrader/services/optimizer/logs/nightly.log" 2>/dev/null || echo "unreadable")
-    echo "  Last optimizer log entry: $LAST_LOG"
 else
-    warn "Optimizer log file not found at swingtrader/services/optimizer/logs/nightly.log"
+    fail "CoreEW marker file missing at $COREEW_MARKER"
+fi
+
+# ---- Strategy Parameters (DISABLED — optimizer retired 2026-09-12) ----
+echo ""
+echo "--- Nightly Optimizer (DISABLED) ---"
+
+pass "Optimizer is disabled (2026-09-12) — CHAND→CoreEW is equal-weight only, no chandelier params, optimization_history cleared"
+if [ "$(PSQL "SELECT COUNT(*) FROM strategy_parameters;" 2>/dev/null || echo 0)" -gt 0 ]; then
+    warn "strategy_parameters still has rows (post-2026-09-12 purge) — expected 0"
+else
+    pass "strategy_parameters empty (expected post-optimizer)"
+fi
+if [ "$(PSQL "SELECT COUNT(*) FROM optimization_history;" 2>/dev/null || echo 0)" -gt 0 ]; then
+    warn "optimization_history still has rows — expected 0"
+else
+    pass "optimization_history empty (expected)"
 fi
 
 # ---- Timers ----
@@ -241,7 +215,7 @@ echo ""
 echo "--- System Timers ---"
 
 # Strategy timers with next run time
-for timer in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader-mtf-scorer swingtrader-daily-signal; do
+for timer in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader-mtf-executor swingtrader-daily-signal; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
         TRIGGER=$(systemctl show "$timer.timer" -p TriggerOnCalendar --value 2>/dev/null || echo "?")
@@ -250,6 +224,9 @@ for timer in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader
         warn "$timer.timer is not enabled"
     fi
 done
+
+# Disabled-by-design timers (informational, not warnings)
+echo "    (disabled by design: swingtrader-mtf-scorer — score inline in 10:25 executor; swingtrader-optimizer — retired 2026-09-12)"
 
 # Earnings timers
 for timer in swingtrader-earnings-refresh swingtrader-earnings-screener; do
@@ -263,7 +240,7 @@ for timer in swingtrader-earnings-refresh swingtrader-earnings-screener; do
 done
 
 # Infrastructure timers
-for timer in swingtrader-optimizer swingtrader-backup; do
+for timer in swingtrader-backup; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
         pass "$timer.timer enabled (next: $NEXT)"
@@ -276,7 +253,7 @@ done
 echo ""
 echo "--- Recent Timer Service Runs ---"
 
-for svc in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader-mtf-scorer swingtrader-daily-signal swingtrader-earnings-screener swingtrader-earnings-refresh; do
+for svc in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader-mtf-executor swingtrader-daily-signal swingtrader-earnings-screener swingtrader-earnings-refresh; do
     STATUS=$(systemctl is-active "$svc" 2>/dev/null || echo "not-found")
     if [ "$STATUS" = "failed" ]; then
         fail "$svc.service FAILED — last run errored"

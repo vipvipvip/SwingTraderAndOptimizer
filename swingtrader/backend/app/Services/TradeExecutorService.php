@@ -211,8 +211,12 @@ class TradeExecutorService
      * always long all three at equity/3 each; this method only brings drift
      * back to equal weight (trim overweights, top up underweights) and never
      * fully closes a position (trim qty < held qty by construction).
+     *
+     * minDriftPct (default 0.0 = exact) skips a leg when its deviation from
+     * equity/N is <= that % of total equity, so frequent intraday runs (every
+     * 5 min) only trade a leg when it has genuinely drifted off target.
      */
-    public function rebalanceEqualWeightWeekly(bool $dryRun = false): array
+    public function rebalanceEqualWeightWeekly(bool $dryRun = false, float $minDriftPct = 0.0): array
     {
         $this->dryRun = $dryRun;
 
@@ -252,6 +256,7 @@ class TradeExecutorService
         }
 
         $perPosition = $accountEquity / count($symbols);
+        $driftThreshold = ($minDriftPct > 0) ? $accountEquity * ($minDriftPct / 100) : 0.0;
 
         $held = [];
         foreach ($positions ?? [] as $pos) {
@@ -265,6 +270,9 @@ class TradeExecutorService
                 continue;
             }
             $excess = $currentValue - $perPosition;
+            if ($driftThreshold > 0 && $excess <= $driftThreshold) {
+                continue;
+            }
             $price = $this->getCurrentPrice($sym);
             if (!$price) {
                 continue;
@@ -283,6 +291,9 @@ class TradeExecutorService
             $currentValue = $held[$sym] ?? 0;
             $needed = $perPosition - $currentValue;
             if ($needed <= 0) {
+                continue;
+            }
+            if ($driftThreshold > 0 && $needed <= $driftThreshold) {
                 continue;
             }
             $price = $this->getCurrentPrice($sym);

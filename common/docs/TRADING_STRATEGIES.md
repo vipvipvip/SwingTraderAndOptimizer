@@ -6,7 +6,7 @@ This project contains three distinct trading systems that operate independently:
 
 | # | Name | Universe | Signals | Status |
 |---|------|----------|---------|--------|
-| 1 | **CHAND** (trio EW book) | QQQ/VTI/VTV | Weekly equal-weight rebalance (weekday via `CHAND_REBALANCE_DAYS`; Mon now, Fri next) — NO signals | ✅ Live (Laravel) |
+| 1 | **CoreEW** (trio EW book, formerly CHAND) | QQQ/VTI/VTV | Intraday equal-weight rebalance every 5 min (cron, market-open only; drift-gated by `COREEW_DRIFT_PCT` >0.5% of equity) — NO signals | ✅ Live (Laravel) |
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 4 | **MTF Top-N** (Multi-TF rotation) | VTI stocks + ETFs | gap_w + atr_dist + freshness → top 10 daily | ✅ Live (Phase 2) |
@@ -16,19 +16,21 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 
 ---
 
-# 1. CHAND — Weekly Equal-Weight Trio Book
+# 1. CoreEW — Equal-Weight Trio Book
 
-**Service:** `TradeExecutorService` (execution), `StrategyService` (parameter management), `AlpacaService` (broker API)  
-**Command:** `trades:execute-EW-ETF` (gated to `CHAND_REBALANCE_DAYS` in `.env`, one rebalance per week)
+**Service:** `TradeExecutorService` (execution), `AlpacaService` (broker API)  
+**Command:** `trades:execute-EW-ETF` (5-min crontab driver, market-open + drift-gated)
 
-> **Status: converted 2026-09-12.** CHAND previously ran per-ticker Chandelier
-> Exit (trailing ATR stop) tuned by a nightly brute-force grid-search optimizer.
-> It is now a **pure equal-weight book**: long QQQ/VTI/VTV, each at `equity/3`,
-> rebalanced ONCE per eligible weekday (`CHAND_REBALANCE_DAYS`, Mon=1..Sun=7;
-> currently **Monday**, plan to switch to **Friday** — edit the `.env` value).
-> No entry/exit signals, no stop-loss, no optimizer. The chandelier logic +
-> `nightly_optimizer.py` remain in the repo as legacy (not called on the live
-> path); the nightly optimizer timer/systemd unit is DISABLED.
+> **Status: intraday drift-gated since 2026-09-14.** CoreEW (renamed from CHAND
+> 2026-09-12) previously rebalanced ONCE per eligible weekday
+> (`COREEW_REBALANCE_DAYS`). That weekly gate + once-per-day marker were
+> **replaced by intraday rebalancing**: cron fires the command every 5 min and a
+> leg is trimmed/topped-up only when its deviation from `equity/3` exceeds
+> `COREEW_DRIFT_PCT` (0.5% of equity) — so quiet ticks trade nothing and real
+> drift crosses get traded quickly. Pure equal-weight book: long QQQ/VTI/VTV,
+> each at `equity/3`. No entry/exit signals, no stop-loss, no optimizer. The
+> chandelier logic + `nightly_optimizer.py` remain in the repo as legacy (not
+> called on the live path); the nightly optimizer timer/systemd unit is DISABLED.
 
 ### Strategy Type
 
@@ -42,22 +44,24 @@ Decision: run **A** (pure EW). Rationale: it is sound, zero-parameter, no brute 
 ### Rebalance Rule
 
 ```
-ON rebalance day (ET), once per day:
+INTRAday (every 5-min cron tick, market open only):
     equity_N = account_equity / 3
+    drift_threshold = equity * COREEW_DRIFT_PCT%   (0.5% default)
     for each of QQQ / VTI / VTV:
-        if market_value > equity_N:  trim excess shares (REBALANCE_TRIM)
-        if market_value < equity_N:  top up qty (weighted-avg entry merge / new leg)
+        if market_value > equity_N + drift_threshold:  trim excess shares (REBALANCE_TRIM)
+        if market_value < equity_N - drift_threshold:  top up qty (weighted-avg entry merge / new leg)
 ```
 
 - Trims never fully close a leg; top-ups re-establish a missing leg from scratch.
-- Rebalance day(s): `CHAND_REBALANCE_DAYS` in `swingtrader/backend/.env` (Mon=1..Sun=7, comma-separated; currently `1`, plan `5` for Friday).
-- Executor: `TradeExecutorService::rebalanceEqualWeightWeekly()`.
-- Once-per-day marker file: `storage_path('chand_last_rebalance.txt')`.
-- `trades:execute-EW-ETF --override` forces a manual run on any day (recovery/testing) and `--dry-run` previews the rebalance without orders.
+- Drift gate: `COREEW_DRIFT_PCT` in `swingtrader/backend/.env` (default 0.5% of equity). `--drift=` overrides per-run; `--override` forces exact rebalance (threshold 0).
+- Executor: `TradeExecutorService::rebalanceEqualWeightWeekly($dryRun, $minDriftPct)`.
+- No weekly day-gate, no once-per-day marker — cron's 5-min tick + market-open check is the sole driver.
+- Manual trigger: `swingtrader/services/scripts/coreew_rebalance.sh` (plain `--dry-run/--override/--drift=` passthrough).
+- `trades:execute-EW-ETF --dry-run` previews the next rebalance without orders.
 
 ### Parameters
 
-None — the strategy has no tunable input. `strategy_parameters` rows for QQQ/VTI/VTV/BLENDED are legacy and unused on the live path.
+None — the strategy has no signal inputs. Only operational knob: `COREEW_DRIFT_PCT` (0.5% of equity, `.env` / `--drift=`). `strategy_parameters` rows for QQQ/VTI/VTV/BLENDED are legacy and unused on the live path.
 
 ### Capital Allocation
 
@@ -73,11 +77,11 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 
 ### Live Execution Flow (`TradeExecutorService`)
 
-1. `ExecuteEWETF` (laravel) gates to the configured rebalance day(s) (ET), checks the once-per-day marker, then calls `rebalanceEqualWeightWeekly()`.
+1. Cron fires `trades:execute-EW-ETF` every 5 min; the command checks market-open and applies the drift threshold, then calls `rebalanceEqualWeightWeekly($dryRun, $minDriftPct)`.
 2. `syncLiveTradesFromAlpaca()` reconciles DB → Alpaca order history first (self-healing).
-3. Fetch account equity + positions; compute `equity/3` per leg.
-4. Trim overweights (partial sell, preserves/open-trade P&L), top-up underweights (weighted-avg entry merge via `rebalanceTopUp`).
-5. Snapshot equity, sync positions cache, Slack `[CHAND]` summary when trades occurred.
+3. Fetch account equity + positions; compute `equity/3` per leg + drift threshold.
+4. Trim overweights (partial sell, preserves/open-trade P&L), top-up underweights (weighted-avg entry merge via `rebalanceTopUp`) — skipped for legs within the threshold.
+5. Snapshot equity, sync positions cache, Slack `[CoreEW]` summary only when trades occurred.
 
 ### Risk Characteristics
 
@@ -89,9 +93,12 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 
 | Command | Description |
 |---------|-------------|
-| `trades:execute-EW-ETF` | Weekly EW rebalance (Fridays only, once/day) |
-| `trades:execute-EW-ETF --override` | Force a mid-week manual rebalance |
+| `trades:execute-EW-ETF` | Intraday EW rebalance (every 5-min cron tick, market-open + drift-gated) |
+| `trades:execute-EW-ETF --dry-run` | Preview the next rebalance without orders |
+| `trades:execute-EW-ETF --override` | Force an exact rebalance now (drift threshold 0) |
+| `trades:execute-EW-ETF --drift=1.0` | One-off run with a custom drift threshold % |
 | `trades:execute-EW-ETF --force-test` | Place 1-share round-trips for testing |
+| `coreew_rebalance.sh` | Manual wrapper (arguments passed to artisan) |
 | `equity:snapshot` | Snapshot current account equity to DB |
 | `positions:sync` | Sync Alpaca positions to `positions_cache` |
 | `optimize:nightly` | **LEGACY** chandelier optimizer — do not run (CHAND is EW-only) |
@@ -323,12 +330,12 @@ The Daily Signal and MTF Top-N share the **same universe**, the **same hard filt
 | **Goal** | Whole-market beta book | Market screening | Rotation trading | Signal alerts |
 | **Strategy** | EW weekly rebalance (no signals) | 3-way crossover convergence | Multi-TF score top-N | Multi-TF fresh crosses |
 | **Universe** | QQQ/VTI/VTV | S&P 500 | VTI stocks + ETFs | All enabled (VTI stocks + ETFs) |
-| **Data Frequency** | Daily bars (weekly trigger) | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour |
+| **Data Frequency** | 5-min ticks (market hours) | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour |
 | **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders (Phase 2) | Slack + CSV only |
 | **Entry** | Always-in (all three, equity/3) | 3 aligned crossovers | Top-N by score | Fresh 1-hour cross |
 | **Exit** | None (hold) | N/A (scanner only) | Dropped from top N | N/A |
 | **Parameters** | None (fixed weights) | Fixed | Fixed | Fixed |
-| **Return (backtest)** | +81.7% (EW weekly rebal) | N/A | +5,469% (unfiltered) | N/A |
+| **Return (backtest)** | +81.7% (EW weekly benchmark) | N/A | +5,469% (unfiltered) | N/A |
 | **Max DD** | 18.7% (≈ trio B&H) | N/A | 22.2% | N/A |
 
 ---

@@ -10,9 +10,9 @@ use GuzzleHttp\Client;
 
 class ExecuteEWETF extends Command
 {
-    protected $signature = 'trades:execute-EW-ETF {--force-test : Force a buy+sell round-trip per ticker (paper account test mode)} {--override : Manual override. force rebalance mid-week} {--dry-run : Preview the weekly EW rebalance without placing orders}';
+    protected $signature = 'trades:execute-EW-ETF {--force-test : Force a buy+sell round-trip per ticker (paper account test mode)} {--override : Manual override. Force an exact rebalance now (drift threshold 0)} {--dry-run : Preview the EW rebalance without placing orders} {--drift= : Drift threshold %% of equity before a leg is rebalanced (default: COREEW_DRIFT_PCT env, 0 = exact)}';
 
-    protected $description = 'Weekly equal-weight CoreEW trio rebalance (QQQ/VTI/VTV)';
+    protected $description = 'Intraday equal-weight CoreEW trio rebalance (QQQ/VTI/VTV)';
 
     public function handle()
     {
@@ -34,35 +34,25 @@ class ExecuteEWETF extends Command
         // Record execution time
         $this->recordExecutionTime();
 
-        // CoreEW is a weekly equal-weight trio book (QQQ/VTI/VTV @ equity/3).
-        // Rebalance only on configured weekday(s) (ET) — COREEW_REBALANCE_DAYS
-        // in .env, 1..7 (Mon..Sun), comma-separated; currently Monday, plan to
-        // flip to Friday later. --override forces a manual run on any day.
-        $ny = now()->setTimezone('America/New_York');
-        $rebalanceDays = array_values(array_filter(array_map('intval', explode(',', (string) env('COREEW_REBALANCE_DAYS', '1')))));
-        if (count($rebalanceDays) < 1) {
-            $rebalanceDays = [1];
+        // CoreEW is an equal-weight trio book (QQQ/VTI/VTV @ equity/3).
+        // This command is the live intraday driver: cron fires it every 5 min
+        // during market hours and the drift threshold decides whether any leg
+        // needs a trim/top-up. Default threshold from COREEW_DRIFT_PCT (0.5%),
+        // --override forces an exact rebalance (threshold 0) at any time, and
+        // --drift= overrides the threshold for one-off runs.
+        $driftPct = (float) ($this->option('drift') !== null
+            ? $this->option('drift')
+            : env('COREEW_DRIFT_PCT', 0.5));
+        if ($override) {
+            $driftPct = 0.0;
         }
-        $isRebalanceDay = in_array($ny->dayOfWeek, $rebalanceDays, true);
-        if (!$isRebalanceDay && !$override) {
-            $this->info("Not a rebalance day ({$ny->format('D Y-m-d')}) — CoreEW rebalances on weekday(s) " . implode(',', $rebalanceDays) . " (Mon=1..Sun=7). No trades.");
-            return 0;
-        }
-
-        // Rebalance at most once per calendar day (the 5-min scheduler fires
-        // repeatedly; the marker keeps it to a single daily execution).
-        $markerFile = storage_path('chand_last_rebalance.txt');
-        if (!$override && !$dryRun && $isRebalanceDay && is_file($markerFile)) {
-            $lastRebalance = trim((string) file_get_contents($markerFile));
-            if ($lastRebalance === $ny->format('Y-m-d')) {
-                $this->info("Already rebalanced today ({$lastRebalance}) — skipping weekly EW rebalance.");
-                return 0;
-            }
+        if ($driftPct < 0 || $driftPct > 100) {
+            $this->error('--drift must be between 0 and 100 (% of equity).');
+            return 1;
         }
 
         try {
             $clock = $alpacaService->getClock();
-            // $clock['is_open'] = true;
 
             if (!$clock['is_open']) {
                 $this->info('Market is closed. No trades executed.');
@@ -74,13 +64,10 @@ class ExecuteEWETF extends Command
                 $results = $tradeExecutor->forceTestAllTickers(1);
             } elseif ($dryRun) {
                 $this->info('DRY-RUN: previewing EW rebalance (no orders placed)...');
-                $results = $tradeExecutor->rebalanceEqualWeightWeekly(true);
+                $results = $tradeExecutor->rebalanceEqualWeightWeekly(true, $driftPct);
             } else {
-                $this->info('Market is open. Equal-weight weekly rebalance...');
-                $results = $tradeExecutor->rebalanceEqualWeightWeekly();
-                if ($isRebalanceDay && !$override) {
-                    @file_put_contents($markerFile, $ny->format('Y-m-d'));
-                }
+                $this->info('Market is open. Equal-weight rebalance (drift threshold ' . $driftPct . '%)...');
+                $results = $tradeExecutor->rebalanceEqualWeightWeekly(false, $driftPct);
             }
             $equity = $equityService->snapshotAccountEquity($alpacaService);
 
