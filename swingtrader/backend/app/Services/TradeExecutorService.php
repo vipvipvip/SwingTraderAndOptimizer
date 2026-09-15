@@ -821,10 +821,29 @@ class TradeExecutorService
     }
 
     /**
-     * Get current price from latest bar in database
+     * Get current price from latest bar in the live scanner hourly table
+     * (tbl_scanner_tickers_1hour, keyed by tbl_stock_tickers.id).
+     * Falls back to the legacy tbl_etf_tickers_1hour for any symbols that
+     * only exist in the legacy table (e.g. BLENDED), then returns null.
      */
     private function getCurrentPrice($symbol)
     {
+        try {
+            $bar = \DB::table('tbl_scanner_tickers_1hour as h')
+                ->join('tbl_stock_tickers as t', 'h.ticker_id', '=', 't.id')
+                ->where('t.symbol', $symbol)
+                ->orderBy('h.date', 'desc')
+                ->select('h.close')
+                ->first();
+
+            if ($bar) {
+                return floatval($bar->close);
+            }
+        } catch (\Exception $e) {
+            \Log::debug("Could not fetch from tbl_scanner_tickers_1hour for $symbol: " . $e->getMessage());
+        }
+
+        // Legacy fallback (frozen since 09-11 2026 — only for symbols not in tbl_stock_tickers)
         try {
             $bar = \DB::table('tbl_etf_tickers_1hour')
                 ->join('tbl_etf_tickers', 'tbl_etf_tickers_1hour.ticker_id', '=', 'tbl_etf_tickers.id')
@@ -837,7 +856,7 @@ class TradeExecutorService
                 return floatval($bar->close);
             }
         } catch (\Exception $e) {
-            \Log::debug("Could not fetch from tbl_etf_tickers_1hour: " . $e->getMessage());
+            \Log::debug("Legacy fallback failed for $symbol: " . $e->getMessage());
         }
 
         return null;

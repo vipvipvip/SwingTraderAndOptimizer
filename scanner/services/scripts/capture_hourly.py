@@ -66,11 +66,35 @@ def capture_prices(tickers):
     return prices
 
 
+def _resync_identity_sequence(conn):
+    """Identity sequence can drift behind max(id) after migrations, so fresh
+    inserts collide on the (id, ticker_id) pkey.  Realign it if behind."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_get_serial_sequence(%s, 'id')", (TABLE,))
+            seq = cur.fetchone()
+            if not seq or not seq[0]:
+                return
+            seq = seq[0]
+            cur.execute(f"SELECT last_value FROM {seq}")
+            last_value = cur.fetchone()
+            cur.execute(f"SELECT max(id) FROM {TABLE}")
+            max_id = cur.fetchone()
+            if last_value and max_id and (max_id[0] or 0) > (last_value[0] or 0):
+                cur.execute(f"SELECT setval(%s, %s)", (seq, max_id[0]))
+                print(f"  identity sequence {seq} advanced {last_value[0]} -> {max_id[0]}")
+            else:
+                print(f"  identity sequence {seq} ok ({last_value[0] if last_value else '?'})")
+    except Exception as e:
+        print(f"  warn: could not verify identity sequence: {e}")
+
+
 def upsert_prices(prices):
     now = datetime.now(NY)
     hour_start = now.replace(minute=0, second=0, microsecond=0)
     conn = get_db_conn()
     try:
+        _resync_identity_sequence(conn)
         with conn.cursor() as cur:
             for ticker, data in prices.items():
                 p = data['price']

@@ -7,11 +7,11 @@ trait MarketDataTrait
     private function getOhlcBars($symbol)
     {
         try {
-            $rows = \DB::table('tbl_etf_tickers_1hour')
-                ->join('tbl_etf_tickers', 'tbl_etf_tickers_1hour.ticker_id', '=', 'tbl_etf_tickers.id')
-                ->where('tbl_etf_tickers.symbol', $symbol)
-                ->orderBy('tbl_etf_tickers_1hour.timestamp', 'asc')
-                ->get(['tbl_etf_tickers_1hour.timestamp', 'tbl_etf_tickers_1hour.high', 'tbl_etf_tickers_1hour.low', 'tbl_etf_tickers_1hour.close']);
+            $rows = \DB::table('tbl_scanner_tickers_1hour')
+                ->join('tbl_stock_tickers', 'tbl_scanner_tickers_1hour.ticker_id', '=', 'tbl_stock_tickers.id')
+                ->where('tbl_stock_tickers.symbol', $symbol)
+                ->orderBy('tbl_scanner_tickers_1hour.date', 'asc')
+                ->get(['tbl_scanner_tickers_1hour.date', 'tbl_scanner_tickers_1hour.high', 'tbl_scanner_tickers_1hour.low', 'tbl_scanner_tickers_1hour.close']);
 
             if ($rows->isEmpty()) {
                 return [];
@@ -19,7 +19,7 @@ trait MarketDataTrait
 
             $bars = [];
             foreach ($rows as $row) {
-                $ts = $row->timestamp;
+                $ts = $row->date;
                 if (date('G', strtotime($ts)) == 4 || date('G', strtotime($ts)) == 5) {
                     if (date('i', strtotime($ts)) == 0) {
                         $bars[] = [

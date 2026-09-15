@@ -53,24 +53,43 @@ fi
 
 PSQL() { docker exec swingtrader-db psql -U swingtrader -t -A -c "$1" 2>/dev/null; }
 
+# Count trading days (Mon-Fri) since a given date (used for ETF + scanner freshness)
+_trading_days_since() {
+    local d="$1" count=0
+    local bar_epoch today_epoch bar_day today_day i dow
+    bar_epoch=$(date -d "$d" +%s 2>/dev/null || echo 0)
+    today_epoch=$(date +%s)
+    bar_day=$((bar_epoch / 86400))
+    today_day=$((today_epoch / 86400))
+    for i in $(seq $((bar_day + 1)) "$today_day" 2>/dev/null); do
+        dow=$(date -d "@$((i * 86400))" +%u 2>/dev/null)
+        [ "$dow" -le 5 ] && count=$((count + 1))
+    done
+    echo "$count"
+}
+
 # ---- ETF Bars Data (per ticker) ----
+# Reads the LIVE partitioned table (tbl_scanner_tickers_1hour, keyed by
+# tbl_stock_tickers.id — all 28 ETFs are flagged is_etf=true there). The legacy
+# tbl_etf_tickers_1hour (keyed by tbl_etf_tickers.id) froze 09-11 when the
+# optimizer/backfill was retired and is no longer written; don't check it.
 echo ""
 echo "--- ETF Bar Data ---"
 
-ENABLED_ETF=$(PSQL "SELECT symbol FROM tbl_etf_tickers WHERE enabled=true AND symbol != 'BLENDED' ORDER BY symbol;")
+ENABLED_ETF=$(PSQL "SELECT symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=true ORDER BY symbol;")
 if [ -z "$ENABLED_ETF" ]; then
     fail "No enabled ETF tickers found"
 else
     pass "Enabled ETFs: $(echo "$ENABLED_ETF" | tr '\n' ' ')"
     for sym in $ENABLED_ETF; do
-        LATEST=$(PSQL "SELECT MAX(DATE(b.timestamp)) FROM tbl_etf_tickers_1hour b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.symbol='$sym';")
-        COUNT=$(PSQL "SELECT COUNT(*) FROM tbl_etf_tickers_1hour b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.symbol='$sym';")
+        LATEST=$(PSQL "SELECT MAX(DATE(h.date)) FROM tbl_scanner_tickers_1hour h JOIN tbl_stock_tickers t ON h.ticker_id = t.id WHERE t.symbol='$sym';")
+        COUNT=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_1hour h JOIN tbl_stock_tickers t ON h.ticker_id = t.id WHERE t.symbol='$sym';")
         if [ -n "$LATEST" ] && [ "$LATEST" != " " ]; then
-            DAYS_SINCE=$(( ($(date +%s) - $(date -d "$LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
-            if [ "$DAYS_SINCE" -le 7 ] 2>/dev/null; then
-                pass "  $sym: $COUNT bars, latest $LATEST ($DAYS_SINCE days ago)"
+            HOUR_TRADING_DAYS=$(_trading_days_since "$LATEST")
+            if [ "$HOUR_TRADING_DAYS" -le 1 ] 2>/dev/null; then
+                pass "  $sym: $COUNT bars, latest $LATEST ($HOUR_TRADING_DAYS trading days ago)"
             else
-                warn "  $sym: $COUNT bars, latest $LATEST ($DAYS_SINCE days ago - stale)"
+                warn "  $sym: $COUNT bars, latest $LATEST ($HOUR_TRADING_DAYS trading days ago - stale)"
             fi
         else
             fail "  $sym: no bar data found"
@@ -78,7 +97,7 @@ else
     done
 fi
 
-ETF_BAR_TOTAL=$(PSQL "SELECT COUNT(*) FROM tbl_etf_tickers_1hour b JOIN tbl_etf_tickers t ON b.ticker_id = t.id WHERE t.enabled=true AND t.symbol != 'BLENDED';")
+ETF_BAR_TOTAL=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_1hour h JOIN tbl_stock_tickers t ON h.ticker_id = t.id WHERE t.enabled=true AND t.is_etf=true;")
 echo "  Total ETF bars: $ETF_BAR_TOTAL"
 
 # ---- Stock / Scanner Data ----
@@ -110,19 +129,6 @@ SCAN_HOURLY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_HOURLY_LATEST" +%s 2>/dev/n
 SCAN_WEEKLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers;")
 SCAN_WEEKLY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_WEEKLY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
 # Count trading days (Mon-Fri) since the latest bar
-_trading_days_since() {
-    local d="$1" count=0
-    local bar_epoch bar_day today_epoch today_day i dow
-    bar_epoch=$(date -d "$d" +%s 2>/dev/null || echo 0)
-    today_epoch=$(date +%s)
-    bar_day=$((bar_epoch / 86400))
-    today_day=$((today_epoch / 86400))
-    for i in $(seq $((bar_day + 1)) "$today_day" 2>/dev/null); do
-        dow=$(date -d "@$((i * 86400))" +%u 2>/dev/null)
-        [ "$dow" -le 5 ] && count=$((count + 1))
-    done
-    echo "$count"
-}
 SCAN_HOURLY_TRADING_DAYS=$(_trading_days_since "$SCAN_HOURLY_LATEST")
 if [ -n "$SCAN_HOURLY_LATEST" ]; then
     if [ "$SCAN_HOURLY_TRADING_DAYS" -le 1 ] 2>/dev/null; then

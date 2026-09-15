@@ -706,12 +706,8 @@ class ScannerController
             GROUP BY ticker_id
         ");
         $dailyById = [];
-        $dailyBullishById = [];
         foreach ($dailyData as $r) {
             $dailyById[$r->ticker_id] = $r;
-            if ($r->close !== null && $r->sma40 !== null && (float)$r->close > (float)$r->sma40) {
-                $dailyBullishById[$r->ticker_id] = true;
-            }
         }
 
         $hourlyData = DB::select("
@@ -720,6 +716,8 @@ class ScannerController
                    atr_stop::float8 AS atr_stop
             FROM tbl_scanner_tickers_1hour
             WHERE date >= ?
+              AND atr_stop IS NOT NULL
+              AND atr_stop > 0
             ORDER BY ticker_id, date DESC
         ", [$hrDate]);
         $hourlyById = [];
@@ -757,15 +755,16 @@ class ScannerController
             $crossDateById[$r->ticker_id] = $r->date;
         }
 
-        // Market breadth computed from already-loaded data.
+        // Market breadth: MTF filter (weekly+daily EMA10 > SMA40) matching production.
         $breadthTotal = 0;
         $breadthUp = 0;
         foreach ($tickerInfo as $tid => $info) {
             $w = $weeklyById[$tid] ?? null;
-            $dBullish = $dailyBullishById[$tid] ?? false;
-            if (!$w) continue;
+            $d = $dailyById[$tid] ?? null;
+            if (!$w || !$d) continue;
             $breadthTotal++;
-            if ((float)$w->close > (float)$w->sma40 && $dBullish) {
+            if ((float)$w->ema10 > (float)$w->sma40
+                && $d->ema10 !== null && $d->sma40 !== null && (float)$d->ema10 > (float)$d->sma40) {
                 $breadthUp++;
             }
         }
@@ -777,7 +776,6 @@ class ScannerController
             $w = $weeklyById[$tid] ?? null;
             $h = $hourlyById[$tid] ?? null;
             $d = $dailyById[$tid] ?? null;
-            $dBullish = $dailyBullishById[$tid] ?? false;
             if (!$w || !$h) continue;
 
             $close_w = (float)$w->close;
@@ -786,8 +784,10 @@ class ScannerController
             $close_h = (float)$h->close;
             $atr_stop = (float)$h->atr_stop;
 
-            // Weekly filter: close > SMA40 and EMA10 > SMA40; daily close > SMA40
-            if ($close_w <= $sma40_w || !$ema10_w || $ema10_w <= $sma40_w || !$dBullish) continue;
+            // MTF filter: weekly+daily EMA10 > SMA40 + hourly close > ATR stop
+            if (!$ema10_w || $ema10_w <= $sma40_w) continue;
+            if (!$d || !$d->ema10 || !$d->sma40 || (float)$d->ema10 <= (float)$d->sma40) continue;
+            if ($atr_stop <= 0 || $close_h <= $atr_stop) continue;
 
             $gap_w = ($close_w - $sma40_w) / $sma40_w * 100;
             $atr_dist = ($close_h - $atr_stop) / $close_h * 100;

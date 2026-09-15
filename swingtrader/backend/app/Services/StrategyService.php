@@ -230,19 +230,17 @@ class StrategyService
         }
 
         // SPY buy-and-hold return over the backtest period
-        $spy = Ticker::where('symbol', 'SPY')->first();
+        $spy = \DB::table('tbl_stock_tickers')->where('symbol', 'SPY')->first();
         $sp500Return = null;
         if ($spy) {
-            $firstBar = DB::table('tbl_etf_tickers_1hour')
+            $firstBar = DB::table('tbl_scanner_tickers_1hour')
                 ->where('ticker_id', $spy->id)
-                ->where('source', 'alpaca')
-                ->orderBy('timestamp')
-                ->first(['timestamp', 'close']);
-            $lastBar = DB::table('tbl_etf_tickers_1hour')
+                ->orderBy('date')
+                ->first(['date', 'close']);
+            $lastBar = DB::table('tbl_scanner_tickers_1hour')
                 ->where('ticker_id', $spy->id)
-                ->where('source', 'alpaca')
-                ->orderByDesc('timestamp')
-                ->first(['timestamp', 'close']);
+                ->orderByDesc('date')
+                ->first(['date', 'close']);
             if ($firstBar && $lastBar && (float) $firstBar->close > 0) {
                 $sp500Return = ((float) $lastBar->close - (float) $firstBar->close) / (float) $firstBar->close;
             }

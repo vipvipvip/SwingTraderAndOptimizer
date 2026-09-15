@@ -91,20 +91,22 @@ class EquityController extends Controller
         $mapped = collect($trades->items())->map(function ($trade) {
             $high = $low = null;
             if ($trade->status === 'closed' && $trade->entry_at && $trade->exit_at) {
-                $range = DB::table('tbl_etf_tickers_1hour')
-                    ->where('ticker_id', $trade->ticker_id)
-                    ->whereBetween('timestamp', [$trade->entry_at, $trade->exit_at])
-                    ->selectRaw('MAX(high) as high, MIN(low) as low')
+                $range = DB::table('tbl_scanner_tickers_1hour')
+                    ->join('tbl_stock_tickers', 'tbl_scanner_tickers_1hour.ticker_id', '=', 'tbl_stock_tickers.id')
+                    ->where('tbl_stock_tickers.symbol', $trade->symbol)
+                    ->whereBetween('tbl_scanner_tickers_1hour.date', [$trade->entry_at, $trade->exit_at])
+                    ->selectRaw('MAX(tbl_scanner_tickers_1hour.high) as high, MIN(tbl_scanner_tickers_1hour.low) as low')
                     ->first();
                 if ($range) {
                     $high = $range->high !== null ? (float) $range->high : null;
                     $low = $range->low !== null ? (float) $range->low : null;
                 }
             } elseif ($trade->status === 'open' && $trade->entry_at) {
-                $range = DB::table('tbl_etf_tickers_1hour')
-                    ->where('ticker_id', $trade->ticker_id)
-                    ->where('timestamp', '>=', $trade->entry_at)
-                    ->selectRaw('MAX(high) as high, MIN(low) as low')
+                $range = DB::table('tbl_scanner_tickers_1hour')
+                    ->join('tbl_stock_tickers', 'tbl_scanner_tickers_1hour.ticker_id', '=', 'tbl_stock_tickers.id')
+                    ->where('tbl_stock_tickers.symbol', $trade->symbol)
+                    ->where('tbl_scanner_tickers_1hour.date', '>=', $trade->entry_at)
+                    ->selectRaw('MAX(tbl_scanner_tickers_1hour.high) as high, MIN(tbl_scanner_tickers_1hour.low) as low')
                     ->first();
                 if ($range) {
                     $high = $range->high !== null ? (float) $range->high : null;

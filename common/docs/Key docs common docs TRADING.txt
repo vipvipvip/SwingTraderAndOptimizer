@@ -176,6 +176,12 @@ cd /home/dikesh/data/dev/SwingTraderAndOptimizer
 
 # 5. Check executor logs
 journalctl -u swingtrader-mtf-executor.service --since today --no-pager
+
+#6. Healthcheck
+cd /home/dikesh/data/dev/SwingTraderAndOptimizer && bash common/scripts/health-check.sh
+
+#7. CoreEW-ETF trigger at will
+cd /home/dikesh/data/dev/SwingTraderAndOptimizer && swingtrader/services/scripts/coreew_rebalance.sh --dry-run 2>&1 | tail -4
 ===================================================================
 
 
