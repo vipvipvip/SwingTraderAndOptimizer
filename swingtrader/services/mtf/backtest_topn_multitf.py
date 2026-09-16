@@ -158,6 +158,11 @@ def backtest(argv=None):
     parser.add_argument('--emasma-daily-bull', action='store_true',
                         help='emasma variant: also require daily EMA10>SMA40 (weekly+daily bullish, '
                              'matches the mtf _compute_score daily gate applied on top of emasma)')
+    parser.add_argument('--emasma-gap-reverse', action='store_true',
+                        help='emasma variant: rank by SMALLEST weekly gap first (anti-overextension '
+                             '— favor names just above the weekly SMA40, max score 5.0 at 0%% gap '
+                             'instead of at 25%%+). Ties still break by -gap_w populating the '
+                             'opposite end of the candidate pool.')
     parser.add_argument('--ppo-filter', action='store_true',
                         help='Hybrid: require TOS WeeklyAndDailyPPO > 0 as an extra entry filter')
     parser.add_argument('--hourly-ema-gate', action='store_true',
@@ -343,7 +348,13 @@ def backtest(argv=None):
                         if np.isnan(de) or np.isnan(ds) or de <= ds:
                             continue
                     gap_w = (wc - ws) / ws * 100
-                    emasma_score = round(min(gap_w / 5, 5), 2)
+                    if args.emasma_gap_reverse:
+                        # Anti-overextension: smallest gap_w ranks highest (max 5.0
+                        # at 0% gap, decaying to 0 at 25%+). Requires the weekly
+                        # bullish filter above (we>ws), so gap_w is always > 0.
+                        emasma_score = round(max(0.0, 5.0 - gap_w / 5), 2)
+                    else:
+                        emasma_score = round(min(gap_w / 5, 5), 2)
                     candidates.append((tid, emasma_score, gap_w))
                     continue
 
@@ -744,7 +755,8 @@ def backtest(argv=None):
         print(f'  TOP-{args.top_n} MULTI-TF BACKTEST  ({period_label})')
         if args.score == 'emasma':
             print(f'  Score: weekly EMA10>SMA40 gap (strategy signal)'
-                  + (' + daily EMA10>SMA40 filter' if args.emasma_daily_bull else ''))
+                  + (' + daily EMA10>SMA40 filter' if args.emasma_daily_bull else '')
+                  + (' REVERSED (anti-overextension: smallest gap first)' if args.emasma_gap_reverse else ''))
         elif args.score == 'near':
             print(f'  Score: proximity (3 - gap_w/{args.near_gap_k:g}) + (3 - atr_dist/{args.near_atr_k:g}) + freshness')
         else:
