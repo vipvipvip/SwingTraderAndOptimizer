@@ -155,6 +155,9 @@ def backtest(argv=None):
                         help='Stop-loss exit: sell if position drops >N%% from entry (e.g. 5.0)')
     parser.add_argument('--top-trades', type=int, default=0,
                         help='Print top N winning/losing trades by return %%')
+    parser.add_argument('--emasma-daily-bull', action='store_true',
+                        help='emasma variant: also require daily EMA10>SMA40 (weekly+daily bullish, '
+                             'matches the mtf _compute_score daily gate applied on top of emasma)')
     parser.add_argument('--ppo-filter', action='store_true',
                         help='Hybrid: require TOS WeeklyAndDailyPPO > 0 as an extra entry filter')
     parser.add_argument('--hourly-ema-gate', action='store_true',
@@ -320,7 +323,9 @@ def backtest(argv=None):
                 if args.score == 'emasma':
                     # Strategy signal: weekly EMA10 > SMA40 (long), flat otherwise.
                     # No daily/hourly/ATR filters — pure weekly strategy under
-                    # the same top-N rotation mechanics.
+                    # the same top-N rotation mechanics. With --emasma-daily-bull
+                    # the daily EMA10>SMA40 gate (from the mtf _compute_score) is
+                    # also required, giving the 'weekly+daily bullish' variant.
                     if wi is None or wi < WARMUP:
                         continue
                     we = weekly[tid]['ema'][wi]
@@ -330,6 +335,13 @@ def backtest(argv=None):
                         continue
                     if we <= ws:
                         continue
+                    if args.emasma_daily_bull:
+                        if di is None or di < 1:
+                            continue
+                        de = daily[tid]['d_ema'][di]
+                        ds = daily[tid]['d_sma'][di]
+                        if np.isnan(de) or np.isnan(ds) or de <= ds:
+                            continue
                     gap_w = (wc - ws) / ws * 100
                     emasma_score = round(min(gap_w / 5, 5), 2)
                     candidates.append((tid, emasma_score, gap_w))
@@ -731,7 +743,8 @@ def backtest(argv=None):
         print(f'\n{"="*80}')
         print(f'  TOP-{args.top_n} MULTI-TF BACKTEST  ({period_label})')
         if args.score == 'emasma':
-            print(f'  Score: weekly EMA10>SMA40 gap (strategy signal)')
+            print(f'  Score: weekly EMA10>SMA40 gap (strategy signal)'
+                  + (' + daily EMA10>SMA40 filter' if args.emasma_daily_bull else ''))
         elif args.score == 'near':
             print(f'  Score: proximity (3 - gap_w/{args.near_gap_k:g}) + (3 - atr_dist/{args.near_atr_k:g}) + freshness')
         else:
