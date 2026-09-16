@@ -53,7 +53,10 @@ def load_data(conn, symbol):
     cur.execute('SELECT id FROM tbl_stock_tickers WHERE symbol = %s', (symbol,))
     row = cur.fetchone()
     if row is None:
-        return None, None
+        cur.execute('SELECT id FROM tbl_etf_tickers WHERE symbol = %s', (symbol,))
+        row = cur.fetchone()
+        if row is None:
+            return None, None
     ticker_id = row[0]
     out = {}
     cur.execute(
@@ -63,7 +66,8 @@ def load_data(conn, symbol):
         'SELECT date, close FROM tbl_scanner_tickers_daily WHERE ticker_id = %s ORDER BY date', (ticker_id,))
     dy = cur.fetchall()
     cur.execute(
-        'SELECT date, close FROM tbl_scanner_tickers_1hour WHERE ticker_id = %s ORDER BY date', (ticker_id,))
+        'SELECT date, open, high, low, close, volume FROM tbl_scanner_tickers_1hour '
+        'WHERE ticker_id = %s ORDER BY date', (ticker_id,))
     hr = cur.fetchall()
     cur.close()
     if len(wk) < SMA_LONG or len(dy) < SMA_LONG:
@@ -71,7 +75,14 @@ def load_data(conn, symbol):
     out['weekly'] = {'date': [r[0] for r in wk], 'close': np.array([float(r[1]) for r in wk])}
     out['daily'] = {'date': [r[0] for r in dy], 'close': np.array([float(r[1]) for r in dy])}
     if len(hr) >= SMA_LONG:
-        out['hourly'] = {'date': [r[0] for r in hr], 'close': np.array([float(r[1]) for r in hr])}
+        out['hourly'] = {
+            'date': [r[0] for r in hr],
+            'open': np.array([float(r[1]) for r in hr]),
+            'high': np.array([float(r[2]) for r in hr]),
+            'low': np.array([float(r[3]) for r in hr]),
+            'close': np.array([float(r[4]) for r in hr]),
+            'volume': np.array([float(r[5]) for r in hr]),
+        }
     return out, ticker_id
 
 
@@ -88,6 +99,52 @@ def _latest_tf_state(bars, as_of):
     ema10 = _ema(bars['close'][: hi + 1], EMA_PERIOD)[hi]
     sma40 = _sma(bars['close'][: hi + 1], SMA_LONG)[hi]
     return ema10, sma40
+
+
+MIN_HOURLY_VOL = 1000.0  # drop degraded/synthetic bars (DB vol is 40-700, real majors ~100K+)
+
+
+def _settled_hourly_days(hourly):
+    """Return {date: (ema10, sma40)} keyed to days with a solid regular session.
+
+    The stored hourly series is heterogeneous: historic good days carry real
+    regular-session bars (e.g. 09:00-15:00, vol ~100-250K), recent days mix in
+    degraded synthetic bars (flat OHLC, vol 40-700, inconsistent hour stamps).
+    A "valid" bar requires real OHLC spread and volume >= MIN_HOURLY_VOL; a
+    "settled" day requires >= 6 valid bars. EMA10/SMA40 run over the valid-bar
+    sequence in time order; each day's state is taken at its LAST valid bar. So
+    the hourly gate (HCO) is settled/day-old by construction and any partial or
+    contaminated capture day simply freezes the state at the prior good day.
+    """
+    ts = hourly['date']
+    o, h, l_, c, v = (hourly[k] for k in ('open', 'high', 'low', 'close', 'volume'))
+    valid = np.array([not (o[i] == h[i] == l_[i] == c[i]) and v[i] >= MIN_HOURLY_VOL
+                      for i in range(len(ts))])
+    if valid.sum() < 6:
+        return {}
+    vdates = [t for t, k in zip(ts, valid) if k]
+    vcloses = c[valid]
+    ema10 = _ema(vcloses, EMA_PERIOD)
+    sma40 = _sma(vcloses, SMA_LONG)
+    idx_by_day = {}
+    for i, t in enumerate(vdates):
+        idx_by_day.setdefault(_to_date(t), []).append(i)
+    daymap = {}
+    for day, inds in idx_by_day.items():
+        if len(inds) >= 6:
+            last = inds[-1]
+            daymap[day] = (ema10[last], sma40[last])
+    return daymap
+
+
+def _hourly_state_as_of(daymap, as_of):
+    """Latest FULL-session hourly (ema10, sma40) at/before as_of (settled, day-old)."""
+    ad = _to_date(as_of)
+    best = None
+    for day in daymap:
+        if day <= ad and (best is None or day > best):
+            best = day
+    return daymap.get(best)
 
 
 def run(symbol, out_dir, capital):
@@ -109,6 +166,7 @@ def run(symbol, out_dir, capital):
         print(f'  1hour:  none')
 
     d_dates = daily['date']
+    hday_map = _settled_hourly_days(hourly) if hourly else {}
 
     # ------------------------------------------------------------------
     # Main loop: compute per-bar 3-TF state, fire trigger on flip.
@@ -128,10 +186,10 @@ def run(symbol, out_dir, capital):
         # 2) Compute current 3-TF state.
         w   = _latest_tf_state(weekly, d)
         dy  = _latest_tf_state(daily, d)
-        hr  = _latest_tf_state(hourly, d) if hourly else None
+        hr  = _hourly_state_as_of(hday_map, d) if hday_map else None
         wb  = w  is not None and w[0]  > w[1]
         db_ = dy is not None and dy[0] > dy[1]
-        hg  = hourly is not None and _to_date(d) >= HOURLY_START and hr is not None
+        hg  = bool(hday_map) and _to_date(d) >= HOURLY_START and hr is not None
         hb  = (hr is not None and hr[0] > hr[1]) if hg else None
         long_ok = wb and db_ and (hb if hg else True)
 
@@ -290,6 +348,20 @@ def _cross_events(bars):
     return up, down, bool(bull[-1])
 
 
+def _cross_events_state(dates, ema10, sma40):
+    """Cross events from precomputed EMA10/SMA40 series (for settled-hourly map)."""
+    bull = ema10 > sma40
+    up, down = [], []
+    for i in range(1, len(dates)):
+        if np.isnan(sma40[i]) or np.isnan(sma40[i - 1]):
+            continue
+        if bull[i] and not bull[i - 1]:
+            up.append((dates[i], bull[i]))
+        elif not bull[i] and bull[i - 1]:
+            down.append((dates[i], bull[i]))
+    return up, down, bool(bull[-1])
+
+
 def _fmt_dt(d):
     return d.strftime('%Y-%m-%d %H:%M') if hasattr(d, 'strftime') and ' ' in str(d) else str(d)
 
@@ -303,7 +375,8 @@ def run_crosses(symbol, since):
         return 1
     weekly, daily = data['weekly'], data['daily']
     hourly = data.get('hourly')
-    print(f'\n  {symbol}  [{ticker_id}]  EMA10 > SMA40 crossover state')
+    hday_map = _settled_hourly_days(hourly) if hourly else {}
+    print(f'\n  {symbol}  [{ticker_id}]  EMA10 > SMA40 crossover state (hourly = settled/full-session only)')
     rows = [('Weekly', weekly), ('Daily', daily)]
     for label, bars in rows:
         up, down, cur = _cross_events(bars)
@@ -313,20 +386,24 @@ def run_crosses(symbol, since):
               f'last UP cross = {_fmt_dt(last_up) if last_up else "never":<12} '
               f'current = {"bull" if cur else "bear"} ({bars["date"][-1]})')
 
-    if hourly:
-        up, down, cur = _cross_events(hourly)
-        et = pd.Timedelta(hours=-4)
-        up = [(pd.to_datetime(e[0]) + et, e[1]) for e in up]
-        down = [(pd.to_datetime(e[0]) + et, e[1]) for e in down]
+    if hday_map:
+        hdays = sorted(hday_map)
+        h_dates = [d for d in hdays]
+        h_ema10 = np.array([hday_map[d][0] for d in hdays])
+        h_sma40 = np.array([hday_map[d][1] for d in hdays])
+        up, down, cur = _cross_events_state(h_dates, h_ema10, h_sma40)
+        last_settled = hdays[-1]
         last_up = up[-1][0] if up else None
         last_down = down[-1][0] if down else None
         print(f'  {"1hour":7} last DOWN cross = {_fmt_dt(last_down) if last_down else "never":<16} '
               f'last UP cross = {_fmt_dt(last_up) if last_up else "never":<16} '
-              f'current = {"bull" if cur else "bear"}\n')
+              f'current = {"bull" if cur else "bear"} (settled thru {last_settled})\n')
         all_ev = sorted(up + down, key=lambda e: e[0])
-        recent = [e for e in all_ev if e[0] >= pd.Timestamp(since)] if since else all_ev[-8:]
+        recent = [e for e in all_ev if e[0] >= pd.Timestamp(since).date()] if since else all_ev[-8:]
         for dt_, bull in recent:
             print(f'      {_fmt_dt(dt_)}  {"UP   (bear->bull)" if bull else "DOWN (bull->bear)"}')
+    else:
+        print(f'  {"1hour":7} no full-session data — hourly gate disabled\n')
     return 0
 
 
