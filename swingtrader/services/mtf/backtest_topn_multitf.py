@@ -10,6 +10,7 @@ Rebalance: sell non-top-N, buy new entrants at next-day open, equal weight.
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import json
 import argparse
 import numpy as np
 import pandas as pd
@@ -17,6 +18,87 @@ from datetime import datetime, date as dt_date
 
 import config
 import db as db_module
+
+
+def _backtest_signature(args):
+    """Stable signature of the backtest configuration (determines the baseline cache key)."""
+    return json.dumps({
+        'etf': args.etf,
+        'top_n': args.top_n,
+        'rebalance': args.rebalance,
+        'score': args.score,
+        'exit': args.exit,
+        'ratchet_atr_src': args.ratchet_atr_src,
+        'emasma_daily_bull': args.emasma_daily_bull,
+        'emasma_gap_reverse': args.emasma_gap_reverse,
+        'emasma_close_200': args.emasma_close_200,
+        'emasma_fresh': args.emasma_fresh,
+        'daily_only': args.daily_only,
+        'equal_weight': args.equal_weight,
+        'above': args.above,
+        'min_score': args.min_score,
+        'infancy': args.infancy,
+        'stop_loss': args.stop_loss,
+        'start': args.start,
+        'end': args.end,
+    }, sort_keys=True, default=str)
+
+
+_BASELINE_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backtest_baseline_cache.json')
+
+
+def _load_baseline_cache():
+    if not os.path.exists(_BASELINE_CACHE):
+        return {}
+    try:
+        with open(_BASELINE_CACHE) as f:
+            return json.load(f)
+    except (IOError, ValueError):
+        return {}
+
+
+def _save_baseline_cache(cache):
+    with open(_BASELINE_CACHE, 'w') as f:
+        json.dump(cache, f, indent=2, sort_keys=True)
+
+
+def _print_baseline(args, sig, window):
+    """Print the cached 'current strategy' baseline for the same leg/window/settings.
+
+    The A/B protocol compares every experiment against the CURRENT (vanilla) emasma
+    strategy, so the lookup zeroes all --emasma-* variant flags and matches on the
+    remaining config (leg, top_n, exit, ratchet source, rebalance, window pins).
+    """
+    cache = _load_baseline_cache()
+    ref = json.loads(sig)
+    for k in ('emasma_daily_bull', 'emasma_gap_reverse', 'emasma_close_200', 'emasma_fresh',
+              'start', 'end'):
+        ref[k] = False if k.startswith('emasma_') else None
+    ref_sig = json.dumps(ref, sort_keys=True, default=str)
+    entry = cache.get(ref_sig)
+    if entry is None:
+        print(f'  Baseline: (current-strategy run for this leg/settings is not cached yet — '
+              f'run the vanilla emasma config with --cache-baseline once)')
+        return
+    cb_start, cb_end = entry.get('window', [None, None])
+    if window:
+        run_start, run_end = str(window[0]), str(window[-1])
+        match = (run_start == cb_start and run_end == cb_end)
+    else:
+        run_start = run_end = None
+        match = False
+    if match:
+        flag = 'WINDOW MATCH ✓'
+    elif run_start is not None:
+        flag = f'⚠ window differs ({run_start}->{run_end} vs cached {cb_start}->{cb_end})'
+    else:
+        flag = 'window unknown'
+    w_str = f'{cb_start} -> {cb_end}' if cb_start else 'auto window'
+    print(f'  Baseline (cached {entry.get("cached_at", "?")}): {w_str}  '
+          f'Return {entry["total_ret_pct"]:+,.0f}%  MaxDD {entry["max_dd_pct"]:.1f}%  '
+          f'Win {entry["win_rate_pct"]:.0f}%  Trades {entry["sells"]}  ({flag})')
+    if run_start is not None and not match:
+        print(f'  Baseline: re-run with --start {cb_start} --end {cb_end} for a fair A/B.')
 
 COST = config.COST_PER_TRADE
 CAPITAL = config.INITIAL_CAPITAL
@@ -168,6 +250,11 @@ def backtest(argv=None):
                              'rank by proximity to it (smaller gap-to-200MA = higher score). '
                              'Tests the TOS-observed pattern: among EMA/SMA-bullish names, the '
                              'ones closer above the long-term 200MA outperform the far-extended ones.')
+    parser.add_argument('--emasma-fresh', action='store_true',
+                        help='emasma variant: rank by WEEKLY EMA10>SMA40 crossover freshness '
+                             '(fewest days since the cross = highest score, max 5.0 at 0d, '
+                             'decaying to 0 by 300d). Tests the observed pattern that names with '
+                             'fresh weekly crosses outperform mature trends, accepting a few whipsaws.')
     parser.add_argument('--ppo-filter', action='store_true',
                         help='Hybrid: require TOS WeeklyAndDailyPPO > 0 as an extra entry filter')
     parser.add_argument('--hourly-ema-gate', action='store_true',
@@ -200,9 +287,18 @@ def backtest(argv=None):
                              'the engine-effected COST, keeping them reconcilable.')
     parser.add_argument('--start', default=None,
                         help='Restrict backtest to dates >= YYYY-MM-DD (fair comparison window)')
+    parser.add_argument('--end', default=None,
+                        help='Restrict backtest to dates <= YYYY-MM-DD (pin end of the '
+                             'comparison window so A/B runs share an identical window)')
+    parser.add_argument('--cache-baseline', action='store_true',
+                        help='Save this run into the baseline cache (json) in addition to '
+                             'printing. Without it, the run still prints the cached '
+                             'baseline for the same config+window, if present.')
     args = parser.parse_args(argv)
     if args.cost is not None:
         COST = args.cost
+
+    sig = _backtest_signature(args)
 
     db_module.init_db()
     conn = db_module.get_conn()
@@ -307,6 +403,10 @@ def backtest(argv=None):
             from datetime import date as _date
             _start = _date.fromisoformat(args.start)
             all_dates = [d for d in all_dates if d >= _start]
+        if args.end:
+            from datetime import date as _date
+            _end = _date.fromisoformat(args.end)
+            all_dates = [d for d in all_dates if d <= _end]
         print(f'  Universe: {len(common)} tickers, warmup from {all_dates[0]}')
 
         step = 5 if args.rebalance == 'weekly' else 1
@@ -354,7 +454,26 @@ def backtest(argv=None):
                         if np.isnan(de) or np.isnan(ds) or de <= ds:
                             continue
                     gap_w = (wc - ws) / ws * 100
-                    if args.emasma_close_200:
+                    if args.emasma_fresh:
+                        # Freshness-ranked: days since the LAST weekly EMA10>SMA40
+                        # cross. Fewest days = highest score (5.0 at 0d -> 0 by
+                        # 300d, mirroring fresh_pts = max(0, 2 - days_since/60)
+                        # from the mtf score but as the PRIMARY rank). Ignores gap
+                        # entirely — a 3d-old cross outranks a 200% gap.
+                        days_since = 999
+                        w_ema = weekly[tid]['ema']
+                        w_sma = weekly[tid]['sma']
+                        w_dates = weekly[tid]['dates']
+                        for j in range(wi, 0, -1):
+                            wj_ema, wj_sma = w_ema[j], w_sma[j]
+                            wj_ema_prev, wj_sma_prev = w_ema[j - 1], w_sma[j - 1]
+                            if (not np.isnan(wj_ema) and not np.isnan(wj_sma)
+                                    and not np.isnan(wj_ema_prev) and not np.isnan(wj_sma_prev)):
+                                if wj_ema > wj_sma and wj_ema_prev <= wj_sma_prev:
+                                    days_since = (sig_date - w_dates[j]).days
+                                    break
+                        emasma_score = round(max(0.0, 5.0 - days_since / 60), 2)
+                    elif args.emasma_close_200:
                         # TOS-observed pattern: among EMA/SMA-bullish names, those
                         # closer ABOVE the weekly SMA200 outperform far-extended ones.
                         # Require close above the long-term trend AND rank by
@@ -775,7 +894,8 @@ def backtest(argv=None):
             print(f'  Score: weekly EMA10>SMA40 gap (strategy signal)'
                   + (' + daily EMA10>SMA40 filter' if args.emasma_daily_bull else '')
                   + (' REVERSED (anti-overextension: smallest gap first)' if args.emasma_gap_reverse else '')
-                  + (' 200MA-gated (close>200MA, proximity-ranked)' if args.emasma_close_200 else ''))
+                  + (' 200MA-gated (close>200MA, proximity-ranked)' if args.emasma_close_200 else '')
+                  + (' FRESHNESS-ranked (days since weekly cross)' if args.emasma_fresh else ''))
         elif args.score == 'near':
             print(f'  Score: proximity (3 - gap_w/{args.near_gap_k:g}) + (3 - atr_dist/{args.near_atr_k:g}) + freshness')
         else:
@@ -804,6 +924,23 @@ def backtest(argv=None):
         print(f'  Win:     {len(winners)} ({wr:.0f}%)  avg +{avg_win:+.2f}%')
         print(f'  Loss:    {len(losers)} ({lr:.0f}%)  avg {avg_loss:+.2f}%')
         print(f'  Hold:    {len(all_dates) // max(1, sells) * step:.0f} days')
+
+        cache = _load_baseline_cache()
+        cache[sig] = {
+            'cached_at': str(datetime.now().date()),
+            'window': [str(all_dates[0]), str(all_dates[-1])],
+            'total_ret_pct': total_ret * 100,
+            'max_dd_pct': dd * 100,
+            'win_rate_pct': wr,
+            'sells': sells,
+            'buys': buys,
+        }
+        if args.cache_baseline:
+            _save_baseline_cache(cache)
+            print(f'  Baseline saved to cache ({sig[:40]}...)')
+        else:
+            print()
+            _print_baseline(args, sig, all_dates)
 
         # Monthly
         monthly = {}
