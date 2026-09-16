@@ -104,23 +104,25 @@ def _latest_tf_state(bars, as_of):
 MIN_HOURLY_VOL = 1000.0  # drop degraded/synthetic bars (DB vol is 40-700, real majors ~100K+)
 
 
-def _settled_hourly_days(hourly):
-    """Return {date: (ema10, sma40)} keyed to days with a solid regular session.
+def _settled_hourly_days(hourly, min_bars=2):
+    """Return {date: (ema10, sma40)} keyed to days with a usable session day.
 
     The stored hourly series is heterogeneous: historic good days carry real
     regular-session bars (e.g. 09:00-15:00, vol ~100-250K), recent days mix in
-    degraded synthetic bars (flat OHLC, vol 40-700, inconsistent hour stamps).
-    A "valid" bar requires real OHLC spread and volume >= MIN_HOURLY_VOL; a
-    "settled" day requires >= 6 valid bars. EMA10/SMA40 run over the valid-bar
-    sequence in time order; each day's state is taken at its LAST valid bar. So
-    the hourly gate (HCO) is settled/day-old by construction and any partial or
-    contaminated capture day simply freezes the state at the prior good day.
+    degraded synthetic bars (flat OHLC, vol 40-700, inconsistent hour stamps)
+    plus a couple of REAL morning bars. A "valid" bar requires real OHLC spread
+    and volume >= MIN_HOURLY_VOL; a usable "settled" day requires >= min_bars
+    valid bars (default 2, so a recent 2-real-bar capture day still drives HCO
+    rather than freezing at the last full-session day). EMA10/SMA40 run over the
+    valid-bar sequence in time order; each day's state is taken at its LAST
+    valid bar. So the hourly gate (HCO) is settled/day-old by construction and
+    contaminated capture days never drive it.
     """
     ts = hourly['date']
     o, h, l_, c, v = (hourly[k] for k in ('open', 'high', 'low', 'close', 'volume'))
     valid = np.array([not (o[i] == h[i] == l_[i] == c[i]) and v[i] >= MIN_HOURLY_VOL
                       for i in range(len(ts))])
-    if valid.sum() < 6:
+    if valid.sum() < min_bars:
         return {}
     vdates = [t for t, k in zip(ts, valid) if k]
     vcloses = c[valid]
@@ -131,23 +133,29 @@ def _settled_hourly_days(hourly):
         idx_by_day.setdefault(_to_date(t), []).append(i)
     daymap = {}
     for day, inds in idx_by_day.items():
-        if len(inds) >= 6:
+        if len(inds) >= min_bars:
             last = inds[-1]
             daymap[day] = (ema10[last], sma40[last])
     return daymap
 
 
 def _hourly_state_as_of(daymap, as_of):
-    """Latest FULL-session hourly (ema10, sma40) at/before as_of (settled, day-old)."""
+    """Latest PREV-DAY hourly (ema10, sma40) strictly BEFORE as_of.
+
+    Foolproof hourly rule: HCO on day D uses only settled hourly bars with
+    date < D (prev day's close) — today's partial/degraded capture can never
+    drive its own signal. The mapped day state is taken at that day's LAST
+    valid bar, so the signal is deterministic and reproducible.
+    """
     ad = _to_date(as_of)
     best = None
     for day in daymap:
-        if day <= ad and (best is None or day > best):
+        if day < ad and (best is None or day > best):
             best = day
     return daymap.get(best)
 
 
-def run(symbol, out_dir, capital):
+def run(symbol, out_dir, capital, min_bars=2):
     conn = db.get_conn()
     data, ticker_id = load_data(conn, symbol)
     conn.close()
@@ -161,12 +169,12 @@ def run(symbol, out_dir, capital):
     print(f'  Daily:  {daily["date"][0]} -> {daily["date"][-1]}  ({len(daily["close"])} bars)')
     if hourly:
         print(f'  1hour:  {hourly["date"][0]} -> {hourly["date"][-1]}  ({len(hourly["close"])} bars)  '
-              f'(gates from {HOURLY_START})')
+              f'(gates from {HOURLY_START}, settled >= {min_bars} bars/day)')
     else:
         print(f'  1hour:  none')
 
     d_dates = daily['date']
-    hday_map = _settled_hourly_days(hourly) if hourly else {}
+    hday_map = _settled_hourly_days(hourly, min_bars) if hourly else {}
 
     # ------------------------------------------------------------------
     # Main loop: compute per-bar 3-TF state, fire trigger on flip.
@@ -366,7 +374,7 @@ def _fmt_dt(d):
     return d.strftime('%Y-%m-%d %H:%M') if hasattr(d, 'strftime') and ' ' in str(d) else str(d)
 
 
-def run_crosses(symbol, since):
+def run_crosses(symbol, since, min_bars=2):
     conn = db.get_conn()
     data, ticker_id = load_data(conn, symbol)
     conn.close()
@@ -375,8 +383,9 @@ def run_crosses(symbol, since):
         return 1
     weekly, daily = data['weekly'], data['daily']
     hourly = data.get('hourly')
-    hday_map = _settled_hourly_days(hourly) if hourly else {}
-    print(f'\n  {symbol}  [{ticker_id}]  EMA10 > SMA40 crossover state (hourly = settled/full-session only)')
+    hday_map = _settled_hourly_days(hourly, min_bars) if hourly else {}
+    print(f'\n  {symbol}  [{ticker_id}]  EMA10 > SMA40 crossover state '
+          f'(hourly = settled >= {min_bars} bars/day)')
     rows = [('Weekly', weekly), ('Daily', daily)]
     for label, bars in rows:
         up, down, cur = _cross_events(bars)
@@ -387,23 +396,28 @@ def run_crosses(symbol, since):
               f'current = {"bull" if cur else "bear"} ({bars["date"][-1]})')
 
     if hday_map:
+        last_daily = _to_date(daily['date'][-1])
+        hday_map = {d: v for d, v in hday_map.items() if d < last_daily}
         hdays = sorted(hday_map)
         h_dates = [d for d in hdays]
         h_ema10 = np.array([hday_map[d][0] for d in hdays])
         h_sma40 = np.array([hday_map[d][1] for d in hdays])
         up, down, cur = _cross_events_state(h_dates, h_ema10, h_sma40)
-        last_settled = hdays[-1]
-        last_up = up[-1][0] if up else None
-        last_down = down[-1][0] if down else None
-        print(f'  {"1hour":7} last DOWN cross = {_fmt_dt(last_down) if last_down else "never":<16} '
-              f'last UP cross = {_fmt_dt(last_up) if last_up else "never":<16} '
-              f'current = {"bull" if cur else "bear"} (settled thru {last_settled})\n')
-        all_ev = sorted(up + down, key=lambda e: e[0])
-        recent = [e for e in all_ev if e[0] >= pd.Timestamp(since).date()] if since else all_ev[-8:]
-        for dt_, bull in recent:
-            print(f'      {_fmt_dt(dt_)}  {"UP   (bear->bull)" if bull else "DOWN (bull->bear)"}')
-    else:
-        print(f'  {"1hour":7} no full-session data — hourly gate disabled\n')
+        last_settled = hdays[-1] if hdays else None
+        if hdays:
+            last_up = up[-1][0] if up else None
+            last_down = down[-1][0] if down else None
+            print(f'  {"1hour":7} last DOWN cross = {_fmt_dt(last_down) if last_down else "never":<16} '
+                  f'last UP cross = {_fmt_dt(last_up) if last_up else "never":<16} '
+                  f'current = {"bull" if cur else "bear"} (prev-day settled thru {last_settled})\n')
+            all_ev = sorted(up + down, key=lambda e: e[0])
+            recent = [e for e in all_ev if e[0] >= pd.Timestamp(since).date()] if since else all_ev[-8:]
+            for dt_, bull in recent:
+                print(f'      {_fmt_dt(dt_)}  {"UP   (bear->bull)" if bull else "DOWN (bull->bear)"}')
+        else:
+            print(f'  {"1hour":7} no prev-day settled hourly — gate disabled\n')
+        return 0
+    print(f'  {"1hour":7} no prev-day settled hourly — gate disabled\n')
     return 0
 
 
@@ -418,12 +432,14 @@ def main():
                     help='only show last UP/DOWN crossover dates + recent flips (no backtest)')
     ap.add_argument('--since', default=None,
                     help='with --crosses: show all flips after YYYY-MM-DD (hourly shows ET timestamps)')
+    ap.add_argument('--min-bars', type=int, default=2,
+                    help='hourly settled-day rule: min valid bars/day for a day to drive HCO (default 2)')
     args = ap.parse_args()
     if args.capital:
         CAPITAL = args.capital
     if args.crosses:
-        return run_crosses(args.ticker.upper(), args.since)
-    return run(args.ticker.upper(), args.out, CAPITAL)
+        return run_crosses(args.ticker.upper(), args.since, args.min_bars)
+    return run(args.ticker.upper(), args.out, CAPITAL, args.min_bars)
 
 
 if __name__ == '__main__':
