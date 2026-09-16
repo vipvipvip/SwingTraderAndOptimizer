@@ -4,3 +4,4 @@ __pycache__/
 data/
 *.png
 backtest_baseline_cache.json
+single_ticker_out/
