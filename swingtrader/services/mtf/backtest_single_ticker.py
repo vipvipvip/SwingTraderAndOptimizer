@@ -63,7 +63,8 @@ def load_data(conn, symbol):
         'SELECT date, close FROM tbl_scanner_tickers WHERE ticker_id = %s ORDER BY date', (ticker_id,))
     wk = cur.fetchall()
     cur.execute(
-        'SELECT date, close FROM tbl_scanner_tickers_daily WHERE ticker_id = %s ORDER BY date', (ticker_id,))
+        'SELECT date, open, high, low, close, volume FROM tbl_scanner_tickers_daily '
+        'WHERE ticker_id = %s ORDER BY date', (ticker_id,))
     dy = cur.fetchall()
     cur.execute(
         'SELECT date, open, high, low, close, volume FROM tbl_scanner_tickers_1hour '
@@ -73,7 +74,14 @@ def load_data(conn, symbol):
     if len(wk) < SMA_LONG or len(dy) < SMA_LONG:
         return None, ticker_id
     out['weekly'] = {'date': [r[0] for r in wk], 'close': np.array([float(r[1]) for r in wk])}
-    out['daily'] = {'date': [r[0] for r in dy], 'close': np.array([float(r[1]) for r in dy])}
+    out['daily'] = {
+        'date': [r[0] for r in dy],
+        'open': np.array([float(r[1]) for r in dy]),
+        'high': np.array([float(r[2]) for r in dy]),
+        'low': np.array([float(r[3]) for r in dy]),
+        'close': np.array([float(r[4]) for r in dy]),
+        'volume': np.array([float(r[5]) for r in dy]),
+    }
     if len(hr) >= SMA_LONG:
         out['hourly'] = {
             'date': [r[0] for r in hr],
@@ -155,7 +163,18 @@ def _hourly_state_as_of(daymap, as_of):
     return daymap.get(best)
 
 
-def run(symbol, out_dir, capital, min_bars=2):
+def _atr14(daily, period=14):
+    """Simple rolling-mean ATR(14) over the daily series."""
+    h = daily['high']; l = daily['low']; c = daily['close']
+    prevc = np.empty_like(c)
+    prevc[0] = c[0]
+    prevc[1:] = c[:-1]
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prevc), np.abs(l - prevc)))
+    return pd.Series(tr).rolling(period).mean().bfill().values
+
+
+def run(symbol, out_dir, capital, min_bars=2, entry_close_ema=False, atr_exit=False,
+        atr_mult=2.0, exit_only_daily=False, exit_ignore_hourly=False):
     conn = db.get_conn()
     data, ticker_id = load_data(conn, symbol)
     conn.close()
@@ -172,8 +191,21 @@ def run(symbol, out_dir, capital, min_bars=2):
               f'(gates from {HOURLY_START}, settled >= {min_bars} bars/day)')
     else:
         print(f'  1hour:  none')
+    opts = []
+    if entry_close_ema:
+        opts.append('entry: close>daily EMA10')
+    if atr_exit:
+        opts.append(f'exit: ATR-ratchet x{atr_mult}')
+    if exit_only_daily:
+        opts.append('exit: daily bear-flip only')
+    if exit_ignore_hourly:
+        opts.append('exit: weekly/daily bear-flip (ignore hourly)')
+    if opts:
+        print(f'  opts:  {", ".join(opts)}')
 
     d_dates = daily['date']
+    d_close = daily['close']
+    atr = _atr14(daily) if atr_exit else None
     hday_map = _settled_hourly_days(hourly, min_bars) if hourly else {}
 
     # ------------------------------------------------------------------
@@ -181,6 +213,7 @@ def run(symbol, out_dir, capital, min_bars=2):
     # ------------------------------------------------------------------
     state = 'FLAT'          # current target state (FLAT or LONG)
     pending = None          # (BUY/SELL, trigger_date) awaiting next-bar fill
+    ratchet_peak = None     # highest daily close since entry (ATR-ratchet exit)
     fills = []              # (fill_date, side, fill_close, trigger_date, w_bull, d_bull, h_bull)
     all_states = []         # per-bar state record for signals CSV
 
@@ -188,7 +221,9 @@ def run(symbol, out_dir, capital, min_bars=2):
         # 1) Fill prior trigger at THIS bar's close (next-day-close semantics).
         if pending is not None:
             side, trig_date, wb, db_, hb = pending
-            fills.append((d, side, float(daily['close'][i]), trig_date, wb, db_, hb))
+            fills.append((d, side, float(d_close[i]), trig_date, wb, db_, hb))
+            if side == 'BUY':
+                ratchet_peak = float(d_close[i])
             pending = None
 
         # 2) Compute current 3-TF state.
@@ -200,8 +235,21 @@ def run(symbol, out_dir, capital, min_bars=2):
         hg  = bool(hday_map) and _to_date(d) >= HOURLY_START and hr is not None
         hb  = (hr is not None and hr[0] > hr[1]) if hg else None
         long_ok = wb and db_ and (hb if hg else True)
+        close_i = float(d_close[i])
 
-        desired = 'LONG' if long_ok else 'FLAT'
+        if state == 'LONG' and atr_exit:
+            ratchet_peak = max(ratchet_peak, close_i) if ratchet_peak else close_i
+            exit_hit = close_i < ratchet_peak - atr_mult * atr[i]
+            desired = 'FLAT' if exit_hit else 'LONG'
+        else:
+            buy_ok = long_ok and (not entry_close_ema or close_i > dy[0])
+            if exit_only_daily and state == 'LONG':
+                desired = 'LONG' if db_ else 'FLAT'
+            elif exit_ignore_hourly and state == 'LONG':
+                desired = 'LONG' if (wb and db_) else 'FLAT'
+            else:
+                desired = 'LONG' if (buy_ok if state == 'FLAT' else long_ok) else 'FLAT'
+
         if desired != state:
             side = 'BUY' if desired == 'LONG' else 'SELL'
             pending = (side, d, wb, db_, hb if hg else None)
@@ -434,12 +482,25 @@ def main():
                     help='with --crosses: show all flips after YYYY-MM-DD (hourly shows ET timestamps)')
     ap.add_argument('--min-bars', type=int, default=2,
                     help='hourly settled-day rule: min valid bars/day for a day to drive HCO (default 2)')
+    ap.add_argument('--entry-close-ema', action='store_true',
+                    help='BUY only when daily close > daily EMA10 (filter late/pullback entries)')
+    ap.add_argument('--atr-exit', action='store_true',
+                    help='exit on daily ATR-ratchet (close < peak - atr_mult*ATR14) instead of bear-flip')
+    ap.add_argument('--atr-mult', type=float, default=2.0,
+                    help='ATR-ratchet multiplier (default 2.0)')
+    ap.add_argument('--exit-only-daily', action='store_true',
+                    help='exit only when DAILY EMA10<SMA40 (ignore hourly/weekly bear for exits)')
+    ap.add_argument('--exit-ignore-hourly', action='store_true',
+                    help='exit when weekly OR daily flips bear (ignore hourly whipsaw exits)')
     args = ap.parse_args()
     if args.capital:
         CAPITAL = args.capital
     if args.crosses:
         return run_crosses(args.ticker.upper(), args.since, args.min_bars)
-    return run(args.ticker.upper(), args.out, CAPITAL, args.min_bars)
+    return run(args.ticker.upper(), args.out, CAPITAL, args.min_bars,
+               entry_close_ema=args.entry_close_ema, atr_exit=args.atr_exit,
+               atr_mult=args.atr_mult, exit_only_daily=args.exit_only_daily,
+               exit_ignore_hourly=args.exit_ignore_hourly)
 
 
 if __name__ == '__main__':
