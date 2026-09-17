@@ -205,7 +205,7 @@ class TradeExecutorService
     }
 
     /**
-     * Weekly equal-weight rebalance for the CoreEW trio (QQQ/VTI/VTV), Fridays.
+     * Equal-weight rebalance for the CoreEW trio (QQQ/VTI/VTV).
      *
      * NO strategy logic — no chandelier entry/exit, no signals. The book is
      * always long all three at equity/3 each; this method only brings drift
@@ -215,8 +215,13 @@ class TradeExecutorService
      * minDriftPct (default 0.0 = exact) skips a leg when its deviation from
      * equity/N is <= that % of total equity, so frequent intraday runs (every
      * 5 min) only trade a leg when it has genuinely drifted off target.
+     *
+     * minProfitTrigger ($ amount, 0 = disabled): when ANY held leg's unrealized
+     * profit reaches this threshold, the drift gate is overridden and the book
+     * rebalances to exact equal weight this cycle (harvest the gain by trimming
+     * the winner back to equity/N). Result includes 'profit_triggered' flag.
      */
-    public function rebalanceEqualWeightWeekly(bool $dryRun = false, float $minDriftPct = 0.0): array
+    public function rebalanceEqualWeightWeekly(bool $dryRun = false, float $minDriftPct = 0.0, float $minProfitTrigger = 0.0): array
     {
         $this->dryRun = $dryRun;
 
@@ -235,7 +240,7 @@ class TradeExecutorService
             $positions = $this->alpacaService->getPositions();
         } catch (\Exception $e) {
             \Log::warning("EW rebalance failed to fetch account/positions: " . $e->getMessage());
-            $results = ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => [$e->getMessage()]];
+            $results = ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => [$e->getMessage()], 'profit_triggered' => false];
             return $results;
         }
 
@@ -245,10 +250,10 @@ class TradeExecutorService
             ->values()
             ->toArray();
         if (count($symbols) < 1) {
-            return ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => []];
+            return ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => [], 'profit_triggered' => false];
         }
 
-        $results = ['total' => count($symbols), 'buys' => [], 'sells' => [], 'errors' => []];
+        $results = ['total' => count($symbols), 'buys' => [], 'sells' => [], 'errors' => [], 'profit_triggered' => false];
         $accountEquity = floatval($account['equity'] ?? 0);
         if ($accountEquity <= 0) {
             $results['errors'][] = 'Account equity <= 0';
@@ -258,12 +263,32 @@ class TradeExecutorService
         $perPosition = $accountEquity / count($symbols);
         $driftThreshold = ($minDriftPct > 0) ? $accountEquity * ($minDriftPct / 100) : 0.0;
 
+        // Profit trigger: if ANY held leg is up >= $minProfitTrigger, rebalance
+        // to EXACT equal weight this cycle regardless of drift (harvest the gain
+        // by trimming the winner back to equity/N). $minProfitTrigger <= 0 = off.
+        if ($minProfitTrigger > 0) {
+            foreach ($positions ?? [] as $pos) {
+                $pl = floatval($pos['unrealized_pnl'] ?? 0);
+                if ($pl >= $minProfitTrigger) {
+                    $driftThreshold = 0.0;
+                    $results['profit_triggered'] = true;
+                    \Log::info("REBALANCE profit-trigger: {$pos['symbol']} unrealized_pnl=\${$pl} >= \${$minProfitTrigger} -> exact rebalance");
+                    break;
+                }
+            }
+        }
+
         $held = [];
         foreach ($positions ?? [] as $pos) {
             $held[$pos['symbol']] = floatval($pos['market_value'] ?? 0);
         }
 
         // Pass 1: trim overweights down to equity/N.
+        // When the profit trigger (or --override) forces exact equalization
+        // (driftThreshold == 0) the qty is FRACTIONAL (4 decimals) so sub-share
+        // deviations actually trade; otherwise the drift path stays whole-share.
+        // Alpaca floor: only trade when the notional is >= $1.
+        $fractional = ($driftThreshold == 0);
         foreach ($symbols as $sym) {
             $currentValue = $held[$sym] ?? 0;
             if ($currentValue <= $perPosition) {
@@ -273,12 +298,17 @@ class TradeExecutorService
             if ($driftThreshold > 0 && $excess <= $driftThreshold) {
                 continue;
             }
+            // Profit-trigger pass: only act on deviations >= the trigger amount
+            // (default $100) so we trade meaningful drips, not every 5-min tick.
+            if ($minProfitTrigger > 0 && $fractional && $excess < $minProfitTrigger) {
+                continue;
+            }
             $price = $this->getCurrentPrice($sym);
             if (!$price) {
                 continue;
             }
-            $sellQty = intval($excess / $price);
-            if ($sellQty < 1) {
+            $sellQty = $fractional ? round($excess / $price, 4) : intval($excess / $price);
+            if ($sellQty <= 0 || $sellQty * $price < 1.0) {
                 continue;
             }
             if ($this->rebalanceTrim($sym, $sellQty)) {
@@ -296,12 +326,15 @@ class TradeExecutorService
             if ($driftThreshold > 0 && $needed <= $driftThreshold) {
                 continue;
             }
+            if ($minProfitTrigger > 0 && $fractional && $needed < $minProfitTrigger) {
+                continue;
+            }
             $price = $this->getCurrentPrice($sym);
             if (!$price) {
                 continue;
             }
-            $buyQty = intval($needed / $price);
-            if ($buyQty < 1) {
+            $buyQty = $fractional ? round($needed / $price, 4) : intval($needed / $price);
+            if ($buyQty <= 0 || $buyQty * $price < 1.0) {
                 continue;
             }
             if ($this->rebalanceTopUp($sym, $buyQty, $price)) {
@@ -316,7 +349,7 @@ class TradeExecutorService
      * Partial sell for rebalance trims. Reduces the open trade's quantity; a
      * closed SELL trade records the trimmed portion so reconciliation skips it.
      */
-    private function rebalanceTrim(string $symbol, int $qty): bool
+    private function rebalanceTrim(string $symbol, float $qty): bool
     {
         $openTrade = LiveTrade::where('symbol', $symbol)->where('status', 'open')->first();
         if (!$openTrade) {
@@ -325,17 +358,17 @@ class TradeExecutorService
 
         // Safety guard: verify Alpaca actually holds the position.
         $alpacaPos = $this->getPositionForSymbol($symbol);
-        if (!$alpacaPos || intval($alpacaPos['qty'] ?? 0) <= 0) {
+        if (!$alpacaPos || floatval($alpacaPos['qty'] ?? 0) <= 0) {
             \Log::warning("REBALANCE TRIM $symbol skipped — Alpaca has no position");
             return false;
         }
 
         // Use Alpaca's actual qty, not the DB qty
-        $currentQty = intval($alpacaPos['qty']);
+        $currentQty = floatval($alpacaPos['qty']);
         if ($qty >= $currentQty) {
             $qty = $currentQty;
         }
-        if ($qty < 1) {
+        if ($qty <= 0) {
             return false;
         }
 
@@ -394,7 +427,7 @@ class TradeExecutorService
     /**
      * New entry for rebalance buys (equal-weight target).
      */
-    private function rebalanceBuy(string $symbol, int $qty, float $price): bool
+    private function rebalanceBuy(string $symbol, float $qty, float $price): bool
     {
         if ($this->dryRun) {
             \Log::info("DRY RUN REBALANCE BUY $symbol: qty=$qty, ~$price (no order placed)");
@@ -436,7 +469,7 @@ class TradeExecutorService
      * if the leg is missing entirely a fresh open trade is created. Never
      * closes anything — this is a top-up only.
      */
-    private function rebalanceTopUp(string $symbol, int $qty, float $price): bool
+    private function rebalanceTopUp(string $symbol, float $qty, float $price): bool
     {
         if ($this->dryRun) {
             \Log::info("DRY RUN EW TOP-UP $symbol: qty=$qty, ~$price (no order placed)");
@@ -454,7 +487,7 @@ class TradeExecutorService
 
             $openTrade = LiveTrade::where('symbol', $symbol)->where('status', 'open')->first();
             if ($openTrade) {
-                $oldQty = intval($openTrade->quantity ?? 0);
+                $oldQty = floatval($openTrade->quantity ?? 0);
                 $oldPrice = floatval($openTrade->entry_price ?? 0);
                 $newQty = $oldQty + $qty;
                 $weightedPrice = $newQty > 0

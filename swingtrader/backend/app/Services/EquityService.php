@@ -130,7 +130,7 @@ class EquityService
                 $ticker = Ticker::where('symbol', $symbol)->first();
                 if (!$ticker) continue;
 
-                $qty = intval($order['filled_qty'] ?? $order['qty'] ?? 0);
+                $qty = floatval($order['filled_qty'] ?? $order['qty'] ?? 0);
                 $price = floatval($order['filled_avg_price'] ?? 0);
                 if ($qty <= 0 || $price <= 0) continue;
                 $created_at = $order['created_at'] ?? now()->toDateTimeString();
@@ -205,7 +205,7 @@ class EquityService
                 if ($openBuy) {
                     $entry_price = floatval($openBuy->entry_price ?? 0);
                     $exit_price = $sellOrder['price'];
-                    $qty = intval($openBuy->quantity ?? $sellOrder['qty']);
+                    $qty = floatval($openBuy->quantity ?? $sellOrder['qty']);
                     $pnl_dollar = ($exit_price - $entry_price) * $qty;
                     $pnl_pct = $entry_price > 0 ? (($exit_price - $entry_price) / $entry_price) * 100 : 0;
 
@@ -227,7 +227,7 @@ class EquityService
                     foreach ($positions as $pos) {
                         $symbol = $pos['symbol'] ?? null;
                         $avgEntry = floatval($pos['avg_entry_price'] ?? 0);
-                        $qty = intval($pos['qty'] ?? 0);
+                        $qty = floatval($pos['qty'] ?? 0);
                         if (!$symbol || $avgEntry <= 0) continue;
 
                         $openTrade = LiveTrade::where('symbol', $symbol)

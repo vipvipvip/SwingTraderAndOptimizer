@@ -283,7 +283,7 @@ class AlpacaService
         try {
             $payload = [
                 'symbol' => $symbol,
-                'qty' => $qty,
+                'qty' => (string) $qty,
                 'side' => $side,
                 'type' => $type,
                 'time_in_force' => $timeInForce,

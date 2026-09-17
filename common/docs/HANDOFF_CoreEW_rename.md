@@ -1,6 +1,6 @@
 # Handoff — CHAND → CoreEW rename (session resume)
 
-**Date:** 2026-09-12 (updated 2026-09-14 for intraday drift-gated rebalancing)
+**Date:** 2026-09-12 (updated 2026-09-14 for intraday drift-gated rebalancing, 2026-09-17 for the $100 profit trigger)
 **Owner of record:** AGENTS.md (repo root) — read it first; this doc is the *live-state* resume guide.
 
 ## What the strategy IS now
@@ -56,8 +56,29 @@ marker) was **replaced by intraday drift-gated rebalancing on 2026-09-14**.
   (historical)" asides / perf_explanations "CHAND was already correct") — intentional
   historical record of the prior strategy. **Leave.**
 
+## Profit trigger (2026-09-17)
+- New env **`COREEW_PROFIT_TRIGGER`** in `swingtrader/backend/.env` (default `100` $, `0` = disabled).
+  CLI override: `--profit=`.
+- Semantics: **per-ETF level**, NOT total portfolio. When **ANY single held leg** has
+  unrealized profit >= threshold, the drift gate is overridden that cycle and the book
+  runs an **exact** equal-weight rebalance (harvest the gain): legs whose deviation from
+  `equity/3` is >= the SAME threshold ($100 default = the "floor") are rebalanced in
+  **fractional shares** (4 decimals, $1 min notional), trimming the winner and topping
+  up laggards. Floor == trigger amount → trades meaningful drips, not every 5-min tick.
+- The trigger value doubles as the trade floor: `--profit=50` → fires at $50 unrealized
+  AND only trades legs off-target by >= $50. One knob, no extra config.
+- Fractional shares verified against Alpaca paper **#PA3GKZYLVO68** (2026-09-17): 0.01 QQQ
+  buy+sell round-trip filled ($1 min notional). DB columns migrated to `numeric(12,5)`:
+  `live_trades.quantity`, `positions_cache.qty` (+ all reconcilers/sync cast `floatval`).
+- Log line when it fires: `REBALANCE profit-trigger: <SYM> unrealized_pnl=$X >= $100 -> exact rebalance`.
+  Slack `[CoreEW]` report shows `💰 profit-triggered rebalance` when the trigger caused the cycle.
+- Verified live 2026-09-17 10:51: `REBALANCE TRIM QQQ: qty=0.2756, fill=714.635, newQty=46.7244`
+  — QQQ 47 → 46.7244 shares, market value $33,434 ≈ equity/3; SELL 0.2756 closed +$2.99;
+  open trade reconciled to 46.7244 = Alpaca position exactly.
+- Interaction: `--override` also runs the exact fractional pass; `--profit=0` disables.
+
 ## Verify checklist (intraday mode, post-2026-09-14)
-1. `grep COREEW_DRIFT_PCT swingtrader/backend/.env` → `0.5`.
+1. `grep COREEW_DRIFT_PCT swingtrader/backend/.env` → `0.5`; `grep COREEW_PROFIT_TRIGGER swingtrader/backend/.env` → `100`.
 2. Confirm cron line for `trades:execute-EW-ETF` exists (5-min).
 3. Expect: quiet ticks → no trades, no Slack. On drift cross → trim/top-up +
    single Slack `[CoreEW]`. Marker file is no longer written (deleted).
@@ -86,12 +107,16 @@ marker) was **replaced by intraday drift-gated rebalancing on 2026-09-14**.
 ```bash
 # env check
 grep COREEW_DRIFT_PCT swingtrader/backend/.env
+grep COREEW_PROFIT_TRIGGER swingtrader/backend/.env
 
 # dry-run preview (no orders)
 cd swingtrader/backend && php artisan trades:execute-EW-ETF --dry-run
 
 # force exact rebalance now (threshold 0)
 cd swingtrader/backend && php artisan trades:execute-EW-ETF --override
+
+# run with profit trigger disabled
+cd swingtrader/backend && php artisan trades:execute-EW-ETF --profit=0
 
 # manual wrapper (same flags, passthrough)
 swingtrader/services/scripts/coreew_rebalance.sh --dry-run

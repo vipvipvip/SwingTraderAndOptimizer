@@ -190,6 +190,10 @@ cron (*/5 min) ──► trades:execute-EW-ETF ──► TradeExecutorService
                     │   equity/3| > DRIFT_PCT  │
                     │   (COREEW_DRIFT_PCT,     │
                     │   default 0.5% of equity)│
+                    │   or profit trigger:     │
+                    │   any leg unrealized P&L │
+                    │   ≥ COREEW_PROFIT_TRIGGER│
+                    │   ($100 default) → exact │
                     ├── RECONCILE:              │
                     │   syncLiveTradesFromAlpaca│
                     │   (self-heal DB from      │
@@ -209,15 +213,21 @@ cron (*/5 min) ──► trades:execute-EW-ETF ──► TradeExecutorService
 ### Tickers
 QQQ, VTI, VTV (enabled in `tbl_etf_tickers`). BLENDED is the portfolio composite (legacy).
 
-### Current (2026-09-14): Intraday Drift-Gated Equal-Weight Rebalance
+### Current (2026-09-14): Intraday Drift-Gated Equal-Weight Rebalance (fractional + profit trigger 2026-09-17)
 ```
 every 5-min cron tick, market open only:
   per_leg = account_equity / 3
   drift_threshold = account_equity × COREEW_DRIFT_PCT (default 0.5%)
-  each leg (QQQ/VTI/VTV): if market_value > per_leg + drift_threshold → trim excess
-                          if market_value < per_leg − drift_threshold → top up (weighted-avg entry)
+  if any held leg unrealized_pnl >= COREEW_PROFIT_TRIGGER ($100 default): drift_threshold = 0
+  for each of QQQ / VTI / VTV:
+    deviation = |market_value - per_leg|
+    floor = COREEW_PROFIT_TRIGGER when triggered (skip legs off-target < floor)
+    if deviation > drift_threshold: trim excess shares
+                          if deviation < drift_threshold: top up
+    when triggered: qty is FRACTIONAL (4 decimals, $1 min notional)
 No signals, no stops — pure always-in equal-weight beta book. Weekly day-gating
-+ once-per-day marker removed 2026-09-14; --override forces exact rebalance.
++ once-per-day marker removed 2026-09-14; --override forces exact fractional
+rebalance; --profit= overrides the profit-trigger / floor.
 ```
 
 ### Legacy Exits (not called on live path — kept for reference)

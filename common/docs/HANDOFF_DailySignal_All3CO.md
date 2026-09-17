@@ -74,7 +74,9 @@ capture, direction/state consistent). Score 4.4, correctly emitted both before a
   `swingtrader-mtf-executor` (`--mode all`). emasma is **weekly-only** — `runner.py:550`
   `uses_hourly` only for `mtf`/`v2`, so MTF never reads degraded hourly. Do not regress.
 - **CoreEW** (trio QQQ/VTI/VTV): intraday **every 5-min** cron, **drift-gated**
-  (trim/top-up only when leg deviates > `COREEW_DRIFT_PCT` 0.5%). No signals/stop.
+  (trim/top-up only when leg deviates > `COREEW_DRIFT_PCT` 0.5%) OR profit-triggered
+  (any single leg unrealized P&L ≥ `COREEW_PROFIT_TRIGGER` $100 → exact rebalance,
+  2026-09-17). No signals/stop.
 - **Daily Signal**: alerts only, once/day 17:00 ET (systemd `swingtrader-daily-signal.timer`).
 
 ## Session trail (2026-09-16)

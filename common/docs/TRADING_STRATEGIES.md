@@ -21,7 +21,7 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 **Service:** `TradeExecutorService` (execution), `AlpacaService` (broker API)  
 **Command:** `trades:execute-EW-ETF` (5-min crontab driver, market-open + drift-gated)
 
-> **Status: intraday drift-gated since 2026-09-14.** CoreEW (renamed from CHAND
+> **Status: intraday drift-gated since 2026-09-14; profit-triggered since 2026-09-17.** CoreEW (renamed from CHAND
 > 2026-09-12) previously rebalanced ONCE per eligible weekday
 > (`COREEW_REBALANCE_DAYS`). That weekly gate + once-per-day marker were
 > **replaced by intraday rebalancing**: cron fires the command every 5 min and a
@@ -31,6 +31,12 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 > each at `equity/3`. No entry/exit signals, no stop-loss, no optimizer. The
 > chandelier logic + `nightly_optimizer.py` remain in the repo as legacy (not
 > called on the live path); the nightly optimizer timer/systemd unit is DISABLED.
+> Since 2026-09-17, **`COREEW_PROFIT_TRIGGER`** ($100 default) overrides the
+> drift gate to an **exact** rebalance whenever ANY single held ETF leg has
+> unrealized profit >= that amount (per-ETF, not portfolio-wide). The exact pass
+> trades in **fractional shares** (4 decimals, $1 Alpaca min notional) and only
+> acts on legs off-target by >= the same $100 (the "floor") — harvests a winner
+> without re-trading every 5-min tick.
 
 ### Strategy Type
 
@@ -47,21 +53,28 @@ Decision: run **A** (pure EW). Rationale: it is sound, zero-parameter, no brute 
 INTRAday (every 5-min cron tick, market open only):
     equity_N = account_equity / 3
     drift_threshold = equity * COREEW_DRIFT_PCT%   (0.5% default)
+    if any held leg has unrealized_pnl >= COREEW_PROFIT_TRIGGER ($100):   # profit override
+        drift_threshold = 0   # exact rebalance this cycle (harvest the winner)
     for each of QQQ / VTI / VTV:
-        if market_value > equity_N + drift_threshold:  trim excess shares (REBALANCE_TRIM)
-        if market_value < equity_N - drift_threshold:  top up qty (weighted-avg entry merge / new leg)
+        deviation = |market_value - equity_N|
+        if override active: only rebalance legs with deviation >= $100 (floor)
+        if market_value > equity_N + drift_threshold:  trim excess (FRACTIONAL shares)
+        if market_value < equity_N - drift_threshold:  top up (FRACTIONAL shares)
+    fractional qty = round(deviation / price, 4); skip if notional < $1 (Alpaca min)
 ```
 
 - Trims never fully close a leg; top-ups re-establish a missing leg from scratch.
-- Drift gate: `COREEW_DRIFT_PCT` in `swingtrader/backend/.env` (default 0.5% of equity). `--drift=` overrides per-run; `--override` forces exact rebalance (threshold 0).
-- Executor: `TradeExecutorService::rebalanceEqualWeightWeekly($dryRun, $minDriftPct)`.
+- Drift gate: `COREEW_DRIFT_PCT` in `swingtrader/backend/.env` (default 0.5% of equity). `--drift=` overrides per-run; `--override` forces exact fractional rebalance (threshold 0).
+- Profit trigger: `COREEW_PROFIT_TRIGGER` in `swingtrader/backend/.env` (default $100, 0 = disabled), `--profit=` per-run. Per-ETF leg unrealized P&L (not portfolio). Sets threshold 0 for that cycle; the same value is the min-deviation floor.
+- Fractional shares: supported by Alpaca (min $1 notional, 4 decimals); `live_trades.quantity` / `positions_cache.qty` are `numeric(12,5)` (migrated 2026-09-17; reconcilers/sync cast `floatval`).
+- Executor: `TradeExecutorService::rebalanceEqualWeightWeekly($dryRun, $minDriftPct, $minProfitTrigger)`; result includes `profit_triggered` (shown in Slack as `💰 profit-triggered rebalance`).
 - No weekly day-gate, no once-per-day marker — cron's 5-min tick + market-open check is the sole driver.
 - Manual trigger: `swingtrader/services/scripts/coreew_rebalance.sh` (plain `--dry-run/--override/--drift=` passthrough).
 - `trades:execute-EW-ETF --dry-run` previews the next rebalance without orders.
 
 ### Parameters
 
-None — the strategy has no signal inputs. Only operational knob: `COREEW_DRIFT_PCT` (0.5% of equity, `.env` / `--drift=`). `strategy_parameters` rows for QQQ/VTI/VTV/BLENDED are legacy and unused on the live path.
+None — the strategy has no signal inputs. Only operational knobs: `COREEW_DRIFT_PCT` (0.5% of equity, `.env` / `--drift=`) and `COREEW_PROFIT_TRIGGER` ($100 profit override + trade floor, `.env` / `--profit=`). `strategy_parameters` rows for QQQ/VTI/VTV/BLENDED are legacy and unused on the live path.
 
 ### Capital Allocation
 
@@ -77,11 +90,11 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 
 ### Live Execution Flow (`TradeExecutorService`)
 
-1. Cron fires `trades:execute-EW-ETF` every 5 min; the command checks market-open and applies the drift threshold, then calls `rebalanceEqualWeightWeekly($dryRun, $minDriftPct)`.
+1. Cron fires `trades:execute-EW-ETF` every 5 min; the command checks market-open, applies the drift threshold + profit trigger, then calls `rebalanceEqualWeightWeekly($dryRun, $minDriftPct, $minProfitTrigger)`.
 2. `syncLiveTradesFromAlpaca()` reconciles DB → Alpaca order history first (self-healing).
-3. Fetch account equity + positions; compute `equity/3` per leg + drift threshold.
-4. Trim overweights (partial sell, preserves/open-trade P&L), top-up underweights (weighted-avg entry merge via `rebalanceTopUp`) — skipped for legs within the threshold.
-5. Snapshot equity, sync positions cache, Slack `[CoreEW]` summary only when trades occurred.
+3. Fetch account equity + positions; compute `equity/3` per leg + drift threshold; if any leg's unrealized P&L >= profit trigger → set threshold 0 (`profit_triggered` flag).
+4. Trim overweights (partial sell, preserves/open-trade P&L), top-up underweights (weighted-avg entry merge via `rebalanceTopUp`) — skipped for legs within the threshold. When the trigger forced exact (threshold 0), quantities are FRACTIONAL (4 decimals, $1 min notional) and legs must be off-target by >= the trigger amount to trade.
+5. Snapshot equity, sync positions cache, Slack `[CoreEW]` summary only when trades occurred (includes `💰 profit-triggered rebalance` line when the override caused the cycle).
 
 ### Risk Characteristics
 
@@ -97,6 +110,7 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 | `trades:execute-EW-ETF --dry-run` | Preview the next rebalance without orders |
 | `trades:execute-EW-ETF --override` | Force an exact rebalance now (drift threshold 0) |
 | `trades:execute-EW-ETF --drift=1.0` | One-off run with a custom drift threshold % |
+| `trades:execute-EW-ETF --profit=0` | Run with the profit trigger disabled |
 | `trades:execute-EW-ETF --force-test` | Place 1-share round-trips for testing |
 | `coreew_rebalance.sh` | Manual wrapper (arguments passed to artisan) |
 | `equity:snapshot` | Snapshot current account equity to DB |

@@ -10,7 +10,7 @@ use GuzzleHttp\Client;
 
 class ExecuteEWETF extends Command
 {
-    protected $signature = 'trades:execute-EW-ETF {--force-test : Force a buy+sell round-trip per ticker (paper account test mode)} {--override : Manual override. Force an exact rebalance now (drift threshold 0)} {--dry-run : Preview the EW rebalance without placing orders} {--drift= : Drift threshold %% of equity before a leg is rebalanced (default: COREEW_DRIFT_PCT env, 0 = exact)}';
+    protected $signature = 'trades:execute-EW-ETF {--force-test : Force a buy+sell round-trip per ticker (paper account test mode)} {--override : Manual override. Force an exact rebalance now (drift threshold 0)} {--dry-run : Preview the EW rebalance without placing orders} {--drift= : Drift threshold %% of equity before a leg is rebalanced (default: COREEW_DRIFT_PCT env, 0 = exact)} {--profit= : Rebalance to exact equal weight whenever ANY held ETF leg has unrealized profit >= this $ amount (default: COREEW_PROFIT_TRIGGER env, 0 = disabled)}';
 
     protected $description = 'Intraday equal-weight CoreEW trio rebalance (QQQ/VTI/VTV)';
 
@@ -39,7 +39,9 @@ class ExecuteEWETF extends Command
         // during market hours and the drift threshold decides whether any leg
         // needs a trim/top-up. Default threshold from COREEW_DRIFT_PCT (0.5%),
         // --override forces an exact rebalance (threshold 0) at any time, and
-        // --drift= overrides the threshold for one-off runs.
+        // --drift= overrides the threshold for one-off runs. A leg whose
+        // unrealized profit reaches COREEW_PROFIT_TRIGGER ($100 default) also
+        // forces an exact rebalance that cycle (harvest the gain).
         $driftPct = (float) ($this->option('drift') !== null
             ? $this->option('drift')
             : env('COREEW_DRIFT_PCT', 0.5));
@@ -48,6 +50,18 @@ class ExecuteEWETF extends Command
         }
         if ($driftPct < 0 || $driftPct > 100) {
             $this->error('--drift must be between 0 and 100 (% of equity).');
+            return 1;
+        }
+
+        // Profit trigger: when ANY single held ETF leg reaches this much
+        // unrealized profit, the drift gate is overridden and the book
+        // rebalances to exact equal weight (harvest the gain). 0 = disabled.
+        // Default from COREEW_PROFIT_TRIGGER env; --profit= overrides per run.
+        $profitTrigger = (float) ($this->option('profit') !== null
+            ? $this->option('profit')
+            : env('COREEW_PROFIT_TRIGGER', 100));
+        if ($profitTrigger < 0) {
+            $this->error('--profit must be >= 0 (0 = disabled).');
             return 1;
         }
 
@@ -64,10 +78,10 @@ class ExecuteEWETF extends Command
                 $results = $tradeExecutor->forceTestAllTickers(1);
             } elseif ($dryRun) {
                 $this->info('DRY-RUN: previewing EW rebalance (no orders placed)...');
-                $results = $tradeExecutor->rebalanceEqualWeightWeekly(true, $driftPct);
+                $results = $tradeExecutor->rebalanceEqualWeightWeekly(true, $driftPct, $profitTrigger);
             } else {
-                $this->info('Market is open. Equal-weight rebalance (drift threshold ' . $driftPct . '%)...');
-                $results = $tradeExecutor->rebalanceEqualWeightWeekly(false, $driftPct);
+                $this->info('Market is open. Equal-weight rebalance (drift threshold ' . $driftPct . '%, profit trigger $' . $profitTrigger . ')...');
+                $results = $tradeExecutor->rebalanceEqualWeightWeekly(false, $driftPct, $profitTrigger);
             }
             $equity = $equityService->snapshotAccountEquity($alpacaService);
 
@@ -132,8 +146,11 @@ class ExecuteEWETF extends Command
             $buyText = $buyCounts > 0 ? "📈 BUYS: " . implode(', ', $results['buys']) : "No buys";
             $sellText = $sellCount > 0 ? "📉 SELLS: " . implode(', ', $results['sells']) : "No sells";
             $errorText = $errorCount > 0 ? "⚠️ ERRORS: " . $errorCount : "";
+            $triggerText = !empty($results['profit_triggered'])
+                ? "💰 profit-triggered rebalance (a leg hit the profit threshold)"
+                : "";
 
-            $tradeLines = array_filter([$buyText, $sellText, $errorText]);
+            $tradeLines = array_filter([$triggerText, $buyText, $sellText, $errorText]);
             $tradeContent = implode("\n", $tradeLines);
 
             $color = ($buyCounts > 0 || $sellCount > 0) ? 'good' : '#cccccc';

@@ -24,7 +24,7 @@ class SyncPositions extends Command
             foreach ($positions as $pos) {
                 PositionCache::create([
                     'symbol' => $pos['symbol'],
-                    'qty' => intval($pos['qty']),
+                    'qty' => floatval($pos['qty']),
                     'avg_entry_price' => floatval($pos['avg_entry_price']),
                     'current_price' => floatval($pos['current_price']),
                     'unrealized_pnl' => floatval($pos['unrealized_pnl'] ?? $pos['unrealized_pl'] ?? 0),
