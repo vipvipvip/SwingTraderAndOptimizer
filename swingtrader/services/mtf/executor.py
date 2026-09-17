@@ -503,20 +503,22 @@ def _wait_for_network(timeout_sec=30, check_hosts=['8.8.8.8', 'paper-api.alpaca.
     return False
 
 
-def execute_rotation(top_symbols, score_detail, mode='stock'):
+def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
     """Execute MTF rotation: sell dropped positions, buy new entries.
 
     Args:
         top_symbols: list of symbols in the new top-N
         score_detail: dict of {symbol: {score, close, ...}} for top picks
         mode: 'stock' or 'etf'
+        dry_run: preview planned trims/top-ups/sells/buys WITHOUT placing any
+            orders or touching the DB (no cancels, no fills, no state writes)
 
     Returns:
         list of human-readable trade summary lines
     """
     _wait_for_network()
     _set_alpaca_keys(mode)
-    if not _wait_for_market_open():
+    if not dry_run and not _wait_for_market_open():
         print('[MTF EXECUTOR] skipping execution: market closed')
         return ['  ⚠️ Market closed — no orders placed (guard)']
     conn = db_module.get_conn()
@@ -586,9 +588,10 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
             print(f'[MTF EXECUTOR] ⚠️ {sym} held but not scored today (filter or data gap) — preserving position')
         symbols_to_sell = (symbols_to_sell - set(data_gap_held)) | ratchet_sold
 
-        # Cancel all open orders first
-        for symbol in held_symbols | target_symbols:
-            _cancel_orders_for_symbol(symbol)
+        # Cancel all open orders first (skipped in dry-run: never touch live orders)
+        if not dry_run:
+            for symbol in held_symbols | target_symbols:
+                _cancel_orders_for_symbol(symbol)
 
         # ── Sell dropped positions ──
         for symbol in sorted(symbols_to_sell):
@@ -597,6 +600,10 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                 continue
             qty = abs(int(float(pos.get('qty', 0))))
             if qty < 1:
+                continue
+            if dry_run:
+                trade_lines.append(f'  🧪 [DRY-RUN] SELL {qty} {symbol}')
+                print(f'[MTF EXECUTOR] DRY-RUN SELL {qty} {symbol}')
                 continue
             try:
                 order = _place_order(symbol, qty, 'sell')
@@ -696,14 +703,14 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
         in_play_names = [s for s in held_after_sell if s in target_symbols] + symbols_to_buy
         in_play_names = [s for s in in_play_names if s not in blocked_buys]
 
-        if config.EQUAL_WEIGHT and mode == 'stock' and in_play_names:
+        if config.EQUAL_WEIGHT and in_play_names:
             # ── CoreEW-style equal-weight sizing (mirrors backtest --equal-weight) ──
-            # Desired book = held-in-target (excluding ratchet/cool-off blocked,
-            # plus chase-guard pre-blocked) ∪ new buys+fillers. per_position =
-            # equity / len(book). Re-fetch holdings AFTER the sells so trims and
-            # top-ups see the true post-rotation book. Trims run first (releasing
-            # cash), then underweight/new names are brought up to target — same
-            # order as CHAND's rebalanceEqualWeight (trim then buy).
+            # Both legs (stocks TOP_N, ETFs ETF_TOP_N): trims overweights to target
+            # and tops up/rebuilds every underweight or new in-play name to
+            # equity/len(book). Before 2026-09-17 this ran stock-only, so the ETF
+            # leg sized only NEW entries at equity/top_n — held names (e.g. XLE/XLK
+            # carried from the top-10 era) were never re-sized, leaving ~49% of the
+            # account on the sidelines. ETF book now matches the backtest sizing.
             fresh_pos = _get_alpaca_positions()
             try:
                 fresh_acct = _get_account()
@@ -733,6 +740,10 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                 if sell_qty < 1:
                     continue
                 sell_qty = min(sell_qty, qty_now - 1)  # never fully close a target name
+                if dry_run:
+                    trade_lines.append(f'  🧪 [DRY-RUN] TRIM {sell_qty} {symbol} @ ${price:.2f} → ${per_position:,.0f}')
+                    print(f'[MTF EXECUTOR] DRY-RUN TRIM {sell_qty} {symbol} @ {price}')
+                    continue
                 try:
                     order = _place_order(symbol, sell_qty, 'sell')
                 except Exception as e:
@@ -785,6 +796,11 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                     trade_lines.append(f'  ⚠️ BUY {symbol}: {needed:,.0f} < 1 share (${price:.2f}), skipping')
                     continue
 
+                action = 'TOP-UP' if held_qty >= 1 else 'BUY'
+                if dry_run:
+                    trade_lines.append(f'  🧪 [DRY-RUN] {action} {buy_qty} {symbol} @ ${price:.2f} (${buy_qty * price:,.2f}) → ${per_position:,.0f}')
+                    print(f'[MTF EXECUTOR] DRY-RUN {action} {buy_qty} {symbol} @ {price}')
+                    continue
                 try:
                     order = _place_order(symbol, buy_qty, 'buy')
                 except Exception as e:
@@ -861,6 +877,10 @@ def execute_rotation(top_symbols, score_detail, mode='stock'):
                     trade_lines.append(f'  ⚠️ BUY {symbol}: ${per_position:.0f} < 1 share (${price:.2f}), skipping')
                     continue
 
+                if dry_run:
+                    trade_lines.append(f'  🧪 [DRY-RUN] BUY {qty} {symbol} @ ${price:.2f} (${qty * price:,.2f})')
+                    print(f'[MTF EXECUTOR] DRY-RUN BUY {qty} {symbol} @ {price}')
+                    continue
                 try:
                     order = _place_order(symbol, qty, 'buy')
                 except Exception as e:

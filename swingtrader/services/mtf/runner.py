@@ -870,15 +870,21 @@ def _run_execute_pending(mode, today, dry_run=False):
 
     try:
         if dry_run:
+            # Full rotation preview (equal-weight sizing, no orders / no DB writes).
             try:
+                dry_lines = executor.execute_rotation(top_symbols, score_detail, mode, dry_run=True)
+            except Exception:
+                # Fall back to the simple set-diff preview if the full path fails
+                # (e.g. network issue) so the dry-run still reports skew.
                 executor._set_alpaca_keys(mode)
                 held = set(executor._get_alpaca_positions().keys())
-            except Exception:
-                held = set(db_module.get_all_positions(conn))
-            t = set(top_symbols)
-            lines.append(f'🧪 DRY-RUN — no orders placed. Would buy: {", ".join(sorted(t - held)) or "none"}'
-                         f' | would sell: {", ".join(sorted(held - t)) or "none"}')
-            print(f'[MTF] DRY-RUN {mode}: would buy {sorted(t-held)} / sell {sorted(held-t)}')
+                t = set(top_symbols)
+                dry_lines = ['  ⚠️ full rotation preview failed — set-diff only:'
+                             f' would buy: {", ".join(sorted(t - held)) or "none"}'
+                             f' | would sell: {", ".join(sorted(held - t)) or "none"}']
+                print(f'[MTF] DRY-RUN {mode}: would buy {sorted(t-held)} / sell {sorted(held-t)}')
+            lines.append('🧪 DRY-RUN — no orders placed, DB untouched.')
+            lines.extend(dry_lines)
         else:
             live_lines = executor.execute_rotation(top_symbols, score_detail, mode)
             if live_lines:
@@ -887,7 +893,8 @@ def _run_execute_pending(mode, today, dry_run=False):
             db_module.log_run(conn, mode, sig_date, 'execute', 'ok')
             print(f'[MTF] Pending trades cleared for {MODE_LABEL[mode]}')
     except Exception as e:
-        db_module.log_run(conn, mode, sig_date, 'execute', 'error', str(e))
+        if not dry_run:
+            db_module.log_run(conn, mode, sig_date, 'execute', 'error', str(e))
         lines.append(f'')
         lines.append(f'⚠️ Execution failed: {e}')
         import traceback
