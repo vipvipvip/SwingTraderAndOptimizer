@@ -1,6 +1,6 @@
 # Handoff — CHAND → CoreEW rename (session resume)
 
-**Date:** 2026-09-12 (updated 2026-09-14 for intraday drift-gated rebalancing, 2026-09-17 for the $100 profit trigger)
+**Date:** 2026-09-12 (updated 2026-09-14 for intraday drift-gated rebalancing, 2026-09-17 for the $100 profit trigger + gain-cap profit rake)
 **Owner of record:** AGENTS.md (repo root) — read it first; this doc is the *live-state* resume guide.
 
 ## What the strategy IS now
@@ -76,6 +76,31 @@ marker) was **replaced by intraday drift-gated rebalancing on 2026-09-14**.
   — QQQ 47 → 46.7244 shares, market value $33,434 ≈ equity/3; SELL 0.2756 closed +$2.99;
   open trade reconciled to 46.7244 = Alpaca position exactly.
 - Interaction: `--override` also runs the exact fractional pass; `--profit=0` disables.
+
+## Gain-cap profit rake (2026-09-17; rake/rebalance strictly separated 2026-09-17 PM) — replaces the equalize path while enabled
+- New env knobs: **`COREEW_GAIN_CAP`** (`0` = disabled default, `--gain-cap=`), **`COREEW_GAIN_BUFFER`** (default `25`, `--gain-buffer=`). `COREEW_REDEPLOY_FLOOR` / `--redeploy-floor=` **removed 2026-09-17 PM** — redeploy is now deferred into the equal-weight rebalance path, which uses the standard drift/profit gates instead of a separate floor.
+- When **`COREEW_GAIN_CAP > 0`** the driver runs `rakeEqualWeight()` in **place of** the
+  drift + profit-trigger equalize path (the two never fight — the rake is the regulator).
+- **Rake pass:** any HELD leg whose `unrealized_pnl > gainCap` ($150 default) sells the
+  excess above the buffer to **CASH** (fractional, $1 min notional): `bank = unrealized − buffer`.
+  Paper gain becomes dry powder that cannot evaporate; the leg keeps only the buffer
+  of unrealized. Result key `rake_banked` (dollars) + `rake_legs`; Slack line `🌾 gain rake banked $X to cash`.
+  **Stateless** — no `banked_today` ledger: the rake sells by PER-SHARE PROFIT
+  (`qty = bank / (price − avg_entry)`), so after a rake the leg holds only ~`gainBuffer` of
+  unrealized, and a rebalance top-up buys at the current price (no embedded P&L on the new
+  shares), so the rake cannot re-fire on a flat price. It only re-fires when a leg accrues
+  fresh gain above the cap again.
+- **Strictly separate paths (evaluated per cycle — no persisted gate, no state):** a rake cycle banks
+  the profit and **STOPS** — no redeploy and no rebalance in the same run. On any later
+  cycle where no rake fires, the command runs the equal-weight rebalance, which redeploys
+  the banked cash into underweight legs (drift / profit-trigger gates).
+- Industry framing: constant-mix + a **CPPI-style ratcheting gain bank** (Perold & Sharpe
+  1988, Black–Perold 1992) — gains converted to a cash reserve so they cannot evaporate;
+  the cost is capped upside in sustained rallies (return drag is the "evaporation insurance" premium).
+- Verified via dry-run 2026-09-17 12:42: RAKE QQQ (uPnL $594.80 > $150 → bank $569.80,
+  qty 0.7952 @ 716.52).
+- Not backtest-validated (the trio EW backtest models pure EW, not a fractional intraday
+  rake) — treat as an **ops/risk heuristic** flown on paper, not an alpha claim.
 
 ## Verify checklist (intraday mode, post-2026-09-14)
 1. `grep COREEW_DRIFT_PCT swingtrader/backend/.env` → `0.5`; `grep COREEW_PROFIT_TRIGGER swingtrader/backend/.env` → `100`.

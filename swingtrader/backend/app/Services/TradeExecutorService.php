@@ -346,6 +346,124 @@ class TradeExecutorService
     }
 
     /**
+     * Gain-cap "profit rake" for the CoreEW trio (QQQ/VTI/VTV).
+     *
+     * Converts paper gains on a winning leg into CASH so they cannot evaporate.
+     * Runs in place of the value-equalization path (drift/profit trigger) when
+     * gainCap > 0. The rake and the equalize path are STRICTLY SEPARATE:
+     *
+     * 1) Rake pass — any HELD leg with unrealized_pnl > gainCap sells the excess
+     *    above gainBuffer to cash (fractional, $1 min notional), sized by
+     *    PER-SHARE PROFIT: qty = (unrealized - buffer) / (price - avg_entry), so
+     *    it realizes exactly the banked dollars and leaves the leg holding only
+     *    ~gainBuffer of embedded profit. A rake cycle banks the profit and STOPS —
+     *    no redeploy and no rebalance in the same run.
+     * 2) Rebalance — runs per cycle only when no rake fires: the command tops up
+     *    underweight legs with the banked cash via the standard drift/profit path
+     *    (never in the same run as a rake).
+     *
+     * Stateless: because the rake sells by per-share profit, the remaining
+     * position shows only ~gainBuffer of unrealized after a rake, and a rebalance
+     * top-up buys at the current price (the new shares carry no embedded P&L), so
+     * the rake cannot re-fire on a flat price. No marker/ledger is persisted — the
+     * rake simply re-fires when a leg accrues fresh gain above the cap again.
+     *
+     * Result includes 'rake_banked' (dollars harvested to cash) + 'rake_legs'.
+     */
+    public function rakeEqualWeight(
+        bool $dryRun = false,
+        float $gainCap = 150.0,
+        float $gainBuffer = 25.0
+    ): array {
+        $this->dryRun = $dryRun;
+
+        if (!$dryRun) {
+            try {
+                $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+            } catch (\Exception $e) {
+                \Log::warning("EW rake reconciliation failed: " . $e->getMessage());
+            }
+        }
+
+        $account = [];
+        $positions = [];
+        try {
+            $account = $this->alpacaService->getAccount();
+            $positions = $this->alpacaService->getPositions();
+        } catch (\Exception $e) {
+            \Log::warning("EW rake failed to fetch account/positions: " . $e->getMessage());
+            return ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => [$e->getMessage()], 'profit_triggered' => false, 'rake_banked' => 0.0, 'rake_legs' => []];
+        }
+
+        $symbols = Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        if (count($symbols) < 1) {
+            return ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => [], 'profit_triggered' => false, 'rake_banked' => 0.0, 'rake_legs' => []];
+        }
+
+        $results = ['total' => count($symbols), 'buys' => [], 'sells' => [], 'errors' => [], 'profit_triggered' => false, 'rake_banked' => 0.0, 'rake_legs' => [], 'redeployed' => []];
+        $accountEquity = floatval($account['equity'] ?? 0);
+        if ($accountEquity <= 0) {
+            $results['errors'][] = 'Account equity <= 0';
+            return $results;
+        }
+        $held = [];
+        foreach ($positions ?? [] as $pos) {
+            $held[$pos['symbol']] = $pos;
+        }
+
+        // --- Rake pass: harvest unrealized gains above cap to cash. ---
+        foreach ($symbols as $sym) {
+            $pos = $held[$sym] ?? null;
+            if (!$pos) {
+                continue;
+            }
+            $unrealized = floatval($pos['unrealized_pnl'] ?? 0);
+            if ($unrealized <= $gainCap) {
+                continue;
+            }
+            $bank = $unrealized - $gainBuffer;
+            $price = floatval($pos['current_price'] ?? 0);
+            $avgEntry = floatval($pos['avg_entry_price'] ?? 0);
+            if ($price <= 0 || $avgEntry <= 0) {
+                continue;
+            }
+            $perShareGain = $price - $avgEntry;
+            if ($perShareGain <= 0) {
+                continue;
+            }
+            // Sell by PER-SHARE PROFIT, not by price: qty = bank / (price - avg_entry).
+            // Selling $bank of profit realizes exactly $bank of realized P&L, and the
+            // remaining position keeps only the gainBuffer of embedded profit. The old
+            // qty = bank / price only realized bank * (price-avg)/price ~ $10 while
+            // trimming ~$567 of market value — profit stayed embedded on the leg.
+            // No state is needed to keep the rake from re-firing: after a rake the leg
+            // holds only ~gainBuffer of unrealized, and a rebalance top-up buys at the
+            // current price (new shares carry no embedded P&L), so the rake only fires
+            // again when the leg accrues fresh gain above the cap.
+            $qty = round($bank / $perShareGain, 4);
+            if ($qty <= 0 || $qty * $price < 1.0) {
+                \Log::info("RAKE skip $sym: bank=\$$bank < \$1 notional at $price");
+                continue;
+            }
+            if ($this->rebalanceTrim($sym, $qty)) {
+                $results['sells'][] = "$sym (rake bank \$$bank)";
+                $results['rake_banked'] += $bank;
+                $results['rake_legs'][] = $sym;
+                \Log::info("RAKE $sym: uPnL=\$$unrealized > cap \$$gainCap (avg=\$$avgEntry px=\$$price) -> bank \$$bank profit to cash (qty=$qty @ $price, per-share gain \$$perShareGain)");
+            }
+        }
+
+        // A rake cycle ONLY banks profit to cash. No redeploy, no buys, no
+        // equal-weight rebalance here — the caller runs the rebalance on any
+        // cycle where no rake fires.
+        return $results;
+    }
+
+    /**
      * Partial sell for rebalance trims. Reduces the open trade's quantity; a
      * closed SELL trade records the trimmed portion so reconciliation skips it.
      */

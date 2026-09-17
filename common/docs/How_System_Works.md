@@ -194,6 +194,15 @@ cron (*/5 min) ──► trades:execute-EW-ETF ──► TradeExecutorService
                     │   any leg unrealized P&L │
                     │   ≥ COREEW_PROFIT_TRIGGER│
                     │   ($100 default) → exact │
+                    │   OR gain rake (when     │
+                    │   COREEW_GAIN_CAP > 0):  ├── rakeEqualWeight() (banks
+                    │   bank unbanked pnl >    │    profit to CASH and STOPS —
+                    │   cap − buffer -> CASH   │    no redeploy/rebalance in this
+                    │   (rake cycle)           │    run; REPLACES the equalize
+                    │                          │    path while enabled)
+                    │   any cycle with no rake:├── rebalanceEqualWeightWeekly() =
+                    │                          │    redeploys banked cash into
+                    │                          │    underweight legs (per-cycle)
                     ├── RECONCILE:              │
                     │   syncLiveTradesFromAlpaca│
                     │   (self-heal DB from      │
@@ -213,8 +222,9 @@ cron (*/5 min) ──► trades:execute-EW-ETF ──► TradeExecutorService
 ### Tickers
 QQQ, VTI, VTV (enabled in `tbl_etf_tickers`). BLENDED is the portfolio composite (legacy).
 
-### Current (2026-09-14): Intraday Drift-Gated Equal-Weight Rebalance (fractional + profit trigger 2026-09-17)
+### Current (2026-09-14): Intraday Drift-Gated Equal-Weight Rebalance (fractional + profit trigger 2026-09-17, gain rake 2026-09-17)
 ```
+EQUALIZE path (default; when COREEW_GAIN_CAP = 0):
 every 5-min cron tick, market open only:
   per_leg = account_equity / 3
   drift_threshold = account_equity × COREEW_DRIFT_PCT (default 0.5%)
@@ -225,9 +235,21 @@ every 5-min cron tick, market open only:
     if deviation > drift_threshold: trim excess shares
                           if deviation < drift_threshold: top up
     when triggered: qty is FRACTIONAL (4 decimals, $1 min notional)
-No signals, no stops — pure always-in equal-weight beta book. Weekly day-gating
-+ once-per-day marker removed 2026-09-14; --override forces exact fractional
-rebalance; --profit= overrides the profit-trigger / floor.
+
+GAIN-RAKE path (replaces equalize while COREEW_GAIN_CAP > 0; STRICTLY SEPARATE from rebalance):
+  any held leg with unrealized_pnl > gain_cap ($150) sells (unrealized − buffer $25) to CASH
+  → dry powder that cannot evaporate (banked gain). A rake cycle BANKS and STOPS — no
+  redeploy/rebalance in the same run.
+  On any later cycle where no rake fires, the equal-weight rebalance runs and redeploys
+  the banked cash into underweight legs via the standard drift/profit gates.
+  Stateless: rake trims by per-share profit (qty = bank / (price − avg_entry)), so the leg
+  keeps only ~buffer of unrealized and a rebalance top-up at the current price adds shares
+  with no embedded P&L — the rake cannot re-fire on a flat price, only on freshly accrued
+  gain. No marker/ledger file, no persisted state (separation is per-cycle).
+No signals, no stops — pure always-in equal-weight beta book (+ optional gain rake).
+Weekly day-gating + once-per-day marker removed 2026-09-14; --override forces exact
+fractional rebalance; --profit= overrides the profit-trigger / floor;
+--gain-cap=/--gain-buffer= override the rake.
 ```
 
 ### Legacy Exits (not called on live path — kept for reference)

@@ -21,7 +21,7 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 **Service:** `TradeExecutorService` (execution), `AlpacaService` (broker API)  
 **Command:** `trades:execute-EW-ETF` (5-min crontab driver, market-open + drift-gated)
 
-> **Status: intraday drift-gated since 2026-09-14; profit-triggered since 2026-09-17.** CoreEW (renamed from CHAND
+> **Status: intraday drift-gated since 2026-09-14; profit-triggered 2026-09-17; gain-cap profit rake 2026-09-17.** CoreEW (renamed from CHAND
 > 2026-09-12) previously rebalanced ONCE per eligible weekday
 > (`COREEW_REBALANCE_DAYS`). That weekly gate + once-per-day marker were
 > **replaced by intraday rebalancing**: cron fires the command every 5 min and a
@@ -37,6 +37,26 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 > trades in **fractional shares** (4 decimals, $1 Alpaca min notional) and only
 > acts on legs off-target by >= the same $100 (the "floor") — harvests a winner
 > without re-trading every 5-min tick.
+> **Gain-cap profit rake (2026-09-17; rake/rebalance strictly separated
+> 2026-09-17 PM):** when **`COREEW_GAIN_CAP` > 0** the rake **replaces** the
+> equalize path: any held leg with UNBANKED unrealized profit above the cap
+> ($150 default) sells the excess above `COREEW_GAIN_BUFFER` ($25) to CASH
+> (fractional), converting paper gains into dry powder that cannot evaporate.
+> **The rake banks the profit and STOPS — a rake cycle never redeploys or
+> rebalances in the same run (strictly separate paths, per cycle).** On any
+> cycle where no rake fires, the equal-weight rebalance runs and is the
+> mechanism that redeploys the banked cash into underweight legs via the
+> standard drift/profit gates.
+> Stateless: the rake trims by per-share profit (`qty = bank / (price − avg_entry)`), so a
+> raked leg keeps only ~`gainBuffer` of unrealized and a rebalance top-up at the current
+> price adds shares with no embedded P&L — the rake cannot re-fire on a flat price; it only
+> re-fires on freshly accrued gain (no marker/ledger file, no persisted state — the
+> separation is per-cycle).
+> Industry framing: constant-mix + a CPPI-style ratcheting gain bank (Perold &
+> Sharpe 1988). Cost: capped upside in sustained rallies (return drag is the
+> evaporation-insurance premium). **Live since 2026-09-17: `.env`
+> `COREEW_GAIN_CAP=150` (rake ON, replaces the equalize path); set to `0` to
+> return to the pure equalize mode.**
 
 ### Strategy Type
 
@@ -50,6 +70,7 @@ Decision: run **A** (pure EW). Rationale: it is sound, zero-parameter, no brute 
 ### Rebalance Rule
 
 ```
+EQUALIZE path (default; runs when COREEW_GAIN_CAP = 0):
 INTRAday (every 5-min cron tick, market open only):
     equity_N = account_equity / 3
     drift_threshold = equity * COREEW_DRIFT_PCT%   (0.5% default)
@@ -61,20 +82,31 @@ INTRAday (every 5-min cron tick, market open only):
         if market_value > equity_N + drift_threshold:  trim excess (FRACTIONAL shares)
         if market_value < equity_N - drift_threshold:  top up (FRACTIONAL shares)
     fractional qty = round(deviation / price, 4); skip if notional < $1 (Alpaca min)
+
+GAIN-RAKE path (runs instead when COREEW_GAIN_CAP > 0; STRICTLY SEPARATE from rebalance):
+    for each held leg with unrealized_pnl > gain_cap:
+        bank_to_cash = unrealized_pnl - gain_buffer   # dollar-rake bank
+        sell bank_to_cash / (price - avg_entry) shares to CASH (FRACTIONAL)
+    rake cycle BANKS and STOPS: no redeploy, no rebalance in this run
+    on any later cycle with no rake: equal-weight rebalance redeploys the
+    banked cash via the drift/profit gates — no state needed: after a rake the
+    leg holds only ~gain_buffer of unrealized and a top-up at current price adds
+    shares with zero embedded P&L, so the rake only re-fires on fresh gain
 ```
 
 - Trims never fully close a leg; top-ups re-establish a missing leg from scratch.
 - Drift gate: `COREEW_DRIFT_PCT` in `swingtrader/backend/.env` (default 0.5% of equity). `--drift=` overrides per-run; `--override` forces exact fractional rebalance (threshold 0).
 - Profit trigger: `COREEW_PROFIT_TRIGGER` in `swingtrader/backend/.env` (default $100, 0 = disabled), `--profit=` per-run. Per-ETF leg unrealized P&L (not portfolio). Sets threshold 0 for that cycle; the same value is the min-deviation floor.
+- Gain rake: `COREEW_GAIN_CAP` (default 0 = disabled), `COREEW_GAIN_BUFFER` (default $25) in `.env`; CLI `--gain-cap=`, `--gain-buffer=` (`COREEW_REDEPLOY_FLOOR` / `--redeploy-floor=` removed 2026-09-17 PM — redeploy is delegated to the equalize path). While the rake is ON it replaces the equalize path (drift/profit bypassed); a rake cycle banks profit to CASH and STOPS, and the equal-weight rebalance runs on any later cycle where no rake fires.
 - Fractional shares: supported by Alpaca (min $1 notional, 4 decimals); `live_trades.quantity` / `positions_cache.qty` are `numeric(12,5)` (migrated 2026-09-17; reconcilers/sync cast `floatval`).
-- Executor: `TradeExecutorService::rebalanceEqualWeightWeekly($dryRun, $minDriftPct, $minProfitTrigger)`; result includes `profit_triggered` (shown in Slack as `💰 profit-triggered rebalance`).
+- Executor: `TradeExecutorService::rebalanceEqualWeightWeekly($dryRun, $minDriftPct, $minProfitTrigger)` (equalize) or `TradeExecutorService::rakeEqualWeight($dryRun, $gainCap, $gainBuffer)` (rake); results include `profit_triggered` / `rake_banked` + `rake_legs` (Slack `💰 profit-triggered rebalance` / `🌾 gain rake banked $X to cash`).
 - No weekly day-gate, no once-per-day marker — cron's 5-min tick + market-open check is the sole driver.
-- Manual trigger: `swingtrader/services/scripts/coreew_rebalance.sh` (plain `--dry-run/--override/--drift=` passthrough).
+- Manual trigger: `swingtrader/services/scripts/coreew_rebalance.sh` (plain `--dry-run/--override/--drift=/--gain-cap=` passthrough).
 - `trades:execute-EW-ETF --dry-run` previews the next rebalance without orders.
 
 ### Parameters
 
-None — the strategy has no signal inputs. Only operational knobs: `COREEW_DRIFT_PCT` (0.5% of equity, `.env` / `--drift=`) and `COREEW_PROFIT_TRIGGER` ($100 profit override + trade floor, `.env` / `--profit=`). `strategy_parameters` rows for QQQ/VTI/VTV/BLENDED are legacy and unused on the live path.
+None — the strategy has no signal inputs. Only operational knobs: `COREEW_DRIFT_PCT` (0.5% of equity, `.env` / `--drift=`), `COREEW_PROFIT_TRIGGER` ($100 profit override + trade floor, `.env` / `--profit=`), and the gain-rake pair `COREEW_GAIN_CAP` (0 = off), `COREEW_GAIN_BUFFER` ($25) (`.env` / `--gain-cap=` `--gain-buffer=`). `strategy_parameters` rows for QQQ/VTI/VTV/BLENDED are legacy and unused on the live path.
 
 ### Capital Allocation
 
@@ -111,6 +143,7 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 | `trades:execute-EW-ETF --override` | Force an exact rebalance now (drift threshold 0) |
 | `trades:execute-EW-ETF --drift=1.0` | One-off run with a custom drift threshold % |
 | `trades:execute-EW-ETF --profit=0` | Run with the profit trigger disabled |
+| `trades:execute-EW-ETF --gain-cap=150 --gain-buffer=25` | One-off run in gain-rake mode (banks excess profit to cash and stops; rebalance runs on a later cycle where no rake fires) |
 | `trades:execute-EW-ETF --force-test` | Place 1-share round-trips for testing |
 | `coreew_rebalance.sh` | Manual wrapper (arguments passed to artisan) |
 | `equity:snapshot` | Snapshot current account equity to DB |
