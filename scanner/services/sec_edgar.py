@@ -69,11 +69,12 @@ class SECEdgarFetcher:
         self.cik = None
         self.max_retries = max_retries
         self.session = requests.Session()
-        # SEC EDGAR rejects custom User-Agents (returns 403)
-        # Must use standard browser User-Agent and referer
+        # SEC now blocks generic browser User-Agents on cgi-bin/browse-edgar
+        # (403 "Undeclared Automated Tool"). Their documented policy requires a
+        # declared identity: "AppName contact@email". data.sec.gov accepts this too.
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Referer': 'https://www.sec.gov/',
+            'User-Agent': 'SwingTraderResearch dikeshchokshi@gmail.com',
+            'Accept-Encoding': 'gzip, deflate',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
         })
@@ -97,6 +98,43 @@ class SECEdgarFetcher:
         logger.warning(f"CIK not found for {self.ticker}. Add to sec_cik_database.py if available.")
         logger.info(f"To find CIK for {self.ticker}: https://www.sec.gov/cgi-bin/browse-edgar")
         return None
+
+    def get_latest_filing_via_submissions_api(self, form_types: Tuple[str, ...] = ('10-K', '10-Q')) -> Optional[str]:
+        """
+        Find the most recent 10-K or 10-Q document using SEC's modern JSON API
+        (data.sec.gov/submissions). This replaced cgi-bin/browse-edgar, which now
+        returns 403/503 for scripted access. Returns the direct document URL.
+        """
+        cik = self.get_cik()
+        if not cik:
+            return None
+
+        try:
+            url = f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json"
+            r = self.session.get(url, timeout=15)
+            r.raise_for_status()
+            recent = r.json()['filings']['recent']
+
+            best = None  # (filing_date, accession, primary_doc, form)
+            for i, form in enumerate(recent['form']):
+                if form in form_types:
+                    date = recent['filingDate'][i]
+                    if best is None or date > best[0]:
+                        best = (date, recent['accessionNumber'][i], recent['primaryDocument'][i], form)
+
+            if not best:
+                logger.warning(f"No {form_types} filings found for {self.ticker} via submissions API")
+                return None
+
+            date, accession, primary_doc, form = best
+            accession_nodash = accession.replace('-', '')
+            doc_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_nodash}/{primary_doc}"
+            logger.info(f"Found latest {form} for {self.ticker} filed {date}: {doc_url}")
+            return doc_url
+
+        except Exception as e:
+            logger.warning(f"Submissions API lookup failed for {self.ticker}: {e}")
+            return None
 
     def get_latest_10q_url(self) -> Optional[str]:
         """
@@ -239,30 +277,36 @@ class SECEdgarFetcher:
 
         # Try SEC EDGAR
         try:
-            # Try online fetch first
-            filing_index_url = self.get_latest_10q_url()
-            if filing_index_url:
-                doc_url = self.get_10q_document_url(filing_index_url)
-                if doc_url:
-                    logger.info(f"Downloading 10-Q for {self.ticker}...")
-                    r = self.session.get(doc_url, timeout=30)
-                    r.raise_for_status()
+            # Preferred: modern submissions JSON API (reliable, no HTML scraping)
+            doc_url = self.get_latest_filing_via_submissions_api()
 
-                    # Extract text from HTML
-                    text = r.text
+            # Fall back to legacy cgi-bin/browse-edgar HTML scraping if that failed
+            if not doc_url:
+                filing_index_url = self.get_latest_10q_url()
+                if filing_index_url:
+                    doc_url = self.get_10q_document_url(filing_index_url)
 
-                    # Clean up HTML
-                    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
-                    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
-                    text = re.sub(r'<[^>]+>', '\n', text)
-                    text = re.sub(r'\n\s*\n', '\n', text)
-                    text = re.sub(r' +', ' ', text)
+            if doc_url:
+                self.source = "SEC EDGAR (submissions API)"
+                logger.info(f"Downloading filing for {self.ticker}...")
+                r = self.session.get(doc_url, timeout=30)
+                r.raise_for_status()
 
-                    logger.info(f"Successfully fetched 10-Q ({len(text)} chars)")
+                # Extract text from HTML
+                text = r.text
 
-                    # Cache it
-                    cache_file.write_text(text, encoding='utf-8')
-                    return text
+                # Clean up HTML
+                text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<[^>]+>', '\n', text)
+                text = re.sub(r'\n\s*\n', '\n', text)
+                text = re.sub(r' +', ' ', text)
+
+                logger.info(f"Successfully fetched filing ({len(text)} chars)")
+
+                # Cache it
+                cache_file.write_text(text, encoding='utf-8')
+                return text
 
             # If SEC is blocked, use yfinance fallback
             logger.warning(f"SEC EDGAR blocked or filing not found. Using yfinance data fallback for {self.ticker}")

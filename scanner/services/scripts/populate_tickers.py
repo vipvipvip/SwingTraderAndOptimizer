@@ -34,6 +34,9 @@ TIMEFRAMES = {
     'hour': {'tf': TimeFrame.Hour, 'table': 'tbl_scanner_tickers_1hour', 'label': 'hours', 'yf_interval': '1h'},
 }
 
+# Delisted / taken-over / dead tickers. Never re-populate or re-add these.
+DEAD_TICKERS = {'FBRX', 'SAFT'}
+
 
 def fetch_sp500_tickers():
     headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'}
@@ -317,9 +320,9 @@ def main():
     # Read all enabled tickers from tbl_stock_tickers
     conn = get_db_conn()
     try:
-        tickers = pd.read_sql(
+        tickers = [t for t in pd.read_sql(
             "SELECT symbol FROM tbl_stock_tickers WHERE enabled ORDER BY symbol", conn
-        )['symbol'].tolist()
+        )['symbol'].tolist() if t not in DEAD_TICKERS]
     finally:
         conn.close()
 

@@ -31,6 +31,7 @@ CIK_DATABASE = {
     "AVGO": "0001311785",      # Broadcom Inc
     "SMCI": "0001303456",      # Super Micro Computer Inc
     "ARM": "0001368077",       # Arm Holdings PLC
+    "AEHR": "0001040470",      # Aehr Test Systems
 
     # Cloud & Infrastructure
     "CRM": "0001108772",       # Salesforce Inc
