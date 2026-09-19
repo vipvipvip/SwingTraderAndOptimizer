@@ -823,6 +823,31 @@ python3 .claude/skills/etf-monthly-prices/scripts/build_monthly_prices.py QQQ,VT
 
 ---
 
+## 17. Monthly Return Table Skill (etf-monthly-table)
+
+**Purpose:** Generate per-ticker month-end return tables (`id, mth_start, mth_end, prev_mth_end, prev_mth_close_price, mth_end_price, mthly_return%`) from yfinance adjusted closes. `mthly_return%` is a 3-decimal fraction (e.g. `0.015` for `1.50%`) so the column pastes straight into an xls cell formatted as `%`. The user's own prices differ but the returns match exactly, so it's validated for return analysis.
+
+**Skill:** `.claude/skills/etf-monthly-table/` (`SKILL.md` + `scripts/build_monthly_table.py`). Invoke naturally in chat (e.g. "build the SPY month-end return table from 1/1/2007"); the skill loads and runs the script.
+
+```bash
+# Manual run from repo root (outputs to ./monthly_prices/)
+python3 .claude/skills/etf-monthly-table/scripts/build_monthly_table.py SPY,IWM --start 2007-01-01 --out monthly_prices
+```
+
+**Args:**
+- `tickers` — positional, comma/space-separated, case-insensitive
+- `--start` — earliest month (default `2007-01-01`); row 1 is that month
+- `--out` — output dir (default `monthly_prices`, auto-created)
+
+**Key points:**
+- `mth_start`/`mth_end` = first/last trading day per month; prices are `Adj Close` (`auto_adjust=False`).
+- Row 1's `prev_*` columns come from the month BEFORE the window (e.g. Dec 2006 for Jan 2007), so returns run from row 1.
+- `mthly_return% = round(round((mth_end/prev − 1)*100, 2)/100, 3)`.
+- 237 rows for SPY/IWM Jan 2007 → Sep 2026; last row's `mth_end` is the current incomplete month.
+- Verification: spot-check `mthly_return% × prev_price + prev_price == mth_end_price`.
+
+---
+
 ## Summary
 
 | Category | Command Count | Purpose |
