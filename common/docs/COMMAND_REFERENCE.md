@@ -799,6 +799,30 @@ tail -f /tmp/frontend.log
 
 ---
 
+## 16. Monthly Price Files Skill (etf-monthly-prices)
+
+**Purpose:** Generate per-ticker monthly price CSVs (one file each) from yfinance — the adjusted (dividend + split) close of the first trading day of each calendar month, one price per line, rounded 2 dp, no dates, no header — starting 2007-01-01 by default. Used e.g. for QQQ/VTI/VTV benchmark series.
+
+**Skill:** `.claude/skills/etf-monthly-prices/` (`SKILL.md` + `scripts/build_monthly_prices.py`). Invoke naturally in chat (e.g. "get monthly prices for QQQ, VTI, VTV from 1/1/2007"); opencode/claude loads the skill and runs the script.
+
+```bash
+# Manual run from repo root (outputs to ./monthly_prices/)
+python3 .claude/skills/etf-monthly-prices/scripts/build_monthly_prices.py QQQ,VTI,VTV --start 2007-01-01 --out monthly_prices
+```
+
+**Args:**
+- `tickers` — positional, comma/space-separated, case-insensitive
+- `--start` — earliest date (default `2007-01-01`); first month's row = first trading day on/after this date
+- `--out` — output dir (default `monthly_prices`, auto-created)
+
+**Key points:**
+- Output is `Adj Close` from `history(auto_adjust=False)` — dividends AND splits handled (e.g. VUG/VGT 2007 adjusted prices reflect splits).
+- "First trading day of month" = first row per month after sorting by date, not calendar day 1 / not last day.
+- Tickers without data before the start date (e.g. SCHD, launched 2011-10) start at their first month — fewer rows, never fabricated.
+- Sanity anchors: QQQ Jan 2007 `37.04`, VTI `49.28`, VTV `40.87`, AGG `54.53`, XLU `9.40`, SCHD (2011-10) `5.22`.
+
+---
+
 ## Summary
 
 | Category | Command Count | Purpose |
