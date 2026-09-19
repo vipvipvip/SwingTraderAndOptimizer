@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly Take-Off Scanner Timer (Fri 17:15 ET, after MTF + daily signal)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target swingtrader-db.service
+
+[Timer]
+OnCalendar=Fri *-*-* 17:15:00 America/New_York
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

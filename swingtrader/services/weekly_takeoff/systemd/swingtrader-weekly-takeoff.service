@@ -1,0 +1,18 @@
+[Unit]
+Description=Weekly EMA10/SMA40 Take-Off Scanner (Friday after close)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network-online.target swingtrader-db.service swingtrader-scanner-backfill.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/weekly_takeoff
+ExecStart=/usr/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/weekly_takeoff/weekly_takeoff.py
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target
