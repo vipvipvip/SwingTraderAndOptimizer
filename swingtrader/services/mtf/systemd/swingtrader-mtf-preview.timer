@@ -1,0 +1,18 @@
+[Unit]
+Description=MTF emasma Evening Preview Timer (17:05 ET Mon-Fri — dry-run of the 10:25 trades for overnight research)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target swingtrader-db.service
+
+# Evening preview: re-scores today's settled close (same score step the 10:25
+# executor runs) then replays the execution step in --dry-run, so the SAME
+# "MTF + EMA-SMA Execution" Slack message the morning posts is sent without
+# placing any orders. The score step overwrites mtf_pending (save_pending
+# deletes unconsumed rows first), and next morning's inline score refreshes it
+# again before live execution — no double execution.
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 17:05:00 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target
