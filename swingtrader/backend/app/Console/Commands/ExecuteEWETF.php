@@ -97,6 +97,22 @@ class ExecuteEWETF extends Command
                 return 0;
             }
 
+            // Opening warm-up gate: never trade during the first 30 minutes of
+            // the session (09:30-10:00 ET) — volatile opening auction, wide
+            // spreads. The cron fires every 5 min from 09:00, so without this the
+            // rake/rebalance could place orders right at the open. Skips dry-runs
+            // (previews place no orders) but blocks every live path including
+            // --override/--force-test. Computed from the Alpaca clock timestamp,
+            // not the host clock, to avoid server clock skew.
+            if (!$dryRun) {
+                $secsSinceOpen = $this->secondsSinceSessionOpen($clock);
+                if ($secsSinceOpen !== null && $secsSinceOpen < 1800) {
+                    $this->info('Market open but within the 30-min opening warm-up ('
+                        . max(0, 1800 - $secsSinceOpen) . 's remain) — no trades.');
+                    return 0;
+                }
+            }
+
             $rakeMode = $gainCap > 0;
 
             if ($forceTest) {
@@ -157,6 +173,28 @@ class ExecuteEWETF extends Command
             file_put_contents($statusFile, $timestamp);
         } catch (\Exception $e) {
             \Log::warning('Could not record execution time: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Seconds elapsed since the current session opened (09:30 ET today), using
+     * the Alpaca clock timestamp as the source of truth. Returns null when the
+     * clock timestamp is missing/unparseable (gate then simply doesn't apply).
+     */
+    private function secondsSinceSessionOpen(array $clock): ?float
+    {
+        $clockTs = $clock['timestamp'] ?? null;
+        if (!$clockTs) {
+            return null;
+        }
+        try {
+            $now = new \DateTime($clockTs);
+            $now->setTimezone(new \DateTimeZone('America/New_York'));
+            $open = new \DateTime($now->format('Y-m-d') . ' 09:30:00', new \DateTimeZone('America/New_York'));
+            return $now->getTimestamp() - $open->getTimestamp();
+        } catch (\Exception $e) {
+            \Log::warning('Warm-up gate: could not parse clock timestamp: ' . $e->getMessage());
+            return null;
         }
     }
 

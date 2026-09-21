@@ -326,6 +326,57 @@ class AlpacaService
     }
 
     /**
+     * Get a single order by id (uncached — used for fill polling).
+     */
+    public function getOrder($orderId)
+    {
+        try {
+            $response = $this->makeRequest('get', "{$this->baseUrl}/v2/orders/{$orderId}");
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error("AlpacaService::getOrder({$orderId}) error: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Poll an order until it reaches 'filled' (or a terminal state).
+     *
+     * POST /v2/orders answers with the order still in 'new'/'accepted' —
+     * filled_avg_price is null at that instant. Trading code must NOT record
+     * DB state or claim a trade until this returns a filled order carrying the
+     * real filled_qty/filled_avg_price. Returns the final order object; status
+     * will be 'filled' only if the order actually filled.
+     */
+    public function waitForOrderFill($orderId, $maxRetries = 20, $delaySec = 1)
+    {
+        if (!$orderId) {
+            return null;
+        }
+        $lastOrder = null;
+        for ($i = 0; $i < $maxRetries; $i++) {
+            try {
+                $lastOrder = $this->getOrder($orderId);
+            } catch (\Exception $e) {
+                Log::warning("waitForOrderFill lookup failed for {$orderId}: " . $e->getMessage());
+            }
+            $status = strtolower($lastOrder['status'] ?? '');
+            if ($status === 'filled') {
+                return $lastOrder;
+            }
+            if (in_array($status, ['cancelled', 'canceled', 'expired', 'rejected', 'suspended'], true)) {
+                return $lastOrder;
+            }
+            usleep($delaySec * 1000000);
+        }
+        try {
+            return $lastOrder ?? $this->getOrder($orderId);
+        } catch (\Exception $e) {
+            return $lastOrder;
+        }
+    }
+
+    /**
      * Cancel an order
      */
     public function cancelOrder($orderId)

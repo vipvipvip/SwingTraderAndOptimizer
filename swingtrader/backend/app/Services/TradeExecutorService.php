@@ -178,7 +178,7 @@ class TradeExecutorService
             if ($sellQty < 1) {
                 continue;
             }
-            if ($this->rebalanceTrim($sym, $sellQty)) {
+            if ($this->rebalanceTrim($sym, $sellQty) > 0) {
                 $results['sells'][] = "$sym (rebalance trim $sellQty)";
             }
         }
@@ -311,7 +311,7 @@ class TradeExecutorService
             if ($sellQty <= 0 || $sellQty * $price < 1.0) {
                 continue;
             }
-            if ($this->rebalanceTrim($sym, $sellQty)) {
+            if ($this->rebalanceTrim($sym, $sellQty) > 0) {
                 $results['sells'][] = "$sym (EW trim $sellQty)";
             }
         }
@@ -449,11 +449,17 @@ class TradeExecutorService
                 \Log::info("RAKE skip $sym: bank=\$$bank < \$1 notional at $price");
                 continue;
             }
-            if ($this->rebalanceTrim($sym, $qty)) {
-                $results['sells'][] = "$sym (rake bank \$$bank)";
-                $results['rake_banked'] += $bank;
+            // rebalanceTrim returns the ACTUAL fill price only after the sell
+            // order is confirmed filled on Alpaca. rake_banked is recomputed
+            // from that real fill, so the Slack report/bank figure never claims
+            // a not-yet-filled order or a stale price.
+            $fillPrice = $this->rebalanceTrim($sym, $qty);
+            if ($fillPrice > 0) {
+                $bankFilled = round($fillPrice * $qty - $avgEntry * $qty, 2);
+                $results['sells'][] = "$sym (rake bank \$$bankFilled)";
+                $results['rake_banked'] += $bankFilled;
                 $results['rake_legs'][] = $sym;
-                \Log::info("RAKE $sym: uPnL=\$$unrealized > cap \$$gainCap (avg=\$$avgEntry px=\$$price) -> bank \$$bank profit to cash (qty=$qty @ $price, per-share gain \$$perShareGain)");
+                \Log::info("RAKE $sym: uPnL=\$$unrealized > cap \$$gainCap (avg=\$$avgEntry px=\$$price) -> bank \$$bankFilled profit to cash (qty=$qty, fill=\$$fillPrice, per-share gain \$$perShareGain)");
             }
         }
 
@@ -466,19 +472,24 @@ class TradeExecutorService
     /**
      * Partial sell for rebalance trims. Reduces the open trade's quantity; a
      * closed SELL trade records the trimmed portion so reconciliation skips it.
+     *
+     * Returns the ACTUAL fill price on success (0.0 = no order placed/recorded).
+     * Only a confirmed filled order yields a positive return — a sell that is
+     * still pending when the fill-poll expires leaves the DB untouched and
+     * returns 0.0 so callers never report/claim un-filled trades.
      */
-    private function rebalanceTrim(string $symbol, float $qty): bool
+    private function rebalanceTrim(string $symbol, float $qty): float
     {
         $openTrade = LiveTrade::where('symbol', $symbol)->where('status', 'open')->first();
         if (!$openTrade) {
-            return false;
+            return 0.0;
         }
 
         // Safety guard: verify Alpaca actually holds the position.
         $alpacaPos = $this->getPositionForSymbol($symbol);
         if (!$alpacaPos || floatval($alpacaPos['qty'] ?? 0) <= 0) {
             \Log::warning("REBALANCE TRIM $symbol skipped — Alpaca has no position");
-            return false;
+            return 0.0;
         }
 
         // Use Alpaca's actual qty, not the DB qty
@@ -487,19 +498,36 @@ class TradeExecutorService
             $qty = $currentQty;
         }
         if ($qty <= 0) {
-            return false;
+            return 0.0;
         }
+
+        $price = $this->getCurrentPrice($symbol);
 
         if ($this->dryRun) {
             \Log::info("DRY RUN REBALANCE TRIM $symbol: qty=$qty, newQty=" . ($currentQty - $qty) . " (no order placed)");
-            return true;
+            return $price ?? 0.0;
         }
 
         try {
-            $price = $this->getCurrentPrice($symbol);
             $order = $this->alpacaService->placeOrder($symbol, $qty, 'sell');
-            $fillPrice = floatval($order['filled_avg_price'] ?? $price ?? 0);
             $orderId = $order['id'] ?? null;
+
+            // Wait for the actual fill: POST /v2/orders returns the order in
+            // 'new'/'accepted' with filled_avg_price null. Only a filled order
+            // carries the real fill price, and only then may we record the DB
+            // trade / report it (Slack fires downstream). A never-filled order
+            // leaves the DB untouched so the next cycle + reconciliation handle it.
+            if ($orderId) {
+                $filled = $this->alpacaService->waitForOrderFill($orderId);
+                if ($filled && strtolower($filled['status'] ?? '') === 'filled') {
+                    $order = $filled;
+                } else {
+                    $status = $filled['status'] ?? ($order['status'] ?? 'unknown');
+                    \Log::error("REBALANCE TRIM $symbol: sell order $orderId not filled (status=$status) — DB not updated");
+                    return 0.0;
+                }
+            }
+            $fillPrice = floatval($order['filled_avg_price'] ?? $price ?? 0);
 
             $entryPrice = floatval($openTrade->entry_price ?? 0);
             $pnlDollar = ($fillPrice - $entryPrice) * $qty;
@@ -535,10 +563,10 @@ class TradeExecutorService
                 ]);
             }
             \Log::info("REBALANCE TRIM $symbol: qty=$qty, fill=$fillPrice, newQty=$newQty");
-            return true;
+            return $fillPrice;
         } catch (\Exception $e) {
             \Log::error("Rebalance trim failed for $symbol: " . $e->getMessage());
-            return false;
+            return 0.0;
         }
     }
 
@@ -558,8 +586,18 @@ class TradeExecutorService
         }
         try {
             $order = $this->alpacaService->placeOrder($symbol, $qty, 'buy');
-            $fillPrice = floatval($order['filled_avg_price'] ?? $price);
             $orderId = $order['id'] ?? null;
+            if ($orderId) {
+                $filled = $this->alpacaService->waitForOrderFill($orderId);
+                if ($filled && strtolower($filled['status'] ?? '') === 'filled') {
+                    $order = $filled;
+                } else {
+                    $status = $filled['status'] ?? ($order['status'] ?? 'unknown');
+                    \Log::error("REBALANCE BUY $symbol: buy order $orderId not filled (status=$status) — DB not updated");
+                    return false;
+                }
+            }
+            $fillPrice = floatval($order['filled_avg_price'] ?? $price);
             LiveTrade::create([
                 'ticker_id' => $ticker->id,
                 'symbol' => $symbol,
@@ -600,8 +638,18 @@ class TradeExecutorService
         }
         try {
             $order = $this->alpacaService->placeOrder($symbol, $qty, 'buy');
-            $fillPrice = floatval($order['filled_avg_price'] ?? $price);
             $orderId = $order['id'] ?? null;
+            if ($orderId) {
+                $filled = $this->alpacaService->waitForOrderFill($orderId);
+                if ($filled && strtolower($filled['status'] ?? '') === 'filled') {
+                    $order = $filled;
+                } else {
+                    $status = $filled['status'] ?? ($order['status'] ?? 'unknown');
+                    \Log::error("EW TOP-UP $symbol: buy order $orderId not filled (status=$status) — DB not updated");
+                    return false;
+                }
+            }
+            $fillPrice = floatval($order['filled_avg_price'] ?? $price);
 
             $openTrade = LiveTrade::where('symbol', $symbol)->where('status', 'open')->first();
             if ($openTrade) {
