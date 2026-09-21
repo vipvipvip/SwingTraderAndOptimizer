@@ -5,6 +5,8 @@
 
   $: isPortfolio = strategy.params?.is_portfolio ?? false
   $: inPosition = strategy.in_position ?? false
+  $: isCoreew = strategy.strategy === 'coreew' || strategy.gate != null
+  $: gate = strategy.gate ?? null
 
   $: subTickers = strategies
     .filter(s => s.symbol !== 'BLENDED')
@@ -125,19 +127,19 @@
   <div class="metrics">
     <div class="metric">
       <div class="metric-label">Sharpe Ratio</div>
-      <div class="metric-value">{fmt.sharpe(strategy.params?.sharpe_ratio)}</div>
+      <div class="metric-value">{fmt.sharpe(isCoreew ? null : strategy.params?.sharpe_ratio)}</div>
     </div>
     <div class="metric">
       <div class="metric-label">Win Rate</div>
-      <div class="metric-value">{fmt.pct(strategy.params?.win_rate)}</div>
+      <div class="metric-value">{fmt.pct(isCoreew ? null : strategy.params?.win_rate)}</div>
     </div>
     <div class="metric">
       <div class="metric-label">Return</div>
-      <div class="metric-value">{fmt.pct(strategy.params?.total_return)}</div>
+      <div class="metric-value">{fmt.pct(isCoreew ? strategy.backtest?.total_return : strategy.params?.total_return)}</div>
     </div>
     <div class="metric">
       <div class="metric-label">Max Drawdown</div>
-      <div class="metric-value">{fmt.pct(strategy.params?.max_drawdown)}</div>
+      <div class="metric-value">{fmt.pct(isCoreew ? strategy.backtest?.max_drawdown : strategy.params?.max_drawdown)}</div>
     </div>
   </div>
 
@@ -158,6 +160,45 @@
       <div class="param-row">
         <span>Capital:</span>
         <span>Shared pool ($100k)</span>
+      </div>
+    </div>
+  {:else if isCoreew}
+    <div class="params">
+      <div class="param-row">
+        <span>Strategy:</span>
+        <span>Monotone weekly ratchet gate</span>
+      </div>
+      <div class="param-row">
+        <span>State:</span>
+        <span style="color: {gate?.long ? '#2e7d32' : '#d32f2f'}">{gate?.long ? 'LONG' : 'FLAT'}</span>
+      </div>
+      <div class="param-row">
+        <span>Entries:</span>
+        <span>{gate?.entries ?? '-'}</span>
+      </div>
+      <div class="param-row">
+        <span>Ratchet stop:</span>
+        <span style="color: #d32f2f">${fmt.dec2(gate?.stop)}</span>
+      </div>
+      <div class="param-row">
+        <span>Peak (settled):</span>
+        <span>{fmt.dec2(gate?.peak)}</span>
+      </div>
+      <div class="param-row">
+        <span>Settled week:</span>
+        <span>{gate?.last_week ?? '-'}</span>
+      </div>
+      <div class="param-row">
+        <span>ATR mult:</span>
+        <span>{+strategy.gate_mult}x</span>
+      </div>
+      <div class="param-row">
+        <span>Trades (backtest):</span>
+        <span>{strategy.backtest?.trades ?? '-'}</span>
+      </div>
+      <div class="param-row">
+        <span>Backtest:</span>
+        <span style="color: #999">{strategy.backtest?.note ?? ''}</span>
       </div>
     </div>
   {:else}

@@ -54,9 +54,12 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 > separation is per-cycle).
 > Industry framing: constant-mix + a CPPI-style ratcheting gain bank (Perold &
 > Sharpe 1988). Cost: capped upside in sustained rallies (return drag is the
-> evaporation-insurance premium). **Live since 2026-09-17: `.env`
-> `COREEW_GAIN_CAP=150` (rake ON, replaces the equalize path); set to `0` to
-> return to the pure equalize mode.**
+> evaporation-insurance premium). **Disabled 2026-09-21: `.env`
+> `COREEW_GAIN_CAP=0` + `COREEW_PROFIT_TRIGGER=0` — drift-only guardrail.
+> The rake (09-17→21) sold winners then re-bought them higher each 5-min cycle
+> (~$577K notional churn for ~zero edge over buy-and-hold). Re-enable only via
+> `--gain-cap=`/env after sign-off. When enabled it replaces the equalize
+> path; setting both to `0` returns to the pure drift equalize mode.**
 
 ### Strategy Type
 

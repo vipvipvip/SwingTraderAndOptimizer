@@ -346,6 +346,282 @@ class TradeExecutorService
     }
 
     /**
+     * CoreEW monotone weekly-ratchet gate (research variant B, reset=False).
+     *
+     * Replays the FULL weekly history (settled weekly bars only, date < today)
+     * for the trio through the peak-anchored ratchet: while long, stop = max(
+     * stop, peak - mult*ATR) raised weekly; exit when the settled weekly close
+     * <= stop; re-enter only when a settled weekly close recovers above the
+     * OLD (non-reset) stop. Live == backtest by construction: the same weekly
+     * bars and constants are used, so the state is reproducible — no persisted
+     * gate state machine is needed (only the last settled week acted on, to
+     * keep the 5-min cron from re-acting within the same settled week).
+     *
+     * On action it mirrors backtest B: sell any leg the gate says FLAT, then
+     * rebalance passers (gate-LONG legs) to equal weight (equity / count).
+     * Fill discipline identical to the EW path (waitForOrderFill before any DB
+     * trade/Slack claim).
+     *
+     * Result: buys/sells/errors + 'state' (per symbol long/entries/peak/stop/
+     * last_week) and 'last_week' (the settled weekly bar the action was based
+     * on). 'noop' is set when this settled week was already acted on.
+     */
+    public function runMonotoneGate(bool $dryRun = false, float $mult = 2.0, bool $override = false): array
+    {
+        $this->dryRun = $dryRun;
+
+        if (!$dryRun) {
+            try {
+                $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+            } catch (\Exception $e) {
+                \Log::warning("Monotone gate reconciliation failed: " . $e->getMessage());
+            }
+        }
+
+        $account = [];
+        $positions = [];
+        try {
+            $account = $this->alpacaService->getAccount();
+            $positions = $this->alpacaService->getPositions();
+        } catch (\Exception $e) {
+            \Log::warning("Monotone gate failed to fetch account/positions: " . $e->getMessage());
+            return ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => [$e->getMessage()], 'state' => []];
+        }
+
+        $symbols = Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        if (count($symbols) < 1) {
+            return ['total' => 0, 'buys' => [], 'sells' => [], 'errors' => [], 'state' => []];
+        }
+
+        $results = ['total' => count($symbols), 'buys' => [], 'sells' => [], 'errors' => [], 'state' => []];
+        $accountEquity = floatval($account['equity'] ?? 0);
+        if ($accountEquity <= 0) {
+            $results['errors'][] = 'Account equity <= 0';
+            return $results;
+        }
+
+        $gate = $this->replayMonotoneGate($symbols, $mult);
+        $state = $gate['state'];
+        $lastWeek = $gate['last_week'];
+        $results['state'] = $state;
+        $results['last_week'] = $lastWeek;
+
+        $storage = storage_path('coreew_gate_last_week.txt');
+        $lastActed = null;
+        $actedFile = @file_get_contents($storage);
+        if ($actedFile !== false) {
+            $lastActed = trim($actedFile);
+        }
+        if (!$override && $lastActed !== null && $lastActed === $lastWeek) {
+            $results['noop'] = 'settled week ' . $lastWeek . ' already acted on';
+            return $results;
+        }
+
+        $held = [];
+        $heldVal = [];
+        foreach ($positions ?? [] as $pos) {
+            $held[$pos['symbol']] = floatval($pos['qty'] ?? 0);
+            $heldVal[$pos['symbol']] = floatval($pos['market_value'] ?? 0);
+        }
+
+        $passers = [];
+        foreach ($symbols as $sym) {
+            if (!empty($state[$sym]['long'])) {
+                $passers[] = $sym;
+            }
+        }
+        $perPosition = count($passers) > 0 ? $accountEquity / count($passers) : 0;
+
+        // Pass 1: full exit for legs the gate says FLAT (and non-passers).
+        foreach ($symbols as $sym) {
+            if (in_array($sym, $passers)) {
+                continue;
+            }
+            $qty = $held[$sym] ?? 0;
+            if ($qty <= 0) {
+                continue;
+            }
+            $openTrade = LiveTrade::where('symbol', $sym)->where('status', 'open')->first();
+            if ($openTrade) {
+                if ($this->rebalanceTrim($sym, $qty) > 0) {
+                    $results['sells'][] = "$sym (gate exit)";
+                }
+            } elseif ($this->dryRun) {
+                $results['sells'][] = "$sym (gate exit DRY-only)";
+            } else {
+                $price = $this->getCurrentPrice($sym);
+                if (!$price) {
+                    $results['errors'][] = "$sym gate exit: no price";
+                    continue;
+                }
+                try {
+                    $order = $this->alpacaService->placeOrder($sym, $qty, 'sell');
+                    $orderId = $order['id'] ?? null;
+                    $filled = $orderId ? $this->alpacaService->waitForOrderFill($orderId) : null;
+                    if ($filled && strtolower($filled['status'] ?? '') === 'filled') {
+                        $results['sells'][] = "$sym (gate exit)";
+                    } else {
+                        $results['errors'][] = "$sym gate exit not filled";
+                    }
+                } catch (\Exception $e) {
+                    \Log::error("Monotone gate exit failed for $sym: " . $e->getMessage());
+                    $results['errors'][] = "$sym gate exit failed: " . $e->getMessage();
+                }
+            }
+        }
+
+        // Pass 2: trim overweights among passers to equity/N.
+        foreach ($symbols as $sym) {
+            if (!in_array($sym, $passers)) {
+                continue;
+            }
+            $currentValue = $heldVal[$sym] ?? 0;
+            $excess = $currentValue - $perPosition;
+            if ($excess <= 0) {
+                continue;
+            }
+            $price = $this->getCurrentPrice($sym);
+            if (!$price) {
+                continue;
+            }
+            $sellQty = round($excess / $price, 4);
+            if ($sellQty <= 0 || $sellQty * $price < 1.0) {
+                continue;
+            }
+            if ($this->rebalanceTrim($sym, $sellQty) > 0) {
+                $results['sells'][] = "$sym (gate EW trim $sellQty)";
+            }
+        }
+
+        // Pass 3: top up / re-establish underweight passers to equity/N.
+        foreach ($symbols as $sym) {
+            if (!in_array($sym, $passers)) {
+                continue;
+            }
+            $currentValue = $heldVal[$sym] ?? 0;
+            $needed = $perPosition - $currentValue;
+            if ($needed <= 0) {
+                continue;
+            }
+            $price = $this->getCurrentPrice($sym);
+            if (!$price) {
+                $results['errors'][] = "$sym gate top-up: no price";
+                continue;
+            }
+            $buyQty = round($needed / $price, 4);
+            if ($buyQty <= 0 || $buyQty * $price < 1.0) {
+                continue;
+            }
+            if ($this->rebalanceTopUp($sym, $buyQty, $price)) {
+                $results['buys'][] = $sym;
+            }
+        }
+
+        // Mark the settled week as acted only when the run completed cleanly
+        // (no trade errors) — a failed run retries next cron tick.
+        if (!$dryRun && count($results['errors']) === 0 && $lastWeek) {
+            @file_put_contents($storage, $lastWeek);
+            \Log::info("Monotone gate: recorded acted settled week $lastWeek");
+        } elseif (!$dryRun && count($results['errors']) > 0) {
+            \Log::warning("Monotone gate: NOT recording week $lastWeek due to " . count($results['errors']) . " errors");
+        }
+
+        return $results;
+    }
+
+    /**
+     * Replay the monotone weekly-ratchet gate (variant B, reset=False) over the
+     * settled weekly bars of each symbol. Emulates backtest_trio_ew.weekly_state
+     * collapsed to weekly bars (the gate only changes on weekly-bar boundaries,
+     * so the per-daily-day loop is equivalent). Returns per-symbol long flag,
+     * entry count, peak and ratchet stop, plus the last settled week used.
+     */
+    private function replayMonotoneGate(array $symbols, float $mult): array
+    {
+        $state = [];
+        $lastWeek = null;
+        foreach ($symbols as $sym) {
+            try {
+                $rows = \DB::table('tbl_scanner_tickers as w')
+                    ->join('tbl_stock_tickers as t', 'w.ticker_id', '=', 't.id')
+                    ->where('t.symbol', $sym)
+                    ->where('t.is_etf', true)
+                    ->whereRaw("w.date::date < date_trunc('week', CURRENT_DATE)::date")
+                    ->orderBy('w.date', 'asc')
+                    ->get(['w.date', 'w.close', 'w.atr_stop']);
+            } catch (\Exception $e) {
+                \Log::error("Monotone gate: failed to load weekly bars for $sym: " . $e->getMessage());
+                $state[$sym] = ['long' => false, 'entries' => 0, 'peak' => 0, 'stop' => 0, 'last_week' => null];
+                continue;
+            }
+
+            $long = false;
+            $entries = 0;
+            $peak = 0.0;
+            $stop = 0.0;
+            foreach ($rows as $r) {
+                $weekDate = date('Y-m-d', strtotime($r->date));
+                $close = floatval($r->close);
+                $atrStop = floatval($r->atr_stop ?? 0);
+                $atr = ($atrStop > 0) ? ($close - $atrStop) / 2.0 : 0.0;
+                if ($atr <= 0) {
+                    continue;
+                }
+                if ($long) {
+                    $peak = max($peak, $close);
+                    $stop = max($stop, $peak - $mult * $atr);
+                }
+                if (!$long && $entries === 0) {
+                    $long = true;
+                    $entries = 1;
+                    $peak = $close;
+                    $stop = $close - $mult * $atr;
+                } elseif ($long) {
+                    if ($close <= $stop) {
+                        $long = false;
+                    }
+                } elseif ($entries > 0) {
+                    if ($close > $stop) {
+                        $long = true;
+                        $entries += 1;
+                        $peak = $close;
+                    }
+                }
+                $lastWeek = $weekDate;
+            }
+            $state[$sym] = [
+                'long' => $long,
+                'entries' => $entries,
+                'peak' => round($peak, 2),
+                'stop' => round($stop, 2),
+                'last_week' => $lastWeek,
+            ];
+        }
+        return ['state' => $state, 'last_week' => $lastWeek];
+    }
+
+    /**
+     * Read-only snapshot of the monotone weekly-ratchet gate: current per-leg
+     * LONG/FLAT state, peak, ratchet stop and the last settled week it was
+     * evaluated against. No Alpaca calls, no orders — safe to run anytime
+     * (even when the market is closed or the account is unreachable).
+     */
+    public function monotoneGateState(float $mult = 2.0): array
+    {
+        $symbols = Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+
+        return $this->replayMonotoneGate($symbols, $mult);
+    }
+
+    /**
      * Gain-cap "profit rake" for the CoreEW trio (QQQ/VTI/VTV).
      *
      * Converts paper gains on a winning leg into CASH so they cannot evaporate.

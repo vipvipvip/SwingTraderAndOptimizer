@@ -63,6 +63,11 @@ class StrategyController extends Controller
         return response()->json($strategy);
     }
 
+    public function coreewEquity()
+    {
+        return response()->json($this->strategyService->getCoreewEquity());
+    }
+
     /**
      * @OA\Get(
      *      path="/api/v1/strategies/{symbol}/history",

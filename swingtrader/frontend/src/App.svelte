@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import AccountBalance from './lib/components/AccountBalance.svelte'
   import StrategyCard from './lib/components/StrategyCard.svelte'
-  import EquityCurveChart from './lib/components/EquityCurveChart.svelte'
+  import CoreewEquityChart from './lib/components/CoreewEquityChart.svelte'
   import LivePositionsPanel from './lib/components/LivePositionsPanel.svelte'
   import PnlTable from './lib/components/PnlTable.svelte'
   import TradesHistoryTable from './lib/components/TradesHistoryTable.svelte'
@@ -463,7 +463,7 @@
 
       <div>
         <h2 style="margin: 0 0 16px 0; color: #333;">
-          Strategies
+          CoreEW Strategy — Monotone Weekly Ratchet Gate (mult 2.0)
           {#if summary}
             <span style="font-size: 14px; font-weight: 400; color: #666; margin-left: 12px;">
               Portfolio: {fmtPct(summary.portfolio_return)} |
@@ -480,8 +480,8 @@
 
       {#if selectedSymbol}
         <div class="chart-section">
-          <h2>Equity Curve - {selectedSymbol}</h2>
-          <EquityCurveChart symbol={selectedSymbol} />
+          <h2>CoreEW Backtest Equity Curves (variant B, mult 2.0)</h2>
+          <CoreewEquityChart />
         </div>
       {/if}
 

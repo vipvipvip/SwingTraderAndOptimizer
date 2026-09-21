@@ -65,6 +65,7 @@ Route::prefix('v1')->group(function () {
     Route::put('/tickers/{symbol}/allocation', [TickerController::class, 'updateAllocation']);
 
     Route::get('/strategies', [StrategyController::class, 'index']);
+    Route::get('/strategies/coreew-equity', [StrategyController::class, 'coreewEquity']);
     Route::get('/strategies/{symbol}', [StrategyController::class, 'show']);
     Route::get('/strategies/{symbol}/history', [StrategyController::class, 'optimizationHistory']);
 
