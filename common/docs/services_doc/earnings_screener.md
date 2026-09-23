@@ -74,6 +74,5 @@ AON,GDDY
 ## Files
 
 - `scanner/services/earnings_screener.py` — Main CLI
-- `scanner/services/earnings_screener.md` — In-project docs
 - `common/docs/services_doc/earnings_screener.md` — This file
 - `tbl_earnings_calendar` — DB table caching earnings dates

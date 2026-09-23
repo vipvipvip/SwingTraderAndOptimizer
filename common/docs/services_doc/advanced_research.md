@@ -239,4 +239,4 @@ Combined: 14/20
 - `scanner/services/advanced_research.py` — All advanced feature classes
 - `scanner/services/comprehensive_research.py` — Integration point
 - `scanner/services/sec_research_pdf.py` — Enhanced PDF output
-- `scanner/services/advanced_research.md` — This file
+- `common/docs/services_doc/advanced_research.md` — This file

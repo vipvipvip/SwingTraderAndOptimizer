@@ -473,8 +473,7 @@ Vite is: **dev server + reverse proxy + module bundler** all in one.
 | `scripts/README.md` | References SQLite, 8:18 AM cron, "every 30 min" trades. |
 | `docs/MONITORING.md` | References cron + Docker for DB. |
 | `docs/README.md` | Says "React/Vite frontend" (it's Svelte), "every 5 min" trades. |
-| `Capital Preservation.md` | Mentions old MACD/EMA/SMA strategy. |
-| `docs/Ubuntu-Backend-Services.md` | Architecture diagram shows cron for trades. |
+| `docs/UBUNTU_SETUP.md` | Architecture diagram shows cron for trades. |
 
 ### Q: yes [proceed with cleanup]
 
@@ -490,6 +489,5 @@ Vite is: **dev server + reverse proxy + module bundler** all in one.
 - Fixed `scripts/README.md` — removed SQLite, cron refs, updated for PostgreSQL + systemd
 - Fixed `docs/MONITORING.md` — replaced all Docker/cron commands with systemd/psql equivalents
 - Fixed `docs/README.md` — "React" → "Svelte", "every 5 min" → "every minute"
-- Fixed `docs/Ubuntu-Backend-Services.md` — removed cron from architecture diagram
-- Fixed `Capital Preservation.md` — old MACD strategy → Chandelier Exit
+- Fixed `docs/UBUNTU_SETUP.md` — removed cron from architecture diagram
 - Updated this doc with cleanup/audit transcript

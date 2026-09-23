@@ -10,10 +10,7 @@ Complete guide to the automated swing trading platform.
 - **[How_System_Works.md](How_System_Works.md)** — Architecture, data flow, and component breakdown. **Start here.**
 
 ### Setup & Deployment
-- **[UBUNTU_SETUP.md](UBUNTU_SETUP.md)** — Ubuntu/Linux setup guide with dependencies and basic configuration
-- **[WSL_SETUP.md](WSL_SETUP.md)** — Windows Subsystem for Linux 2 setup guide (fully compatible)
-- **[Ubuntu-Backend-Services.md](Ubuntu-Backend-Services.md)** — Systemd service for Laravel backend (recommended for production)
-- **[Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md)** — Systemd service for frontend (dev or production mode)
+- **[UBUNTU_SETUP.md](UBUNTU_SETUP.md)** — Setup for native Ubuntu or WSL2, plus all systemd services (backend, frontend, optimizer)
 
 ### Operations & Maintenance
 - **[MONITORING.md](MONITORING.md)** — Daily health checks, troubleshooting, and common issues
@@ -33,9 +30,7 @@ Complete guide to the automated swing trading platform.
 | Task | Document |
 |------|----------|
 | Understand how the system works | [How_System_Works.md](How_System_Works.md) |
-| Set up on Windows (WSL2) | [WSL_SETUP.md](WSL_SETUP.md) |
-| Set up on a new Ubuntu server | [UBUNTU_SETUP.md](UBUNTU_SETUP.md) + [Ubuntu-Backend-Services.md](Ubuntu-Backend-Services.md) |
-| Run the frontend as a service | [Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md) |
+| Set up on Windows (WSL2) or a new Ubuntu server | [UBUNTU_SETUP.md](UBUNTU_SETUP.md) |
 | Monitor daily operations | [MONITORING.md](MONITORING.md) |
 | Run a specific command | [COMMAND_REFERENCE.md](COMMAND_REFERENCE.md) |
 | Understand development rules | [BEST_PRACTICES.md](BEST_PRACTICES.md) |
@@ -49,10 +44,7 @@ Complete guide to the automated swing trading platform.
 | Document | Status | Purpose |
 |----------|--------|---------|
 | How_System_Works.md | ✅ Current (v7.5) | System architecture and flow |
-| UBUNTU_SETUP.md | ✅ Updated 2026-04-30 | Linux setup guide |
-| WSL_SETUP.md | ✅ New 2026-04-30 | Windows WSL2 setup guide |
-| Ubuntu-Backend-Services.md | ✅ Current | Production backend service |
-| Ubuntu-Frontend-Services.md | ✅ Current | Production frontend service |
+| UBUNTU_SETUP.md | ✅ Current | Ubuntu/Linux + WSL2 setup & systemd services |
 | MONITORING.md | ✅ Updated 2026-05-14 | Operations guide |
 | COMMAND_REFERENCE.md | ✅ Current | Command reference |
 | BEST_PRACTICES.md | ✅ Current | Development rules |

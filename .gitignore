@@ -68,6 +68,15 @@ swingtrader/services/mtf/.mtf_state*.json
 swingtrader/services/mtf/data/mtf_portfolio_*.csv
 swingtrader/services/mtf/data/mtf_trades_*.csv
 swingtrader/services/ema_sma_crossover/.env
+
+# MTF backtest audit output (regenerable via mtf_audit_template.py)
+swingtrader/services/mtf/audit/**/*.csv
+swingtrader/services/mtf/sector_etf_audit/**/*.csv
+/mtf_top50_*.csv
+
+# Skill/test output (regenerable on demand)
+/monthly_prices/
+/data/*.csv
 swingtrader/services/ema_sma_crossover/.emac_buffer.json
 
 # SwingTrader Laravel runtime (regenerated; not source)

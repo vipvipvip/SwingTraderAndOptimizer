@@ -167,7 +167,7 @@ Example flow:
 
 - `scanner/services/comprehensive_research.py` — Main analysis engine
 - `scanner/services/sec_research_pdf.py` — Enhanced PDF with watchlist integration
-- `scanner/services/comprehensive_research.md` — This file
+- `common/docs/services_doc/comprehensive_research.md` — This file
 
 ## Next Steps
 

@@ -238,5 +238,4 @@ php swingtrader/backend/artisan trades:execute-EW-ETF
 
 - [How_System_Works.md](How_System_Works.md) — System architecture
 - [COMMAND_REFERENCE.md](COMMAND_REFERENCE.md) — All useful commands
-- [Ubuntu-Backend-Services.md](Ubuntu-Backend-Services.md) — Systemd service troubleshooting
-- [Ubuntu-Frontend-Services.md](Ubuntu-Frontend-Services.md) — Frontend service troubleshooting
+- [UBUNTU_SETUP.md](UBUNTU_SETUP.md) — Systemd service setup & troubleshooting
