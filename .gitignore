@@ -76,6 +76,7 @@ swingtrader/backend/storage/framework/views/
 swingtrader/backend/storage/framework/sessions/
 swingtrader/backend/storage/coreew_equity.json
 swingtrader/backend/storage/coreew_equity.lock
+swingtrader/backend/storage/coreew_gate_last_week.txt
 
 # Runtime state/logs (machine-specific; fresh start on new server)
 scanner/services/.earnings_screener_state.json

@@ -161,6 +161,8 @@ swingtrader/services/optimizer/venv/bin/python3 swingtrader/services/scripts/alp
 CoreEW + with Ratchet ATR Stop as montone gated:
 cd /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/backend
 php artisan trades:EW-gate-state
+TOS chart ratchet plot (matches trades:EW-gate-state; use WEEKLY aggregation):
+/home/dikesh/data/dev/SwingTraderAndOptimizer/common/tos/coreew_ratchet_stop.ts
 ===================================================================
 
 ===================================================================

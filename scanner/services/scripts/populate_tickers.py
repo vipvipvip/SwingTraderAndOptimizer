@@ -222,7 +222,16 @@ def process_ticker(symbol, client, tf_name, global_start, priority=False):
                 latest_date = latest
             else:
                 latest_date = datetime.strptime(str(latest)[:10], '%Y-%m-%d').date()
-            start = datetime.combine(latest_date + timedelta(days=1), datetime.min.time(), tzinfo=NY)
+            # Weekly bars are stamped at the ISO-week start (Monday). Starting the
+            # fetch at latest_date + 1 would EXCLUDE the current week's Monday-stamped
+            # bar forever, leaving it frozen at the first-day snapshot it was inserted
+            # with. Weekly must re-fetch from the latest stored Monday each run so the
+            # in-progress week is returned again and upserted over the frozen row.
+            # Daily/hourly bars are stamped at their own date/hour, so latest+1 is correct.
+            if tf_name == 'week':
+                start = datetime.combine(latest_date, datetime.min.time(), tzinfo=NY)
+            else:
+                start = datetime.combine(latest_date + timedelta(days=1), datetime.min.time(), tzinfo=NY)
         else:
             # No data yet — use the global start (2015-01-01 or computed lookback)
             start = global_start
@@ -281,7 +290,12 @@ def process_ticker(symbol, client, tf_name, global_start, priority=False):
                     f"""
                         INSERT INTO {table} (ticker_id, date, open, high, low, close, volume)
                         VALUES %s
-                        ON CONFLICT (ticker_id, date) DO NOTHING
+                        ON CONFLICT (ticker_id, date) DO UPDATE SET
+                            open = EXCLUDED.open,
+                            high = EXCLUDED.high,
+                            low = EXCLUDED.low,
+                            close = EXCLUDED.close,
+                            volume = EXCLUDED.volume
                     """,
                     rows,
                 )
