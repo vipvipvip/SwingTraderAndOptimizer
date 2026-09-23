@@ -35,7 +35,7 @@ TIMEFRAMES = {
 }
 
 # Delisted / taken-over / dead tickers. Never re-populate or re-add these.
-DEAD_TICKERS = {'FBRX', 'SAFT'}
+DEAD_TICKERS = {'FBRX', 'SAFT', 'GRAL'}
 
 
 def fetch_sp500_tickers():
