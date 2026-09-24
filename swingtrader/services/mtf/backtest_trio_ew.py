@@ -188,22 +188,28 @@ def weekly_state_daily_reentry(daily_dates, d_close, w_dates, w_close, w_atr, wp
     return long_flags, entries, stops
 
 
-def run_sim(daily_dates, closes, passers, reb, cost, entry_daily=False):
+def run_sim(daily_dates, closes, passers, reb, cost, entry_daily=False,
+            fill_signal_close=False):
     """Daily sim. passers[i] = symbols long that day (signal i, filled i+1);
     reb[i] = rebalance back to equal weight among passers on that signal day.
     entry_daily: buy a newly-signalled passer the day after the signal (mid-week
-    re-entries), independent of the weekly rebalance cadence."""
+    re-entries), independent of the weekly rebalance cadence.
+    fill_signal_close: fill at the signal day's OWN close instead of the next
+    day's close — matches the live gate, which decides Monday from the settled
+    Friday bar and trades at Monday's price."""
     positions = {}
     cash = CAPITAL
     eq = []
     eq_dates = []
     buys = sells = 0
-    for i in range(len(daily_dates)):
-        if i + 1 >= len(daily_dates):
-            break
-        exec_date = daily_dates[i + 1]
+    last = len(daily_dates) if fill_signal_close else len(daily_dates) - 1
+    for i in range(last):
+        exec_date = daily_dates[i]
+        px = {s: closes[s][i] for s in closes}
+        if not fill_signal_close:
+            exec_date = daily_dates[i + 1]
+            px = {s: closes[s][i + 1] for s in closes}
         sig_pass = {s for s in passers if passers[s][i]}
-        px = {s: closes[s][i + 1] for s in closes}
 
         for sym in list(positions):
             if sym not in sig_pass:
@@ -238,7 +244,7 @@ def run_sim(daily_dates, closes, passers, reb, cost, entry_daily=False):
                     positions[sym] -= sh
                     sells += 1
 
-        mark = cash + sum(sh * closes[s][i + 1] for s, sh in positions.items())
+        mark = cash + sum(sh * px[s] for s, sh in positions.items())
         eq.append(mark)
         eq_dates.append(exec_date)
     return np.array(eq), eq_dates, buys, sells
@@ -292,6 +298,171 @@ def run_score_sim(dates, closes, scores, start, cost):
     return np.array(eq), eq_dates, buys, sells
 
 
+def settled_weekly_ref(daily_dates, w_dates):
+    """Index of the last SETTLED weekly bar per daily day — a weekly bar is
+    settled only once bar_date + 7 <= day (its Friday close is in the past).
+
+    Unlike pos_of (which points at the in-progress Monday row whose close
+    keeps moving through the week), this lags one full week: the decision
+    made on any day of week W uses week W-1's settled Friday close, with no
+    knowledge of the current week's price action."""
+    pos = np.full(len(daily_dates), -1, dtype=int)
+    j = -1
+    for i, d in enumerate(daily_dates):
+        while j + 1 < len(w_dates) and (w_dates[j + 1] + timedelta(days=7)) <= d:
+            j += 1
+        pos[i] = j
+    return pos
+
+
+def settled_week_flags(daily_dates, w_dates, w_close, w_atr, mult, reset):
+    """Weekly ratchet-gate long flags driven by the SETTLED weekly bars only.
+
+    Same monotone gate logic as weekly_state, but the weekly series is lagged
+    one full week (settled_weekly_ref): any decision on a day in week W uses
+    week W-1's settled Friday close, with no knowledge of the current week's
+    price action.
+
+    Flag transitions (flips) therefore land on the first trading day after a
+    New settled week becomes available — the following Monday — so executing
+    at that day's close = decide on previous Friday, fill on Monday."""
+    flags = np.zeros(len(daily_dates), dtype=bool)
+    long = False
+    peak = stop = 0.0
+    seen = -1
+    sref = settled_weekly_ref(daily_dates, w_dates)
+    for i, d in enumerate(daily_dates):
+        wi = sref[i]
+        if wi < 0:
+            continue
+        if wi != seen:
+            if seen < 0:
+                long = True
+                peak = w_close[wi]
+                stop = w_close[wi] - mult * (w_atr[wi] if w_atr[wi] > 0 else 0.0)
+            else:
+                if long:
+                    peak = max(peak, w_close[wi])
+                    stop = max(stop, peak - mult * (w_atr[wi] if w_atr[wi] > 0 else 0.0))
+                if w_close[wi] <= stop:
+                    long = False
+                elif not long and w_close[wi] > stop:
+                    long = True
+                    peak = w_close[wi]
+                    if reset:
+                        stop = w_close[wi] - mult * (w_atr[wi] if w_atr[wi] > 0 else 0.0)
+            seen = wi
+        flags[i] = long
+    return flags
+
+
+def run_settled_sim(daily_dates, closes, flags, cost):
+    """Weekly sim driven by the SETTLED weekly bars only.
+
+    flags[s][i] = whether symbol s is long on day i. Transitions happen only
+    on the Monday a new settled week becomes available, and — unlike run_sim —
+    the book is rebalanced to equal weight among passers AT THAT SAME DAY'S
+    CLOSE (the Monday close). There is no +1-day fill here: decide on the
+    previous Friday, fill on Monday."""
+    positions = {}
+    cash = CAPITAL
+    eq = []
+    eq_dates = []
+    buys = sells = 0
+    last_set = None
+    for i, exec_date in enumerate(daily_dates):
+        sig = {s for s in flags if flags[s][i]}
+        px = {s: closes[s][i] for s in closes}
+        if sig != last_set:
+            for sym in list(positions):
+                if sym not in sig:
+                    cash += positions[sym] * px[sym] * (1 - cost)
+                    sells += 1
+                    del positions[sym]
+            if sig:
+                total = cash + sum(positions.get(s, 0.0) * px[s] for s in sig)
+                per = total / len(sig)
+                for sym in sig:
+                    held_val = positions.get(sym, 0.0) * px[sym]
+                    diff = per - held_val
+                    if diff > 0:
+                        sh = diff / px[sym] * (1 - cost)
+                        cash -= sh * px[sym]
+                        positions[sym] = positions.get(sym, 0.0) + sh
+                        buys += 1
+                    elif diff < 0:
+                        sh = min(positions[sym], -diff / px[sym])
+                        cash += sh * px[sym] * (1 - cost)
+                        positions[sym] -= sh
+                        sells += 1
+            last_set = sig
+        mark = cash + sum(sh * closes[s][i] for s, sh in positions.items())
+        eq.append(mark)
+        eq_dates.append(exec_date)
+    return np.array(eq), eq_dates, buys, sells
+
+
+def prev_friday_close(dates, closes, sym, i):
+    """Close of the most recent settled Friday on or just before day i — the
+    settled weekly close that should have driven the decision (the previous
+    Friday relative to the Monday fill)."""
+    for k in range(i, -1, -1):
+        if dates[k].isoweekday() == 5:
+            return float(closes[sym][k])
+    return float(closes[sym][i])
+
+
+def write_settled_roundtrip_csvs(dates, closes, flags, syms, outdir, variant):
+    """Pair settled-week entry/exit flips into one round-trip row per trade.
+
+    Each row carries the previous-FRIDAY available close (the settled weekly
+    close that drove the decision) and the MONDAY actual close (the execution
+    price) for both entry and exit — so "fill == Monday close" is visible and
+    verifiable per trade instead of asserted permanently."""
+    os.makedirs(outdir, exist_ok=True)
+    for sym in syms:
+        trips = []
+        open_dt = open_px = open_fri = None
+        for i in range(len(dates)):
+            cur = bool(flags[sym][i])
+            prev = bool(flags[sym][i - 1]) if i > 0 else False
+            monday_px = closes[sym][i]
+            friday_px = prev_friday_close(dates, closes, sym, i)
+            if cur and not prev:
+                open_dt, open_px, open_fri = dates[i], monday_px, friday_px
+            elif (not cur and prev) and open_dt is not None:
+                exit_dt, exit_px, exit_fri = dates[i], monday_px, friday_px
+                pct = (exit_px / open_px - 1.0) * 100 if open_px else 0.0
+                days = (exit_dt - open_dt).days
+                trips.append((open_dt, open_px, open_fri, exit_dt, exit_px,
+                              exit_fri, pct, days, 'WIN' if pct >= 0 else 'LOSS'))
+                open_dt = open_px = open_fri = None
+        if open_dt is not None:
+            last_px = closes[sym][-1]
+            last_fri = prev_friday_close(dates, closes, sym, len(dates) - 1)
+            pct = (last_px / open_px - 1.0) * 100 if open_px else 0.0
+            trips.append((open_dt, open_px, open_fri, dates[-1], last_px,
+                          last_fri, pct, (dates[-1] - open_dt).days, 'OPEN'))
+        n_win = sum(1 for t in trips if t[8] == 'WIN')
+        path = os.path.join(outdir, f'{variant}_settled_roundtrips_{sym}.csv')
+        with open(path, 'w') as f:
+            f.write('entry_date,entry_price,entry_prev_friday,'
+                    'exit_date,exit_price,exit_prev_friday,pct_change,days_held,result\n')
+            for dt, px, fri, xd, xpx, xfri, pct, days, res in trips:
+                f.write(f'{dt},{px:.4f},{fri:.4f},{xd},{xpx:.4f},{xfri:.4f},'
+                        f'{pct:+.2f},{days},{res}\n')
+        print(f'  wrote settled round-trip CSV {path} ({len(trips)} trips, '
+              f'{n_win} win)')
+        trips_win = sum(1 for t in trips if t[8] == 'WIN')
+        print(f'        {sym}: {len(trips)} trips, win {trips_win} '
+              f'({100*trips_win/max(1,len(trips)):.0f}%)')
+
+
+def prev_friday_close_week(dates, closes, sym, i):
+    """Previous-Friday close pair lookup for the roundtrip CSV writer."""
+    return prev_friday_close(dates, closes, sym, i)
+
+
 def weekly_rets(eq, dates):
     """Portfolio return per ISO week boundary."""
     out = []
@@ -317,21 +488,24 @@ def stats(eq, dates, label):
     return total, dd, wr
 
 
-def write_trade_csvs(dates, closes, flags, stops, syms, outdir, variant):
+def write_trade_csvs(dates, closes, flags, stops, syms, outdir, variant,
+                     fill_signal_close=False):
     """Per-ticker gate entry/exit trades as CSVs for chart-walking.
 
-    Fill = day after the signal, at next-day close (matches run_sim).
+    Fill = day after the signal, at next-day close (matches run_sim), unless
+    fill_signal_close — then the fill is the signal day's own close.
     stop_signal = the ratchet-stop level in force at signal time."""
     os.makedirs(outdir, exist_ok=True)
     for sym in syms:
         rows = []
         prev = False
-        for i in range(len(dates) - 1):
+        for i in range(len(dates)):
             cur = bool(flags[sym][i])
             if cur != prev:
                 act = 'BUY' if cur else 'SELL'
                 st = stops[sym][i]
-                rows.append((dates[i + 1], act, closes[sym][i + 1],
+                j = i if fill_signal_close else min(i + 1, len(dates) - 1)
+                rows.append((dates[j], act, closes[sym][j],
                              f'{st:.4f}' if not np.isnan(st) else ''))
             prev = cur
         path = os.path.join(outdir, f'{variant}_{sym}.csv')
@@ -424,6 +598,10 @@ def main():
                     help=f'ATR multiplier for the gate (default {MULT})')
     ap.add_argument('--no-reset', action='store_true',
                     help='pure monotone gate (no ratchet reset on re-entry)')
+    ap.add_argument('--fill-signal-close', action='store_true',
+                    help="B': fill at the signal day's own close (Monday) "
+                         'instead of next-day close — matches the live gate, '
+                         'which decides Monday from the settled Friday bar')
     ap.add_argument('--tickers', default=','.join(CORE))
     ap.add_argument('--start', default=TS_START,
                     help=f'first backtest date (default {TS_START})')
@@ -431,6 +609,13 @@ def main():
                     help='skip variant D (score-proportional)')
     ap.add_argument('--reentry-daily', action='store_true',
                     help='variant E: same ratchet exit as B, but daily close re-entry')
+    ap.add_argument('--settled-friday', action='store_true',
+                    help='variant S: same ratchet gate as B but driven ONLY by '
+                         'settled (previous-Friday) weekly bars; decide on the '
+                         'previous settled Friday, fill at the following Monday '
+                         'close (no mid-week knowledge). Emits one round-trip '
+                         'row per trade with prev-Friday + Monday-close both '
+                         f'shown, so fill == Monday close is verifiable.')
     ap.add_argument('--csv-trades', action='store_true',
                     help='write per-ticker gate trade CSVs + exposure timeline to --csv-dir')
     ap.add_argument('--csv-dir', default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -478,6 +663,15 @@ def main():
             flagsB[s], entriesB[s], stopsB[s] = f, e, st
         eqB, dB, bB, sB = run_sim(daily_dates, closes, flagsB, reb, COST)
 
+        # B': the same monotone gate as B but filled at the signal day's OWN
+        # close (Monday) instead of the next day's close (Tuesday) — mirrors
+        # the live gate, which decides Monday on the settled Friday bar and
+        # trades at Monday's price. reb is also applied at the Monday close.
+        eqBp = dBp = None
+        if args.fill_signal_close:
+            eqBp, dBp, bBp, sBp = run_sim(daily_dates, closes, flagsB, reb, COST,
+                                          fill_signal_close=True)
+
         # E: B with daily re-entry (only when requested)
         eqE = dE = bE = sE = None
         flagsE = entriesE = stopsE = None
@@ -490,6 +684,20 @@ def main():
                 flagsE[s], entriesE[s], stopsE[s] = f, e, st
             eqE, dE, bE, sE = run_sim(daily_dates, closes, flagsE, reb, COST,
                                       entry_daily=True)
+
+        # S: settled-Friday variant — the same ratchet gate as B, but driven
+        # ONLY by SETTLED weekly bars: a decision on any day of week W uses
+        # week W-1's settled Friday close (settled lag), never the current
+        # week's price action.btn; filled at the next Monday close. Additive.
+        eqS = dS = bS = sS = None
+        flagsS = None
+        if args.settled_friday:
+            flagsS = {}
+            for s in tickers:
+                d, c, a = weekly[s]
+                flagsS[s] = settled_week_flags(daily_dates, d, c, a,
+                                               args.mult, not args.no_reset)
+            eqS, dS, bS, sS = run_settled_sim(daily_dates, closes, flagsS, COST)
 
         # D: score-proportional (weekly CO + daily CO, re-applied daily).
         # Warm-up data pulled from before ts_start so EMA10/SMA40 are non-NaN
@@ -540,6 +748,8 @@ def main():
         stats(bh_eq, daily_dates, 'C. B&H (equal-weight)')
         stats(eqA, dA, 'A. EW weekly-rebalance')
         stats(eqB, dB, 'B. EW + weekly-ratchet gate')
+        if eqBp is not None:
+            stats(eqBp, dBp, "B'. B, Mon-close fill (live-like)")
 
         daily_long = sum(1 for i in range(len(daily_dates))
                          if sum(flagsB[s][i] for s in tickers) > 0)
@@ -556,6 +766,17 @@ def main():
                   f'{100*e_long/max(1,len(daily_dates)):.0f}% of days some ETF long '
                   f'(entries per ETF: {", ".join(f"{s}={entriesE[s]}" for s in tickers)})')
 
+        # S: settled-week ratchet gate. Decisions use ONLY the previous settled
+        # Friday's close (settled_week_flags — not the current week's price
+        # action), so the first trading day a new settled week becomes
+        # available (Monday) is where fills land — at the Monday close.
+        if eqS is not None:
+            stats(eqS, dS, 'S. settled-week ratchet gate (prev Fri -> Mon close)')
+            s_long = sum(1 for i in range(len(daily_dates))
+                         if sum(flagsS[s][i] for s in tickers) > 0)
+            print(f'  S:    {bS} buys / {sS} sells | '
+                  f'{100*s_long/max(1,len(daily_dates)):.0f}% of days some ETF long')
+
         if eqD is not None:
             stats(eqD, dD, 'D. score-proportional (W+D CO, daily)')
             print(f'  D:    {bD} buys / {sD} sells | '
@@ -569,12 +790,16 @@ def main():
         if args.csv_trades:
             annual_exposure(daily_dates, flagsB, tickers)
             write_trade_csvs(daily_dates, closes, flagsB, stopsB, tickers,
-                             args.csv_dir, 'B')
+                             args.csv_dir, 'B',
+                             fill_signal_close=args.fill_signal_close)
             write_roundtrip_csvs(daily_dates, closes, flagsB, tickers,
                                  args.csv_dir, 'B')
             if eqE is not None:
                 write_trade_csvs(daily_dates, closes, flagsE, stopsE, tickers,
                                  args.csv_dir, 'E')
+            if eqS is not None:
+                write_settled_roundtrip_csvs(daily_dates, closes, flagsS,
+                                             tickers, args.csv_dir, 'S')
     finally:
         conn.close()
 
