@@ -607,6 +607,23 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
                 return date_map.get(d)
         return None
 
+    def _settled_weekly_idx(weekly_idx, weekly_dates, today):
+        """Index of the last COMPLETED weekly bar: the Monday-stamped row whose
+        week has fully passed (bar_date + 7 <= today), so its settled Friday
+        close is in the DB. Excludes the in-progress week's running aggregate.
+
+        Fixes live==backtest parity (2026-09-24): the old nearest-date read
+        pulled the in-progress Monday-stamped bar intraweek (e.g. SMH week of
+        2026-09-21 had close 594.49 = a partial week-to-date close), making the
+        rotation react intraweek to a half-baked weekly bar, while the backtest
+        (exact Monday match) only re-ranked weekly. Now both use the last fully
+        settled week; a new week enters on its following Monday."""
+        cutoff = today - timedelta(days=7)
+        for d in reversed(weekly_dates):
+            if d <= cutoff:
+                return weekly_idx.get(d)
+        return None
+
     latest_date = db_module.get_latest_daily_bar_date(conn)
     if latest_date is None:
         conn.close()
@@ -640,9 +657,21 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     STALE_LAG_DAYS = 1  # allow a single missing trading day; flag >=2
 
     candidates = []
+    # Settled-week gate: emasma scoring (ETF rotation + stock emasma) reads
+    # ONLY completed weekly bars — the last Monday-stamped row whose week has
+    # fully passed (bar_date + 7 <= today) and whose settled Friday close is
+    # in the DB. Without this, the in-progress week's running aggregate (e.g.
+    # SMH 2026-09-21 close 594.49 = partial week-to-date) let the rotation
+    # react intraweek to a half-baked weekly bar; the backtest (which
+    # exact-matches Monday bars) only re-ranked on Mondays. Live now matches
+    # backtest: a new settled week enters at the run after its Friday.
+    use_settled_weekly = is_etf or strategy == 'emasma'
     for tid in weekly_data:
         di = _nearest_date_idx(daily_idx[tid], daily_dates_sorted[tid], sig_date)
-        wi = _nearest_date_idx(weekly_idx[tid], weekly_dates_sorted[tid], sig_date)
+        if use_settled_weekly:
+            wi = _settled_weekly_idx(weekly_idx[tid], weekly_dates_sorted[tid], today)
+        else:
+            wi = _nearest_date_idx(weekly_idx[tid], weekly_dates_sorted[tid], sig_date)
         if di is None or wi is None:
             continue
         # Fix #2: exclude tickers whose last daily bar lags the prior complete
