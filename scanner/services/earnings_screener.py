@@ -2,14 +2,17 @@
 """
 Earnings Screener CLI
 ---------------------
-Finds stocks with upcoming earnings where hourly MACD just turned positive.
-The pattern: hourly MACD turns bullish BEFORE earnings → potential earnings pop.
+Finds stocks with upcoming earnings where DAILY MACD just turned positive.
+The pattern: daily MACD turns bullish BEFORE earnings -> potential earnings pop.
+
+MACD is computed inline from settled daily closes (the stored MACD columns were
+dropped 2026-09-26 as lookahead-biased legacy artifacts).
 
 Usage:
     python earnings_screener.py --refresh          # Cache next 4 weeks of earnings dates
     python earnings_screener.py                    # Run screener (default: 14 days)
     python earnings_screener.py --days 7           # Look 7 days ahead
-    python earnings_screener.py --min-freshness 3  # Only signals from last 3 days
+    python earnings_screener.py --min-freshness 3  # Only signals whose daily cross is <= 3 bars old
 """
 
 import argparse
@@ -84,7 +87,7 @@ def _send_slack_message(results):
         return
 
     # Build the same table format as terminal output
-    lines = ["*Earnings Crossover — Upcoming Earnings + Bullish Hourly MACD*\n"]
+    lines = ["*Earnings Crossover — Upcoming Earnings + Bullish Daily MACD*\n"]
     lines.append("```")
     lines.append(f"{'Ticker':<8} {'Earnings':>10} {'Days':>5} {'MACD':>8} {'Signal':>8} {'Hist':>8} {'Close':>8} {'Fresh':>6}")
     lines.append(f"{'-'*8} {'-'*10} {'-'*5} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*6}")
@@ -206,15 +209,48 @@ def get_upcoming_earnings(days_ahead: int = 14) -> list:
     return results
 
 
-def check_hourly_macd(ticker: str) -> dict:
+def _macd_series(closes, fast=12, slow=26, signal=9):
+    """Full MACD line / signal / histogram series, computed inline from closes.
+
+    The stored MACD columns were dropped from the bar tables 2026-09-26 (they
+    were lookahead-biased legacy artifacts), so MACD is derived here from raw
+    closes instead of being read from the database.
+
+    Each EMA is seeded with an SMA of its first `period` bars (standard
+    convention) so early values are not distorted by a slow-decaying seed.
+    Returns (None, None, None) when there isn't enough history.
     """
-    Check if hourly MACD line crossed above zero recently.
+    if len(closes) < slow + signal:
+        return None, None, None
+
+    def ema(vals, period):
+        k = 2.0 / (period + 1.0)
+        out = [sum(vals[:period]) / period]          # SMA seed
+        for v in vals[period:]:
+            out.append(v * k + out[-1] * (1 - k))
+        return out
+
+    fast_e = ema(closes, fast)
+    slow_e = ema(closes, slow)
+    # fast_e is longer by (slow - fast) bars; align on the tail.
+    macd_line = [f - s for f, s in zip(fast_e[slow - fast:], slow_e)]
+    sig = ema(macd_line, signal)
+    hist = [m - s for m, s in zip(macd_line[len(macd_line) - len(sig):], sig)]
+    return macd_line, sig, hist
+
+
+def check_daily_macd(ticker: str) -> dict:
+    """
+    Check if the DAILY MACD line crossed above zero recently.
     Only returns results if the LAST crossover was bullish (MACD line crossing above 0).
+
+    Reads settled daily bars only (the newest complete date), matching the
+    project's settled-bar rule: a partial current-day bar must never drive a
+    signal.
     """
     conn = get_db_conn()
     cur = conn.cursor()
 
-    # Get ticker_id first
     cur.execute("SELECT id FROM tbl_stock_tickers WHERE symbol = %s", (ticker,))
     result = cur.fetchone()
     if not result:
@@ -224,65 +260,71 @@ def check_hourly_macd(ticker: str) -> dict:
 
     ticker_id = result[0]
 
-    # Get latest hourly bars with MACD line crossover detection
-    cur.execute("""
-        WITH crosses AS (
-            SELECT date, macd_line, macd_signal, macd_histogram, close,
-                   CASE 
-                       WHEN macd_line > 0 AND LAG(macd_line) OVER (ORDER BY date) <= 0 THEN 'BULL'
-                       WHEN macd_line <= 0 AND LAG(macd_line) OVER (ORDER BY date) > 0 THEN 'BEAR'
-                   END as cross_type
-            FROM tbl_scanner_tickers_1hour
-            WHERE ticker_id = %s
-        )
-        SELECT date, macd_line, macd_signal, macd_histogram, close, cross_type
-        FROM crosses
-        ORDER BY date DESC
-        LIMIT 30
-    """, (ticker_id,))
+    # Last complete daily date across the whole table = the settled bar date.
+    cur.execute("SELECT max(date) FROM tbl_scanner_tickers_daily")
+    settled = cur.fetchone()[0]
+    if settled is None:
+        cur.close()
+        conn.close()
+        return None
 
+    # Oldest-first close series, settled bars only.
+    cur.execute("""
+        SELECT date, close
+        FROM tbl_scanner_tickers_daily
+        WHERE ticker_id = %s AND date <= %s AND close IS NOT NULL
+        ORDER BY date ASC
+        LIMIT 400
+    """, (ticker_id, settled))
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
-    if len(rows) < 2:
+    if len(rows) < 40:
         return None
 
-    # Find the LAST crossover event
+    dates = [r[0] for r in rows]
+    closes = [float(r[1]) for r in rows]
+
+    series_m, series_s, series_h = _macd_series(closes)
+    if series_m is None:
+        return None
+
+    # Find the LAST zero-line crossover of the MACD line (newest -> oldest).
     last_cross = None
     last_cross_idx = None
-    for i, row in enumerate(rows):
-        if row[5] is not None:  # cross_type is not null
-            last_cross = row[5]
-            last_cross_idx = i
+    for i in range(len(series_m) - 1, 0, -1):
+        prev = series_m[i - 1]
+        cur_m = series_m[i]
+        if prev is None or cur_m is None:
+            continue
+        if prev <= 0 < cur_m:
+            last_cross, last_cross_idx = 'BULL', i
+            break
+        if prev > 0 >= cur_m:
+            last_cross, last_cross_idx = 'BEAR', i
             break
 
-    # If no crossover found, skip
-    if last_cross is None:
+    if last_cross is None or last_cross != 'BULL':
         return None
 
-    # Only keep if last crossover was BULLISH (MACD line crossed above 0)
-    if last_cross != 'BULL':
-        return None
-
-    # Current state
-    curr_date = rows[0][0]
-    curr_macd = rows[0][1]
-    curr_signal = rows[0][2]
-    curr_hist = rows[0][3]
-    curr_close = rows[0][4]
+    curr_macd = series_m[-1]
+    curr_signal = series_s[-1]
+    curr_hist = series_h[-1]
+    curr_close = closes[-1]
+    curr_date = dates[-1]
 
     if curr_macd is None or curr_close is None:
         return None
 
-    # Freshness = number of bars since last crossover
-    freshness = last_cross_idx
+    # Freshness = number of DAILY bars since the crossover.
+    freshness = (len(series_m) - 1) - last_cross_idx
 
     return {
         'ticker': ticker,
         'macd_bullish': curr_macd > 0,
-        'just_turned_positive': last_cross_idx == 0,  # Crossover happened on latest bar
-        'freshness': freshness,  # 0 = today, 1 = yesterday, etc.
+        'just_turned_positive': freshness == 0,  # crossover on the latest settled bar
+        'freshness': freshness,                  # 0 = latest settled bar, 1 = prior, etc.
         'macd': curr_macd,
         'macd_signal': curr_signal,
         'macd_hist': curr_hist,
@@ -291,9 +333,10 @@ def check_hourly_macd(ticker: str) -> dict:
     }
 
 
+
 def run_screener(days_ahead: int = 14, fresh_only: bool = True, send_slack: bool = False):
     """
-    Screen for stocks with upcoming earnings AND bullish hourly MACD.
+    Screen for stocks with upcoming earnings AND bullish daily MACD.
     Sorted by freshness (most recent crossover first).
     """
     # Step 1: Get tickers with upcoming earnings
@@ -305,12 +348,12 @@ def run_screener(days_ahead: int = 14, fresh_only: bool = True, send_slack: bool
         return
 
     print(f"Found {len(upcoming)} tickers with earnings in next {days_ahead} days.")
-    print("Checking hourly MACD signals...\n")
+    print("Checking daily MACD signals...\n")
 
     results = []
 
     for ticker, earnings_date, quarter, year in upcoming:
-        macd_info = check_hourly_macd(ticker)
+        macd_info = check_daily_macd(ticker)
 
         if macd_info is None:
             continue
@@ -333,11 +376,11 @@ def run_screener(days_ahead: int = 14, fresh_only: bool = True, send_slack: bool
 
     # Display results
     if not results:
-        print("No stocks match criteria (upcoming earnings + bullish hourly MACD).")
+        print("No stocks match criteria (upcoming earnings + bullish daily MACD).")
         return
 
     print(f"{'='*80}")
-    print(f"EARNINGS MOMENTUM SCREENER — {len(results)} stocks with upcoming earnings + bullish MACD")
+    print(f"EARNINGS MOMENTUM SCREENER — {len(results)} stocks with upcoming earnings + bullish DAILY MACD")
     print(f"{'='*80}\n")
 
     print(f"{'Ticker':<8} {'Earnings':>10} {'Days':>5} {'MACD':>8} {'Signal':>8} {'Hist':>8} {'Close':>8} {'Fresh':>6}")
@@ -414,7 +457,7 @@ def show_stats():
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Earnings Momentum Screener — Find stocks with upcoming earnings + bullish hourly MACD'
+        description='Earnings Momentum Screener — Find stocks with upcoming earnings + bullish daily MACD'
     )
     parser.add_argument('--refresh', action='store_true',
                         help='Refresh earnings calendar cache (next 4 weeks)')

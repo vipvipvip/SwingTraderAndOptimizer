@@ -1,11 +1,16 @@
 # Earnings Crossover Screener
 
-Finds stocks with upcoming earnings where hourly MACD line just crossed above zero — the pattern that preceded IP, SW, and SLB's ~11% earnings pops.
+Finds stocks with upcoming earnings where the DAILY MACD line just crossed above zero.
+
+> **Changed 2026-09-26:** converted from hourly to daily MACD. The stored MACD/PPO
+> columns were dropped from all bar tables as lookahead-biased legacy artifacts, so
+> MACD is now computed inline from settled daily closes. Hourly bars remain in the
+> DB for the MTF stock leg only.
 
 ## Strategy
 
 1. **Earnings calendar** — cache upcoming earnings dates from yfinance (refreshed weekly)
-2. **MACD line crossover** — check if hourly MACD line crossed above zero (bullish signal)
+2. **MACD line crossover** — check if the DAILY MACD line crossed above zero (bullish signal)
 3. **Last crossover must be bullish** — skip if last crossover was bearish
 4. **Freshness sort** — show most recent crossovers first
 
@@ -37,6 +42,12 @@ python3 services/earnings_screener.py --stats
 |---------|-------|----------|
 | swingtrader-earnings-refresh | swingtrader-earnings-refresh.timer | Sun 6:00 AM ET |
 | swingtrader-earnings-screener | swingtrader-earnings-screener.timer | Mon-Fri every 30 min, 9:30 AM - 3:30 PM ET |
+
+The scheduled run is `--days 14 --all --slack`. It passes `--all` deliberately:
+on hourly data the default fresh-only filter ("cross on the latest bar") fired
+several times a day, but on **daily** data that happens only a handful of times
+a year, so fresh-only would post an empty Slack list nearly every day. `--all`
+posts the full ranked list instead, sorted by how many days since the cross.
 
 ## Installation
 
