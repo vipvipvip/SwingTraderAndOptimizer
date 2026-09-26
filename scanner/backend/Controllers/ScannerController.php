@@ -21,8 +21,6 @@ class ScannerController
         $timeframe = $request->query('timeframe', 'weekly');
         $table = $this->tableForTimeframe($timeframe);
         $undervalued = $request->boolean('undervalued');
-        $long = $request->boolean('long');
-        $short = $request->boolean('short');
         $multitfUptrend = $request->boolean('multitf_uptrend');
         $infancy = $request->boolean('infancy');
 
@@ -32,22 +30,18 @@ class ScannerController
             return $this->indexUndervalued($request, $timeframe, $table, $breadth);
         }
 
-        if ($multitfUptrend) {
-            return $this->indexMultiTfUptrend($request, $timeframe, $table, $infancy, $breadth);
-        }
-
-        if ($short) {
-            return $this->indexShort($request, $timeframe, $table, $breadth);
-        }
-
-        // Default to Long mode
-        return $this->indexLong($request, $timeframe, $table, $breadth);
+        // The former indexLong/indexShort screens were MACD/PPO histogram
+        // zero-cross rules and were deleted 2026-09-26 with those columns.
+        // Every screen now falls through to the multi-TF EMA10>SMA40 uptrend
+        // screen, which mirrors the live MTF scoring and is lookahead-free.
+        return $this->indexMultiTfUptrend($request, $timeframe, $table, $infancy, $breadth);
     }
 
     private function getMarketBreadth(): array
     {
-        // NOTE: ema10_sma40_crossover / ema10_sma40_cross_bearish columns are never
-        // populated by the pipeline — breadth must be computed inline via window functions.
+        // The stored ema10_sma40_* columns were dropped 2026-09-26 (never
+        // populated by the pipeline; stale since 2026-06-25), so breadth is
+        // computed inline via window functions.
         // ROW_NUMBER + FILTER (last-40 bars only) avoids expensive sliding frames (1.6s cold).
         // Cached in a file so index/explorer loads don't recompute per request.
         $cacheFile = storage_path('framework/cache/breadth.json');
@@ -143,144 +137,6 @@ class ScannerController
         ], $breadth));
     }
 
-    private function indexLong(Request $request, string $timeframe, string $table, array $breadth = [])
-    {
-        $rows = DB::select("
-            WITH ranked AS (
-                SELECT t.ticker_id, t.date,
-                       t.close::float8 AS close,
-                       t.macd_histogram::float8 AS macd_hist,
-                       t.ppo_histogram::float8 AS ppo_hist,
-                       t.atr_stop::float8 AS atr_stop,
-                       (t.macd_line::float8 - t.macd_signal::float8) AS macd_ms,
-                       ROW_NUMBER() OVER (PARTITION BY t.ticker_id ORDER BY t.date DESC) AS rn
-                FROM {$table} t
-            ),
-            curr AS (SELECT * FROM ranked WHERE rn = 1),
-            prev AS (SELECT * FROM ranked WHERE rn = 2)
-            SELECT c.ticker_id, c.date,
-                   c.close, c.macd_hist, c.ppo_hist, c.atr_stop, c.macd_ms,
-                   COALESCE(p.macd_hist, 0) AS prev_macd_hist,
-                   COALESCE(p.ppo_hist, 0) AS prev_ppo_hist,
-                   e.symbol AS ticker, e.company_name
-            FROM curr c
-            LEFT JOIN prev p ON p.ticker_id = c.ticker_id
-            JOIN tbl_stock_tickers e ON e.id = c.ticker_id
-            WHERE c.close > c.atr_stop
-              AND c.atr_stop IS NOT NULL
-              AND c.close > 0
-        ");
-
-        $results = [];
-
-        foreach ($rows as $r) {
-            $r->stop_dist_pct = round(($r->close - $r->atr_stop) / $r->close * 100, 2);
-
-            // MACD just crossed above zero: histogram went from <=0 to >0
-            $macdCross = $r->macd_hist > 0 && $r->prev_macd_hist <= 0;
-
-            // PPO just crossed above zero: histogram went from <=0 to >0
-            $ppoCross = $r->ppo_hist > 0 && $r->prev_ppo_hist <= 0;
-
-            if (!$macdCross && !$ppoCross) continue;
-
-            if ($macdCross && $ppoCross) {
-                $r->rule = 1; // Both crossed simultaneously — double confirmation
-            } elseif ($macdCross) {
-                $r->rule = 2; // MACD leading
-            } else {
-                $r->rule = 3; // PPO leading
-            }
-
-            $r->score = ($macdCross ? 5 : 0) + ($ppoCross ? 5 : 0)
-                      + min(5, max(0, (int)$r->stop_dist_pct));
-
-            $results[] = $r;
-        }
-
-        usort($results, fn($a, $b) =>
-            $a->rule <=> $b->rule ?: $b->score <=> $a->score ?: $b->macd_hist <=> $a->macd_hist
-        );
-
-        $all_tickers = DB::table('tbl_stock_tickers')
-            ->where('enabled', true)->orderBy('symbol')->pluck('symbol');
-
-        return view('scanner.index', array_merge([
-            'results' => $results,
-            'all_tickers' => $all_tickers,
-            'total_scanned' => DB::table($table)->distinct('ticker_id')->count('ticker_id'),
-            'total_signals' => count($results),
-            'timeframe' => $timeframe,
-            'latest_run' => DB::table($table)->max('updated_at'),
-            'long' => true, 'short' => false,
-            'undervalued' => false,
-        ], $breadth));
-    }
-
-    private function indexShort(Request $request, string $timeframe, string $table, array $breadth = [])
-    {
-        $rows = DB::select("
-            WITH ranked AS (
-                SELECT t.ticker_id, t.date,
-                       t.close::float8 AS close,
-                       t.macd_histogram::float8 AS macd_hist,
-                       t.ppo_histogram::float8 AS ppo_hist,
-                       t.atr_stop::float8 AS atr_stop,
-                       (t.macd_line::float8 - t.macd_signal::float8) AS macd_ms,
-                       ROW_NUMBER() OVER (PARTITION BY t.ticker_id ORDER BY t.date DESC) AS rn
-                FROM {$table} t
-            ),
-            curr AS (SELECT * FROM ranked WHERE rn = 1),
-            prev AS (SELECT * FROM ranked WHERE rn = 2)
-            SELECT c.ticker_id, c.date,
-                   c.close, c.macd_hist, c.ppo_hist, c.atr_stop, c.macd_ms,
-                   COALESCE(p.macd_hist, 0) AS prev_macd_hist,
-                   COALESCE(p.ppo_hist, 0) AS prev_ppo_hist,
-                   e.symbol AS ticker, e.company_name
-            FROM curr c
-            LEFT JOIN prev p ON p.ticker_id = c.ticker_id
-            JOIN tbl_stock_tickers e ON e.id = c.ticker_id
-            WHERE c.macd_hist > 0
-              AND c.ppo_hist <= 0
-              AND c.close > 0
-        ");
-
-        $results = [];
-
-        foreach ($rows as $r) {
-            // Rule 3: Momentum Breaker — MACD still positive but PPO just turned negative or is negative
-            $r->stop_dist_pct = $r->atr_stop > 0
-                ? round(($r->close - $r->atr_stop) / $r->close * 100, 2)
-                : null;
-
-            // Cusp: PPO just turned negative (was positive last week) OR has been barely negative
-            $ppeJustBroke = $r->prev_ppo_hist > 0;
-
-            if (!$ppeJustBroke) continue;
-
-            $r->rule = 3;
-            $r->score = (int)(abs($r->ppo_hist) * 10) + ($r->macd_ms > 0 ? 3 : 0);
-
-            $results[] = $r;
-        }
-
-        usort($results, fn($a, $b) => $b->score <=> $a->score ?: $a->ppo_hist <=> $b->ppo_hist);
-
-        $all_tickers = DB::table('tbl_stock_tickers')
-            ->where('enabled', true)->orderBy('symbol')->pluck('symbol');
-
-        return view('scanner.index', array_merge([
-            'results' => $results,
-            'all_tickers' => $all_tickers,
-            'total_scanned' => DB::table($table)->distinct('ticker_id')->count('ticker_id'),
-            'total_signals' => count($results),
-            'timeframe' => $timeframe,
-            'latest_run' => DB::table($table)->max('updated_at'),
-            'long' => false, 'short' => true,
-            'undervalued' => false,
-        ], $breadth));
-    }
-
     private function indexMultiTfUptrend(Request $request, string $timeframe, string $table, bool $infancyOnly = false, array $breadth = [])
     {
         $today = now()->format('Y-m-d');
@@ -347,10 +203,89 @@ class ScannerController
     }
 
     /**
+     * Latest close + SMA40 + a TRUE EMA10 for every ticker in a bar table.
+     *
+     * EMA10 is a recursive EMA (k = 2/11, seeded at the oldest bar of a bounded
+     * lookback window) — the same definition as mtf/db.py ema(). It previously
+     * used `AVG(close) FILTER (rnd <= 10)`, which is an SMA10 mislabelled
+     * `ema10`: a different quantity that disagreed with the live MTF scorer.
+     * SMA10 is not calculated anywhere.
+     *
+     * Done in PHP rather than a recursive SQL CTE: the CTE is correct but takes
+     * ~49s for both tables, while streaming the window with cursor() and
+     * looping takes ~3s. The window is bounded to self::EMA_SEED_BARS; with
+     * k = 2/11 the residual seed weight after 120 bars is (1-k)^120 ~= 1e-5, so
+     * the EMA is converged and the seed choice is immaterial.
+     */
+    private const EMA_SEED_BARS = 120;
+
+    /** @return array<int, object> ticker_id => {close, sma40, ema10} */
+    private function closeSma40Ema10(string $table): array
+    {
+        $n = self::EMA_SEED_BARS;
+        $k = 2.0 / 11.0;
+
+        $sql = "SELECT ticker_id, close::float8 AS close FROM (
+                    SELECT ticker_id, close::float8 AS close,
+                           ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS d_desc
+                    FROM {$table}
+                ) s
+                WHERE d_desc <= {$n}
+                ORDER BY ticker_id, d_desc DESC";
+
+        $out = [];
+        $curId = null;
+        $acc = null;      // running EMA10
+        $sum = 0.0;       // running sum for SMA40
+        $win = [];        // rolling 40-close window
+        $lastClose = null;
+
+        $flush = function () use (&$out, &$curId, &$acc, &$sum, &$win, &$lastClose) {
+            if ($curId === null) {
+                return;
+            }
+            $out[$curId] = (object) [
+                'ticker_id' => $curId,
+                'close' => $lastClose,
+                'sma40' => count($win) >= 40 ? $sum / 40.0 : null,
+                'ema10' => $acc,
+            ];
+        };
+
+        foreach (DB::connection()->cursor($sql) as $row) {
+            $tid = (int) $row->ticker_id;
+            $c = (float) $row->close;
+
+            if ($tid !== $curId) {
+                $flush();
+                $curId = $tid;
+                $acc = $c;        // seed at the oldest bar in the window
+                $sum = 0.0;
+                $win = [];
+            } else {
+                $acc = $c * $k + $acc * (1 - $k);
+            }
+
+            // Rows arrive oldest-first (d_desc DESC), so the last one seen for a
+            // ticker is its most recent close.
+            $lastClose = $c;
+
+            $sum += $c;
+            $win[] = $c;
+            if (count($win) > 40) {
+                $sum -= array_shift($win);
+            }
+        }
+        $flush();
+
+        return $out;
+    }
+
+    /**
      * Score all enabled non-ETF stocks with the production Multi-TF logic
      * (mirrors swingtrader/services/mtf/runner.py _compute_score).
-     * EMA10/SMA40 are computed inline via ROW_NUMBER + GROUP BY + FILTER —
-     * the ema10_sma40_* DB columns are stale (last populated 2026-06-25).
+     * EMA10/SMA40 are computed inline — the stored ema10_sma40_* columns were
+     * dropped 2026-09-26 (never populated by the pipeline; stale since 2026-06-25).
      */
     private function computeMultiTfResults()
     {
@@ -363,45 +298,17 @@ class ScannerController
             ->get()
             ->keyBy('id');
 
-        // Weekly latest close, SMA40, EMA10 (SMA10 proxy, same as explorer)
-        $weeklyData = DB::select("
-            SELECT ticker_id,
-                   MAX(CASE WHEN rnd = 1 THEN close END) AS close,
-                   AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40,
-                   AVG(close::float8) FILTER (WHERE rnd <= 10) AS ema10
-            FROM (
-                SELECT ticker_id, date, close::float8 AS close,
-                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
-                FROM tbl_scanner_tickers
-            ) sub
-            WHERE rnd <= 40
-            GROUP BY ticker_id
-        ");
         $weeklyById = [];
-        foreach ($weeklyData as $r) {
+        foreach ($this->closeSma40Ema10('tbl_scanner_tickers') as $tid => $r) {
             if ($r->sma40 !== null && $r->sma40 > 0) {
-                $weeklyById[$r->ticker_id] = $r;
+                $weeklyById[$tid] = $r;
             }
         }
 
-        // Daily latest close, SMA40, EMA10
-        $dailyData = DB::select("
-            SELECT ticker_id,
-                   MAX(CASE WHEN rnd = 1 THEN close END) AS close,
-                   AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40,
-                   AVG(close::float8) FILTER (WHERE rnd <= 10) AS ema10
-            FROM (
-                SELECT ticker_id, date, close::float8 AS close,
-                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
-                FROM tbl_scanner_tickers_daily
-            ) sub
-            WHERE rnd <= 40
-            GROUP BY ticker_id
-        ");
         $dailyById = [];
-        foreach ($dailyData as $r) {
+        foreach ($this->closeSma40Ema10('tbl_scanner_tickers_daily') as $tid => $r) {
             if ($r->sma40 !== null && $r->sma40 > 0) {
-                $dailyById[$r->ticker_id] = $r;
+                $dailyById[$tid] = $r;
             }
         }
 
@@ -564,8 +471,6 @@ class ScannerController
         $timeframe = $request->query('timeframe', 'weekly');
         $table = $this->tableForTimeframe($timeframe);
         $undervalued = $request->boolean('undervalued');
-        $long = $request->boolean('long');
-        $short = $request->boolean('short');
         $multitfUptrend = $request->boolean('multitf_uptrend');
         $infancy = $request->boolean('infancy');
 
@@ -579,41 +484,11 @@ class ScannerController
                   AND sa.db_close > 0
                 ORDER BY (sa.db_valuation_price - sa.db_close) / sa.db_close DESC
             ");
-        } elseif ($multitfUptrend) {
+        } elseif ($multitfUptrend || !$undervalued) {
+            // The former long/short pick lists were MACD/PPO zero-cross rules
+            // and were removed 2026-09-26 with those columns. The multi-TF
+            // EMA10>SMA40 list is now the default.
             $rows = $this->getMultiTfUptrendTickers($infancy);
-        } elseif ($short) {
-            $rows = DB::select("
-                SELECT e.symbol AS ticker
-                FROM (
-                    SELECT ticker_id, close, macd_histogram, ppo_histogram,
-                           LAG(ppo_histogram) OVER (PARTITION BY ticker_id ORDER BY date) AS prev_ppo
-                    FROM {$table}
-                ) t
-                JOIN tbl_stock_tickers e ON e.id = t.ticker_id
-                WHERE t.macd_histogram::float8 > 0
-                  AND t.ppo_histogram::float8 <= 0
-                  AND t.prev_ppo::float8 > 0
-                GROUP BY e.symbol
-            ");
-        } elseif ($long) {
-            $rows = DB::select("
-                SELECT e.symbol AS ticker
-                FROM (
-                    SELECT ticker_id, close, macd_histogram, ppo_histogram, atr_stop,
-                           LAG(macd_histogram) OVER (PARTITION BY ticker_id ORDER BY date) AS prev_macd,
-                           LAG(ppo_histogram) OVER (PARTITION BY ticker_id ORDER BY date) AS prev_ppo
-                    FROM {$table}
-                ) t
-                JOIN tbl_stock_tickers e ON e.id = t.ticker_id
-                WHERE t.atr_stop::float8 IS NOT NULL
-                  AND t.close::float8 > t.atr_stop::float8
-                  AND t.close::float8 > 0
-                  AND (
-                      (t.macd_histogram::float8 > 0 AND t.prev_macd::float8 <= 0)
-                   OR (t.ppo_histogram::float8 > 0 AND t.prev_ppo::float8 <= 0)
-                  )
-                GROUP BY e.symbol
-            ");
         } else {
             return response()->json(['tickers' => '']);
         }
@@ -669,45 +544,18 @@ class ScannerController
         $wkDate = $latestWeekly->d;
         $hrDate = $latestHourlyDate->d;
 
-        // SMA40/EMA10 computed via ROW_NUMBER + GROUP BY + FILTER — avoids expensive
-        // window-function frames by reducing to 40 (or 10) rows per ticker before averaging.
+        // SMA40/EMA10 come from closeSma40Ema10() (true recursive EMA10).
         // The 5-min file cache means this runs at most once per session.
-        $weeklyData = DB::select("
-            SELECT ticker_id,
-                   MAX(CASE WHEN rnd = 1 THEN close END) AS close,
-                   AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40,
-                   AVG(close::float8) FILTER (WHERE rnd <= 10) AS ema10
-            FROM (
-                SELECT ticker_id, date, close::float8 AS close,
-                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
-                FROM tbl_scanner_tickers
-            ) sub
-            WHERE rnd <= 40
-            GROUP BY ticker_id
-        ");
         $weeklyById = [];
-        foreach ($weeklyData as $r) {
+        foreach ($this->closeSma40Ema10('tbl_scanner_tickers') as $tid => $r) {
             if ($r->sma40 !== null && $r->sma40 > 0) {
-                $weeklyById[$r->ticker_id] = $r;
+                $weeklyById[$tid] = $r;
             }
         }
 
-        $dailyData = DB::select("
-            SELECT ticker_id,
-                   MAX(CASE WHEN rnd = 1 THEN close END) AS close,
-                   AVG(close::float8) FILTER (WHERE rnd <= 40) AS sma40,
-                   AVG(close::float8) FILTER (WHERE rnd <= 10) AS ema10
-            FROM (
-                SELECT ticker_id, date, close::float8 AS close,
-                       ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
-                FROM tbl_scanner_tickers_daily
-            ) sub
-            WHERE rnd <= 40
-            GROUP BY ticker_id
-        ");
         $dailyById = [];
-        foreach ($dailyData as $r) {
-            $dailyById[$r->ticker_id] = $r;
+        foreach ($this->closeSma40Ema10('tbl_scanner_tickers_daily') as $tid => $r) {
+            $dailyById[$tid] = $r;
         }
 
         $hourlyData = DB::select("
@@ -806,7 +654,7 @@ class ScannerController
 
             // CoreEW: close > ATR stop on hourly = bullish (legacy CHAND read)
             $coreew = $close_h > $atr_stop ? 'bull' : 'bear';
-            // EMAC: daily EMA10 > SMA40 = bullish (SMA10 proxy for EMA10)
+            // Daily EMA10 > SMA40 = bullish (true EMA10 from closeSma40Ema10)
             $emac = ($d && $d->ema10 !== null && $d->sma40 !== null && (float)$d->ema10 > (float)$d->sma40)
                 ? 'bull' : 'bear';
             // Daily Signal: fresh weekly SMA40 cross within 60 days (infancy)
@@ -883,9 +731,7 @@ class ScannerController
 
         $indicators = DB::select("
             SELECT * FROM (
-                SELECT date, macd_line::float8, macd_signal::float8, macd_histogram::float8,
-                       ppo_line::float8, ppo_signal::float8, ppo_histogram::float8,
-                       macd_crossover, ppo_crossover, sma_crossover
+                SELECT date, atr_stop::float8
                 FROM {$table}
                 WHERE ticker_id = ?
                 ORDER BY date DESC
@@ -899,8 +745,7 @@ class ScannerController
         }
 
         $latest = DB::selectOne("
-            SELECT date, close, macd_line::float8, macd_signal::float8, ppo_line::float8,
-                   atr_stop::float8
+            SELECT date, close, atr_stop::float8
             FROM {$table}
             WHERE ticker_id = ?
             ORDER BY date DESC LIMIT 1

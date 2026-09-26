@@ -39,7 +39,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import get_db_conn, EMA_SLOW, PPO_SLOW
+from config import get_db_conn, ATR_PERIOD
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import backfill_all_missing as bf
@@ -50,9 +50,10 @@ TABLES = {
     'day': 'tbl_scanner_tickers_daily',
     'hour': 'tbl_scanner_tickers_1hour',
 }
-# compute_indicators.py skips tickers with fewer than max(EMA_SLOW,PPO_SLOW)+1
-# bars; the gate applies the same bar so young listings are never false-failures.
-MIN_ROWS = max(EMA_SLOW, PPO_SLOW) + 1
+# compute_indicators.py skips tickers with fewer than ATR_PERIOD+1 bars (the
+# only indicator left is the ATR stop); the gate applies the same bar so young
+# listings are never false-failures.
+MIN_ROWS = ATR_PERIOD + 1
 STALE_LAG_DAYS = 1
 COVERAGE = {'week': 0.90, 'day': 0.90, 'hour': 0.75}  # intraday hour is partial
 FRONTIER_LOOKBACK_DAYS = 15

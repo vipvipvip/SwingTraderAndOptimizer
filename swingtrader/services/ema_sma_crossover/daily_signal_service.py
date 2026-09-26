@@ -99,10 +99,10 @@ def _batch_load_bars(conn, ticker_ids, table, date_col, limit=80):
     try:
         cur.execute(f"""
             SELECT ticker_id, {date_col} AS dt, close::float8 AS close,
-                   volume, macd_histogram::float8, ppo_histogram::float8, atr_stop::float8
+                   volume, atr_stop::float8
             FROM (
                 SELECT ticker_id, {date_col}, close, volume,
-                       macd_histogram, ppo_histogram, atr_stop,
+                       atr_stop,
                        ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY {date_col} DESC) AS rn
                 FROM {table}
                 WHERE ticker_id = ANY(%s)

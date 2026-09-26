@@ -15,13 +15,6 @@ DB_CONFIG = {
     'password': 'swingtrader_dev_password',
 }
 
-EMA_FAST = 24
-EMA_SLOW = 52
-MACD_SIGNAL_PERIOD = 18
-PPO_FAST = 12
-PPO_SLOW = 26
-PPO_SIGNAL_PERIOD = 9
-
 ATR_PERIOD = 14
 ATR_MULT = 2.0
 

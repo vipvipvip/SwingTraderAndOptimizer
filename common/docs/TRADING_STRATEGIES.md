@@ -6,7 +6,7 @@ This project contains three distinct trading systems that operate independently:
 
 | # | Name | Universe | Signals | Status |
 |---|------|----------|---------|--------|
-| 1 | **CoreEW** (trio EW book, formerly CHAND) | QQQ/VTI/VTV | Intraday equal-weight rebalance every 5 min (cron, market-open only; drift-gated by `COREEW_DRIFT_PCT` >0.5% of equity) — NO signals | ✅ Live (Laravel) |
+| 1 | **CoreEW** (trio book, formerly CHAND) | QQQ/VTI/VTV | Since 2026-09-21: monotone weekly-ratchet **gate** per ETF (settled weekly close vs peak-anchored 2×ATR stop) → equal-weight among LONG legs (`trades:execute-EW-gate`, 5-min cron, deduped to the settled week). Pure-EW driver (`trades:execute-EW-ETF`, drift-gated) kept off-cron as rollback. See the 2026-09-25 audit note in §1. | ✅ Live (Laravel, paper) |
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 4 | **MTF Top-N** (Multi-TF rotation) | VTI stocks + ETFs | gap_w + atr_dist + freshness → top 10 daily | ✅ Live (Phase 2) |
@@ -17,6 +17,29 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 ---
 
 # 1. CoreEW — Equal-Weight Trio Book
+
+> **⚠ 2026-09-25 audit — read before trusting any CoreEW gate backtest number.**
+> Live CoreEW has been the monotone weekly-ratchet **gate** since 2026-09-21 (commit
+> `0d51a21`, `trades:execute-EW-gate`; details in AGENTS.md). The pure-EW status notes
+> below describe the off-cron rollback driver. Every gate backtest published before
+> 2026-09-25 (variant B in `backtest_trio_ew.py`, the old `dump_coreew_equity.py`
+> dashboard curves, the "+98.3% / 7.1% DD" and "+304.76% / 11% DD" references) read the
+> **current week's** weekly row, which in the DB already holds that week's **Friday**
+> close — Monday–Friday decisions peeked ahead. The live gate reads only completed
+> weeks (variant S, `backtest_trio_ew.py --settled-friday`), verified by an independent
+> recompute (2019 window: $148,998.34, 161 legs, identical).
+>
+> | Window (monotone, mult 2.0, 0.05% cost) | B — lookahead | **S — live-parity** | EW buy-and-hold |
+> |---|---|---|---|
+> | 2019-01-02 → 2026-09-25 (cash until 2020-08; weekly history starts 2020-07-27) | +180.6% / −10.2% | **+49.0% / −29.3%** | +269.5% / −32.8% |
+> | 2021-04-26 → 2026-09-25 | +120.2% / −10.2% | **+28.4% / −29.3%** | +99.0% / −24.7% |
+> | 2023-06-30 → 2026-09-25 | +98.8% / −8.9% | **+55.6% / −10.5%** | +83.3% / −18.8% |
+>
+> (return / max drawdown). Honest reading: the settled gate is at best a risk-for-return
+> trade (2023 window: roughly half the drawdown for ~28pp less return) and lost on both in the
+> longer windows, where 2022's whipsaws (VTV 16 round trips, 7 wins) and the 2023 recovery it
+> sat out dominate. Equal-weight rebalance frequency (daily/weekly/monthly/0.5% drift) changes
+> return by <0.5pp. One 5–8 year, mostly bullish sample; a real bear is untested.
 
 **Service:** `TradeExecutorService` (execution), `AlpacaService` (broker API)  
 **Command:** `trades:execute-EW-ETF` (5-min crontab driver, market-open + drift-gated)
@@ -68,7 +91,7 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 Backtest comparison (`swingtrader/services/mtf/backtest_trio_ew.py`, 2023-06-30 → 2026-09-11, 803d, cost 0.05%):
 A. EW weekly-rebalance **+81.67% / 18.7% DD / 58.4% weekly-up** — identical to B&H (+81.45%)
 B. EW + weekly-ratchet gate +85.73% / 8.7% DD / 57.2% — the only variant that cuts drawdown
-Decision: run **A** (pure EW). Rationale: it is sound, zero-parameter, no brute force, and the user's "winner" definition (highest win% + fewest trades) lands on "just hold the trio".
+⚠ B is lookahead-inflated (see audit note above); A ≈ B&H is unaffected. Original decision: run **A** (pure EW). Rationale: it is sound, zero-parameter, no brute force, and the user's "winner" definition (highest win% + fewest trades) lands on "just hold the trio".
 
 ### Rebalance Rule
 
@@ -135,7 +158,7 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 
 - Full market beta: a 2022-style bear takes the book down with it (max DD ≈ trio B&H ≈ 18.7%).
 - No stops, no timing, no whipsaws — highest win% / fewest-trades design.
-- The weekly-ratchet gate (variant B, DD 8.7%) was the researched alternative but adds ~400-500 trades/3y and was **not adopted** (user prefers pure EW hold).
+- The weekly-ratchet gate went live 2026-09-21 (paper) on lookahead-inflated backtests (variant B, DD 8.7%); see the 2026-09-25 audit note at the top of this section for the settled (live-parity) numbers. Rollback: point the cron back at `trades:execute-EW-ETF`.
 
 ### Console Commands
 
@@ -163,7 +186,22 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 
 ### Purpose
 
-Scan S&P 500 tickers across 3 timeframes (weekly, daily, 1-hour) for **aligned bullish crossover events** where MACD, PPO, and SMA all fire within close proximity. The convergence tightness is measured and used as a ranking signal.
+> **Retired 2026-09-26.** The MACD/PPO/SMA crossover scanner was removed. Those
+> stored columns were lookahead-biased legacy artifacts (`sma_crossover` was
+> really EMA24 vs SMA52; `ppo_crossover` was a 24/52 zero-cross, i.e. the same
+> event as `sma_crossover` under a second name). They have been dropped from the
+> weekly and daily tables, `compute_indicators.py` now computes only `atr_stop`,
+> and the MACD/PPO screens were removed from the UI. The scanner now serves the
+> multi-timeframe uptrend view (weekly EMA10>SMA40 + daily + hourly confirmation),
+> computed inline by `ScannerController::closeSma40Ema10()`.
+>
+> Hourly `close`/`atr_stop` are still maintained because the live MTF stock leg
+> scores and exits off them. `earnings_screener.py` was converted to **daily**
+> MACD (computed inline from settled closes) rather than dropped.
+
+The original purpose was to scan S&P 500 tickers across 3 timeframes (weekly,
+daily, 1-hour) for aligned bullish crossover events where MACD, PPO, and SMA all
+fired within close proximity.
 
 ### Timeframes and Tables
 
@@ -210,16 +248,20 @@ ppo_histogram  = ppo_line - ppo_signal
 
 ### Crossover Detection (6 signals)
 
-| Signal | Condition | Direction |
-|--------|-----------|-----------|
-| `macd_crossover` | MACD line crosses above signal line | Bullish |
-| `macd_cross_bearish` | MACD line crosses below signal line | Bearish |
-| `ppo_crossover` | PPO line crosses above zero | Bullish |
-| `ppo_cross_bearish` | PPO line crosses below zero | Bearish |
-| `sma_crossover` | SMA(24) crosses above SMA(52) | Bullish |
-| `sma_cross_bearish` | SMA(24) crosses below SMA(52) | Bearish |
+| Signal | Condition | Direction | Status |
+|--------|-----------|-----------|--------|
+| `macd_crossover` | MACD line crosses above signal line | Bullish | **dropped 2026-09-26** |
+| `macd_cross_bearish` | MACD line crosses below signal line | Bearish | **dropped 2026-09-26** |
+| `ppo_crossover` | PPO line crosses above zero | Bullish | **dropped 2026-09-26** |
+| `ppo_cross_bearish` | PPO line crosses below zero | Bearish | **dropped 2026-09-26** |
+| `sma_crossover` | SMA(24) crosses above SMA(52) | Bullish | **dropped 2026-09-26** |
+| `sma_cross_bearish` | SMA(24) crosses below SMA(52) | Bearish | **dropped 2026-09-26** |
+| `atr_stop` | close − 2 × ATR(14) | — | **the only stored indicator left** |
 
-**Note:** PPO crossing zero is mathematically equivalent to SMA(24) crossing SMA(52). Therefore `ppo_crossover` and `sma_crossover` always fire on the same bar, as do their bearish counterparts.
+**Note (historical):** PPO crossing zero is mathematically equivalent to SMA(24)
+crossing SMA(52), so `ppo_crossover` and `sma_crossover` always fired on the same
+bar. Both were dropped in migration
+`2026_09_26_000000_drop_legacy_indicator_columns.php`.
 
 ### ATR Stop (Scanner)
 

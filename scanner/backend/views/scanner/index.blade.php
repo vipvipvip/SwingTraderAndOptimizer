@@ -51,14 +51,6 @@
             <option value="1hour" {{ $timeframe == '1hour' ? 'selected' : '' }}>1H</option>
         </select>
         <div class="divider"></div>
-        <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
-            <input type="checkbox" id="longToggle" {{ isset($long) && $long ? 'checked' : '' }} style="accent-color:#3fb950;cursor:pointer;">
-            <span style="color:#3fb950;font-weight:600;">Long</span>
-        </label>
-        <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
-            <input type="checkbox" id="shortToggle" {{ isset($short) && $short ? 'checked' : '' }} style="accent-color:#f85149;cursor:pointer;">
-            <span style="color:#f85149;font-weight:600;">Short</span>
-        </label>
         <div class="divider"></div>
         <label style="color:#8b949e;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
             <input type="checkbox" id="undervaluedToggle" {{ $undervalued ? 'checked' : '' }} style="accent-color:#3fb950;cursor:pointer;">
@@ -146,80 +138,6 @@
                         @endforeach
                     </tbody>
                 </table>
-        @elseif (isset($long) && $long)
-                {{-- Long signals: fresh MACD/PPO zero-line crossovers --}}
-                <table id="scannerTable">
-                    <thead>
-                        <tr>
-                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
-                            <th>Ticker</th>
-                            <th>Company</th>
-                            <th>Cross</th>
-                            <th style="text-align:right;">Close</th>
-                            <th style="text-align:right;">MACD</th>
-                            <th style="text-align:right;">PPO</th>
-                            <th style="text-align:right;">ATR Stop</th>
-                            <th style="text-align:right;">Dist%</th>
-                            <th style="text-align:right;">Scr</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($results as $row)
-                            @php
-                                $ruleLabels = [1 => 'Both', 2 => 'MACD Lead', 3 => 'PPO Lead'];
-                                $ruleColors = [1 => '#3fb950', 2 => '#58a6ff', 3 => '#d29922'];
-                                $rl = $ruleLabels[$row->rule] ?? '?';
-                                $rc = $ruleColors[$row->rule] ?? '#8b949e';
-                            @endphp
-                            <tr data-ticker="{{ $row->ticker }}">
-                                <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
-                                <td class="ticker ticker-bull">{{ $row->ticker }}</td>
-                                <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
-                                <td><span style="color:{{ $rc }};font-size:9px;font-weight:600;">{{ $rl }}</span></td>
-                                <td class="num pos">{{ number_format((float)$row->close, 2) }}</td>
-                                <td class="num {{ (float)$row->macd_hist >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->macd_hist, 2) }}</td>
-                                <td class="num {{ (float)$row->ppo_hist >= 0 ? 'pos' : 'neg' }}">{{ number_format((float)$row->ppo_hist, 2) }}</td>
-                                <td class="num">{{ number_format((float)$row->atr_stop, 2) }}</td>
-                                <td class="num pos">{{ $row->stop_dist_pct }}%</td>
-                                <td class="num" style="color:#3fb950;">{{ $row->score }}</td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            @elseif (isset($short) && $short)
-                {{-- Short signals: Rule 3 — Momentum Breaker --}}
-                <table id="scannerTable">
-                    <thead>
-                        <tr>
-                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
-                            <th>Ticker</th>
-                            <th>Company</th>
-                            <th>Rule</th>
-                            <th style="text-align:right;">Close</th>
-                            <th style="text-align:right;">MACD</th>
-                            <th style="text-align:right;">PPO</th>
-                            <th style="text-align:right;">ATR Stop</th>
-                            <th style="text-align:right;">Dist%</th>
-                            <th style="text-align:right;">Scr</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($results as $row)
-                            <tr data-ticker="{{ $row->ticker }}">
-                                <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
-                                <td class="ticker ticker-bear">{{ $row->ticker }}</td>
-                                <td style="color:#8b949e;font-size:9px;">{{ $row->company_name ?? '-' }}</td>
-                                <td><span style="color:#f85149;font-size:9px;font-weight:600;">PPO Break</span></td>
-                                <td class="num">{{ number_format((float)$row->close, 2) }}</td>
-                                <td class="num pos">{{ number_format((float)$row->macd_hist, 2) }}</td>
-                                <td class="num neg">{{ number_format((float)$row->ppo_hist, 2) }}</td>
-                                <td class="num">{{ (float)$row->atr_stop > 0 ? number_format((float)$row->atr_stop, 2) : '-' }}</td>
-                                <td class="num {{ isset($row->stop_dist_pct) && $row->stop_dist_pct < 0 ? 'neg' : (isset($row->stop_dist_pct) && $row->stop_dist_pct > 0 ? 'pos' : '') }}">{{ $row->stop_dist_pct ?? '-' }}%</td>
-                                <td class="num" style="color:#f85149;">{{ $row->score }}</td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
             @elseif ($undervalued)
                 {{-- Stock Analyzer: undervalued table --}}
                 <table id="scannerTable">
@@ -271,47 +189,6 @@
                         @endforeach
                     </tbody>
                 </table>
-            @else
-                {{-- Scanner: signal table (original) --}}
-                <table id="scannerTable">
-                    <thead>
-                        <tr>
-                            <th style="width:24px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)" title="Select all"></th>
-                            <th>Ticker</th>
-                            <th>Company</th>
-                            <th>Crossovers</th>
-                            <th style="text-align:right;">Stop</th>
-                            <th style="text-align:right;">Dist</th>
-                            <th style="text-align:right;">Close</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($results as $row)
-                            @php
-                                $fmt = $timeframe === '1hour' ? 'M j, g:ia' : 'M j';
-                                $md = \Carbon\Carbon::parse($row->macd_cross_date)->format($fmt);
-                                $pd = \Carbon\Carbon::parse($row->ppo_cross_date)->format($fmt);
-                                $sd = \Carbon\Carbon::parse($row->sma_cross_date)->format($fmt);
-                                $atr = $row->atr_stop !== null ? number_format((float)$row->atr_stop, 2) : '-';
-                                $distD = $row->stop_dist_dollar !== null ? number_format($row->stop_dist_dollar, 2) : '-';
-                                $distP = $row->stop_dist_pct !== null ? number_format($row->stop_dist_pct, 1) . '%' : '-';
-                            @endphp
-                            <tr data-ticker="{{ $row->ticker }}">
-                                <td><input type="checkbox" class="row-checkbox" value="{{ $row->ticker }}"></td>
-                                <td class="ticker {{ $row->cross_bullish ? 'ticker-bull' : 'ticker-bear' }}">{{ $row->ticker }}</td>
-                                <td style="color:#8b949e;">{{ $row->company_name ?? '-' }}</td>
-                                <td style="font-size:10px; line-height:1.5; letter-spacing:-0.2px;">
-                                    <span class="cross-dot" style="background:#58a6ff;"></span>{{ $md }}
-                                    <span class="cross-dot" style="background:#3fb950;margin-left:3px;"></span>{{ $pd }}
-                                    <span class="cross-dot" style="background:#f0883e;margin-left:3px;"></span>{{ $sd }}
-                                </td>
-                                <td class="num">{{ $atr }}</td>
-                                <td class="num">{{ $distD }} <span style="color:#8b949e;font-size:10px;">{{ $distP }}</span></td>
-                                <td class="num {{ $row->close >= 0 ? 'pos' : 'neg' }}">{{ number_format($row->close, 2) }}</td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
             @endif
         </div>
     @else
@@ -322,10 +199,6 @@
                 @else
                     No tickers in multi-timeframe uptrend.
                 @endif
-            @elseif (isset($long) && $long)
-                No long signals found for {{ $timeframe }} timeframe.
-            @elseif (isset($short) && $short)
-                No short signals found for {{ $timeframe }} timeframe.
             @elseif ($undervalued)
                 No undervalued stocks found.
             @else
@@ -365,8 +238,6 @@
             if (document.getElementById('undervaluedToggle').checked) url += '&undervalued=1';
             if (document.getElementById('multitfUptrendToggle').checked) url += '&multitf_uptrend=1';
             if (document.getElementById('infancyToggle').checked) url += '&infancy=1';
-            if (document.getElementById('longToggle').checked) url += '&long=1';
-            if (document.getElementById('shortToggle').checked) url += '&short=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
             window.location = url;
         }
@@ -375,8 +246,6 @@
             document.getElementById('undervaluedToggle').checked = false;
             document.getElementById('multitfUptrendToggle').checked = false;
             document.getElementById('infancyToggle').checked = false;
-            document.getElementById('longToggle').checked = false;
-            document.getElementById('shortToggle').checked = false;
         }
 
         document.getElementById('undervaluedToggle').addEventListener('change', function() {
@@ -401,24 +270,6 @@
             let url = '/scanner?timeframe=' + currentTimeframe;
             if (document.getElementById('multitfUptrendToggle').checked) url += '&multitf_uptrend=1';
             if (this.checked) url += '&infancy=1';
-            if (activeTicker) url += '&ticker=' + activeTicker;
-            window.location = url;
-        });
-
-        document.getElementById('longToggle').addEventListener('change', function() {
-            if (this.checked) uncheckAllFilters();
-            this.checked = true;
-            let url = '/scanner?timeframe=' + currentTimeframe;
-            if (this.checked) url += '&long=1';
-            if (activeTicker) url += '&ticker=' + activeTicker;
-            window.location = url;
-        });
-
-        document.getElementById('shortToggle').addEventListener('change', function() {
-            if (this.checked) uncheckAllFilters();
-            this.checked = true;
-            let url = '/scanner?timeframe=' + currentTimeframe;
-            if (this.checked) url += '&short=1';
             if (activeTicker) url += '&ticker=' + activeTicker;
             window.location = url;
         });
@@ -627,10 +478,8 @@
             body.style.display = 'flex'; body.style.flexDirection = 'column'; body.style.gap = '2px';
             if (header) body.appendChild(header);
 
-            const pricePanel = document.createElement('div'); pricePanel.style.flex = '3'; body.appendChild(pricePanel);
+            const pricePanel = document.createElement('div'); pricePanel.style.flex = '1'; body.appendChild(pricePanel);
             pricePanel.style.position = 'relative';
-            const macdPanel = document.createElement('div'); macdPanel.style.flex = '2'; body.appendChild(macdPanel);
-            const ppoPanel = document.createElement('div'); ppoPanel.style.flex = '2'; body.appendChild(ppoPanel);
 
             const isIntraday = currentTimeframe === '1hour';
             const base = {
@@ -640,11 +489,8 @@
                 rightPriceScale: { borderColor:'#2d2f3a' },
                 timeScale: { borderColor:'#2d2f3a', timeVisible:isIntraday, secondsVisible:false, rightOffset:4 },
             };
-            const sub = { ...base, rightPriceScale: { ...base.rightPriceScale, scaleMargins: { top:0.1, bottom:0.1 } }, timeScale: { ...base.timeScale, visible:false } };
 
             const chart = LightweightCharts.createChart(pricePanel, base);
-            const macdC = LightweightCharts.createChart(macdPanel, sub);
-            const ppoC = LightweightCharts.createChart(ppoPanel, sub);
             const allLineSeries = [];
 
             const candleData = d.bars.map(b => ({ time:parseTime(b.date), open:parseFloat(b.open), high:parseFloat(b.high), low:parseFloat(b.low), close:parseFloat(b.close) }));
@@ -688,15 +534,9 @@
 
             const ind = d.indicators;
             function nn(v) { return v != null && !isNaN(v); }
-            const macdLine = macdC.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); macdLine.setData(ind.filter(i => nn(i.macd_line)).map(i => ({ time:parseTime(i.date), value:parseFloat(i.macd_line) }))); allLineSeries.push({ series:macdLine, color:'#58a6ff' });
-            const macdSig = macdC.addLineSeries({ color:'#ffa657', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); macdSig.setData(ind.filter(i => nn(i.macd_signal)).map(i => ({ time:parseTime(i.date), value:parseFloat(i.macd_signal) }))); allLineSeries.push({ series:macdSig, color:'#ffa657' });
-            const macdHist = macdC.addHistogramSeries({ priceFormat:{ type:'volume' }, priceScaleId:'' }); macdHist.setData(ind.filter(i => nn(i.macd_histogram)).map(i => ({ time:parseTime(i.date), value:parseFloat(i.macd_histogram), color:i.macd_histogram>=0?'rgba(63,185,80,0.5)':'rgba(248,81,73,0.5)' })));
 
-            const ppoLine = ppoC.addLineSeries({ color:'#3fb950', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoLine.setData(ind.filter(i => nn(i.ppo_line)).map(i => ({ time:parseTime(i.date), value:parseFloat(i.ppo_line) }))); allLineSeries.push({ series:ppoLine, color:'#3fb950' });
-            const ppoSig = ppoC.addLineSeries({ color:'#ffa657', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoSig.setData(ind.filter(i => nn(i.ppo_signal)).map(i => ({ time:parseTime(i.date), value:parseFloat(i.ppo_signal) }))); allLineSeries.push({ series:ppoSig, color:'#ffa657' });
-            const ppoZero = ppoC.addLineSeries({ color:'#f85149', lineWidth:1, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:4, minMove:0.0001 } }); ppoZero.setData(ind.map(i => ({ time:parseTime(i.date), value:0 }))); allLineSeries.push({ series:ppoZero, color:'#f85149' });
 
-            const priceMarkers = [], macdMarkers = [], ppoMarkers = [], smaMarkers = [];
+            const priceMarkers = [], smaMarkers = [];
             for (let i = 1; i < candleData.length; i++) {
                 const pc = candleData[i], pp = candleData[i-1];
                 const c10 = ema10.find(e => e.time === pc.time)?.value;
@@ -711,15 +551,6 @@
             for (let i = 1; i < ind.length; i++) {
                 const c = ind[i], p = ind[i-1];
                 const t = parseTime(c.date);
-                const cml = parseFloat(c.macd_line), pml = parseFloat(p.macd_line);
-                const cms = parseFloat(c.macd_signal), pms = parseFloat(p.macd_signal);
-                if (cml > cms && pml <= pms) macdMarkers.push({ time:t, position:'belowBar', shape:'arrowUp', color:'#3fb950', size:1 });
-                if (cml < cms && pml >= pms) macdMarkers.push({ time:t, position:'aboveBar', shape:'arrowDown', color:'#f85149', size:1 });
-                const cpl = parseFloat(c.ppo_line), ppl = parseFloat(p.ppo_line);
-                const cps = parseFloat(c.ppo_signal), pps = parseFloat(p.ppo_signal);
-                if (cpl > cps && ppl <= pps) ppoMarkers.push({ time:t, position:'belowBar', shape:'arrowUp', color:'#3fb950', size:1 });
-                if (cpl < cps && ppl >= pps) ppoMarkers.push({ time:t, position:'aboveBar', shape:'arrowDown', color:'#f85149', size:1 });
-                if (c.sma_crossover) smaMarkers.push({ time:t, position:'belowBar', shape:'diamond', color:'#f0883e', size:1 });
             }
 
             const allPriceMarkers = [...priceMarkers, ...smaMarkers];
@@ -730,18 +561,12 @@
                 allLineSeries.forEach(({ series, color }) => {
                     if (series === ema10s) {
                         ema10s.setMarkers(crosshairTime ? [...allPriceMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : allPriceMarkers);
-                    } else if (series === macdLine) {
-                        macdLine.setMarkers(crosshairTime ? [...macdMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : macdMarkers);
-                    } else if (series === ppoLine) {
-                        ppoLine.setMarkers(crosshairTime ? [...ppoMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : ppoMarkers);
                     } else {
                         series.setMarkers(crosshairTime ? [{ time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : []);
                     }
                 });
             }
             chart.subscribeCrosshairMove(syncCrosshair);
-            macdC.subscribeCrosshairMove(syncCrosshair);
-            ppoC.subscribeCrosshairMove(syncCrosshair);
             syncCrosshair({});
             let zoomSyncing = false;
             function onZoomSync(source, range) {
@@ -749,13 +574,9 @@
                 zoomSyncing = true;
                 const rr = { from: range.from, to: range.to };
                 if (source !== chart) chart.timeScale().setVisibleRange(rr);
-                if (source !== macdC) macdC.timeScale().setVisibleRange(rr);
-                if (source !== ppoC) ppoC.timeScale().setVisibleRange(rr);
                 zoomSyncing = false;
             }
             chart.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(chart, r));
-            macdC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(macdC, r));
-            ppoC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(ppoC, r));
 
             chart.timeScale().fitContent();
             chartInstance = chart;
