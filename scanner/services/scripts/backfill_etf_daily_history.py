@@ -10,8 +10,9 @@ Dump-and-refresh model: each symbol's rows are DELETEd and re-inserted from
 a fresh query, so once a quarter you simply re-run this and pick up any
 dividend re-adjustments yfinance/Alpaca retroactively apply.
 
-Note: data is fetched from 2019 onward (Alpaca history for this account
-starts 2016-01-04; 2019 gives ~40 warmup bars before the strategy window).
+Note: Alpaca SIP history for this account starts 2016-01-04, so the default
+start year is 2016 to capture the full available range. Do not raise it, or
+re-running this will truncate the 2016-2018 history already in the DB.
 
 Usage:
     python backfill_etf_daily_history.py --timeframe day|week|both [--symbols A,B] [--source alpaca|yfinance]
@@ -44,7 +45,7 @@ ALPACA_TF = {
 }
 
 
-def fetch_alpaca(symbol, tf_name, start_year=2019):
+def fetch_alpaca(symbol, tf_name, start_year=2016):
     client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
     start = datetime(start_year, 1, 1, tzinfo=NY)
     # SIP subscription blocks queries ending at "now"; end 1 day back is allowed
@@ -141,13 +142,13 @@ def main():
     parser.add_argument('--symbols', default=None,
                         help='Comma-separated symbols (default: all enabled ETFs)')
     parser.add_argument('--start-year', type=int, default=None,
-                        help='Fetch from this year (alpaca default 2019, yfinance default 2014)')
+                        help='Fetch from this year (alpaca default 2016, yfinance default 2014)')
     parser.add_argument('--timeframe', choices=['day', 'week', 'both'], default='both')
     parser.add_argument('--source', choices=['alpaca', 'yfinance'], default='alpaca')
     args = parser.parse_args()
 
     tfs = ['day', 'week'] if args.timeframe == 'both' else [args.timeframe]
-    start_year = args.start_year or (2019 if args.source == 'alpaca' else 2014)
+    start_year = args.start_year or (2016 if args.source == 'alpaca' else 2014)
     label = {args.timeframe} if args.timeframe != 'both' else {'daily', 'weekly'}
 
     conn = get_db_conn()
