@@ -6,6 +6,13 @@ Score (near)  = max(0, 3 - gap_w/K_gap) + max(0, 3 - atr_dist/K_atr) + max(0, 2 
                 -- favors stocks close to their weekly SMA40 / ATR stop (proximity to the
                    crossover) instead of extended names -- anti-chase by design.
 Rebalance: sell non-top-N, buy new entrants at next-day open, equal weight.
+
+Weekly bars (settled by default, matches live runner.py `_settled_weekly_idx`):
+the DB's Monday-stamped weekly row already holds that week's FRIDAY close. A
+decision on Monday D therefore reads the last COMPLETED week (row dated
+<= D - 7 days), never the row stamped D. Reading row D (`--legacy-weekly`)
+peeks 4 trading days ahead and inflates results (ETF-28 top-3 emasma:
++636% legacy vs +106% settled, 2021-09 -> 2026-09).
 """
 
 import sys, os
@@ -14,7 +21,8 @@ import json
 import argparse
 import numpy as np
 import pandas as pd
-from datetime import datetime, date as dt_date
+import bisect
+from datetime import datetime, date as dt_date, timedelta
 
 import config
 import db as db_module
@@ -34,6 +42,7 @@ def _backtest_signature(args):
         'emasma_close_200': args.emasma_close_200,
         'emasma_fresh': args.emasma_fresh,
         'daily_only': args.daily_only,
+        'legacy_weekly': args.legacy_weekly,
         'equal_weight': args.equal_weight,
         'above': args.above,
         'min_score': args.min_score,
@@ -123,6 +132,14 @@ def _last_idx_before(idx_map, dates, target):
         if dates[i] <= target:
             return i
     return None
+
+
+def _settled_weekly_idx(dates, target):
+    """Index of the last COMPLETED weekly bar as of `target`: the last Monday-
+    stamped row dated <= target - 7 days (its Friday close is settled). Mirrors
+    runner.py `_settled_weekly_idx`. None when no such row exists."""
+    i = bisect.bisect_right(dates, target - timedelta(days=7)) - 1
+    return i if i >= 0 else None
 
 
 def load_bars(conn, table, date_col, is_etf=False, symbols=None):
@@ -290,6 +307,10 @@ def backtest(argv=None):
     parser.add_argument('--end', default=None,
                         help='Restrict backtest to dates <= YYYY-MM-DD (pin end of the '
                              'comparison window so A/B runs share an identical window)')
+    parser.add_argument('--legacy-weekly', action='store_true',
+                        help='LOOKAHEAD: read the decision-day Monday weekly row, which already '
+                             'holds that week\'s Friday close (pre-2026-09-25 behaviour). Only for '
+                             'reproducing old numbers; default reads the last settled week like live.')
     parser.add_argument('--cache-baseline', action='store_true',
                         help='Save this run into the baseline cache (json) in addition to '
                              'printing. Without it, the run still prints the cached '
@@ -312,27 +333,45 @@ def backtest(argv=None):
         symbols = set(args.tickers.split(',')) if args.tickers else None
         if symbols:
             print(f'  Subset: {len(symbols)} tickers ({", ".join(sorted(symbols))})')
-        # Load three timeframes (hourly optional with --daily-only)
+        # Does THIS run read hourly bars at all? Mirrors runner.py:550
+        # (`uses_hourly = (not is_etf) and strategy in ('mtf','v2')`), plus the
+        # exit/gate paths that consume hourly. Decided BEFORE loading so the
+        # hourly table is neither read nor indexed when it is not needed.
+        uses_hourly = (
+            (not is_etf and args.score in ('mtf', 'v2'))
+            or args.exit == 'hourly-ema'
+            or args.ratchet_atr_src == 'hourly'
+            or args.hourly_ema_gate
+            or args.hourly_daily_gap is not None
+        ) and not args.daily_only
+
         _, weekly = load_bars(conn, 'tbl_scanner_tickers', 'date', is_etf, symbols)
         _, daily = load_bars(conn, 'tbl_scanner_tickers_daily', 'date', is_etf, symbols)
-        if args.daily_only:
-            hourly = {}
-            print('  --daily-only: hourly skipped, all signals/inputs on daily+weekly')
-        else:
+        if uses_hourly:
             _, hourly = load_bars(conn, 'tbl_scanner_tickers_1hour', None, is_etf, symbols)
+        else:
+            hourly = {}
+            print('  Hourly not required by this config (weekly+daily only) '
+                  '— matches the live universe for this strategy')
 
-        # Only keep tickers present in all datasets
+        # Universe: a ticker is eligible only if it has every timeframe this run
+        # actually reads. Previously emasma intersected the hourly table even
+        # though it never reads hourly, which silently dropped a ticker that
+        # live would have ranked and traded — and hourly is documented as
+        # unreliable, so it should not gate the universe at all.
         common = set(weekly) & set(daily)
-        if not args.daily_only:
+        if uses_hourly:
             common = common & set(hourly)
-        print(f'  Tickers with all 3 timeframes: {len(common)}')
+        print(f'  Tickers with required timeframes '
+              f'({"weekly+daily+hourly" if uses_hourly else "weekly+daily"}): '
+              f'{len(common)}')
         for tid in list(weekly.keys()):
             if tid not in common:
                 del weekly[tid]
         for tid in list(daily.keys()):
             if tid not in common:
                 del daily[tid]
-        if not args.daily_only:
+        if uses_hourly:
             for tid in list(hourly.keys()):
                 if tid not in common:
                     del hourly[tid]
@@ -429,6 +468,10 @@ def backtest(argv=None):
             for tid in common:
                 di = daily_idx[tid].get(sig_date)
                 wi = weekly_idx[tid].get(sig_date)
+                if wi is not None and not args.legacy_weekly:
+                    # Decision days stay the weekly-row (Monday) dates, but the
+                    # bar READ is the last completed week (see module docstring).
+                    wi = _settled_weekly_idx(weekly[tid]['dates'], sig_date)
                 hi = hourly_idx[tid].get(sig_date) if hourly_idx else None
 
                 if args.score == 'emasma':
@@ -692,7 +735,10 @@ def backtest(argv=None):
                     if args.ratchet_atr_src == 'weekly':
                         w = weekly.get(tid)
                         if w is not None:
-                            wi = _last_idx_before(weekly_idx[tid], w['dates'], sig_date)
+                            if args.legacy_weekly:
+                                wi = _last_idx_before(weekly_idx[tid], w['dates'], sig_date)
+                            else:
+                                wi = _settled_weekly_idx(w['dates'], sig_date)
                             if wi is not None:
                                 atr = float(w['w_atr'][wi]) if np.isfinite(w['w_atr'][wi]) else 0.0
                     elif args.ratchet_atr_src == 'daily' or args.daily_only:

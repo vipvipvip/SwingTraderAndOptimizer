@@ -472,61 +472,29 @@ def bulk_load_hourly(conn, ticker_ids=None):
     return data
 
 
-def bulk_load_hourly_full(conn, ticker_ids):
-    """Load hourly data incl. MACD line/signal + hourly EMA10/SMA40 arrays.
+def ema(values, period):
+    """Recursive EMA seeded at values[0], k = 2/(period+1).
 
-    v2 strategy needs hourly EMA10/SMA40 (for the bull CO) and MACD line/signal
-    (for the +ve histogram gate). Returns {tid: {'dates','close','atr_stop',
-    'macd_line','macd_signal','ema10','sma40'}}. ema10/sma40 are computed
-    inline here (the stored crossover columns are never populated by the
-    pipeline — see AGENTS.md)."""
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT ticker_id, date::date AS bar_date, close, atr_stop, macd_line, macd_signal "
-        "FROM tbl_scanner_tickers_1hour WHERE ticker_id = ANY(%s) AND date >= %s ORDER BY ticker_id, date",
-        (list(ticker_ids), TS_START))
-    rows = cur.fetchall()
-    cur.close()
-    data = {}
-    seen = {}
-    for tid, dt, close, atr_stop, ml, ms in rows:
-        key = (tid, dt)
-        if key not in seen:
-            seen[key] = (tid, dt,
-                         float(close) if close else 0.0,
-                         float(atr_stop) if atr_stop else 0.0,
-                         float(ml) if ml is not None else None,
-                         float(ms) if ms is not None else None)
-    for tid, dt, close, atr_stop, ml, ms in seen.values():
-        if tid not in data:
-            data[tid] = {'dates': [], 'close': [], 'atr_stop': [],
-                         'macd_line': [], 'macd_signal': []}
-        data[tid]['dates'].append(dt)
-        data[tid]['close'].append(close)
-        data[tid]['atr_stop'].append(atr_stop)
-        data[tid]['macd_line'].append(ml)
-        data[tid]['macd_signal'].append(ms)
-    # EMA10/SMA40 from closes
-    import math
-    for tid, d in data.items():
-        closes = d['close']
-        n = len(closes)
-        ema = [None] * n
-        sma = [None] * n
-        if n:
-            ema[0] = closes[0]
-            k = 2.0 / (10 + 1)
-            for i in range(1, n):
-                ema[i] = closes[i] * k + ema[i - 1] * (1 - k)
-            for i in range(n):
-                if i >= 39:
-                    s = 0.0
-                    for j in range(i - 39, i + 1):
-                        s += closes[j]
-                    sma[i] = s / 40.0
-        d['ema10'] = ema
-        d['sma40'] = sma
-    return data
+    Canonical definition used everywhere in MTF (matches the pandas
+    ewm(span=period, adjust=False) in daily_signal_service.py). The stored
+    ema10_sma40_* columns were dropped 2026-09-26 — they were never populated
+    by the pipeline — so every consumer computes this inline.
+    """
+    if not values:
+        return []
+    k = 2.0 / (period + 1)
+    out = [float(values[0])]
+    for v in values[1:]:
+        out.append(float(v) * k + out[-1] * (1 - k))
+    return out
+
+
+def sma(values, period):
+    """Simple moving average, None until `period` bars are available."""
+    out = [None] * len(values)
+    for i in range(period - 1, len(values)):
+        out[i] = sum(values[i - period + 1:i + 1]) / float(period)
+    return out
 
 
 def get_market_breadth(conn, is_etf=False):

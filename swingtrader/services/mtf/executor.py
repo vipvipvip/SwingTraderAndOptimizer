@@ -324,7 +324,7 @@ def _block_hourly_bearish_deep_pullback(symbol, conn):
                 return False, ''
             ticker_id = row[0]
 
-            # Hourly EMA10 vs SMA40 (compute from last 60 bars)
+            # Hourly EMA10 vs SMA40 (true EMA10, seeded at the oldest close)
             cur.execute(
                 'SELECT close FROM tbl_scanner_tickers_1hour '
                 'WHERE ticker_id = %s ORDER BY date DESC LIMIT 60', (ticker_id,))
@@ -332,8 +332,10 @@ def _block_hourly_bearish_deep_pullback(symbol, conn):
             if len(hr_bars) < 40:
                 return False, ''
             hr_closes = [float(b[0]) for b in reversed(hr_bars)]
-            hr_ema10 = sum(hr_closes[-10:]) / 10
-            hr_sma40 = sum(hr_closes[-40:]) / 40
+            hr_ema10 = db_module.ema(hr_closes, 10)[-1]
+            hr_sma40 = db_module.sma(hr_closes, 40)[-1]
+            if hr_sma40 is None:
+                return False, ''
             if hr_ema10 > hr_sma40:
                 return False, ''  # hourly is bullish, no filter needed
 
@@ -345,7 +347,7 @@ def _block_hourly_bearish_deep_pullback(symbol, conn):
             if len(dy_bars) < 10:
                 return False, ''
             dy_closes = [float(b[0]) for b in reversed(dy_bars)]
-            dy_ema10 = sum(dy_closes[-10:]) / 10
+            dy_ema10 = db_module.ema(dy_closes, 10)[-1]
             if dy_ema10 <= 0:
                 return False, ''
             daily_gap = (dy_closes[-1] - dy_ema10) / dy_ema10 * 100

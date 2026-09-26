@@ -29,7 +29,10 @@ OUTPUT (in --out DIR, prefix = --label or derived from the backtest args)
   {label}_equity.csv        NAV / date / positions daily series
 
 INTEGRITY CONTRACT
-  - No look-ahead: engine fills settle at the NEXT trading day's OPEN; each
+  - No look-ahead: engine fills settle at the NEXT trading day's OPEN, and the
+    weekly bar behind each decision is the last COMPLETED week (the DB's
+    Monday-stamped row holds that week's Friday close, so the decision-day
+    Monday row itself is NOT read unless --legacy-weekly); each
     trade row carries a signal snapshot reconstructed from the bars on the
     decision day immediately before that fill, so every row ties to the exact
     bars that triggered it.
@@ -191,7 +194,12 @@ def main():
             """
             if sig_date is None:
                 return None
-            wi = _last_idx_before(widx[tid], weekly[tid]['dates'], sig_date)
+            # Same weekly bar the engine read: last COMPLETED week by default,
+            # the (lookahead) decision-day Monday row only under --legacy-weekly.
+            if getattr(a, 'legacy_weekly', False):
+                wi = _last_idx_before(widx[tid], weekly[tid]['dates'], sig_date)
+            else:
+                wi = bt._settled_weekly_idx(weekly[tid]['dates'], sig_date)
             di = _last_idx_before(didx[tid], daily[tid]['dates'], sig_date)
             if wi is None or wi < WARMUP or di is None:
                 return None

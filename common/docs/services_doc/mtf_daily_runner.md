@@ -44,7 +44,8 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
   (both `runner.py` and `backtest_topn_multitf.py`). Scores cap at `5.0`, so on
   strong days 150+ stocks tie at the max and the tie-break reproduces a
   backtest-identical, replicable top-10 — live == backtest, manual re-runs give
-  identical picks. Without it, ties resolved to an arbitrary stable-sort
+  identical picks (the weekly bar is the last completed week in both since 2026-09-25;
+  earlier backtests read the decision-day Monday row = a 4-day lookahead). Without it, ties resolved to an arbitrary stable-sort
   (hash-order in the backtest, SQL row order live).
 - **Position sizing**: new entries are sized `notional = equity / top_n`
   (10% each stocks, ~33% each ETFs); held positions are **not trimmed** to
@@ -192,6 +193,12 @@ rebalance, `--exit rebalance` (default), deterministic score+gap tie-break):
 | ETF-28 **top-3** (pilot) | $1,280,457 | **+1,180.5%** | **15.7%** | **1.94** | **1.87** |
 | ETF-28 top-10 (prior live) | $522,568 | +422.6% | 20.3% | 1.56 | 1.44 |
 | Sector-11 top-3 (info-only) | $657,254 | +557.3% | 21.8% | 1.68 | 1.56 |
+
+> **⚠ 2026-09-25: the table above used the pre-fix engine (same-week weekly lookahead).** On the
+> current default window (2021-09-21 → 2026-09-25, 0.05% cost) the same config gives +106% / −31.7% DD
+> settled vs +636% / −16.0% with the old lookahead read (`--legacy-weekly`); lookahead-free top-10 is
+> +98% / −19.6% (Sharpe 0.85) vs top-3 Sharpe 0.78, and top-3 without SMH is only +54%. Concentration
+> was not the edge. Re-audit (`audit/mtf_audit_template.py`) before relying on any figure here.
 
 Concentration, not the sector universe, is the edge: applying top-3 to the full
 28-ETF universe strictly dominates the sector-11 top-3 (return AND drawdown).

@@ -48,7 +48,10 @@ python mtf_audit_template.py --out ../audit/outputs --label mtf_ratchet_top10 --
 ## Metric definitions & integrity contract
 
 - **Signal snapshot** — every fill happens at the *next trading day's OPEN* in
-  the engine (no look-ahead). The snapshot reconstructs the weekly/daily/hourly
+  the engine, and the weekly bar behind each decision is the last **completed**
+  week (the DB's Monday-stamped row already holds that week's Friday close, so
+  the decision-day Monday row is not read; `--legacy-weekly` restores the old
+  lookahead read for reproducing pre-2026-09-25 numbers). The snapshot reconstructs the weekly/daily/hourly
   bars and all four scores (`emasma`, `mtf`, `early`, `near`) on the decision
   day immediately before the fill from the DB directly — the same bars the
   engine's loop read. Hourly data only exists from 2023-06-30, so older

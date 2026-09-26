@@ -98,6 +98,13 @@ rally), revisit a blended allocation to reduce volatility.
 
 ## 3. Ratchet-stop timing on the core ETFs — weekly is a timing rule, not a selection rule
 
+> **⚠ 2026-09-25: the weekly-ratchet numbers below (+98.3% / 7.1% DD etc.) have same-week lookahead.**
+> The backtest reads the current week's weekly row, which already holds that week's Friday close.
+> Lookahead-free (settled weeks, like live) on the same 2023-06-30 window the monotone gate gives
+> +55.6% / 10.5% DD vs +83.3% / 18.8% for equal-weight buy-and-hold — see TRADING_STRATEGIES.md §1.
+> Also, the "B&H equal-weight all 28: +1,508%" row below does not reconcile: recomputed over the
+> same window (through 2026-09-25) it is about +66% to +69%. Treat this whole section as superseded.
+
 ### Question
 "Trade on whether price is above the ratchet stop on all three timeframes (weekly, daily,
 hourly)" — backtest on the core ETFs (QQQ/VTI/VTV), equal-weight passers, 100% cash when
@@ -202,13 +209,14 @@ Reading:
   (-1.0 pt) but DD -14.1%→-12.0%. The freshness tightening behaves differently without the
   top-10 cap.
 
-### Canonical "after" logic (locked in as defaults)
-- `config.py`: `V2_FRESH_BARS = 18`, `V2_HIST_PEAK_LOOKBACK = 24`, `V2_HIST_PEAK_FLOOR = 0.7`
-- `backtest_v2.py`: defaults now mirror live. Reproduce:
-  - live logic: `--top-n 10` → **+59.8% / -10.8% DD**
-  - old baseline: `--top-n 10 --fresh-bars 270 --no-hist-guard` → **+61.7% / -13.4% DD**
-- Soften the guard later if desired: `HIST_PEAK_FLOOR` 0.7 → 0.5 recovers ~half the punched
-  return at slightly higher DD.
+### Canonical "after" logic (RETIRED 2026-09-26)
+The v2 freshest-crossover strategy and its `backtest_v2.py` engine were deleted on
+2026-09-26: the strategy required stored MACD columns, which were dropped in the same
+cleanup (see AGENTS.md → "Indicator cleanup"). Historical results below are kept for
+reference only and are no longer reproducible.
+- Former `config.py` values: `V2_FRESH_BARS = 18`, `V2_HIST_PEAK_LOOKBACK = 24`, `V2_HIST_PEAK_FLOOR = 0.7`
+- live logic: `--top-n 10` → **+59.8% / -10.8% DD**
+- old baseline: `--top-n 10 --fresh-bars 270 --no-hist-guard` → **+61.7% / -13.4% DD**
 
 ### Clean-slate live test (2026-09-01)
 All MTF stock positions were manually liquidated in the Alpaca paper UI → account flat.
@@ -229,8 +237,7 @@ while staying within ~2 pts of the best-return variant, and it targets the live 
 ## References
 - Ratchet-ATR exit design + backtest: `AGENTS.md` → Key Decisions (2026-08-12)
 - MTF executor: `swingtrader/services/mtf/executor.py` (`_compute_ratchet_stops`, filler logic ~:640, `reconcile_trades`), config in `config.py`
-- MTF runner / v2 scorer: `swingtrader/services/mtf/runner.py` (`_compute_v2_score`, `V2_FRESH_BARS`/hist-guard)
-- MTF v2 backtest engine: `swingtrader/services/mtf/backtest_v2.py` (`--top-n`, `--fresh-bars`, `--no-hist-guard`)
+- MTF runner: `swingtrader/services/mtf/runner.py` (`_compute_score`, `_compute_emasma_score`) — the v2 scorer `_compute_v2_score` and `backtest_v2.py` were removed 2026-09-26
 - CHAND executor: `swingtrader/backend/app/Services/TradeExecutorService.php`
 - MTF backtest engine: `swingtrader/services/mtf/backtest_topn_multitf.py`
 - Ratchet timing backtest: `swingtrader/services/mtf/backtest_ratchet_timing.py`

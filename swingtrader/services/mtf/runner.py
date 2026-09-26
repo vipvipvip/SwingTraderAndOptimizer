@@ -407,85 +407,6 @@ def _compute_emasma_score(weekly, daily_close, wi, sig_date):
     }
 
 
-def _compute_v2_score(weekly, daily, hourly, wi, di, hi, sig_date):
-    """v2 freshest-crossover score for the stock leg.
-
-    Entry (all must hold, matching backtest_v2.py):
-      weekly + daily EMA10 > SMA40 (bullish trend)
-      hourly MACD +ve: macd_line > macd_signal (histogram green)
-      fresh bullish hourly CO (EMA10>SMA40) within V2_FRESH_BARS bars at hi
-    Rank = score = higher for fresher cross (older cross => lower score), so
-    the daily top-N selects the freshest turnouts (backtest showed ranking by
-    freshest CO beats the MTF score).
-    """
-    import math
-    if wi < config.WARMUP_BARS or di < 1 or hi < 1:
-        return None
-    we = weekly['ema'][wi]; ws = weekly['sma'][wi]
-    de = daily['ema'][di]; ds = daily['sma'][di]
-    if any(math.isnan(x) for x in (we, ws, de, ds)):
-        return None
-    if we <= ws or de <= ds:
-        return None
-
-    e = hourly['ema10']; s = hourly['sma40']
-    ml = hourly['macd_line']; ms = hourly['macd_signal']
-    if hi >= len(e) or hi >= len(ml):
-        return None
-    if ml[hi] is None or ms[hi] is None or math.isnan(ml[hi]) or math.isnan(ms[hi]):
-        return None
-    if not (ml[hi] > ms[hi]):          # MACD +ve (histogram green)
-        return None
-    # MACD histogram momentum guard: exclude when histogram has faded below
-    # V2_HIST_PEAK_FLOOR of its peak over the trailing lookback window
-    # (shorter bars = decelerating drive, even while EMA/SMA CO is still +ve).
-    hist_now = ml[hi] - ms[hi]
-    _w0 = max(0, hi - config.V2_HIST_PEAK_LOOKBACK)
-    _hist_peak = max((ml[j] - ms[j] for j in range(_w0, hi)
-                      if ml[j] is not None and ms[j] is not None
-                      and not math.isnan(ml[j]) and not math.isnan(ms[j])),
-                     default=None)
-    if _hist_peak is not None and hist_now < _hist_peak * config.V2_HIST_PEAK_FLOOR:
-        return None
-    if e[hi] is None or s[hi] is None or s[hi] <= 0 or math.isnan(e[hi]) or math.isnan(s[hi]):
-        # no EMA/SMA yet (warmup), and CO not determinable
-        return None
-
-    # freshness: last bullish CO (EMA10 crossed above SMA40) within V2_FRESH_BARS
-    cross_age = None
-    for j in range(hi, max(0, hi - config.V2_FRESH_BARS) - 1, -1):
-        if e[j] is None or s[j] is None:
-            continue
-        jp = j - 1
-        if jp >= 0 and e[jp] is not None and s[jp] is not None:
-            if e[j] > s[j] and e[jp] <= s[jp]:
-                cross_age = hi - j
-                break
-        elif jp < 0:
-            if e[j] > s[j]:
-                cross_age = hi - j
-                break
-    if cross_age is None:
-        return None
-
-    wc = weekly['close'][wi]
-    dc = daily['close'][di]
-    gap_w = (wc - ws) / ws * 100
-    # score: prefer freshest cross; also nudge by diff % above weekly SMA40
-    fresh_pts = max(0.0, 10.0 - cross_age / config.V2_FRESH_BARS * 10.0)
-    gap_pts = min(max(gap_w, 0) / 20, 3)
-    score = round(fresh_pts + gap_pts, 2)
-    return {
-        'score': score,
-        'gap_w': round(gap_w, 1),
-        'atr_dist': round((dc - (daily['sma'][di] if not math.isnan(daily['sma'][di]) else dc)) / dc * 100, 2),
-        'freshness': max(1, cross_age // 9),   # bars -> approx days
-        'close': round(dc, 2),
-        'name': None,
-        'cross_age_bars': cross_age,
-    }
-
-
 def _get_ticker_name(conn, tid):
     with conn.cursor() as cur:
         cur.execute('SELECT symbol FROM tbl_stock_tickers WHERE id = %s', (tid,))
@@ -547,19 +468,16 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     weekly_data = db_module.bulk_load_weekly(conn, enabled_tids)
     print(f'[MTF] Loading daily data...', flush=True)
     daily_data_raw = db_module.bulk_load_daily(conn, enabled_tids)
-    uses_hourly = (not is_etf) and strategy in ('mtf', 'v2')
+    uses_hourly = (not is_etf) and strategy == 'mtf'
     if uses_hourly:
         print(f'[MTF] Loading hourly data...', flush=True)
-        if strategy == 'v2':
-            hourly_data_raw = db_module.bulk_load_hourly_full(conn, enabled_tids)
-        else:
-            hourly_data_raw = db_module.bulk_load_hourly(conn, enabled_tids)
+        hourly_data_raw = db_module.bulk_load_hourly(conn, enabled_tids)
     else:
         hourly_data_raw = {}
 
     # Filter to enabled tickers with all needed timeframes. emasma (stock or
     # ETF) is weekly-only scoring — needs weekly + daily (daily for close);
-    # the stock MTF/v2 score additionally needs hourly. ETF leg always stays
+    # the stock MTF score additionally needs hourly. ETF leg always stays
     # emasma regardless of the --strategy flag.
     weekly_data = {tid: d for tid, d in weekly_data.items()
                    if tid in enabled_tids and len(d['dates']) >= config.WARMUP_BARS}
@@ -684,12 +602,6 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
             continue
         if is_etf or strategy == 'emasma':
             result = _compute_emasma_score(weekly_data[tid], daily_data[tid]['close'][di], wi, sig_date)
-        elif strategy == 'v2':
-            hi = _nearest_date_idx(hourly_idx[tid], hourly_dates_sorted[tid], sig_date)
-            if hi is None:
-                continue
-            result = _compute_v2_score(weekly_data[tid], daily_data[tid], hourly_data[tid],
-                                       wi, di, hi, sig_date)
         else:
             hi = _nearest_date_idx(hourly_idx[tid], hourly_dates_sorted[tid], sig_date)
             if hi is None:
@@ -1267,9 +1179,10 @@ if __name__ == '__main__':
                         help='score (evening analytics) or execute (morning trades)')
     parser.add_argument('--mode', choices=['stock', 'etf', 'all'], default='stock',
                         help='Ticker universe (default: stock, use "all" for stocks+ETFs)')
-    parser.add_argument('--strategy', choices=['mtf', 'v2', 'emasma'], default='mtf',
-                        help='stock-leg scoring: mtf (default), v2 freshest-crossover '
-                             'top-N, or emasma (weekly EMA10>SMA40 rotation, same as ETF leg)')
+    parser.add_argument('--strategy', choices=['mtf', 'emasma'], default='mtf',
+                        help='stock-leg scoring: mtf (default) or emasma (weekly EMA10>SMA40 '
+                             'rotation, same as ETF leg). The v2 freshest-crossover strategy '
+                             'was retired 2026-09-26 (it required stored MACD columns).')
     parser.add_argument('--dry-run', action='store_true',
                         help='execute path: report pending buys/sells without placing orders')
     parser.add_argument('--fresh', action='store_true',

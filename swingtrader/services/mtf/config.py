@@ -11,21 +11,27 @@ load_dotenv()
 # --cost 0): +2,114,701% / -20.3% DD / 86% win vs new-entry-only top-25
 # +1,153,856% / -20.1% DD. Returns are fantasy (survivorship), but 25 equal
 # slots keeps the book demonstrably unconcentrated.
+# NOTE (2026-09-25): these stock-leg backtests ran on the pre-fix engine, which read
+# the decision-day Monday weekly row (= that week's FRIDAY close, a 4-day lookahead).
+# Re-run lookahead-free (same flags, 2021-09-20 -> 2026-09-25, cost 0): +952% / -32.9% DD /
+# 45% win / Sharpe 1.6 (SPY +89% / -24.5% / 0.83) - not +2.1M% / -20.3% / 86%. Still NOT an
+# expected return: the 1,412-name universe is today's list (equal-weighted it returned ~+139%
+# vs +40-49% for IJR/IJH/IWM), the top ~50 names carry ~99% of the profit, and without them
+# the strategy is +132% / -36.8% DD vs +115% for the equal-weighted rest.
 EQUAL_WEIGHT = True
 TOP_N = 25
-# ETF-leg pilot (2026-09-08): concentration to 3 was the edge in backtests —
-# ETF-28 top-3 +1,122.7% / 15.7% DD vs top-10 +422.6% / 20.3% DD (same window,
-# audited & ledger-reconciled). Stocks stay at TOP_N. Set ETF_TOP_N equal to
-# TOP_N to revert.
+# ETF-leg pilot (2026-09-08): chosen because ETF-28 top-3 beat top-10 in backtests
+# (+1,122.7% / 15.7% DD vs +422.6% / 20.3% DD). WARNING (2026-09-25): those runs used
+# the pre-fix engine, which read the decision-day Monday weekly row = that week's
+# FRIDAY close (4-day lookahead). Lookahead-free (last completed week, like live),
+# 2021-09-21 -> 2026-09-25, 0.05% cost: top-3 +106% / -31.7% DD / Sharpe 0.78;
+# top-10 +98% / -19.6% / 0.85; top-3 without SMH +54% / -27.2%. SPY: +89% / -24.5% /
+# 0.83. So concentration was NOT the edge. Kept at 3 for the paper pilot by owner
+# decision (2026-09-25). Stocks stay at TOP_N. Set ETF_TOP_N equal to TOP_N to revert.
 ETF_TOP_N = 3
-V2_FRESH_BARS = 18     # 1-2 trading days x ~9 hourly bars/day freshness window (v2 strategy)
-# MACD histogram momentum guard: exclude an entry (incl. re-buy) when the
-# histogram has faded below V2_HIST_PEAK_FLOOR of its peak over the trailing
-# V2_HIST_PEAK_LOOKBACK hourly bars.  Catches "shorter MACD histogram bars"
-# (decelerating drive) even while EMA/SMA CO is still +ve — this is what made
-# TEAM a bad re-buy after its ratchet stop.
-V2_HIST_PEAK_LOOKBACK = 24
-V2_HIST_PEAK_FLOOR = 0.7
+# The v2 freshest-crossover strategy (V2_FRESH_BARS, V2_HIST_PEAK_LOOKBACK,
+# V2_HIST_PEAK_FLOOR) was retired 2026-09-26 — it required stored MACD columns,
+# which are dropped. Use --strategy mtf or emasma.
 SECTOR_ETFS = ['XLB', 'XLE', 'XLF', 'XLRE', 'XLV', 'XLI', 'XLK', 'XLP', 'XLU', 'XLY', 'XLC']
 EMA_PERIOD = 10
 SMA_PERIOD = 40

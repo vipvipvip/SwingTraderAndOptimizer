@@ -11,7 +11,11 @@ close (settled bars only — in-progress day/week excluded):
                            above its peak-anchored ratchet stop (highest weekly
                            close since entry - mult x weekly ATR); flat -> cash
                            below. Equal-weight among passers, rebalanced every
-                           week. This is the researched +98.3% / 7.1% DD rule.
+                           week. WARNING: B/B'/E read the CURRENT week's weekly row,
+                           which in the DB already holds that week's FRIDAY close, so
+                           Mon-Fri decisions peek ahead - the old '+98.3% / 7.1% DD'
+                           headline is that lookahead. Live-parity is variant S
+                           (--settled-friday); see common/docs/TRADING_STRATEGIES.md.
   C. B&H                : equal-weight buy, never rebalance.
   D. score-proportional : per-ticker CO score = weekly EMA10>SMA40 (1/0) plus
                            daily EMA10>SMA40 (1/0) -> 0, 1 or 2; target weight
@@ -19,6 +23,14 @@ close (settled bars only — in-progress day/week excluded):
                            every settled daily bar; all-zero day -> 100% cash.
                            When all three are fully bullish (2,2,2) this is
                            equal thirds, i.e. D degenerates to A.
+  M. index-SMA gate      : (--sma-gate N [--sma-band PCT]) ONE market switch for
+                           the whole trio: the equal-weight index of the three
+                           closes vs its N-day SMA; off below SMA*(1-band), back on
+                           above SMA*(1+band); all three in/out together, cash when
+                           off. Decide on a settled close, fill at the NEXT day's
+                           close. Price-only. Research (2000-2026, mutual-fund
+                           extended history): SMA200 +/-3% cut max DD -60% -> -22%
+                           at ~1 signal change/yr; see TRADING_STRATEGIES.md.
 
 Win rate reported as the fraction of weekly intervals with positive portfolio
 return — the honest metric for continuous-exposure strategies (no discrete
@@ -105,6 +117,9 @@ def pos_of(daily_dates, tf_dates):
 
 def weekly_state(daily_dates, w_dates, w_close, w_atr, wpos, mult, reset):
     """Per-daily-day long flags for the weekly ratchet gate.
+    LOOKAHEAD WARNING: `wpos` comes from pos_of(), which maps a day to the CURRENT
+    week's Monday-stamped row whose close is that week's Friday close (future data
+    on Mon-Thu). Use settled_week_flags() for anything meant to match live.
     Also returns the ratchet-stop level in force each day (the trailing stop
     while long; the re-entry threshold while flat; NaN before the first gauge)."""
     long_flags = np.zeros(len(daily_dates), dtype=bool)
@@ -354,6 +369,49 @@ def settled_week_flags(daily_dates, w_dates, w_close, w_atr, mult, reset):
             seen = wi
         flags[i] = long
     return flags
+
+
+def sma_gate_flags(conn, tickers, daily_dates, n, band):
+    """Variant M: one index-level SMA gate for the whole trio.
+
+    The signal series is the equal-weight (daily-rebalanced) index built from the
+    tickers' settled daily closes. State is decided at the close of day t
+    (off below SMA*(1-band), on above SMA*(1+band), hysteresis in between) and
+    applied to day t+1, so run_settled_sim fills it at the NEXT day's close.
+    History before `daily_dates[0]` is pulled for SMA warm-up. Returns the
+    per-day bool flags aligned to `daily_dates` (same for every ticker)."""
+    full = {s: load_full(conn, s, TABLE_D, '2000-01-01') for s in tickers}
+    today = datetime.now().date()
+    keep = [i for i, d in enumerate(full[tickers[0]][0]) if d < today]   # settled bars only
+    dfull = [full[tickers[0]][0][i] for i in keep]
+    for s in tickers:
+        if [full[s][0][i] for i in keep] != dfull:
+            raise SystemExit(f'date mismatch for {s} (SMA gate history)')
+    px = pd.DataFrame({s: full[s][1][keep] for s in tickers}, index=dfull)
+    idx = (1 + px.pct_change().mean(axis=1).fillna(0.0)).cumprod().to_numpy()
+    sma = pd.Series(idx).rolling(n).mean().to_numpy()
+
+    state = np.zeros(len(idx), dtype=bool)
+    st = None
+    for i in range(len(idx)):
+        if np.isnan(sma[i]):
+            continue
+        if st is None:
+            st = idx[i] > sma[i]
+        elif st and idx[i] < sma[i] * (1 - band):
+            st = False
+        elif (not st) and idx[i] > sma[i] * (1 + band):
+            st = True
+        state[i] = st
+
+    off = dfull.index(daily_dates[0])
+    if dfull[off:off + len(daily_dates)] != list(daily_dates):
+        raise SystemExit('SMA gate history does not line up with the backtest window')
+    if off == 0 or np.isnan(sma[off - 1]):
+        print(f'  M: WARNING SMA{n} not warm at window start ({daily_dates[0]}); '
+              f'gate sits in cash until the SMA is valid — use a later --start')
+    lagged = np.concatenate([[False], state[:-1]])   # decide at close t, hold from t+1
+    return lagged[off:off + len(daily_dates)]
 
 
 def run_settled_sim(daily_dates, closes, flags, cost):
@@ -616,6 +674,12 @@ def main():
                          'close (no mid-week knowledge). Emits one round-trip '
                          'row per trade with prev-Friday + Monday-close both '
                          f'shown, so fill == Monday close is verifiable.')
+    ap.add_argument('--sma-gate', type=int, default=0, metavar='N',
+                    help='variant M: one index-level N-day SMA gate for the whole trio '
+                         '(e.g. 200); decide on a settled close, fill next-day close')
+    ap.add_argument('--sma-band', type=float, default=3.0, metavar='PCT',
+                    help='variant M hysteresis band in percent (default 3.0): off below '
+                         'SMA*(1-b), back on above SMA*(1+b)')
     ap.add_argument('--csv-trades', action='store_true',
                     help='write per-ticker gate trade CSVs + exposure timeline to --csv-dir')
     ap.add_argument('--csv-dir', default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -699,6 +763,15 @@ def main():
                                                args.mult, not args.no_reset)
             eqS, dS, bS, sS = run_settled_sim(daily_dates, closes, flagsS, COST)
 
+        # M: index-level SMA gate (additive; only with --sma-gate N). Same
+        # settled-sim fill rule as S, but the flags come from ONE market signal.
+        eqM = dM = bM = sM = flagsM = None
+        if args.sma_gate:
+            flagM = sma_gate_flags(conn, tickers, daily_dates, args.sma_gate,
+                                   args.sma_band / 100.0)
+            flagsM = {s: flagM for s in tickers}
+            eqM, dM, bM, sM = run_settled_sim(daily_dates, closes, flagsM, COST)
+
         # D: score-proportional (weekly CO + daily CO, re-applied daily).
         # Warm-up data pulled from before ts_start so EMA10/SMA40 are non-NaN
         # at the first signal day; skipped if no pre-start history is available.
@@ -776,6 +849,14 @@ def main():
                          if sum(flagsS[s][i] for s in tickers) > 0)
             print(f'  S:    {bS} buys / {sS} sells | '
                   f'{100*s_long/max(1,len(daily_dates)):.0f}% of days some ETF long')
+
+        if eqM is not None:
+            stats(eqM, dM, f'M. index SMA{args.sma_gate} +/-{args.sma_band:g}% gate')
+            m_long = int(np.sum(flagsM[tickers[0]]))
+            m_flips = int(np.sum(flagsM[tickers[0]][1:] != flagsM[tickers[0]][:-1]))
+            print(f'  M:    {bM} buys / {sM} sells | {m_flips} signal changes | '
+                  f'{100*m_long/max(1,len(daily_dates)):.0f}% of days invested '
+                  f'(all three ETFs together)')
 
         if eqD is not None:
             stats(eqD, dD, 'D. score-proportional (W+D CO, daily)')
