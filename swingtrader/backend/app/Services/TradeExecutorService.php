@@ -622,6 +622,329 @@ class TradeExecutorService
     }
 
     /**
+     * Variant M: index-level SMA gate (backtest_trio_ew.py --sma-gate/--sma-band).
+     *
+     * Replays the SETTLED daily closes of the trio into one equal-weight,
+     * daily-rebalanced index, then walks a hysteretic SMA band over it:
+     *   - while ON,  go OFF only when index < SMA * (1 - band)
+     *   - while OFF, go ON  only when index > SMA * (1 + band)
+     *   - in between, hold the current state (hysteresis)
+     *   - first valid SMA seeds the state with index > SMA
+     *
+     * The book is all-three-in or all-cash; there is no per-leg state. The
+     * state returned is the one decided at the close of the LAST SETTLED bar,
+     * which is the state we act on for the next session (the backtest lags the
+     * flag by one day and fills at that day's close, so decision = previous
+     * settled close, fill = next close — one lag total).
+     *
+     * Deliberately mirrors sma_gate_flags()/run_settled_sim() in
+     * backtest_trio_ew.py bar-for-bar so the live gate can be diffed against
+     * the backtest.
+     */
+    private function replayIndexSmaGate(array $symbols, int $n, float $band): array
+    {
+        $empty = [
+            'long' => false, 'last_date' => null, 'index' => 0.0, 'sma' => 0.0,
+            'pct_vs_sma' => 0.0, 'flips' => [], 'signal_changes' => 0,
+            'warm' => false, 'error' => null,
+        ];
+        if (count($symbols) < 2 || $n < 2) {
+            $empty['error'] = 'need >= 2 symbols and n >= 2';
+            return $empty;
+        }
+
+        $closes = [];
+        $datesRef = null;
+        foreach ($symbols as $sym) {
+            try {
+                $rows = \DB::table('tbl_scanner_tickers_daily as d')
+                    ->join('tbl_stock_tickers as t', 'd.ticker_id', '=', 't.id')
+                    ->where('t.symbol', $sym)
+                    ->where('t.is_etf', true)
+                    ->whereRaw('d.date::date < CURRENT_DATE')
+                    ->orderBy('d.date', 'asc')
+                    ->get(['d.date', 'd.close']);
+            } catch (\Exception $e) {
+                $empty['error'] = "failed to load daily bars for $sym: " . $e->getMessage();
+                \Log::error("Index SMA gate: daily bar load failed for $sym: " . $e->getMessage());
+                return $empty;
+            }
+            $map = [];
+            foreach ($rows as $r) {
+                $map[substr($r->date, 0, 10)] = floatval($r->close);
+            }
+            $closes[$sym] = $map;
+            $datesRef = $datesRef === null ? array_keys($map) : $datesRef;
+        }
+
+        // Intersection of trading dates so a single missing row cannot skew the
+        // equal-weight return series (the backtest hard-fails on misalignment).
+        $dates = array_values(array_filter($datesRef, function ($d) use ($closes) {
+            foreach ($closes as $map) {
+                if (!isset($map[$d]) || $map[$d] <= 0) {
+                    return false;
+                }
+            }
+            return true;
+        }));
+        $bars = count($dates);
+        if ($bars < $n + 1) {
+            $empty['error'] = "need $n+1 aligned settled daily bars, have $bars";
+            return $empty;
+        }
+
+        // Equal-weight daily-rebalanced index (matches pandas
+        // (1 + pct_change().mean(axis=1)).cumprod(); day 0 has no prior close
+        // so its return is 0).
+        $idx = [1.0];
+        for ($i = 1; $i < $bars; $i++) {
+            $sum = 0.0;
+            foreach ($closes as $map) {
+                $sum += ($map[$dates[$i]] / $map[$dates[$i - 1]]) - 1.0;
+            }
+            $idx[] = $idx[$i - 1] * (1.0 + ($sum / count($closes)));
+        }
+
+        // Simple MA over $n bars, undefined until the window is full.
+        $sma = [];
+        for ($i = 0; $i < $bars; $i++) {
+            $sma[$i] = ($i + 1 < $n) ? null : (array_sum(array_slice($idx, $i - $n + 1, $n)) / $n);
+        }
+
+        $state = array_fill(0, $bars, false);
+        // $band arrives as a PERCENT (3 = +/-3%), matching --sma-band and
+        // COREEW_SMA_BAND. backtest_trio_ew.py divides by 100 for the same reason.
+        $bandFrac = $band / 100.0;
+        $st = null;
+        $flips = [];
+        for ($i = 0; $i < $bars; $i++) {
+            if ($sma[$i] === null) {
+                continue;
+            }
+            if ($st === null) {
+                $st = $idx[$i] > $sma[$i];
+            } elseif ($st && $idx[$i] < $sma[$i] * (1 - $bandFrac)) {
+                $st = false;
+                $flips[] = ['date' => $dates[$i], 'to' => false];
+            } elseif (!$st && $idx[$i] > $sma[$i] * (1 + $bandFrac)) {
+                $st = true;
+                $flips[] = ['date' => $dates[$i], 'to' => true];
+            }
+            $state[$i] = $st;
+        }
+
+        $last = $bars - 1;
+        return [
+            'long' => (bool) $state[$last],
+            'last_date' => $dates[$last],
+            'index' => round($idx[$last], 6),
+            'sma' => $sma[$last] === null ? 0.0 : round($sma[$last], 6),
+            'pct_vs_sma' => ($sma[$last] && $sma[$last] > 0)
+                ? round((($idx[$last] / $sma[$last]) - 1.0) * 100.0, 2) : 0.0,
+            'flips' => $flips,
+            'signal_changes' => count($flips),
+            'warm' => $sma[$last] !== null,
+        ];
+    }
+
+    /**
+     * Read-only snapshot of the index SMA gate — no Alpaca calls, no orders.
+     * Returns the state decided at the last settled close, the index level, the
+     * SMA, the % gap to the SMA, and the recent flip history (newest last) so
+     * the live state can be diffed against the backtest.
+     */
+    public function indexSmaGateState(int $n = 200, float $band = 3.0): array
+    {
+        $symbols = Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        $symbols = array_values(array_intersect($symbols, ['QQQ', 'VTI', 'VTV']));
+
+        $state = $this->replayIndexSmaGate($symbols, $n, $band);
+        $state['symbols'] = $symbols;
+        $state['n'] = $n;
+        $state['band'] = $band;
+        $state['flips_recent'] = array_slice($state['flips'], -10);
+        return $state;
+    }
+
+    /**
+     * Index SMA gate executor (variant M). All-three-in or all-cash, and it
+     * only acts when the gate STATE CHANGES — deduped on the flip date rather
+     * than a calendar date, so the gate matches run_settled_sim() (which trades
+     * only on `sig != last_set`) instead of rebalancing every day.
+     */
+    public function runIndexSmaGate(bool $dryRun = false, int $n = 200, float $band = 3.0, bool $override = false): array
+    {
+        $this->dryRun = $dryRun;
+
+        $results = [
+            'total' => 0, 'buys' => [], 'sells' => [], 'errors' => [],
+            'state' => [], 'noop' => null, 'flip_date' => null,
+        ];
+        $symbols = Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        $symbols = array_values(array_intersect($symbols, ['QQQ', 'VTI', 'VTV']));
+        $results['total'] = count($symbols);
+        if (count($symbols) < 2) {
+            $results['errors'][] = 'need at least 2 of QQQ/VTI/VTV enabled';
+            return $results;
+        }
+
+        $gate = $this->replayIndexSmaGate($symbols, $n, $band);
+        if (!empty($gate['error'])) {
+            $results['errors'][] = $gate['error'];
+            return $results;
+        }
+        if (!$gate['warm']) {
+            $results['errors'][] = "SMA$n not warm on settled bar " . $gate['last_date'];
+            return $results;
+        }
+        $results['state'] = $gate;
+        $long = (bool) $gate['long'];
+        $flipDate = null;
+        if (!empty($gate['flips'])) {
+            $lastFlip = end($gate['flips']);
+            $flipDate = $lastFlip['date'];
+        }
+        $results['flip_date'] = $flipDate;
+
+        // Change-driven dedupe: the newest flip's date is the run identity. A new
+        // settled day that does NOT flip the state re-runs as a no-op, so the
+        // gate never drifts into a daily rebalance.
+        $storage = storage_path('coreew_sma_gate_last_flip.txt');
+        $lastActed = null;
+        $actedFile = @file_get_contents($storage);
+        if ($actedFile !== false) {
+            $lastActed = trim($actedFile);
+        }
+        $runId = $flipDate ?? ('init-' . $gate['last_date']);
+        if (!$override && $lastActed !== null && $lastActed === $runId) {
+            $results['noop'] = "flip $runId already acted on";
+            return $results;
+        }
+
+        if (!$dryRun) {
+            try {
+                $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+            } catch (\Exception $e) {
+                \Log::warning("Index SMA gate reconciliation failed: " . $e->getMessage());
+            }
+        }
+
+        try {
+            $account = $this->alpacaService->getAccount();
+            $positions = $this->alpacaService->getPositions();
+        } catch (\Exception $e) {
+            $results['errors'][] = "account/positions fetch failed: " . $e->getMessage();
+            return $results;
+        }
+        $equity = floatval($account['equity'] ?? 0);
+        if ($equity <= 0) {
+            $results['errors'][] = 'Account equity <= 0';
+            return $results;
+        }
+
+        $held = [];
+        $heldVal = [];
+        foreach ($positions ?? [] as $pos) {
+            $held[$pos['symbol']] = floatval($pos['qty'] ?? 0);
+            $heldVal[$pos['symbol']] = floatval($pos['market_value'] ?? 0);
+        }
+
+        if ($long) {
+            // ON: all three at equity/N. Trim first — on the first run after
+            // cutover the book can hold unequal legs from the previous gate, and
+            // topping up alone would never converge. Safe to skip: the gate only
+            // acts on a flip, and an ON->ON day is deduped out, so this trims
+            // exactly once (init / flip-to-ON) rather than daily.
+            $per = $equity / count($symbols);
+            foreach ($symbols as $sym) {
+                $excess = $heldVal[$sym] - $per;
+                if ($excess <= 0) {
+                    continue;
+                }
+                $price = $this->getCurrentPrice($sym);
+                if (!$price) {
+                    $results['errors'][] = "$sym EW trim: no price";
+                    continue;
+                }
+                $sellQty = round($excess / $price, 4);
+                if ($sellQty <= 0 || $sellQty * $price < 1.0) {
+                    continue;
+                }
+                if ($this->rebalanceTrim($sym, $sellQty) > 0) {
+                    $results['sells'][] = "$sym (EW trim $sellQty)";
+                }
+            }
+            foreach ($symbols as $sym) {
+                $needed = $per - $heldVal[$sym];
+                if ($needed <= 0) {
+                    continue;
+                }
+                $price = $this->getCurrentPrice($sym);
+                if (!$price) {
+                    $results['errors'][] = "$sym top-up: no price";
+                    continue;
+                }
+                $buyQty = round($needed / $price, 4);
+                if ($buyQty <= 0 || $buyQty * $price < 1.0) {
+                    continue;
+                }
+                if ($this->rebalanceTopUp($sym, $buyQty, $price)) {
+                    $results['buys'][] = $sym;
+                }
+            }
+        } else {
+            // OFF: liquidate every leg.
+            foreach ($symbols as $sym) {
+                $qty = $held[$sym] ?? 0;
+                if ($qty <= 0) {
+                    continue;
+                }
+                $openTrade = LiveTrade::where('symbol', $sym)->where('status', 'open')->first();
+                if ($openTrade) {
+                    if ($this->rebalanceTrim($sym, $qty) > 0) {
+                        $results['sells'][] = "$sym (gate exit)";
+                    }
+                    continue;
+                }
+                if ($this->dryRun) {
+                    $results['sells'][] = "$sym (gate exit DRY-only)";
+                    continue;
+                }
+                try {
+                    $order = $this->alpacaService->placeOrder($sym, $qty, 'sell');
+                    $orderId = $order['id'] ?? null;
+                    $filled = $orderId ? $this->alpacaService->waitForOrderFill($orderId) : null;
+                    if ($filled && strtolower($filled['status'] ?? '') === 'filled') {
+                        $results['sells'][] = "$sym (gate exit)";
+                    } else {
+                        $results['errors'][] = "$sym gate exit not filled";
+                    }
+                } catch (\Exception $e) {
+                    \Log::error("Index SMA gate exit failed for $sym: " . $e->getMessage());
+                    $results['errors'][] = "$sym gate exit failed: " . $e->getMessage();
+                }
+            }
+        }
+
+        if (!$dryRun && count($results['errors']) === 0) {
+            @file_put_contents($storage, $runId);
+            \Log::info("Index SMA gate: recorded acted flip $runId (long=" . ($long ? '1' : '0') . ")");
+        } elseif (!$dryRun && count($results['errors']) > 0) {
+            \Log::warning("Index SMA gate: NOT recording $runId due to " . count($results['errors']) . " errors");
+        }
+
+        return $results;
+    }
+
+    /**
      * Gain-cap "profit rake" for the CoreEW trio (QQQ/VTI/VTV).
      *
      * Converts paper gains on a winning leg into CASH so they cannot evaporate.
