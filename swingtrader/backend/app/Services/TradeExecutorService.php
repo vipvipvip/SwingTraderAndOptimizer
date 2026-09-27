@@ -1003,6 +1003,310 @@ class TradeExecutorService
     }
 
     /**
+     * Variant EG: index-level EMA gate (backtest_trio_ew.py --ema-gate/--ema-band).
+     *
+     * Identical to replayIndexSmaGate() except the average is an EMA(span)
+     * instead of an SMA(n). The index construction is byte-for-byte the same
+     * (equal-weight of the trio's settled daily closes, daily-rebalanced,
+     * seeded at 1.0), so EG and M differ ONLY in the average.
+     *
+     * The EMA is pandas-compatible: ewm(span=span, adjust=False), i.e. seeded
+     * with the first index value and recursive with alpha = 2/(span+1). Note it
+     * has NO warm-up gap (unlike the SMA's first n-1 nulls) — a 100-period EMA
+     * is defined from bar 0. That is why ema_gate_flags() in the backtest never
+     * trips its isnan() guard, and why this method must not skip early bars.
+     *
+     * band=0.0 is a PURE CROSSOVER: flip the instant the index crosses the EMA.
+     * band>0 mirrors the SMA hysteresis (exit below ema*(1-band), re-enter above
+     * ema*(1+band)).
+     */
+    private function replayIndexEgGate(array $symbols, int $span, float $band): array
+    {
+        $empty = ['long' => false, 'last_date' => null, 'index' => 0.0, 'ema' => 0.0,
+                  'pct_vs_ema' => 0.0, 'flips' => [], 'signal_changes' => 0,
+                  'warm' => false, 'error' => 'no data'];
+        $closes = [];
+        $datesRef = null;
+        foreach ($symbols as $sym) {
+            try {
+                $rows = \DB::table('tbl_scanner_tickers_daily as d')
+                    ->join('tbl_stock_tickers as t', 'd.ticker_id', '=', 't.id')
+                    ->where('t.symbol', $sym)
+                    ->where('t.is_etf', true)
+                    ->whereRaw('d.date::date < CURRENT_DATE')
+                    ->orderBy('d.date')
+                    ->get(['d.date', 'd.close']);
+            } catch (\Exception $e) {
+                $empty['error'] = "load failed for $sym: " . $e->getMessage();
+                return $empty;
+            }
+            if (count($rows) === 0) {
+                $empty['error'] = "no settled daily bars for $sym";
+                return $empty;
+            }
+            $map = [];
+            foreach ($rows as $r) {
+                $map[substr($r->date, 0, 10)] = floatval($r->close);
+            }
+            $closes[$sym] = $map;
+            $datesRef = $datesRef === null ? array_keys($map) : $datesRef;
+        }
+
+        // Only dates present for EVERY symbol can carry a portfolio return.
+        $dates = array_values(array_filter($datesRef, function ($d) use ($closes) {
+            foreach ($closes as $map) {
+                if (!isset($map[$d])) {
+                    return false;
+                }
+            }
+            return true;
+        }));
+        $bars = count($dates);
+        if ($bars < 3) {
+            $empty['error'] = "only $bars aligned bars";
+            return $empty;
+        }
+
+        // (1 + pct_change().mean(axis=1)).cumprod(); day 0 has no prior close
+        // so its return is 0. Identical to the SMA gate's index.
+        $idx = [1.0];
+        for ($i = 1; $i < $bars; $i++) {
+            $sum = 0.0;
+            foreach ($closes as $map) {
+                $sum += ($map[$dates[$i]] / $map[$dates[$i - 1]]) - 1.0;
+            }
+            $idx[] = $idx[$i - 1] * (1.0 + ($sum / count($closes)));
+        }
+
+        // ewm(span, adjust=False): seeded with the first value, alpha = 2/(span+1).
+        $alpha = 2.0 / ($span + 1.0);
+        $ema = [$idx[0]];
+        for ($i = 1; $i < $bars; $i++) {
+            $ema[] = $alpha * $idx[$i] + (1.0 - $alpha) * $ema[$i - 1];
+        }
+
+        $bandFrac = $band / 100.0;
+        $st = null;
+        $state = [];
+        $flips = [];
+        for ($i = 0; $i < $bars; $i++) {
+            if ($st === null) {
+                $st = $idx[$i] > $ema[$i];
+            } elseif ($st && $idx[$i] < $ema[$i] * (1 - $bandFrac)) {
+                $st = false;
+                $flips[] = ['date' => $dates[$i], 'to' => false];
+            } elseif (!$st && $idx[$i] > $ema[$i] * (1 + $bandFrac)) {
+                $st = true;
+                $flips[] = ['date' => $dates[$i], 'to' => true];
+            }
+            $state[$i] = $st;
+        }
+
+        $last = $bars - 1;
+        return [
+            'long' => (bool) $state[$last],
+            'last_date' => $dates[$last],
+            'index' => round($idx[$last], 6),
+            'ema' => round($ema[$last], 6),
+            'span' => $span,
+            'band' => $band,
+            'bars' => $bars,
+            'pct_vs_ema' => ($ema[$last] > 0)
+                ? round((($idx[$last] / $ema[$last]) - 1.0) * 100.0, 2) : 0.0,
+            'flips' => $flips,
+            'signal_changes' => count($flips),
+            'last_flip' => $flips ? $flips[count($flips) - 1] : null,
+            'warm' => true,
+        ];
+    }
+
+    /** Read-only EG100 snapshot: no Alpaca calls, no orders. */
+    public function indexEgGateState(int $span = 100, float $band = 0.0): array
+    {
+        $symbols = Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        $symbols = array_values(array_intersect($symbols, ['QQQ', 'VTI', 'VTV']));
+        $state = $this->replayIndexEgGate($symbols, $span, $band);
+        $state['symbols'] = $symbols;
+        return $state;
+    }
+
+    /**
+     * Live EG100: portfolio-level all-in / all-out on the EMA(span) crossover.
+     *
+     * Structure is identical to runIndexSmaGate() — same change-driven dedupe,
+     * same trim-before-top-up cutover, same exit path (rebalanceTrim when a DB
+     * trade exists, else direct market sell gated on waitForOrderFill, and
+     * never a filled-claim without it). Only the signal source differs.
+     *
+     * TIMING: the signal is read from the LAST SETTLED daily bar, so a decision
+     * made on day t is acted on in session t+1. The backtest instead fills at
+     * t+1's CLOSE. Live fills intraday at market whenever this runs. That is a
+     * real, documented divergence — the backtest is not a promise about the
+     * live fill price.
+     */
+    public function runEg100Gate(bool $dryRun = false, int $span = 100, bool $override = false): array
+    {
+        $this->dryRun = $dryRun;
+
+        $results = [
+            'total' => 0, 'buys' => [], 'sells' => [], 'errors' => [],
+            'state' => [], 'noop' => null, 'flip_date' => null,
+        ];
+        $symbols = Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        $symbols = array_values(array_intersect($symbols, ['QQQ', 'VTI', 'VTV']));
+        $results['total'] = count($symbols);
+        if (count($symbols) < 2) {
+            $results['errors'][] = 'need at least 2 of QQQ/VTI/VTV enabled';
+            return $results;
+        }
+
+        $gate = $this->replayIndexEgGate($symbols, $span, 0.0);
+        if (!empty($gate['error'])) {
+            $results['errors'][] = $gate['error'];
+            return $results;
+        }
+        $results['state'] = $gate;
+        $long = (bool) $gate['long'];
+        $flipDate = $gate['last_flip']['date'] ?? null;
+        $results['flip_date'] = $flipDate;
+
+        // Change-driven dedupe: the newest flip's date is the run identity, so a
+        // new settled day that does NOT flip the state re-runs as a no-op and the
+        // gate never drifts into a daily rebalance.
+        $storage = storage_path('coreew_eg100_last_flip.txt');
+        $lastActed = null;
+        $actedFile = @file_get_contents($storage);
+        if ($actedFile !== false) {
+            $lastActed = trim($actedFile);
+        }
+        $runId = $flipDate ?? ('init-' . $gate['last_date']);
+        if (!$override && $lastActed !== null && $lastActed === $runId) {
+            $results['noop'] = "flip $runId already acted on";
+            return $results;
+        }
+
+        if (!$dryRun) {
+            try {
+                $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+            } catch (\Exception $e) {
+                \Log::warning("EG100 gate reconciliation failed: " . $e->getMessage());
+            }
+        }
+
+        try {
+            $account = $this->alpacaService->getAccount();
+            $positions = $this->alpacaService->getPositions();
+        } catch (\Exception $e) {
+            $results['errors'][] = "account/positions fetch failed: " . $e->getMessage();
+            return $results;
+        }
+        $equity = floatval($account['equity'] ?? 0);
+        if ($equity <= 0) {
+            $results['errors'][] = 'Account equity <= 0';
+            return $results;
+        }
+
+        $held = [];
+        $heldVal = [];
+        foreach ($positions ?? [] as $pos) {
+            $held[$pos['symbol']] = floatval($pos['qty'] ?? 0);
+            $heldVal[$pos['symbol']] = floatval($pos['market_value'] ?? 0);
+        }
+
+        if ($long) {
+            // ON: all three at equity/N. Trim FIRST — on the first run after
+            // cutover the book can hold unequal legs from the previous gate, and
+            // topping up alone would never converge.
+            $per = $equity / count($symbols);
+            foreach ($symbols as $sym) {
+                $excess = $heldVal[$sym] - $per;
+                if ($excess <= 0) {
+                    continue;
+                }
+                $price = $this->getCurrentPrice($sym);
+                if (!$price) {
+                    $results['errors'][] = "$sym EW trim: no price";
+                    continue;
+                }
+                $sellQty = round($excess / $price, 4);
+                if ($sellQty <= 0 || $sellQty * $price < 1.0) {
+                    continue;
+                }
+                if ($this->rebalanceTrim($sym, $sellQty) > 0) {
+                    $results['sells'][] = "$sym (EW trim $sellQty)";
+                }
+            }
+            foreach ($symbols as $sym) {
+                $needed = $per - $heldVal[$sym];
+                if ($needed <= 0) {
+                    continue;
+                }
+                $price = $this->getCurrentPrice($sym);
+                if (!$price) {
+                    $results['errors'][] = "$sym top-up: no price";
+                    continue;
+                }
+                $buyQty = round($needed / $price, 4);
+                if ($buyQty <= 0 || $buyQty * $price < 1.0) {
+                    continue;
+                }
+                if ($this->rebalanceTopUp($sym, $buyQty, $price)) {
+                    $results['buys'][] = $sym;
+                }
+            }
+        } else {
+            // OFF: liquidate every leg.
+            foreach ($symbols as $sym) {
+                $qty = $held[$sym] ?? 0;
+                if ($qty <= 0) {
+                    continue;
+                }
+                $openTrade = LiveTrade::where('symbol', $sym)->where('status', 'open')->first();
+                if ($openTrade) {
+                    if ($this->rebalanceTrim($sym, $qty) > 0) {
+                        $results['sells'][] = "$sym (gate exit)";
+                    }
+                    continue;
+                }
+                if ($this->dryRun) {
+                    $results['sells'][] = "$sym (gate exit DRY-only)";
+                    continue;
+                }
+                try {
+                    $order = $this->alpacaService->placeOrder($sym, $qty, 'sell');
+                    $orderId = $order['id'] ?? null;
+                    $filled = $orderId ? $this->alpacaService->waitForOrderFill($orderId) : null;
+                    if ($filled && strtolower($filled['status'] ?? '') === 'filled') {
+                        $results['sells'][] = "$sym (gate exit)";
+                    } else {
+                        $results['errors'][] = "$sym gate exit not filled";
+                    }
+                } catch (\Exception $e) {
+                    \Log::error("EG100 gate exit failed for $sym: " . $e->getMessage());
+                    $results['errors'][] = "$sym gate exit failed: " . $e->getMessage();
+                }
+            }
+        }
+
+        if (!$dryRun && count($results['errors']) === 0) {
+            @file_put_contents($storage, $runId);
+            \Log::info("EG100 gate: recorded acted flip $runId (long=" . ($long ? '1' : '0') . ")");
+        } elseif (!$dryRun && count($results['errors']) > 0) {
+            \Log::warning("EG100 gate: NOT recording $runId due to " . count($results['errors']) . " errors");
+        }
+
+        return $results;
+    }
+
+    /**
      * Gain-cap "profit rake" for the CoreEW trio (QQQ/VTI/VTV).
      *
      * Converts paper gains on a winning leg into CASH so they cannot evaporate.
