@@ -63,3 +63,36 @@ def load_weekly(conn, symbol):
     in case any were missed) -- there is no intermediate/in-progress weekly
     row to guard against, unlike daily."""
     return _load(conn, config.TABLES['weekly'], symbol, settled_only=False)
+
+
+def _load_with_slopes(conn, table, symbol, settled_only):
+    query = f"""
+        SELECT d.date, d.open, d.high, d.low, d.close, d.volume,
+               d.slope_open, d.slope_high, d.slope_low, d.slope_close
+        FROM {table} d
+        JOIN tbl_stock_tickers t ON t.id = d.ticker_id
+        WHERE t.symbol = %s
+        {"AND d.date < CURRENT_DATE" if settled_only else ""}
+        ORDER BY d.date
+    """
+    with conn.cursor() as cur:
+        cur.execute(query, (symbol,))
+        rows = cur.fetchall()
+    cols = _COLUMNS + config.SLOPE_COLUMNS
+    df = pd.DataFrame(rows, columns=cols)
+    for c in ('open', 'high', 'low', 'close', *config.SLOPE_COLUMNS):
+        df[c] = df[c].astype(float)
+    return df
+
+
+def load_weekly_with_slopes(conn, symbol):
+    """Weekly OHLCV plus the 4 stored slope columns (see schema.py) for
+    `symbol`. Rows before the slope warmup window have NULL slopes -- caller
+    decides how to handle that (e.g. drop or NaN-aware alignment)."""
+    return _load_with_slopes(conn, config.TABLES['weekly'], symbol, settled_only=False)
+
+
+def load_daily_with_slopes(conn, symbol):
+    """Settled daily OHLCV plus the 4 stored slope columns for `symbol`.
+    Same settled-bar guard as load_daily (excludes today's forming bar)."""
+    return _load_with_slopes(conn, config.TABLES['daily'], symbol, settled_only=True)
