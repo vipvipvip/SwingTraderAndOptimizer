@@ -38,6 +38,17 @@ indefinitely since the peak is fixed). Optional tightening: clamp ATR in
 `calculateATR()` — not required.
 
 ### Power-window impact (2026-08-13 decision)
+> **⚠ CORRECTION (2026-09-27) — there is no power window.** The window this section
+> reasons about (ON Mon–Fri 09:00→10:15 + 16:30→17:10 ET) was **never automated**:
+> no systemd unit, no cron entry, no user unit, no script powers this box off. Do
+> not treat it as a real constraint, and do not schedule work around 17:10.
+> `journalctl --list-boots` shows boots at **09:32–10:01** and shutdowns anywhere
+> in **15:07–21:35**. The morning half is roughly real; the evening cutoff is not.
+> The section below is kept as the original 2026-08-13 rationale for the retired
+> CHAND strategy, not as a description of current infrastructure. The real
+> fragility is the morning 09:00 `scanner-update` timer, which usually fires on
+> boot instead — see `AGENTS.md` "Server uptime".
+
 Under the 3.5h/day power window (ON Mon-Fri 09:00→10:15 + 16:30→17:10 ET), CHAND only
 monitors **09:30-10:15** — its intraday live-price stop check stops after 10:15 and a
 stop-break isn't caught until next morning's open (once-daily-at-open). The 16:30-17:10

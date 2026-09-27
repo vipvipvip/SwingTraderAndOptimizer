@@ -1,7 +1,7 @@
 [Unit]
 Description=Weekly EMA10/SMA40 Take-Off Scanner (Friday after close)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
-After=network-online.target swingtrader-db.service swingtrader-scanner-backfill.service
+After=network-online.target swingtrader-db.service swingtrader-scanner-backfill.service swingtrader-daily-signal.service
 Wants=network-online.target
 
 [Service]

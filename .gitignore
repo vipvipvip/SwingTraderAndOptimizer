@@ -94,3 +94,4 @@ scanner/services/__pycache__/
 swingtrader/services/ema_sma_crossover/.daily_signal_state.json
 swingtrader/services/ema_sma_crossover/data/daily_signals.csv
 swingtrader/services/optimizer/logs/nightly.log
+portfolio-backtest/portfolio_backtest_*.csv
