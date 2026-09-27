@@ -30,11 +30,13 @@
 #     parameter" on the literal plus "Expected double", whether the strings come
 #     from a chained ternary or from a plain block. Either annotate the type
 #     (`def String s = "a";`) or keep string literals inline in the call.
-#   - A BRACED `if ... { }` is the ASSIGNMENT form (see the
-#     coreew_ratchet_stop-*.ts scripts). A STATEMENT-level if — one wrapping
-#     AddLabel calls — must be brace-free, otherwise the
-#     compiler reports "An 'else' block expected" and "Semicolon expected" at
-#     the `if` line.
+#   - A top-level `if` STATEMENT always needs braces, whether it assigns or calls
+#     AddLabel/AddBackgroundColor. Brace-free `if cond` / newline / call is
+#     rejected with "Invalid statement: if".
+#   - But do NOT nest one if inside another's braces: that is what produces
+#     "An 'else' block expected" / "Semicolon expected" at the outer `if`. Keep
+#     every if/else chain FLAT and pre-compute the extra conditions as defs,
+#     exactly as the coreew_ratchet_stop-*.ts scripts do.
 #   - There is no Text() function. String + number concatenation with `+` is
 #     valid and needs no conversion helper.
 #   - There is no C-style `a ? b : c` ternary; use `if cond then a else b`.
@@ -98,14 +100,15 @@ MaLine.SetLineWeight(3);
 # double" no matter how it is nested. Keeping the literals inline as call
 # arguments sidesteps the type question completely. `+` concatenation of a
 # string literal with a number is valid (there is no Text() function).
-if maKind == 1
+if maKind == 1 {
     AddLabel(showMa, "EMA" + maLen + " " + AsDollars(maBase), Color.WHITE);
-else if maKind == 2
+} else if maKind == 2 {
     AddLabel(showMa, "Wilder" + maLen + " " + AsDollars(maBase), Color.WHITE);
-else if maKind == 3
+} else if maKind == 3 {
     AddLabel(showMa, "WMA" + maLen + " " + AsDollars(maBase), Color.WHITE);
-else
+} else {
     AddLabel(showMa, "SMA" + maLen + " " + AsDollars(maBase), Color.WHITE);
+}
 
 AddLabel(showBand, "U +" + bandPct + "% " + AsDollars(upperLine), Color.GREEN);
 AddLabel(showBand, "L -" + bandPct + "% " + AsDollars(lowerLine), Color.RED);

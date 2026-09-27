@@ -52,11 +52,13 @@
 #   - A BARE `def x;` is inferred as a DOUBLE. Declare-empty-then-assign is safe
 #     only for numeric defs; giving such a def a string reports "Incompatible
 #     parameter" plus "Expected double". Keep string literals inline in the call.
-#   - A BRACED `if ... { }` is the ASSIGNMENT form (see the
-#     coreew_ratchet_stop-*.ts scripts). A STATEMENT-level if — one wrapping
-#     AddLabel/AddBackgroundColor calls — must be brace-free, otherwise the
-#     compiler reports "An 'else' block expected" and "Semicolon expected" at
-#     the `if` line.
+#   - A top-level `if` STATEMENT always needs braces, whether it assigns or calls
+#     AddLabel/AddBackgroundColor. Brace-free `if cond` / newline / call is
+#     rejected with "Invalid statement: if".
+#   - But do NOT nest one if inside another's braces: that is what produces
+#     "An 'else' block expected" / "Semicolon expected" at the outer `if`. Keep
+#     every if/else chain FLAT and pre-compute the extra conditions as defs,
+#     exactly as the coreew_ratchet_stop-*.ts scripts do.
 #   - There is no Text() function, and no C-style `a ? b : c`. Use
 #     `if cond then a else b`, and `+` for string/number concatenation.
 #
@@ -124,31 +126,33 @@ LowerBand.SetStyle(Curve.LONG_DASH);
 LowerBand.SetDefaultColor(Color.RED);
 LowerBand.SetLineWeight(1);
 
-# The long/cash backdrop, repainted on each state change. The two conditions are
-# flattened into separate defs because a nested statement-if binds its `else` to
-# the NEAREST `if`, which is not what you want to reason about.
+# The long/cash backdrop, repainted on each state change.
 def flipped = isLong != isLong[1];
 def turnedOn  = flipped and isLong == 1;
 def turnedOff = flipped and isLong == 0;
 
-if showBackdrop and turnedOn
+if showBackdrop and turnedOn {
     AddBackgroundColor(Color.DARK_GREEN);
+}
 
-if showBackdrop and turnedOff
+if showBackdrop and turnedOff {
     AddBackgroundColor(Color.DARK_RED);
+}
 
 # --- Axis labels ----------------------------------------------------------
 # String literals stay inline in the call; a bare `def x;` is typed DOUBLE and
 # would reject a string, and the if/else chain is what selects the wording.
-if isLong == 1
+if isLong == 1 {
     AddLabel(showMa, "EG100 GATE: LONG (all 3)", Color.GREEN);
-else
+} else {
     AddLabel(showMa, "EG100 GATE: CASH (all flat)", Color.RED);
+}
 
 AddLabel(showMa, "EMA" + emaLen + " crossover", Color.WHITE);
 AddLabel(showIndex, "Index " + ewIdx, Color.CYAN);
 
-if gapPct >= 0
+if gapPct >= 0 {
     AddLabel(showMa, "+" + gapPct + "% vs EMA", Color.WHITE);
-else
+} else {
     AddLabel(showMa, gapPct + "% vs EMA", Color.WHITE);
+}
