@@ -31,6 +31,34 @@ close (settled bars only — in-progress day/week excluded):
                            close. Price-only. Research (2000-2026, mutual-fund
                            extended history): SMA200 +/-3% cut max DD -60% -> -22%
                            at ~1 signal change/yr; see TRADING_STRATEGIES.md.
+  M2. index-SMA ramp     : (--sma-gate N --sma-band PCT --sma-exposure ramp
+                           [--rebal-tol FRAC]) dead-zone study. Same index, same
+                           SMA, same settled-bar rule as M, but exposure ramps
+                           LINEARLY across the +/-band zone instead of flipping
+                           binary: 0% at -band, 50% mid-zone, 100% at +band. The
+                           dead zone is where M sits in cash for months at a
+                           time, so M2 measures what that idle time costs/buys.
+                           Cash pays 0% in BOTH variants.
+  M3. index-SMA step     : (--sma-exposure step [--sma-zone-weight FRAC]) same
+                           study, discrete version: 0% below -band,
+                           --sma-zone-weight inside it, 100% above +band.
+  M4. no re-entry band   : (--sma-nohyst) M's exits but the OFF state re-enters
+                           at the SMA itself, not SMA*(1+band) — isolates the
+                           re-entry premium, i.e. how much of M is just "wait
+                           for +band confirmation before buying back".
+                           2016+ result (scanner tables start 2016-01-04):
+                           M +266% / DD 21.9% | M2 ramp +178% / 20.1% |
+                           M3 step +175% / 17.9% | M4 +209% / 22.7%. Partial
+                           exposure inside the zone costs ~90 pts at the SAME
+                           average exposure, and the zone weight barely matters
+                           (0.25/0.5/0.75 all ~+175%) — the dead zone is
+                           effectively all-or-nothing, and M's cash there is
+                           the edge. Research only; B (the live ratchet gate)
+                           beat all of them: +523% / DD 21.0%.
+                           NOTE: the scanner tables only carry daily bars from
+                           2016-01-04, so the 2000-2026 M headline is NOT
+                           reproducible here — every index-gate number from this
+                           script is 2016+ only.
 
 Win rate reported as the fraction of weekly intervals with positive portfolio
 return — the honest metric for continuous-exposure strategies (no discrete
@@ -44,14 +72,17 @@ Usage:
 
 import sys
 import os
+import json
+import subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import numpy as np
 import pandas as pd
 
 import config
 import db as db_module
+import asof
 
 CORE = ['QQQ', 'VTI', 'VTV']
 MULT = config.RATCHET_ATR_MULT
@@ -371,15 +402,15 @@ def settled_week_flags(daily_dates, w_dates, w_close, w_atr, mult, reset):
     return flags
 
 
-def sma_gate_flags(conn, tickers, daily_dates, n, band):
-    """Variant M: one index-level SMA gate for the whole trio.
+def sma_gate_series(conn, tickers, n):
+    """Shared index + SMA series behind every --sma-gate variant (M, M2, ...).
 
     The signal series is the equal-weight (daily-rebalanced) index built from the
-    tickers' settled daily closes. State is decided at the close of day t
-    (off below SMA*(1-band), on above SMA*(1+band), hysteresis in between) and
-    applied to day t+1, so run_settled_sim fills it at the NEXT day's close.
-    History before `daily_dates[0]` is pulled for SMA warm-up. Returns the
-    per-day bool flags aligned to `daily_dates` (same for every ticker)."""
+    tickers' settled daily closes: the three DAILY RETURNS are averaged — never
+    the prices, which live on different scales — and compounded into a
+    dimensionless index starting at 1.0. Returns (dates, idx, sma) over the full
+    settled history (pre-`daily_dates[0]` bars included so the SMA is warm).
+    """
     full = {s: load_full(conn, s, TABLE_D, '2000-01-01') for s in tickers}
     today = datetime.now().date()
     keep = [i for i, d in enumerate(full[tickers[0]][0]) if d < today]   # settled bars only
@@ -390,17 +421,95 @@ def sma_gate_flags(conn, tickers, daily_dates, n, band):
     px = pd.DataFrame({s: full[s][1][keep] for s in tickers}, index=dfull)
     idx = (1 + px.pct_change().mean(axis=1).fillna(0.0)).cumprod().to_numpy()
     sma = pd.Series(idx).rolling(n).mean().to_numpy()
+    return dfull, idx, sma
+
+
+def ema_gate_series(conn, tickers, n):
+    """Same synthetic index as sma_gate_series, but smoothed with an EMA(n).
+
+    An EMA weights recent bars more heavily than the SMA of the same length, so it
+    turns sooner in both directions. That is the one thing the SMA gate was bad
+    at: SMA200 needed nine months of cash spells to re-enter after a slow bear
+    because the index had to climb all the way back to a 200-day average. The
+    shorter spans here trade some of that responsiveness for more whipsaw, which
+    is the trade worth measuring.
+
+    Returns (dates, idx, ema) over the full settled history.
+    """
+    full = {s: load_full(conn, s, TABLE_D, '2000-01-01') for s in tickers}
+    today = datetime.now().date()
+    keep = [i for i, d in enumerate(full[tickers[0]][0]) if d < today]
+    dfull = [full[tickers[0]][0][i] for i in keep]
+    for s in tickers:
+        if [full[s][0][i] for i in keep] != dfull:
+            raise SystemExit(f'date mismatch for {s} (EMA gate history)')
+    px = pd.DataFrame({s: full[s][1][keep] for s in tickers}, index=dfull)
+    idx = (1 + px.pct_change().mean(axis=1).fillna(0.0)).cumprod().to_numpy()
+    ema = pd.Series(idx).ewm(span=n, adjust=False).mean().to_numpy()
+    return dfull, idx, ema
+
+
+def ema_gate_flags(conn, tickers, daily_dates, n, band=0.0, reentry='band'):
+    """EMA(n) gate on the synthetic index, long while the index is above it.
+
+    `band` mirrors the SMA family's hysteresis: exit below ema*(1-band), re-enter
+    above ema*(1+band), leaving a dead zone between. band=0 collapses to a pure
+    crossover (flip the instant the index crosses the EMA), which is the EG
+    variant. Holding span and band fixed and swapping SMA for EMA isolates the
+    weighting from the lookback length.
+
+    State is decided at the close of day t and held from t+1, the same causal
+    convention as the SMA family (and audited to zero lead by asof).
+    """
+    dfull, idx, ema = ema_gate_series(conn, tickers, n)
+    state = np.zeros(len(idx), dtype=bool)
+    st = None
+    for i in range(len(idx)):
+        if np.isnan(ema[i]):
+            continue
+        re_thresh = ema[i] * (1 + band) if reentry == 'band' else ema[i]
+        if st is None:
+            st = idx[i] > ema[i]
+        elif st and idx[i] < ema[i] * (1 - band):
+            st = False
+        elif (not st) and idx[i] > re_thresh:
+            st = True
+        state[i] = st
+    off = dfull.index(daily_dates[0])
+    if dfull[off:off + len(daily_dates)] != list(daily_dates):
+        raise SystemExit('EMA gate history does not line up with the backtest window')
+    lagged = np.concatenate([[False], state[:-1]])
+    return lagged[off:off + len(daily_dates)]
+
+
+def sma_gate_flags(conn, tickers, daily_dates, n, band, reentry='band'):
+    """Variant M: one index-level SMA gate for the whole trio.
+
+    State is decided at the close of day t and applied to day t+1, so
+    run_settled_sim fills it at the NEXT day's close. Returns the per-day bool
+    flags aligned to `daily_dates` (same for every ticker).
+
+    `reentry` selects where the OFF state turns back on:
+      'band' (default, M) : re-enter above SMA*(1+band) — the hysteresis that
+                            defines the dead zone.
+      'zero'  (M4)        : re-enter as soon as the index is back above the SMA
+                            itself, i.e. the band applies ONLY to the exit side.
+                            Same exits as M, no re-entry premium — isolates how
+                            much of M's edge is the +band confirmation.
+    """
+    dfull, idx, sma = sma_gate_series(conn, tickers, n)
 
     state = np.zeros(len(idx), dtype=bool)
     st = None
     for i in range(len(idx)):
         if np.isnan(sma[i]):
             continue
+        re_thresh = sma[i] * (1 + band) if reentry == 'band' else sma[i]
         if st is None:
             st = idx[i] > sma[i]
         elif st and idx[i] < sma[i] * (1 - band):
             st = False
-        elif (not st) and idx[i] > sma[i] * (1 + band):
+        elif (not st) and idx[i] > re_thresh:
             st = True
         state[i] = st
 
@@ -414,14 +523,156 @@ def sma_gate_flags(conn, tickers, daily_dates, n, band):
     return lagged[off:off + len(daily_dates)]
 
 
-def run_settled_sim(daily_dates, closes, flags, cost):
+def sma_gate_exposure(conn, tickers, daily_dates, n, band, mode, zone_weight=0.5):
+    """Dead-zone exposure variants of the index SMA gate (float, 0..1 of equity).
+
+    Same index/SMA and the same settled-bar rule as M (decide at the close of
+    day t, hold from t+1); only the mapping from "distance from the SMA" to
+    "how much of the book is invested" changes, which is the whole point: M
+    dumps the entire book to cash the moment the index touches SMA*(1-band) and
+    stays flat until SMA*(1+band) — the dead zone — so every day spent inside it
+    is a day of zero market exposure.
+
+      mode 'ramp' (M2): exposure ramps LINEARLY across the zone,
+              w = clip((idx/SMA - 1 + band) / (2*band), 0, 1)
+          i.e. 0% at -band, 50% dead center, 100% at +band. Continuous, so it
+          needs no hysteresis: whipsaw around a threshold is impossible by
+          construction, but the target moves every day, which is a cost problem
+          (see rebal_tol in run_exposure_sim).
+
+      mode 'step' (M3): half size inside the zone, full size above it,
+              w = 0 below -band, zone_weight within +/-band, 1 above +band
+          Discrete, so it only ever needs 3 trades per cycle and cannot churn.
+
+    Returns the per-day target weight aligned to `daily_dates` (same for every
+    ticker). NaN SMA (warm-up) -> 0, matching M sitting in cash.
+    """
+    dfull, idx, sma = sma_gate_series(conn, tickers, n)
+
+    with np.errstate(invalid='ignore', divide='ignore'):
+        dist = idx / sma - 1.0
+    if mode == 'ramp':
+        w = np.clip((dist + band) / (2.0 * band), 0.0, 1.0)
+    elif mode == 'step':
+        w = np.where(dist < -band, 0.0, np.where(dist > band, 1.0, zone_weight))
+    else:
+        raise SystemExit(f'unknown --sma-exposure mode {mode}')
+    w = np.where(np.isnan(sma), 0.0, w)
+    if band <= 0:
+        raise SystemExit('--sma-band must be > 0 for --sma-exposure')
+
+    off = dfull.index(daily_dates[0])
+    if dfull[off:off + len(daily_dates)] != list(daily_dates):
+        raise SystemExit('SMA gate history does not line up with the backtest window')
+    if off == 0 or np.isnan(sma[off - 1]):
+        print(f'  M2: WARNING SMA{n} not warm at window start ({daily_dates[0]}) — '
+              f'exposure starts at 0; use a later --start')
+    lagged = np.concatenate([[0.0], w[:-1]])   # decide at close t, hold from t+1
+    return lagged[off:off + len(daily_dates)]
+
+
+def run_exposure_sim(daily_dates, closes, weights, cost, rebal_tol):
+    """Float-exposure sim: equal-weight the trio to `weights[i]` of equity, rest cash.
+
+    `weights[i]` is the target invested FRACTION of equity on day i (already
+    lagged by the caller: decide at close t, hold from t+1). Sells first, then
+    buys, so the cash sleeve never goes negative mid-rebalance. Cost is charged
+    on traded notional, same COST_PER_TRADE convention as the bool sims.
+
+    `rebal_tol` is the trade threshold in units of equity: the book is only
+    moved when the CURRENT invested fraction is off target by more than tol, so
+    a smooth daily ramp does not churn every session. rebal_tol=0 rebalances to
+    target every day (upper bound on performance, lower bound on realism).
+
+    Cash earns 0% — the same convention as every other variant in this file. A
+    T-bill yield on the cash sleeve would flatter every partial-exposure variant,
+    so it is left out deliberately; the ramp/step numbers are therefore a
+    floor, not a ceiling.
+
+    Returns (equity array, dates, trades, gross traded notional, invested
+    fraction per day).
+    """
+    syms = sorted(closes)
+    positions = {s: 0.0 for s in syms}
+    cash = CAPITAL
+    eq, w_actual, gross = [], [], 0.0
+    trades = 0
+    for i, _d in enumerate(daily_dates):
+        px = {s: closes[s][i] for s in syms}
+        val = sum(sh * px[s] for s, sh in positions.items())
+        equity = cash + val
+        tgt = float(np.clip(weights[i], 0.0, 1.0))
+        cur_w = val / equity if equity > 0 else 0.0
+        w_actual.append(cur_w)
+        if equity > 0 and (tgt > 0.0 or val > 0.0) and abs(cur_w - tgt) >= rebal_tol:
+            # 1) sell down to target
+            val = sum(sh * px[s] for s, sh in positions.items())
+            equity = cash + val
+            target_val = tgt * equity
+            if val > target_val:
+                excess = val - target_val
+                for s in syms:
+                    if excess <= 1e-9:
+                        break
+                    sh = min(positions[s], excess / px[s])
+                    if sh <= 0:
+                        continue
+                    cash += sh * px[s] * (1 - cost)
+                    positions[s] -= sh
+                    trades += 1
+                    gross += sh * px[s]
+                    excess -= sh * px[s]
+            # 2) buy up to target, equal thirds, grossed up for cost
+            val = sum(sh * px[s] for s, sh in positions.items())
+            equity = cash + val
+            target_val = tgt * equity
+            if val < target_val:
+                per = (target_val - val) / len(syms)
+                for s in syms:
+                    sh = per / px[s] * (1 - cost)
+                    if sh <= 0:
+                        continue
+                    cash -= sh * px[s]
+                    positions[s] += sh
+                    trades += 1
+                    gross += sh * px[s]
+        val = sum(sh * px[s] for s, sh in positions.items())
+        eq.append(cash + val)
+    return np.array(eq), daily_dates, trades, gross, np.array(w_actual)
+
+
+def weekly_boundary_mask(daily_dates):
+    """True on the first trading day of each ISO week.
+
+    The settled-bar rebalance cadence: variant A resets to equal weight every
+    Monday, so the gated variants have to as well or they win by accident through
+    months of un-rebalanced drift rather than through the gate itself.
+    """
+    reb = np.zeros(len(daily_dates), dtype=bool)
+    prev = None
+    for i, d in enumerate(daily_dates):
+        iso = d.isocalendar()[:2]
+        if iso != prev:
+            reb[i] = True
+            prev = iso
+    return reb
+
+
+def run_settled_sim(daily_dates, closes, flags, cost, reb=None):
     """Weekly sim driven by the SETTLED weekly bars only.
 
     flags[s][i] = whether symbol s is long on day i. Transitions happen only
     on the Monday a new settled week becomes available, and — unlike run_sim —
     the book is rebalanced to equal weight among passers AT THAT SAME DAY'S
     CLOSE (the Monday close). There is no +1-day fill here: decide on the
-    previous Friday, fill on Monday."""
+    previous Friday, fill on Monday.
+
+    `reb[i]` marks a new-settled-week boundary. The live gate rebalances the book
+    to equity/N among gate-LONG legs on every settled week, whether or not the
+    gate flipped, so a sim that only acted when the passer set changed would let
+    positions drift for weeks at a time and stop modelling live. Passing `reb`
+    restores the weekly cadence; omitting it keeps the old flip-only behaviour.
+    """
     positions = {}
     cash = CAPITAL
     eq = []
@@ -431,7 +682,8 @@ def run_settled_sim(daily_dates, closes, flags, cost):
     for i, exec_date in enumerate(daily_dates):
         sig = {s for s in flags if flags[s][i]}
         px = {s: closes[s][i] for s in closes}
-        if sig != last_set:
+        week_open = bool(reb[i]) if reb is not None else False
+        if sig != last_set or week_open:
             for sym in list(positions):
                 if sym not in sig:
                     cash += positions[sym] * px[sym] * (1 - cost)
@@ -458,6 +710,72 @@ def run_settled_sim(daily_dates, closes, flags, cost):
         eq.append(mark)
         eq_dates.append(exec_date)
     return np.array(eq), eq_dates, buys, sells
+
+
+def fetch_live_gate_series(mult, symbols):
+    """Per-week gate decisions produced by the LIVE gate code.
+
+    Shells out to `php artisan trades:coreew-gate-series`, which calls
+    TradeExecutorService::coreewGateSeries() — the exact method the live trade
+    path runs. The backtest therefore never re-implements the ratchet rule, so
+    the two cannot drift apart. This call is read-only (no Alpaca, no orders)
+    and takes ~10 ms of gate work plus Laravel boot.
+
+    Returns (series, meta) where series maps symbol -> list of weekly decision
+    dicts [week, close, atr, long, peak, stop, entries], each being the state
+    AFTER that week's settled bar was processed.
+    """
+    backend = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
+    cmd = ['php', '-d', 'xdebug.mode=off', '-d', 'display_errors=0',
+           'artisan', 'trades:coreew-gate-series',
+           f'--mult={mult}', '--symbols=' + ','.join(symbols)]
+    proc = subprocess.run(cmd, cwd=backend, capture_output=True, text=True, timeout=300)
+    payload = None
+    for line in reversed(proc.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith('{'):
+            try:
+                payload = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+    if payload is None:
+        raise RuntimeError(
+            f'could not parse gate series from `{" ".join(cmd)}`\n'
+            f'stdout: {proc.stdout[-2000:]}\nstderr: {proc.stderr[-2000:]}')
+    meta = {k: payload[k] for k in ('mult', 'cutoff', 'last_week', 'state')}
+    return payload['series'], meta
+
+
+def flags_from_live_gate(daily_dates, series):
+    """Align the live gate's per-week decisions onto trading days.
+
+    The ONLY thing this file is responsible for: a decision taken on week W's
+    settled Friday close may only be acted on from W+7 onward (the following
+    Monday), because that is when stream 1 could have published it. Everything
+    before the first actionable week is flat.
+    """
+    ordinals = np.array([d.toordinal() for d in daily_dates], dtype=np.int64)
+    flags = {}
+    boundaries = set()
+    for sym, trail in series.items():
+        f = np.zeros(len(daily_dates), dtype=bool)
+        for point in trail:
+            # W is the Monday the bar is stamped on; its close is W+4 (Friday).
+            # It is settled and publishable from W+7 (the next Monday).
+            actionable = date.fromisoformat(point['week']) + timedelta(days=7)
+            i = int(np.searchsorted(ordinals, actionable.toordinal(), side='left'))
+            if i < len(f):
+                f[i:] = bool(point['long'])
+                boundaries.add(i)
+        flags[sym] = f
+    # One rebalance per activated settled week, even when the gate did not flip:
+    # that is the live cadence. Weeks land on distinct Mondays, so the set of
+    # activation indices is already the boundary mask.
+    reb = np.zeros(len(daily_dates), dtype=bool)
+    for i in boundaries:
+        reb[i] = True
+    return flags, reb
 
 
 def prev_friday_close(dates, closes, sym, i):
@@ -674,12 +992,44 @@ def main():
                          'close (no mid-week knowledge). Emits one round-trip '
                          'row per trade with prev-Friday + Monday-close both '
                          f'shown, so fill == Monday close is verifiable.')
+    ap.add_argument('--legacy-weekly', action='store_true',
+                    help='run the B/B\'/E family and variant D. All of them read the '
+                         'Monday-dated weekly row while that week is still forming, so the '
+                         'as-of guard fails them; kept for A/B against the live-parity path '
+                         'and off by default.')
+    ap.add_argument('--allow-lookahead', action='store_true',
+                    help='permit running the B/B\'/E family, which reads the Monday-dated '
+                         'weekly row while that week is still forming (4 days of future '
+                         'close). Off by default so B numbers cannot be quoted by accident.')
+    ap.add_argument('--ema-gate', default='', metavar='LIST',
+                    help='variant E-gate: comma-separated EMA spans on the synthetic '
+                         'index (e.g. 25,50,75,100), pure crossover with no dead zone. '
+                         'Decide on a settled close, hold from the next close.')
+    ap.add_argument('--ema-band', type=float, default=0.0, metavar='PCT',
+                    help='hysteresis band for --ema-gate, same semantics as --sma-band '
+                         '(default 0 = pure crossover, no dead zone)')
     ap.add_argument('--sma-gate', type=int, default=0, metavar='N',
                     help='variant M: one index-level N-day SMA gate for the whole trio '
                          '(e.g. 200); decide on a settled close, fill next-day close')
     ap.add_argument('--sma-band', type=float, default=3.0, metavar='PCT',
                     help='variant M hysteresis band in percent (default 3.0): off below '
                          'SMA*(1-b), back on above SMA*(1+b)')
+    ap.add_argument('--sma-exposure', choices=['ramp', 'step'], default=None,
+                    help='dead-zone variants: "ramp" (M2) ramps exposure linearly across '
+                         'the +/-band zone (0%% at -band, 50%% mid, 100%% at +band); '
+                         '"step" (M3) holds --sma-zone-weight inside the zone and full '
+                         'size above it. Same index, same settled-bar rule as M')
+    ap.add_argument('--sma-zone-weight', type=float, default=0.5, metavar='FRAC',
+                    help='M3 only: exposure fraction held inside the dead zone '
+                         '(default 0.5)')
+    ap.add_argument('--sma-nohyst', action='store_true',
+                    help='also run M4: identical to M but the OFF state re-enters at '
+                         'the SMA itself instead of SMA*(1+band) — the band applies '
+                         'only to the exit side, isolating the re-entry premium')
+    ap.add_argument('--rebal-tol', type=float, default=0.10, metavar='FRAC',
+                    help='M2 only: only rebalance when invested fraction is off target '
+                         'by more than this fraction of equity (default 0.10). 0 = '
+                         'rebalance to target every single day')
     ap.add_argument('--csv-trades', action='store_true',
                     help='write per-ticker gate trade CSVs + exposure timeline to --csv-dir')
     ap.add_argument('--csv-dir', default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -709,6 +1059,40 @@ def main():
             if w0[i] != w0[i - 1]:
                 reb[i] = True
 
+        # ---- As-of (no-lookahead) guard ------------------------------------
+        # A hard precondition, not a report. A variant may only read a bar whose
+        # CONTENT has already formed by the decision instant. The Monday-dated
+        # weekly row is unreadable on its own Monday -- its close is that week's
+        # Friday -- which is why the B family and D must opt in explicitly.
+        weekly_mask = weekly_boundary_mask(daily_dates)
+        w_dates = weekly[tickers[0]][0]
+        settled_ref = asof.settled_weekly_ref(daily_dates, w_dates)
+        s_audit = [asof.audit_weekly(daily_dates, w_dates, settled_ref,
+                                     'S (last settled week)')]
+        m_audit = [asof.audit_daily_close(daily_dates, 'M family (close-of-day)')]
+        legacy_audit = []
+        if args.legacy_weekly:
+            legacy_audit = [
+                asof.audit_weekly(daily_dates, weekly[s][0], wpos[s],
+                                  f"B/B'/E {s} (in-progress week)") for s in tickers
+            ] + [asof.audit_weekly(daily_dates, w_dates,
+                                   asof.in_progress_weekly_ref(daily_dates, w_dates),
+                                   'D (weekly CO leg)')]
+
+        print('\n  AS-OF GUARD -- a bar is readable only once its content has formed')
+        print(asof.render(legacy_audit + s_audit + m_audit))
+
+        asof.enforce(s_audit + m_audit, 'live-parity variants (S, M)')
+        if args.legacy_weekly and not args.allow_lookahead:
+            bad = [r for r in legacy_audit if r.violations]
+            if bad:
+                raise SystemExit(
+                    f"\nB/B'/E/D read the Monday-dated weekly row before that week's close "
+                    f"exists (worst lead {max(r.worst_lead for r in bad)}d), so their returns "
+                    "are inflated by construction.\n  Live-parity path: re-run with "
+                    "--settled-friday.\n  To inspect B anyway, pass --allow-lookahead."
+                )
+
         # C: B&H (never rebalance)
         base = {s: closes[s][0] for s in tickers}
         bh_eq = np.array([
@@ -719,27 +1103,32 @@ def main():
         passersA = {s: np.ones(len(daily_dates), dtype=bool) for s in tickers}
         eqA, dA, bA, sA = run_sim(daily_dates, closes, passersA, reb, COST)
 
-        # B: weekly ratchet gate + weekly EW rebalance among passers
-        flagsB, entriesB, stopsB = {}, {}, {}
-        for s in tickers:
-            d, c, a = weekly[s]
-            f, e, st = weekly_state(daily_dates, d, c, a, wpos[s], args.mult, not args.no_reset)
-            flagsB[s], entriesB[s], stopsB[s] = f, e, st
-        eqB, dB, bB, sB = run_sim(daily_dates, closes, flagsB, reb, COST)
+        # B: weekly ratchet gate + weekly EW rebalance among passers. Lookahead
+        # (reads the in-progress week), so opt-in via --legacy-weekly.
+        flagsB = entriesB = stopsB = None
+        eqB = dB = bB = sB = None
+        if args.legacy_weekly:
+            flagsB, entriesB, stopsB = {}, {}, {}
+            for s in tickers:
+                d, c, a = weekly[s]
+                f, e, st = weekly_state(daily_dates, d, c, a, wpos[s], args.mult,
+                                        not args.no_reset)
+                flagsB[s], entriesB[s], stopsB[s] = f, e, st
+            eqB, dB, bB, sB = run_sim(daily_dates, closes, flagsB, reb, COST)
 
         # B': the same monotone gate as B but filled at the signal day's OWN
         # close (Monday) instead of the next day's close (Tuesday) — mirrors
         # the live gate, which decides Monday on the settled Friday bar and
         # trades at Monday's price. reb is also applied at the Monday close.
         eqBp = dBp = None
-        if args.fill_signal_close:
+        if args.fill_signal_close and args.legacy_weekly:
             eqBp, dBp, bBp, sBp = run_sim(daily_dates, closes, flagsB, reb, COST,
                                           fill_signal_close=True)
 
         # E: B with daily re-entry (only when requested)
         eqE = dE = bE = sE = None
         flagsE = entriesE = stopsE = None
-        if args.reentry_daily:
+        if args.reentry_daily and args.legacy_weekly:
             flagsE, entriesE, stopsE = {}, {}, {}
             for s in tickers:
                 d, c, a = weekly[s]
@@ -749,19 +1138,30 @@ def main():
             eqE, dE, bE, sE = run_sim(daily_dates, closes, flagsE, reb, COST,
                                       entry_daily=True)
 
-        # S: settled-Friday variant — the same ratchet gate as B, but driven
-        # ONLY by SETTLED weekly bars: a decision on any day of week W uses
-        # week W-1's settled Friday close (settled lag), never the current
-        # week's price action.btn; filled at the next Monday close. Additive.
+        # S: the LIVE-PARITY variant. The gate decisions are NOT computed here —
+        # they come from TradeExecutorService::coreewGateSeries(), the same PHP
+        # method the live trade path runs, via `trades:coreew-gate-series`. This
+        # file only aligns each week-W decision to the first day it could have
+        # been acted on (W+7, the following Monday) and fills at that close.
+        # Decided on the previous settled Friday, filled Monday.
         eqS = dS = bS = sS = None
         flagsS = None
+        gateMeta = None
         if args.settled_friday:
-            flagsS = {}
-            for s in tickers:
-                d, c, a = weekly[s]
-                flagsS[s] = settled_week_flags(daily_dates, d, c, a,
-                                               args.mult, not args.no_reset)
-            eqS, dS, bS, sS = run_settled_sim(daily_dates, closes, flagsS, COST)
+            liveSeries, gateMeta = fetch_live_gate_series(args.mult, tickers)
+            flagsS, rebS = flags_from_live_gate(daily_dates, liveSeries)
+            eqS, dS, bS, sS = run_settled_sim(daily_dates, closes, flagsS, COST, reb=rebS)
+
+        # EG: pure EMA(n) crossover gate on the same synthetic index. Additive;
+        # comma-separated spans so one run sweeps them.
+        eqEG = {}
+        if args.ema_gate:
+            for n_ema in [int(x) for x in args.ema_gate.split(',') if x.strip()]:
+                flagEG = ema_gate_flags(conn, tickers, daily_dates, n_ema,
+                                        args.ema_band / 100.0)
+                flagsEG = {s_: flagEG for s_ in tickers}
+                eqEG[n_ema] = run_settled_sim(daily_dates, closes, flagsEG, COST,
+                                              reb=weekly_mask)
 
         # M: index-level SMA gate (additive; only with --sma-gate N). Same
         # settled-sim fill rule as S, but the flags come from ONE market signal.
@@ -770,13 +1170,35 @@ def main():
             flagM = sma_gate_flags(conn, tickers, daily_dates, args.sma_gate,
                                    args.sma_band / 100.0)
             flagsM = {s: flagM for s in tickers}
-            eqM, dM, bM, sM = run_settled_sim(daily_dates, closes, flagsM, COST)
+            eqM, dM, bM, sM = run_settled_sim(daily_dates, closes, flagsM, COST,
+                                                 reb=weekly_mask)
+
+        # M2/M3: dead-zone exposure variants on the SAME index/SMA
+        # (--sma-exposure ramp|step). Baselines are M and M4 below; the cash
+        # sleeve pays 0% in every variant.
+        eqM2 = dM2 = tM2 = None
+        wM2 = None
+        if args.sma_gate and args.sma_exposure:
+            wM2 = sma_gate_exposure(conn, tickers, daily_dates, args.sma_gate,
+                                    args.sma_band / 100.0, args.sma_exposure,
+                                    args.sma_zone_weight)
+            eqM2, dM2, tM2, gM2, w_act = run_exposure_sim(
+                daily_dates, closes, wM2, COST, args.rebal_tol)
+
+        # M4: M's exits, but re-entry at the SMA instead of SMA*(1+band).
+        eqM4 = dM4 = bM4 = sM4 = flagsM4 = None
+        if args.sma_gate and args.sma_nohyst:
+            flagM4 = sma_gate_flags(conn, tickers, daily_dates, args.sma_gate,
+                                    args.sma_band / 100.0, reentry='zero')
+            flagsM4 = {s: flagM4 for s in tickers}
+            eqM4, dM4, bM4, sM4 = run_settled_sim(daily_dates, closes, flagsM4, COST,
+                                                     reb=weekly_mask)
 
         # D: score-proportional (weekly CO + daily CO, re-applied daily).
         # Warm-up data pulled from before ts_start so EMA10/SMA40 are non-NaN
         # at the first signal day; skipped if no pre-start history is available.
         eqD = dD = bD = sD = cash_days = None
-        if not args.no_score_alloc:
+        if not args.no_score_alloc and args.legacy_weekly:
             warm_start = (datetime.fromisoformat(ts_start) - timedelta(days=WARMUP_DAYS)).date()
             dwarm = {s: load_full(conn, s, TABLE_D, warm_start) for s in tickers}
             wwarm = {s: load_full(conn, s, TABLE_W, warm_start) for s in tickers}
@@ -820,15 +1242,17 @@ def main():
         print('=' * 74)
         stats(bh_eq, daily_dates, 'C. B&H (equal-weight)')
         stats(eqA, dA, 'A. EW weekly-rebalance')
-        stats(eqB, dB, 'B. EW + weekly-ratchet gate')
+        if eqB is not None:
+            stats(eqB, dB, 'B. EW + weekly-ratchet gate [LOOKAHEAD]')
         if eqBp is not None:
             stats(eqBp, dBp, "B'. B, Mon-close fill (live-like)")
 
-        daily_long = sum(1 for i in range(len(daily_dates))
-                         if sum(flagsB[s][i] for s in tickers) > 0)
-        print(f'\n  Gate: {bB} buys / {sB} sells | '
-              f'{100*daily_long/max(1,len(daily_dates)):.0f}% of days some ETF long '
-              f'(entries per ETF: {", ".join(f"{s}={entriesB[s]}" for s in tickers)})')
+        if flagsB is not None:
+            daily_long = sum(1 for i in range(len(daily_dates))
+                             if sum(flagsB[s][i] for s in tickers) > 0)
+            print(f'\n  Gate: {bB} buys / {sB} sells | '
+                  f'{100*daily_long/max(1,len(daily_dates)):.0f}% of days some ETF long '
+                  f'(entries per ETF: {", ".join(f"{s}={entriesB[s]}" for s in tickers)})')
         print(f'  A:    {bA} buys / {sA} sells (weekly trims)')
 
         if eqE is not None:
@@ -850,6 +1274,17 @@ def main():
             print(f'  S:    {bS} buys / {sS} sells | '
                   f'{100*s_long/max(1,len(daily_dates)):.0f}% of days some ETF long')
 
+        if eqEG:
+            print()
+            for n_ema, (eqEGv, dEGv, bEGv, sEGv) in eqEG.items():
+                tag = 'crossover' if args.ema_band == 0 else f'+/-{args.ema_band:g}% band'
+                stats(eqEGv, dEGv, f'EG{n_ema}. index EMA{n_ema} {tag}')
+                fEG = ema_gate_flags(conn, tickers, daily_dates, n_ema,
+                                     args.ema_band / 100.0)
+                flips = int(np.sum(fEG[1:] != fEG[:-1]))
+                print(f'  EG{n_ema}:  {bEGv} buys / {sEGv} sells | {flips} signal changes | '
+                      f'{100*fEG.mean():.0f}% of days invested')
+
         if eqM is not None:
             stats(eqM, dM, f'M. index SMA{args.sma_gate} +/-{args.sma_band:g}% gate')
             m_long = int(np.sum(flagsM[tickers[0]]))
@@ -857,6 +1292,42 @@ def main():
             print(f'  M:    {bM} buys / {sM} sells | {m_flips} signal changes | '
                   f'{100*m_long/max(1,len(daily_dates)):.0f}% of days invested '
                   f'(all three ETFs together)')
+
+        if eqM2 is not None:
+            zone = np.abs(np.asarray(wM2) * 2.0 - 1.0) < 0.999  # 0 < w < 1 target
+            tag = 'M2' if args.sma_exposure == 'ramp' else 'M3'
+            print()
+            stats(eqM2, dM2,
+                  f'{tag}. SMA{args.sma_gate} dead-zone {args.sma_exposure.upper()} '
+                  f'+/-{args.sma_band:g}%')
+            print(f'  {tag}:   {tM2} trades (tol {args.rebal_tol:g} of equity) | '
+                  f'avg invested {100*w_act.mean():.0f}% of days | '
+                  f'target inside zone (<100%, >0%) {100*zone.mean():.0f}% of days | '
+                  f'gross traded ${gM2/1000:.0f}k '
+                  f'({gM2/(COST*CAPITAL*1000):.1f}x the cost of one full turnover)')
+            if eqM is not None:
+                dm = (eqM[-1] - CAPITAL) / CAPITAL
+                d2 = (eqM2[-1] - CAPITAL) / CAPITAL
+                print(f'  A/B:  M {dm*100:+.2f}% vs {tag} {d2*100:+.2f}% '
+                      f'({(d2-dm)*100:+.2f} pts) at the SAME average exposure '
+                      f'({100*w_act.mean():.0f}% vs '
+                      f'{100*m_long/max(1,len(daily_dates)):.0f}%) — the gap is '
+                      f'timing inside the zone, not time in the market')
+
+        if eqM4 is not None:
+            print()
+            stats(eqM4, dM4,
+                  f'M4. SMA{args.sma_gate} gate, re-entry at SMA (no +band wait)')
+            m4_long = int(np.sum(flagsM4[tickers[0]]))
+            m4_flips = int(np.sum(flagsM4[tickers[0]][1:] != flagsM4[tickers[0]][:-1]))
+            print(f'  M4:   {bM4} buys / {sM4} sells | {m4_flips} signal changes | '
+                  f'{100*m4_long/max(1,len(daily_dates)):.0f}% of days invested')
+            if eqM is not None:
+                dm = (eqM[-1] - CAPITAL) / CAPITAL
+                d4 = (eqM4[-1] - CAPITAL) / CAPITAL
+                print(f'  A/B:  M {dm*100:+.2f}% (re-enter at +{args.sma_band:g}%) vs '
+                      f'M4 {d4*100:+.2f}% (re-enter at 0%) -> the +band re-entry '
+                      f'premium is worth {(dm-d4)*100:+.2f} pts')
 
         if eqD is not None:
             stats(eqD, dD, 'D. score-proportional (W+D CO, daily)')

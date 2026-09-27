@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Ticker;
 use App\Models\LiveTrade;
 use App\Models\PositionCache;
+use Carbon\Carbon;
 
 class TradeExecutorService
 {
@@ -540,21 +541,59 @@ class TradeExecutorService
      * so the per-daily-day loop is equivalent). Returns per-symbol long flag,
      * entry count, peak and ratchet stop, plus the last settled week used.
      */
-    private function replayMonotoneGate(array $symbols, float $mult): array
+    /**
+     * Monday-stamped date of the earliest week that has NOT finished yet.
+     *
+     * Weekly bars are written only once their week is complete, so a bar is
+     * usable exactly when its Monday date is strictly before this cutoff. It is
+     * NOT simply date_trunc('week', today): on Friday evening, Saturday and
+     * Sunday the current ISO week has already closed and its bar is valid.
+     */
+    public function earliestUnsettledWeek(?Carbon $now = null): string
     {
+        $now = $now ? $now->copy()->setTimezone('America/New_York') : now('America/New_York');
+        // Use PHP's ISO-8601 'N' (1 = Monday .. 7 = Sunday) for the weekday
+        // arithmetic. Do NOT use dayOfWeek / dayOfWeekIso / Carbon::MONDAY:
+        // those are PHP-Calendar style (SUNDAY=0) and disagree with each other
+        // across Carbon versions, which silently shifted the cutoff by a day.
+        $isoDow = (int) $now->format('N');
+        $monday = $now->copy()->subDays($isoDow - 1)->startOfDay();
+        $beforeFridayClose = $now->lt($now->copy()->setTime(16, 5));
+        if ($isoDow <= 5 && $beforeFridayClose) {
+            return $monday->toDateString();
+        }
+        return $monday->addWeek()->toDateString();
+    }
+
+    /**
+     * The CoreEW gate as a per-week series — the SINGLE implementation of the
+     * monotone weekly-ratchet gate. Live trading (runMonotoneGate) takes the
+     * final element; the backtest replays the whole trail. Both therefore run
+     * identical maths; the backtest never re-implements the rule.
+     *
+     * Each element is the state AFTER that week's settled bar was processed,
+     * i.e. the decision made on that Friday's close: [week, close, atr, long,
+     * peak, stop, entries].
+     */
+    public function coreewGateSeries(array $symbols, float $mult): array
+    {
+        $series = [];
         $state = [];
         $lastWeek = null;
+        $cutoff = $this->earliestUnsettledWeek();
+
         foreach ($symbols as $sym) {
             try {
                 $rows = \DB::table('tbl_scanner_tickers as w')
                     ->join('tbl_stock_tickers as t', 'w.ticker_id', '=', 't.id')
                     ->where('t.symbol', $sym)
                     ->where('t.is_etf', true)
-                    ->whereRaw("w.date::date < date_trunc('week', CURRENT_DATE)::date")
+                    ->whereRaw('w.date::date < ?', [$cutoff])
                     ->orderBy('w.date', 'asc')
                     ->get(['w.date', 'w.close', 'w.atr_stop']);
             } catch (\Exception $e) {
                 \Log::error("Monotone gate: failed to load weekly bars for $sym: " . $e->getMessage());
+                $series[$sym] = [];
                 $state[$sym] = ['long' => false, 'entries' => 0, 'peak' => 0, 'stop' => 0, 'last_week' => null];
                 continue;
             }
@@ -563,6 +602,8 @@ class TradeExecutorService
             $entries = 0;
             $peak = 0.0;
             $stop = 0.0;
+            $trail = [];
+            $symLastWeek = null;
             foreach ($rows as $r) {
                 $weekDate = date('Y-m-d', strtotime($r->date));
                 $close = floatval($r->close);
@@ -591,17 +632,34 @@ class TradeExecutorService
                         $peak = $close;
                     }
                 }
-                $lastWeek = $weekDate;
+                $trail[] = [
+                    'week' => $weekDate,
+                    'close' => round($close, 6),
+                    'atr' => round($atr, 6),
+                    'long' => $long,
+                    'peak' => round($peak, 6),
+                    'stop' => round($stop, 6),
+                    'entries' => $entries,
+                ];
+                $symLastWeek = $weekDate;
             }
+            $series[$sym] = $trail;
             $state[$sym] = [
                 'long' => $long,
                 'entries' => $entries,
                 'peak' => round($peak, 2),
                 'stop' => round($stop, 2),
-                'last_week' => $lastWeek,
+                'last_week' => $symLastWeek,
             ];
+            $lastWeek = $symLastWeek;
         }
-        return ['state' => $state, 'last_week' => $lastWeek];
+        return ['state' => $state, 'last_week' => $lastWeek, 'cutoff' => $cutoff, 'series' => $series];
+    }
+
+    private function replayMonotoneGate(array $symbols, float $mult): array
+    {
+        $full = $this->coreewGateSeries($symbols, $mult);
+        return ['state' => $full['state'], 'last_week' => $full['last_week']];
     }
 
     /**
