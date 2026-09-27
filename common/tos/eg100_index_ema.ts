@@ -70,12 +70,21 @@
 #   - Everything is recomputed on the live (in-progress) bar like any indicator,
 #     so the last value can drift until the bar closes. The gate only ever reads
 #     settled closes, so treat the current bar as provisional.
+#   - showBar: with startBarsBack = 0 the guard MUST be a disjunction. Written
+#     as `BarNumber() >= HighestAll(BarNumber()) - startBarsBack` it is true on
+#     the final bar only, so every other bar plots Double.NaN and the study looks
+#     empty. coreew_ratchet_stop-*.ts still carry that bug.
+#   - scaleMul exists because the index is dimensionless (1.0 -> ~5) while the
+#     ETFs trade in the hundreds. It is a positive constant applied to both lines,
+#     so the crossover and therefore isLong are unchanged. Set it to 0 to plot
+#     the raw index. The axis label always reports the RAW index value.
 
 input emaLen        = 100;  # EMA length in CHART BARS (100 daily bars on a daily chart)
 input bandPct       = 3.0;  # draw +/- pct reference lines (visual only, non-live)
 input showIndex     = yes;  # plot the synthetic equal-weight index
 input showMa        = yes;  # plot the index EMA
 input showBand      = yes;  # draw the +/- pct lines
+input scaleMul     = 100;  # stretch the dimensionless index onto the price axis
 input startBarsBack = 0;    # 0 = whole chart; N = only show the last N bars
 
 # --- Synthetic equal-weight QQQ/VTI/VTV index -----------------------------
@@ -102,25 +111,32 @@ def gapPct    = if ewEma > 0 then (ewIdx / ewEma - 1) * 100 else 0;
 # no hysteresis, nothing that could drift out of step with the gate.
 def isLong = if ewIdx > ewEma then 1 else 0;
 
-def showBar = BarNumber() >= (HighestAll(BarNumber()) - startBarsBack);
+def showBar = startBarsBack == 0 or BarNumber() >= (HighestAll(BarNumber()) - startBarsBack);
+
+# The index is DIMENSIONLESS (it starts at 1.0), so on a price chart whose ETFs
+# trade in the hundreds the lines would be crushed against zero and effectively
+# invisible. scaleMul stretches them onto the visible price axis. It is a pure
+# positive constant applied to BOTH the index and its EMA, so the crossover — and
+# therefore the gate state — is completely unaffected.
+def plotScale = if scaleMul > 0 then scaleMul else 1;
 
 # --- Plots ----------------------------------------------------------------
-plot Index = if showIndex and showBar then ewIdx else Double.NaN;
+plot Index = if showIndex and showBar then ewIdx * plotScale else Double.NaN;
 Index.SetStyle(Curve.FIRM);
 Index.SetDefaultColor(Color.CYAN);
 Index.SetLineWeight(2);
 
-plot Ema100 = if showMa and showBar then ewEma else Double.NaN;
+plot Ema100 = if showMa and showBar then ewEma * plotScale else Double.NaN;
 Ema100.SetStyle(Curve.FIRM);
 Ema100.SetDefaultColor(Color.WHITE);
 Ema100.SetLineWeight(3);
 
-plot UpperBand = if showBand and showBar then upperLine else Double.NaN;
+plot UpperBand = if showBand and showBar then upperLine * plotScale else Double.NaN;
 UpperBand.SetStyle(Curve.LONG_DASH);
 UpperBand.SetDefaultColor(Color.GREEN);
 UpperBand.SetLineWeight(1);
 
-plot LowerBand = if showBand and showBar then lowerLine else Double.NaN;
+plot LowerBand = if showBand and showBar then lowerLine * plotScale else Double.NaN;
 LowerBand.SetStyle(Curve.LONG_DASH);
 LowerBand.SetDefaultColor(Color.RED);
 LowerBand.SetLineWeight(1);
@@ -136,7 +152,7 @@ LowerBand.SetLineWeight(1);
 AddLabel(showMa and isLong == 1, "EG100 GATE: LONG (all 3)", Color.GREEN);
 AddLabel(showMa and isLong == 0, "EG100 GATE: CASH (all flat)", Color.RED);
 AddLabel(showMa, "EMA" + emaLen + " crossover", Color.WHITE);
-AddLabel(showIndex, "Index " + ewIdx, Color.CYAN);
+AddLabel(showIndex, "Index " + ewIdx + "  (plotted x" + plotScale + ")", Color.CYAN);
 AddLabel(showMa and gapPct >= 0, "+" + gapPct + "% vs EMA", Color.WHITE);
 AddLabel(showMa and gapPct < 0, gapPct + "% vs EMA", Color.WHITE);
 
