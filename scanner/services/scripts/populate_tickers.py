@@ -9,7 +9,7 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time as dt_time
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -36,6 +36,51 @@ TIMEFRAMES = {
 
 # Delisted / taken-over / dead tickers. Never re-populate or re-add these.
 DEAD_TICKERS = {'FBRX', 'SAFT', 'GRAL'}
+
+# How many trailing weeks the weekly populate re-fetches every run. The weekly
+# bar is written ONCE, when its week is complete — so a missed run, a partial
+# write or a corrected value self-heals on the next one instead of staying
+# frozen. Cheap: 4 weeks x ~1,450 tickers.
+WEEKLY_REFRESH_WEEKS = 4
+
+# A weekly bar is stamped at the ISO-week start (Monday) but its close is that
+# week's LAST session. Alpaca returns the in-progress week alongside completed
+# ones, and its close mutates every session — so the Monday row used to be
+# overwritten with each day's price until Friday finally landed in it. That
+# makes `max(date)` unreliable (it returns a partial bar wearing a complete
+# week's date) and makes every consumer re-derive "is this settled?" by hand.
+# Instead we persist ONLY completed weeks, so settledness is a property of the
+# row: the newest row in the table is always the last fully-closed week.
+# A week is treated as complete once its Friday has closed (16:05 ET, past the
+# 16:00 bell plus the settlement buffer); holidays only ever make this late,
+# never early.
+WEEKLY_SETTLE_TIME = dt_time(16, 5)
+
+
+def week_is_settled(bar_date, now=None):
+    """True iff the Monday-stamped weekly bar `bar_date` covers a finished week."""
+    now = now or datetime.now(NY)
+    friday = bar_date + timedelta(days=4)
+    if friday < now.date():
+        return True
+    if friday == now.date():
+        return now.time() >= WEEKLY_SETTLE_TIME
+    return False
+
+
+def earliest_unsettled_week(now=None):
+    """Monday-stamped date of the earliest week that is NOT finished yet.
+
+    Everything from this date onward is either in progress or in the future, so
+    it must not be in the table. Note this is NOT simply date_trunc('week',
+    today): on Friday evening, Saturday and Sunday the current ISO week has
+    already closed and its row is valid, final data.
+    """
+    now = now or datetime.now(NY)
+    monday = now.date() - timedelta(days=now.date().weekday())
+    if now.date().weekday() < 5 and now.time() < WEEKLY_SETTLE_TIME:
+        return monday
+    return monday + timedelta(days=7)
 
 
 def fetch_sp500_tickers():
@@ -81,6 +126,18 @@ def get_latest_date_for_ticker(ticker_id, table):
         conn.close()
 
 
+def get_latest_overall(table):
+    """Newest date in `table` across all tickers (None if empty)."""
+    conn = get_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT MAX(date)::date FROM {table}")
+            row = cur.fetchone()
+            return row[0] if row and row[0] else None
+    finally:
+        conn.close()
+
+
 def fetch_bars(symbol, client, tf_name, start):
     end = datetime.now(NY)
     tf = TIMEFRAMES[tf_name]['tf']
@@ -111,98 +168,6 @@ def fetch_bars(symbol, client, tf_name, start):
     return all_bars
 
 
-def fetch_yfinance_bars(symbol, tf_name, start):
-    """Fallback data source: yfinance.
-
-    Alpaca's IEX feed sometimes has no bars for ultra-thin names that still
-    trade (e.g. CZFS/PDEX/SEB/UTMD). When Alpaca returns nothing, use
-    yfinance as a fallback so invested tickers always get a price to generate
-    exit signals.
-
-    Returns a list of simple bar objects compatible with Alpaca's Bar
-    (attributes: timestamp, open, high, low, close, volume), or None.
-    """
-    import yfinance as yf
-
-    end = datetime.now(NY)
-    interval = TIMEFRAMES[tf_name]['yf_interval']
-    try:
-        df = yf.download(symbol, start=start, end=end, interval=interval,
-                         auto_adjust=False, progress=False)
-    except Exception:
-        return None
-    if df is None or len(df) == 0:
-        return None
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-    bars = []
-    for idx, row in df.iterrows():
-        ts = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=NY)
-        try:
-            bars.append(_SimpleBar(
-                ts,
-                float(row['Open']),
-                float(row['High']),
-                float(row['Low']),
-                float(row['Close']),
-                int(row['Volume']),
-            ))
-        except Exception:
-            continue
-    return bars or None
-
-
-def fetch_stockanalysis_price(symbol):
-    """Third fallback: scrape the current price from stockanalysis.com.
-
-    Used when both Alpaca IEX and yfinance fail (e.g. transient yfinance
-    rate-limit). Returns a bare close price or None. The page renders the
-    price in static HTML, so no JS execution is needed. Mirrors the retry
-    convention of stock-analyzer/populate_stock_analyzer.py."""
-    import re
-    url = f'https://stockanalysis.com/stocks/{symbol.lower()}/'
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
-                      '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-    }
-    for attempt in range(3):
-        try:
-            r = requests.get(url, headers=headers, timeout=15)
-            r.raise_for_status()
-            break
-        except Exception:
-            if attempt < 2:
-                time.sleep(2 ** (attempt + 1))
-                continue
-            return None
-    m = re.search(
-        r'<div class="text-4xl font-bold transition-colors duration-300 inline-block">([0-9,]+\.\d+)</div>',
-        r.text,
-    )
-    if not m:
-        return None
-    try:
-        return float(m.group(1).replace(',', ''))
-    except ValueError:
-        return None
-
-
-class _SimpleBar:
-    """Minimal Alpaca-Bar-compatible object for yfinance fallback rows."""
-    def __init__(self, timestamp, open, high, low, close, volume):
-        self.timestamp = timestamp
-        self.open = open
-        self.high = high
-        self.low = low
-        self.close = close
-        self.volume = volume
-
-
 def process_ticker(symbol, client, tf_name, global_start, priority=False):
     try:
         table = TIMEFRAMES[tf_name]['table']
@@ -222,14 +187,15 @@ def process_ticker(symbol, client, tf_name, global_start, priority=False):
                 latest_date = latest
             else:
                 latest_date = datetime.strptime(str(latest)[:10], '%Y-%m-%d').date()
-            # Weekly bars are stamped at the ISO-week start (Monday). Starting the
-            # fetch at latest_date + 1 would EXCLUDE the current week's Monday-stamped
-            # bar forever, leaving it frozen at the first-day snapshot it was inserted
-            # with. Weekly must re-fetch from the latest stored Monday each run so the
-            # in-progress week is returned again and upserted over the frozen row.
-            # Daily/hourly bars are stamped at their own date/hour, so latest+1 is correct.
+            # Weekly bars are stamped at the ISO-week start (Monday) and are only
+            # written once their week is complete, so re-fetch a trailing window
+            # of weeks on every run (self-healing) instead of latest+1, which
+            # would skip the newest settled week forever. Daily/hourly bars are
+            # stamped at their own date/hour, so latest+1 is correct for them.
             if tf_name == 'week':
-                start = datetime.combine(latest_date, datetime.min.time(), tzinfo=NY)
+                start = datetime.combine(
+                    latest_date - timedelta(days=7 * WEEKLY_REFRESH_WEEKS),
+                    datetime.min.time(), tzinfo=NY)
             else:
                 start = datetime.combine(latest_date + timedelta(days=1), datetime.min.time(), tzinfo=NY)
         else:
@@ -246,26 +212,19 @@ def process_ticker(symbol, client, tf_name, global_start, priority=False):
                     return symbol, 0, 'up to date'
 
         bars = fetch_bars(symbol, client, tf_name, start)
-        source = 'alpaca'
-        if not bars or len(bars) == 0:
-            bars = fetch_yfinance_bars(symbol, tf_name, start)
-            if not bars or len(bars) == 0:
-                # Last resort: stockanalysis.com current price (transient
-                # yfinance rate-limit). Only usable for daily — synthesize
-                # today's bar from the single scrape price.
-                if tf_name == 'day':
-                    price = fetch_stockanalysis_price(symbol)
-                    if price is None:
-                        return symbol, 0, 'no new data'
-                    now = datetime.now(NY)
-                    bars = [_SimpleBar(now, price, price, price, price, 0)]
-                    source = 'stockanalysis'
-                else:
-                    return symbol, 0, 'no new data'
-            else:
-                source = 'yfinance'
+        # Alpaca is the ONLY price source (adjusted, `adjustment='all'`). There is
+        # deliberately no yfinance/stockanalysis fallback: those return raw,
+        # unadjusted closes, so a single fallback row silently mixes a foreign
+        # price basis into the table (measured: 156 names >2% off vs the weekly
+        # bar, worst 6.8%) and yf weekly bars even stamp the wrong week date.
+        # A genuine Alpaca gap must surface as a gap, not be papered over.
+        if not bars:
+            return symbol, 0, 'no data from alpaca'
+
 
         rows = []
+        skipped_unsettled = 0
+        now = datetime.now(NY)
         for bar in bars:
             ts = bar.timestamp
             if ts.tzinfo is not None:
@@ -274,28 +233,57 @@ def process_ticker(symbol, client, tf_name, global_start, priority=False):
                 date_val = ts
             else:
                 date_val = ts.date()
+            # Never persist a partial weekly bar (see WEEKLY_REFRESH_WEEKS).
+            if tf_name == 'week' and not week_is_settled(date_val, now):
+                skipped_unsettled += 1
+                continue
             rows.append((
                 ticker_id, date_val,
                 float(bar.open), float(bar.high), float(bar.low),
                 float(bar.close), int(bar.volume),
             ))
 
+        if not rows:
+            return symbol, 0, f'no settled bars yet ({skipped_unsettled} in progress)'
+
         conn = get_db_conn()
         try:
             with conn.cursor() as cur:
                 if is_hourly:
                     rows = [(r[0], r[1].replace(tzinfo=None) if hasattr(r[1], 'tzinfo') and r[1].tzinfo is not None else r[1], *r[2:]) for r in rows]
-                execute_values(
-                    cur,
-                    f"""
-                        INSERT INTO {table} (ticker_id, date, open, high, low, close, volume)
-                        VALUES %s
+                if tf_name == 'week':
+                    # Weekly is INSERT-ONLY. `week_is_settled` above already
+                    # refuses to persist an in-progress week, so a Monday-stamped
+                    # row is only ever written once, carrying that week's final
+                    # Friday close. There is no partial-to-settled transition left
+                    # to service, so re-upserting the row just churns it (and, with
+                    # adjustment='all', rewrites history Alpaca itself has already
+                    # finalised). A settled week is immutable here.
+                    conflict_clause = 'ON CONFLICT (ticker_id, date) DO NOTHING'
+                else:
+                    # Daily/hourly still settle IN PLACE: the 09:00 scanner-update
+                    # writes today's partial daily bar, which the 16:30 run must
+                    # then complete. Guarded so a re-fetch that returns identical
+                    # numbers does not rewrite the row.
+                    conflict_clause = f"""
                         ON CONFLICT (ticker_id, date) DO UPDATE SET
                             open = EXCLUDED.open,
                             high = EXCLUDED.high,
                             low = EXCLUDED.low,
                             close = EXCLUDED.close,
                             volume = EXCLUDED.volume
+                        WHERE ({table}.open, {table}.high, {table}.low,
+                               {table}.close, {table}.volume)
+                          IS DISTINCT FROM
+                              (EXCLUDED.open, EXCLUDED.high, EXCLUDED.low,
+                               EXCLUDED.close, EXCLUDED.volume)
+                    """
+                execute_values(
+                    cur,
+                    f"""
+                        INSERT INTO {table} (ticker_id, date, open, high, low, close, volume)
+                        VALUES %s
+                        {conflict_clause}
                     """,
                     rows,
                 )
@@ -303,10 +291,6 @@ def process_ticker(symbol, client, tf_name, global_start, priority=False):
         finally:
             conn.close()
 
-        if source == 'yfinance':
-            return symbol, len(rows), 'ok (yfinance fallback)'
-        if source == 'stockanalysis':
-            return symbol, len(rows), 'ok (stockanalysis price)'
         return symbol, len(rows), 'ok'
     except Exception as e:
         return symbol, 0, str(e)
@@ -316,7 +300,7 @@ def main():
     parser = argparse.ArgumentParser(description='Populate scanner tables with SP500 OHLCV data')
     parser.add_argument('--timeframe', choices=list(TIMEFRAMES.keys()), default='week',
                         help='Bar timeframe to fetch (default: week)')
-    parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers')
+    parser.add_argument('--workers', type=int, default=3, help='Number of parallel workers')
     parser.add_argument('--full-refetch', action='store_true',
                         help='Delete and re-fetch all data instead of incremental update')
     parser.add_argument('--priority', default='',
@@ -386,16 +370,32 @@ def main():
             if status.startswith('ok'):
                 ok += 1
                 total_bars += bars_inserted
-                if status == 'ok (yfinance fallback)':
-                    print(f"  [{done}/{total}] {symbol}: {bars_inserted} {label} inserted (yfinance fallback)")
-                else:
-                    print(f"  [{done}/{total}] {symbol}: {bars_inserted} {label} inserted")
+                print(f"  [{done}/{total}] {symbol}: {bars_inserted} {label} inserted")
             else:
                 failed += 1
                 reason = 'no data' if status == 'no data' else status
                 print(f"  [{done}/{total}] {symbol}: skipped ({reason})")
 
     print(f"\nDone. {ok} tickers updated ({total_bars} total {label}), {failed} skipped.")
+
+    if args.timeframe == 'week':
+        # Remove rows for weeks that are not finished (written by the old
+        # behaviour, which upserted the in-progress week with each session's
+        # price). Uses the same settledness rule as the writer above, so a week
+        # that legitimately closed on Friday is kept. This is what makes
+        # `max(date)` mean "last fully-closed week" again.
+        cutoff = earliest_unsettled_week()
+        conn = get_db_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"DELETE FROM {table} WHERE date >= %s", (cutoff,))
+                removed = cur.rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        newest = get_latest_overall(table)
+        print(f"Weekly table settled-only: dropped {removed} unsettled row(s) "
+              f"(>= {cutoff}); newest row now {newest}.")
 
 
 if __name__ == '__main__':

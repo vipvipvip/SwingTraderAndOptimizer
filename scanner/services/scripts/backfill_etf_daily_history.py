@@ -8,14 +8,14 @@ from one another, so no aggregation drift.
 
 Dump-and-refresh model: each symbol's rows are DELETEd and re-inserted from
 a fresh query, so once a quarter you simply re-run this and pick up any
-dividend re-adjustments yfinance/Alpaca retroactively apply.
+dividend re-adjustments Alpaca retroactively applies.
 
 Note: Alpaca SIP history for this account starts 2016-01-04, so the default
 start year is 2016 to capture the full available range. Do not raise it, or
 re-running this will truncate the 2016-2018 history already in the DB.
 
 Usage:
-    python backfill_etf_daily_history.py --timeframe day|week|both [--symbols A,B] [--source alpaca|yfinance]
+    python backfill_etf_daily_history.py --timeframe day|week|both [--symbols A,B]
 """
 
 import argparse
@@ -82,33 +82,10 @@ def fetch_alpaca(symbol, tf_name, start_year=2016):
     return rows
 
 
-def fetch_yfinance(symbol, tf_name, start_year=2014):
-    import yfinance as yf
-    interval = '1wk' if tf_name == 'week' else '1d'
-    start = datetime(start_year, 1, 1)
-    df = yf.download(symbol, start=start, interval=interval, progress=False,
-                     auto_adjust=True, threads=False)
-    if df is None or df.empty:
-        return []
-    if isinstance(df.columns, type(df.columns)) and hasattr(df.columns, 'levels'):
-        df.columns = [c[1] if c[1] in ('Open', 'High', 'Low', 'Close', 'Volume')
-                      else c[0] for c in df.columns]
-    rows = []
-    for ts, row in df.iterrows():
-        ts_date = ts.date() if hasattr(ts, 'date') else ts
-        if interval == '1wk':
-            ts_date = ts_date - timedelta(days=ts_date.weekday())
-        rows.append((ts_date,
-                     float(row['Open']), float(row['High']), float(row['Low']),
-                     float(row['Close']), int(row['Volume'])))
-    return rows
-
-
-def refresh(symbol, tf_name, source, start_year):
-    if source == 'alpaca':
-        rows = fetch_alpaca(symbol, tf_name, start_year)
-    else:
-        rows = fetch_yfinance(symbol, tf_name, start_year)
+def refresh(symbol, tf_name, start_year):
+    # Alpaca only (adjusted). A yfinance source was removed here deliberately:
+    # it writes a different price basis into the same table.
+    rows = fetch_alpaca(symbol, tf_name, start_year)
     if not rows:
         return 0, 'no data'
     conn = get_db_conn()
@@ -142,13 +119,12 @@ def main():
     parser.add_argument('--symbols', default=None,
                         help='Comma-separated symbols (default: all enabled ETFs)')
     parser.add_argument('--start-year', type=int, default=None,
-                        help='Fetch from this year (alpaca default 2016, yfinance default 2014)')
+                        help='Fetch from this year (default 2016)')
     parser.add_argument('--timeframe', choices=['day', 'week', 'both'], default='both')
-    parser.add_argument('--source', choices=['alpaca', 'yfinance'], default='alpaca')
     args = parser.parse_args()
 
     tfs = ['day', 'week'] if args.timeframe == 'both' else [args.timeframe]
-    start_year = args.start_year or (2016 if args.source == 'alpaca' else 2014)
+    start_year = args.start_year or 2016
     label = {args.timeframe} if args.timeframe != 'both' else {'daily', 'weekly'}
 
     conn = get_db_conn()
@@ -166,9 +142,9 @@ def main():
     for tf in tfs:
         total = 0
         failed = []
-        print(f'--- {tf} ({label}) source={args.source} from {start_year} ---')
+        print(f'--- {tf} ({label}) source=alpaca from {start_year} ---')
         for sym in syms:
-            n, status = refresh(sym, tf, args.source, start_year)
+            n, status = refresh(sym, tf, start_year)
             if status == 'ok':
                 total += n
                 print(f'  {sym}: {n} {tf} bars')

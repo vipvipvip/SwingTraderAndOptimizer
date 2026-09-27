@@ -12,7 +12,7 @@ The plan works either as a full catch-up (default) or as a targeted repair:
   --timeframes week,day,hour   (default: all three)
   --symbols AAPL,MSFT          (default: all enabled tickers)
   --start 2026-08-01           (force-ignore bars before this date when deciding gaps)
-  --workers 10                 (threads, default 10)
+  --workers 3                  (threads, default 3)
   --dry-run                    (print what would be fetched, change nothing)
 
 Writes with ON CONFLICT DO NOTHING (idempotent): rerunning never duplicates
@@ -67,7 +67,7 @@ def _normalize(date_val):
 
 
 def _fetch_insert(symbol, ticker_id, client, tf_name, first_missing, as_of, dry_run):
-    """Fetch Alpaca/yfinance bars from `first_missing` to `as_of` and insert.
+    """Fetch Alpaca bars from `first_missing` to `as_of` and insert.
     Returns number of bars inserted."""
     if dry_run:
         return 0
@@ -76,16 +76,6 @@ def _fetch_insert(symbol, ticker_id, client, tf_name, first_missing, as_of, dry_
 
     start = datetime.combine(first_missing, datetime.min.time(), tzinfo=NY)
     bars = pt.fetch_bars(symbol, client, tf_name, start)
-    if not bars or len(bars) == 0:
-        bars = pt.fetch_yfinance_bars(symbol, tf_name, start)
-    if not bars or len(bars) == 0:
-        if tf_name == 'day':
-            price = pt.fetch_stockanalysis_price(symbol)
-            if price is not None:
-                now = datetime.now(NY)
-                bars = [pt._SimpleBar(now, price, price, price, price, 0)]
-        else:
-            return 0
     if not bars:
         return 0
 
@@ -249,7 +239,7 @@ def main():
                     help='Comma-separated timeframes to backfill (default: week,day,hour)')
     ap.add_argument('--symbols', default='',
                     help='Comma-separated symbols to limit to (default: all enabled)')
-    ap.add_argument('--workers', type=int, default=10)
+    ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--start', default=None,
                     help='YYYY-MM-DD global start for tickers with no history (default: 2015-01-01 for week/day, 90d for hour)')
     ap.add_argument('--dry-run', action='store_true')

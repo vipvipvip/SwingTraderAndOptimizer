@@ -26,6 +26,7 @@ tickers silently keep a NULL atr_stop.
 """
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -89,7 +90,13 @@ def _copy_to_temp(cur, rows, tmp_name, date_type='date'):
     for row in rows:
         vals = []
         for v in row:
-            if v is None:
+            # NaN must go over the wire as NULL, not as the text 'nan': a float8
+            # column happily parses 'nan' into a NaN value, which then reads back
+            # as a number everywhere downstream (Postgres orders NaN above every
+            # other value, so `> 0` guards and arithmetic both misbehave). Note
+            # that compute_indicators' `None if pd.isna(v)` guard is NOT enough on
+            # its own — pandas coerces the resulting list back to float64 NaN.
+            if v is None or (isinstance(v, float) and math.isnan(v)):
                 vals.append('\\N')
             elif isinstance(v, bool):
                 vals.append('t' if v else 'f')

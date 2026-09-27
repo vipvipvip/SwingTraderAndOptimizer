@@ -1,14 +1,23 @@
 [Unit]
-Description=SwingTrader scanner hourly-bar backfill + indicator computation
+Description=SwingTrader post-close settle (weekly + daily) + hourly-bar backfill + indicators
 After=network-online.target swingtrader-db.service
 Wants=network-online.target swingtrader-db.service
 
 [Service]
 Type=oneshot
 WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
+# Runs 16:30 ET, past the 16:00 bell: this is where the week's and day's final
+# closes actually get acquired. The weekly populate persists only completed
+# weeks, so Friday's 16:30 run is what puts Friday's close into the
+# Monday-stamped weekly row (WEEKLY_SETTLE_TIME = 16:05) — before this existed,
+# the newest weekly row stayed a partial bar until Monday 09:00.
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe week --workers 3
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe week --workers 3
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe day --workers 3
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe day --workers 3
 ExecStartPre=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe hour --workers 5
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/capture_hourly.py
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe hour --workers 10
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe hour --workers 3
 
 [Install]
 WantedBy=timers.target
