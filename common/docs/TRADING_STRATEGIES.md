@@ -6,10 +6,10 @@ This project contains three distinct trading systems that operate independently:
 
 | # | Name | Universe | Signals | Status |
 |---|------|----------|---------|--------|
-| 1 | **CoreEW** (trio book, formerly CHAND) | QQQ/VTI/VTV | Since 2026-09-21: monotone weekly-ratchet **gate** per ETF (settled weekly close vs peak-anchored 2×ATR stop) → equal-weight among LONG legs (`trades:execute-EW-gate`, 5-min cron, deduped to the settled week). Pure-EW driver (`trades:execute-EW-ETF`, drift-gated) kept off-cron as rollback. See the 2026-09-25 audit note in §1. | ✅ Live (Laravel, paper) |
+| 1 | **CoreEG100** (trio book, formerly CHAND → CoreEW variant S) | QQQ/VTI/VTV | Since 2026-09-27: whole-book **index EMA(100) crossover gate** — equal-weight daily-rebalanced QQQ/VTI/VTV index vs its own EMA(100), pure crossover, no band (`trades:execute-EW-gate100`, 5-min cron, deduped on the newest flip date). LONG = all 3 at equity/3, OFF = all flat. Retired variant S (`trades:execute-EW-gate`, weekly per-leg ATR ratchet) and the original pure-EW drift-gated driver (`trades:execute-EW-ETF`) are kept off-cron as rollbacks, in that order. See [BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md) for the full mechanics and the 2026-09-25 audit note in §1 for why variant S was replaced. | ✅ Live (Laravel, paper) |
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
-| 4 | **MTF Top-N** (Multi-TF rotation) | VTI stocks + ETFs | gap_w + atr_dist + freshness → top 10 daily | ✅ Live (Phase 2) |
+| 4 | **MTF Top-N** (emasma rotation) | VTI stocks (top-10) + ETFs (top-3) | `min(gap_w/5, 5)` weekly score, long-eligible only while weekly EMA(10)>SMA(40); stock leg exits on daily-ATR ratchet, ETF leg exits on rotation only | ✅ Live (both legs, once/day 10:25 ET) |
 | 5 | **Daily Signal** (Multi-TF alerts) | All enabled (VTI stocks + ETFs) | 1-hour fresh cross + score | ✅ Slack @ 5:00 PM |
 
 All systems share the same database (`swingtrader`) and Alpaca data source, but their logic, parameters, and objectives are entirely separate.
@@ -348,36 +348,51 @@ and generate BUY/SELL signals at cycle turning points.
 | Max DD | 15.6% |
 | Trades | 147 |
 
-# 4. MTF Top-N (Multi-TF Rotation) — Replaces MTCS
+# 4. MTF Top-N (emasma Rotation) — Replaces MTCS
 
-**Service:** `swingtrader-mtf-scorer.service` (systemd, oneshot — Phase 2 live)  
-**Location:** `swingtrader/services/mtf/runner.py`  
-**Universe:** VTI stocks + ETFs (Phase 2)  
+> **Live since 2026-09-10 (stock leg v3) / 2026-09-08 (ETF top-3).** The description below is
+> the current **emasma** score. The original "Multi-TF" score
+> (`min(gap_w/20,3) + min(atr_dist/1.5,3) + freshness`) and the later "v2" freshest-crossover
+> score are both retired — `--strategy mtf|v2` still exist in `runner.py` for research only,
+> neither is live. Full detail: [services_doc/mtf_daily_runner.md](services_doc/mtf_daily_runner.md);
+> buy/sell mechanics: [BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md).
+
+**Service:** `swingtrader-mtf-executor.service` (systemd, once/day 10:25 ET — scores AND
+executes in the same run; the separate evening scorer is disabled)  
+**Location:** `swingtrader/services/mtf/runner.py` + `executor.py`  
+**Universe:** VTI stocks (top-10) + ETFs (top-3) — two independent legs, same run  
 **Account:** Alpaca paper (stocks #PA368CPXNS13 / ETFs #PA3U8GZ96PEN — keys in `mtf/.env`)
 
 ### Strategy
-Daily rotation into top N S&P 500 stocks ranked by Multi-TF score:
-- **Weekly filter:** EMA(10) > SMA(40) (bullish weekly trend)
-- **Daily filter:** EMA(10) > SMA(40) (bullish daily trend)
-- **Score:** `min(gap_w/20, 3) + min(atr_dist/1.5, 3) + max(0, 2 - days_since_weekly/60)`
-- **Rebalance:** Daily — sell dropped, buy new entrants, equal weight
-- **Exit:** Dropped from top N → sell at next day's open
+Daily rotation into the top-N names by weekly EMA/SMA gap score, on settled bars only:
+- **Filter:** long-eligible only while weekly EMA(10) > SMA(40); flat otherwise
+- **Score:** `min(gap_w / 5, 5)` — how far the weekly close sits above weekly SMA(40),
+  capped at 5; ties broken deterministically by `(-score, -gap_w)`
+- **Rebalance:** once/day at 10:25 ET — sell dropped names, buy new entrants
+- **Exit (stock leg):** dropped from top-10, **or** daily-ATR ratchet (last settled daily
+  close < highest daily close since entry − 2×daily ATR) — fires independently of ranking
+- **Exit (ETF leg):** dropped from top-3 only — no ratchet on this leg
 
-### Backtest Results (Daily Rebalance, Jul 2023–Jul 2026)
+### Backtest Results — ⚠️ signal-quality only, not returns (survivorship-biased stock
+universe, idealized next-open fills, untrimmed winner weights — see "Backtest honesty" in
+AGENTS.md)
+
 | Metric | Value |
 |--------|-------|
-| Return | +5,299% ($100k → $5.4M) |
+| Period | Jul 2023 – Jul 2026 |
+| Return | +5,469% ($100k → $5.57M) |
 | Max DD | 22.2% |
 | Win rate | 68% |
 | Avg win | +16.24% |
 | Avg loss | -5.31% |
 
-### Phase Plan
+### Rollout status
 | Phase | Action | Status |
 |-------|--------|--------|
-| 1 | Paper trading — log picks, CSV portfolio, Slack alerts. MTCS runs alongside. | 🚧 In Progress |
-| 2 | Stop MTCS, wire MTF into Alpaca executor (--top-n 5) | ⏳ Pending |
-| 3 | Scale to --top-n 10, add exit rules | ⏳ Pending |
+| 1 | Paper trading — log picks, track portfolio, Slack alerts (alongside MTCS) | ✅ Done |
+| 2 | Stop MTCS/EMAC, wire MTF into Alpaca executor | ✅ Live |
+| 3 | Exit rules (daily-ATR ratchet on stock leg), ETF top-3 concentration | ✅ Done |
+| — | Stock leg v2 → v3 (emasma) | ✅ Done 2026-09-10 |
 
 # 5. Daily Signal Service (Signal-Only)
 
@@ -417,28 +432,28 @@ The Daily Signal and MTF Top-N share the **same universe**, the **same hard filt
 
 # 6. Key Differences
 
-| Aspect | CHAND | Scanner | MTF Top-N | Daily Signal |
+| Aspect | CoreEG100 | Scanner | MTF Top-N | Daily Signal |
 |--------|-------|---------|-----------|--------------|
-| **Goal** | Whole-market beta book | Market screening | Rotation trading | Signal alerts |
-| **Strategy** | EW weekly rebalance (no signals) | 3-way crossover convergence | Multi-TF score top-N | Multi-TF fresh crosses |
-| **Universe** | QQQ/VTI/VTV | S&P 500 | VTI stocks + ETFs | All enabled (VTI stocks + ETFs) |
-| **Data Frequency** | 5-min ticks (market hours) | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour | Weekly, Daily, 1-Hour |
-| **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders (Phase 2) | Slack + CSV only |
-| **Entry** | Always-in (all three, equity/3) | 3 aligned crossovers | Top-N by score | Fresh 1-hour cross |
-| **Exit** | None (hold) | N/A (scanner only) | Dropped from top N | N/A |
-| **Parameters** | None (fixed weights) | Fixed | Fixed | Fixed |
-| **Return (backtest)** | +81.7% (EW weekly benchmark) | N/A | +5,469% (unfiltered) | N/A |
-| **Max DD** | 18.7% (≈ trio B&H) | N/A | 22.2% | N/A |
+| **Goal** | Whole-market beta book, gated | Market screening | Rotation trading | Signal alerts |
+| **Strategy** | Index EMA(100) crossover, all-in/all-out | 3-way crossover convergence | emasma score top-N (2 legs) | Multi-TF fresh crosses |
+| **Universe** | QQQ/VTI/VTV | S&P 500 | VTI stocks (top-10) + ETFs (top-3) | All enabled (VTI stocks + ETFs) |
+| **Data Frequency** | Daily bars, checked every 5 min | Weekly, Daily, 1-Hour | Weekly, Daily | Weekly, Daily, 1-Hour |
+| **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders (both legs) | Slack + CSV only |
+| **Entry** | Index crosses above its EMA(100) → all 3 at equity/3 | 3 aligned crossovers | Enters top-N by score | Fresh 1-hour cross |
+| **Exit** | Index crosses below its EMA(100) → all flat | N/A (scanner only) | Drops from top-N, or stock-leg ATR ratchet | N/A |
+| **Parameters** | EMA span (100) | Fixed | Fixed | Fixed |
+| **Return (backtest)** | +73.5%/−8.4% DD (3y) vs weekly EW rebalance | N/A | +5,469% (signal-quality only, not a return) | N/A |
+| **Max DD** | see above (backtest, not live-verified) | N/A | 22.2% (signal-quality only) | N/A |
 
 ---
 
 # 7. Parameters Quick Reference
 
-| Parameter | CHAND | Scanner | MTF Top-N | Daily Signal |
+| Parameter | CoreEG100 | Scanner | MTF Top-N | Daily Signal |
 |-----------|-------|---------|-----------|--------------|
-| Fast MA | **none (EW-only since 2026-09-12)** | 24 | 10 (EMA) | 10 (EMA) |
+| Fast MA | **none — gated by index EMA(100), not a fast/slow MA pair** | 24 | 10 (EMA) | 10 (EMA) |
 | Slow MA | N/A | 52 | 40 (SMA) | 40 (SMA) |
 | Signal Line | N/A | 18 (MACD), 9 (PPO) | N/A | N/A |
-| ATR Period | legacy chandelier only | 14 | N/A | N/A |
-| ATR Multiplier | legacy chandelier only | 2.0 | N/A | N/A |
-| Primary Metric | **none — fixed equity/3 weights** | Crossover recency | Score (gap+atr+fresh) | Momentum score |
+| ATR Period | N/A | 14 | 14 (stock-leg ratchet only) | N/A |
+| ATR Multiplier | N/A | 2.0 | 2.0 (stock-leg ratchet only) | N/A |
+| Primary Metric | EMA span (100) vs equal-weight index | Crossover recency | Score (gap_w, capped 5) | Momentum score |
