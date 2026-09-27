@@ -95,3 +95,9 @@ swingtrader/services/ema_sma_crossover/.daily_signal_state.json
 swingtrader/services/ema_sma_crossover/data/daily_signals.csv
 swingtrader/services/optimizer/logs/nightly.log
 portfolio-backtest/portfolio_backtest_*.csv
+
+# Docker Postgres data mount — never tracked, but its host-side permissions
+# (owned by the container's internal uid) block plain `readdir`, which makes
+# git's directory walk fail on status/checkout ("Permission denied",
+# "failed to remove postgres_data/") unless it's excluded up front.
+/postgres_data/
