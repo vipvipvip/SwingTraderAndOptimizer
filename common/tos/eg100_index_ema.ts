@@ -52,13 +52,13 @@
 #   - A BARE `def x;` is inferred as a DOUBLE. Declare-empty-then-assign is safe
 #     only for numeric defs; giving such a def a string reports "Incompatible
 #     parameter" plus "Expected double". Keep string literals inline in the call.
-#   - A top-level `if` STATEMENT always needs braces, whether it assigns or calls
-#     AddLabel/AddBackgroundColor. Brace-free `if cond` / newline / call is
-#     rejected with "Invalid statement: if".
-#   - But do NOT nest one if inside another's braces: that is what produces
-#     "An 'else' block expected" / "Semicolon expected" at the outer `if`. Keep
-#     every if/else chain FLAT and pre-compute the extra conditions as defs,
-#     exactly as the coreew_ratchet_stop-*.ts scripts do.
+#   - Conditionals belong in only TWO places: inside a plot/assignment EXPRESSION
+#     (`if cond then a else b`), or as the FIRST ARGUMENT of AddLabel. A
+#     standalone `if cond { ... }` statement is rejected outright — braced it
+#     reports "An 'else' block expected" / "Semicolon expected", brace-free it
+#     reports "Invalid statement: if". Verified by compile, not by reading docs,
+#     so do not reintroduce one. Branching is done with two AddLabel calls using
+#     complementary conditions.
 #   - There is no Text() function, and no C-style `a ? b : c`. Use
 #     `if cond then a else b`, and `+` for string/number concatenation.
 #
@@ -76,7 +76,6 @@ input bandPct       = 3.0;  # draw +/- pct reference lines (visual only, non-liv
 input showIndex     = yes;  # plot the synthetic equal-weight index
 input showMa        = yes;  # plot the index EMA
 input showBand      = yes;  # draw the +/- pct lines
-input showBackdrop  = yes;  # shade the bars where the gate is LONG vs CASH
 input startBarsBack = 0;    # 0 = whole chart; N = only show the last N bars
 
 # --- Synthetic equal-weight QQQ/VTI/VTV index -----------------------------
@@ -126,33 +125,28 @@ LowerBand.SetStyle(Curve.LONG_DASH);
 LowerBand.SetDefaultColor(Color.RED);
 LowerBand.SetLineWeight(1);
 
-# The long/cash backdrop, repainted on each state change.
-def flipped = isLong != isLong[1];
-def turnedOn  = flipped and isLong == 1;
-def turnedOff = flipped and isLong == 0;
-
-if showBackdrop and turnedOn {
-    AddBackgroundColor(Color.DARK_GREEN);
-}
-
-if showBackdrop and turnedOff {
-    AddBackgroundColor(Color.DARK_RED);
-}
-
 # --- Axis labels ----------------------------------------------------------
-# String literals stay inline in the call; a bare `def x;` is typed DOUBLE and
-# would reject a string, and the if/else chain is what selects the wording.
-if isLong == 1 {
-    AddLabel(showMa, "EG100 GATE: LONG (all 3)", Color.GREEN);
-} else {
-    AddLabel(showMa, "EG100 GATE: CASH (all flat)", Color.RED);
-}
-
+# There is deliberately NOT a single statement-level `if` in this script.
+# thinkScript accepts conditionals in exactly two places, and both are used
+# below: inside a plot's EXPRESSION (`if cond then a else b`), and as the first
+# argument of AddLabel. Alternatives are expressed as two AddLabel calls with
+# complementary conditions, which is the shape the coreew_ratchet_stop-*.ts
+# scripts use. A standalone `if cond { ... }` statement — braced or brace-free —
+# is rejected by the TOS compiler, so do not add one.
+AddLabel(showMa and isLong == 1, "EG100 GATE: LONG (all 3)", Color.GREEN);
+AddLabel(showMa and isLong == 0, "EG100 GATE: CASH (all flat)", Color.RED);
 AddLabel(showMa, "EMA" + emaLen + " crossover", Color.WHITE);
 AddLabel(showIndex, "Index " + ewIdx, Color.CYAN);
+AddLabel(showMa and gapPct >= 0, "+" + gapPct + "% vs EMA", Color.WHITE);
+AddLabel(showMa and gapPct < 0, gapPct + "% vs EMA", Color.WHITE);
 
-if gapPct >= 0 {
-    AddLabel(showMa, "+" + gapPct + "% vs EMA", Color.WHITE);
-} else {
-    AddLabel(showMa, gapPct + "% vs EMA", Color.WHITE);
-}
+# Optional per-bar LONG/CASH backdrop. NOT included, because repainting it per
+# bar needs a statement-level `if` that the compiler will not accept. If you
+# want it, add it as a SEPARATE study and test it on its own first:
+#   if isLong != isLong[1] and isLong == 1 {
+#       AddBackgroundColor(Color.DARK_GREEN);
+#   }
+#   if isLong != isLong[1] and isLong == 0 {
+#       AddBackgroundColor(Color.DARK_RED);
+#   }
+# Otherwise read the state off the label above and the two plotted lines.
