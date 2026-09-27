@@ -4,6 +4,13 @@
 # bars, so "200MA" means 200 daily / 200 weekly / 200 hourly bars depending on
 # the aggregation you load it on (there is no separate per-timeframe file).
 #
+# ⚠ THIS IS RESEARCH SCAFFOLDING, NOT A LIVE STRATEGY. The live CoreEW gate is
+# EG100 (synthetic QQQ/VTI/VTV index vs its own EMA100, pure crossover) — see
+# `eg100_index_ema.ts`. This file stays for the MA(n) ± band family that the
+# backtest compares variants against (`backtest_trio_ew.py --sma-gate/--sma-band`):
+# the ±3% band beat pure crossover out of sample and lost in sample, so it is a
+# documented data point, not something the account trades.
+#
 # thinkScript API notes (these are the traps this script deliberately avoids):
 #   - There is NO SMA()/EMA()/WSMA() function. The moving averages are:
 #       Average(close, n)          = simple MA  (TOS "SMA" study)
@@ -18,11 +25,14 @@
 #   - Identifiers are case-insensitive: a def `inBand` and a plot `InBand`
 #     collide ("Identifier Already Used").
 #   - `on` is a KEYWORD (plot <data> on close), so `def on` is a parse error.
-#   - A chained ternary is not safe for strings: `def x = if c then "EMA" else
-#     if c2 then "Wilder" else "SMA";` makes thinkScript infer the type from the
-#     first branch, then report "Incompatible parameter" on every literal and
-#     "Expected double" at the `else if`. Declare the def empty and assign in the
-#     if/else chain instead.
+#   - A BARE `def x;` is inferred as a DOUBLE. Declare-empty-then-assign is only
+#     safe for numeric defs; giving such a def a string reports "Incompatible
+#     parameter" on the literal plus "Expected double", whether the strings come
+#     from a chained ternary or from a plain block. Either annotate the type
+#     (`def String s = "a";`) or keep string literals inline in the call.
+#   - There is no Text() function. String + number concatenation with `+` is
+#     valid and needs no conversion helper.
+#   - There is no C-style `a ? b : c` ternary; use `if cond then a else b`.
 #
 # Notes
 #   - maKind selects the MA base: 0 = simple (matches TOS's own MA study),
@@ -39,7 +49,8 @@ input startBarsBack = 0;    # 0 = whole chart; N = only plot the last N bars
 
 # Declared with no value, then assigned in EVERY branch of the if/else chain —
 # the pattern the CoreEW ratchet scripts use (a def must be declared empty
-# before it can be assigned inside a block).
+# before it can be assigned inside a block). Valid here only because every
+# branch is numeric; a bare `def x;` is typed DOUBLE and would reject a string.
 def maBase;
 if maKind == 1 {
     maBase = ExpAverage(close, maLen);
@@ -49,22 +60,6 @@ if maKind == 1 {
     maBase = WMA(close, maLen);
 } else {
     maBase = Average(close, maLen);
-}
-
-# Same block-assignment requirement as maBase above: a nested ternary
-# (if .. then .. else if .. then ..) is NOT safe for strings here — thinkScript
-# infers the type from the first branch and then reports "Incompatible parameter"
-# / "Expected double" on every string literal, and expects a double at the
-# `else if`. Declare empty, then assign in the if/else chain.
-def maName;
-if maKind == 1 {
-    maName = "EMA";
-} else if maKind == 2 {
-    maName = "Wilder";
-} else if maKind == 3 {
-    maName = "WMA";
-} else {
-    maName = "SMA";
 }
 
 def upperLine = maBase * (1 + bandPct / 100);
@@ -91,8 +86,21 @@ MaLine.SetDefaultColor(Color.WHITE);
 MaLine.SetLineWeight(3);
 
 # Axis labels (values read off the current bar).
-# Text(maLen) rather than maName + maLen: keep the numeric concat explicit so
-# thinkScript never has to infer double->string on a mixed operand.
-AddLabel(showMa, maName + Text(maLen) + " " + AsDollars(maBase), Color.WHITE);
+#
+# The MA name is selected with an if/else chain of AddLabel calls rather than a
+# `def maName` string variable: a bare `def x;` is inferred as a DOUBLE, so a
+# later `maName = "EMA";` fails with "Incompatible parameter" / "Expected
+# double" no matter how it is nested. Keeping the literals inline as call
+# arguments sidesteps the type question completely. `+` concatenation of a
+# string literal with a number is valid (there is no Text() function).
+if maKind == 1 {
+    AddLabel(showMa, "EMA" + maLen + " " + AsDollars(maBase), Color.WHITE);
+} else if maKind == 2 {
+    AddLabel(showMa, "Wilder" + maLen + " " + AsDollars(maBase), Color.WHITE);
+} else if maKind == 3 {
+    AddLabel(showMa, "WMA" + maLen + " " + AsDollars(maBase), Color.WHITE);
+} else {
+    AddLabel(showMa, "SMA" + maLen + " " + AsDollars(maBase), Color.WHITE);
+}
 AddLabel(showBand, "U +" + bandPct + "% " + AsDollars(upperLine), Color.GREEN);
 AddLabel(showBand, "L -" + bandPct + "% " + AsDollars(lowerLine), Color.RED);
