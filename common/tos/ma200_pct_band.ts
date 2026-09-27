@@ -17,6 +17,12 @@
 #     collide with built-in functions (Length, Count, Value, Index...).
 #   - Identifiers are case-insensitive: a def `inBand` and a plot `InBand`
 #     collide ("Identifier Already Used").
+#   - `on` is a KEYWORD (plot <data> on close), so `def on` is a parse error.
+#   - A chained ternary is not safe for strings: `def x = if c then "EMA" else
+#     if c2 then "Wilder" else "SMA";` makes thinkScript infer the type from the
+#     first branch, then report "Incompatible parameter" on every literal and
+#     "Expected double" at the `else if`. Declare the def empty and assign in the
+#     if/else chain instead.
 #
 # Notes
 #   - maKind selects the MA base: 0 = simple (matches TOS's own MA study),
@@ -45,29 +51,48 @@ if maKind == 1 {
     maBase = Average(close, maLen);
 }
 
-def maName = if maKind == 1 then "EMA" else if maKind == 2 then "Wilder" else if maKind == 3 then "WMA" else "SMA";
+# Same block-assignment requirement as maBase above: a nested ternary
+# (if .. then .. else if .. then ..) is NOT safe for strings here — thinkScript
+# infers the type from the first branch and then reports "Incompatible parameter"
+# / "Expected double" on every string literal, and expects a double at the
+# `else if`. Declare empty, then assign in the if/else chain.
+def maName;
+if maKind == 1 {
+    maName = "EMA";
+} else if maKind == 2 {
+    maName = "Wilder";
+} else if maKind == 3 {
+    maName = "WMA";
+} else {
+    maName = "SMA";
+}
 
 def upperLine = maBase * (1 + bandPct / 100);
 def lowerLine = maBase * (1 - bandPct / 100);
 
-def on = BarNumber() >= (HighestAll(BarNumber()) - startBarsBack);
+# NOT named `on` — that is a thinkScript KEYWORD (plot <data> on close), so a
+# `def on` is a parse error even though the compiler only reports it once the
+# earlier errors are cleared.
+def showBar = BarNumber() >= (HighestAll(BarNumber()) - startBarsBack);
 
-plot UpperBand = if showBand and on then upperLine else Double.NaN;
+plot UpperBand = if showBand and showBar then upperLine else Double.NaN;
 UpperBand.SetStyle(Curve.LONG_DASH);
 UpperBand.SetDefaultColor(Color.GREEN);
 UpperBand.SetLineWeight(2);
 
-plot LowerBand = if showBand and on then lowerLine else Double.NaN;
+plot LowerBand = if showBand and showBar then lowerLine else Double.NaN;
 LowerBand.SetStyle(Curve.LONG_DASH);
 LowerBand.SetDefaultColor(Color.RED);
 LowerBand.SetLineWeight(2);
 
-plot MaLine = if showMa and on then maBase else Double.NaN;
+plot MaLine = if showMa and showBar then maBase else Double.NaN;
 MaLine.SetStyle(Curve.FIRM);
 MaLine.SetDefaultColor(Color.WHITE);
 MaLine.SetLineWeight(3);
 
-# Axis labels (values read off the current bar)
-AddLabel(showMa, maName + maLen + " " + AsDollars(maBase), Color.WHITE);
+# Axis labels (values read off the current bar).
+# Text(maLen) rather than maName + maLen: keep the numeric concat explicit so
+# thinkScript never has to infer double->string on a mixed operand.
+AddLabel(showMa, maName + Text(maLen) + " " + AsDollars(maBase), Color.WHITE);
 AddLabel(showBand, "U +" + bandPct + "% " + AsDollars(upperLine), Color.GREEN);
 AddLabel(showBand, "L -" + bandPct + "% " + AsDollars(lowerLine), Color.RED);
