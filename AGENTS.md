@@ -1,6 +1,6 @@
 # Landing — SwingTraderAndOptimizer
 
-> **Resume current work:** `common/docs/HANDOFF_DailySignal_All3CO.md` (Daily Signal all-3-CO, 2026-09-16) and CoreEW LegEMA P20w go-live 2026-09-28 (variant P20w now LIVE on #PA3GKZYLVO68, replacing EG100). Prior: `common/docs/HANDOFF_CoreEW_rename.md` (CoreEW intraday drift rebalance + gain-cap rake). Full history: git + `common/docs/{README.md, TRADING_STRATEGIES.md, perf_explanations.md, COMMAND_REFERENCE.md, ALPACA_KEYS.md, services_doc/README.md}` (`How_System_Works.md`/`MONITORING.md` no longer exist — `services_doc/README.md` is the current live-service inventory).
+> **Resume current work:** `common/docs/HANDOFF_DailySignal_All3CO.md` (Daily Signal all-3-CO, 2026-09-16) and CoreEW LegEMA P20w go-live 2026-09-28 (variant P20w now LIVE on #PA3GKZYLVO68, replacing EG100). **Commercialization (retail): `common/docs/HANDOFF_commercialization.md` + `common/docs/commercial/`.** Prior: `common/docs/HANDOFF_CoreEW_rename.md` (CoreEW intraday drift rebalance + gain-cap rake). Full history: git + `common/docs/{README.md, TRADING_STRATEGIES.md, perf_explanations.md, COMMAND_REFERENCE.md, ALPACA_KEYS.md, services_doc/README.md}` (`How_System_Works.md`/`MONITORING.md` no longer exist — `services_doc/README.md` is the current live-service inventory).
 
 ## Objective
 Find/trade the best entry across all strategies via systematic backtesting, scanner UI, and live automated execution. Explorer Dashboard unifies signals from all strategies (CoreEW/MTF/Daily) with an Early breakout column.
