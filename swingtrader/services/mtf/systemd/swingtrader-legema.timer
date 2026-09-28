@@ -1,0 +1,12 @@
+[Unit]
+Description=CoreEW LegEMA Timer (Mon-Fri 10:05 ET, after 30-min warm-up; acts once per new settled week via storage dedupe)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target swingtrader-db.service
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 10:05:00 America/New_York
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

@@ -1117,13 +1117,34 @@ class TradeExecutorService
             'signal_changes' => count($flips),
             'last_flip' => $flips ? $flips[count($flips) - 1] : null,
             'warm' => true,
+            // Full per-day trail: the single source of truth for the backtest.
+            // backtest_trio_ew.py consumes `series` and never re-implements the
+            // index/EMA/crossover, so live and backtest cannot drift apart.
+            'series' => [
+                'dates' => $dates,
+                'index' => $idx,
+                'ema' => $ema,
+                'state' => array_values($state),
+            ],
         ];
     }
 
     /** Read-only EG100 snapshot: no Alpaca calls, no orders. */
     public function indexEgGateState(int $span = 100, float $band = 0.0): array
     {
-        $symbols = Ticker::whereEnabled(1)
+        return $this->indexEgTrail($span, $band);
+    }
+
+    /**
+     * Canonical EG index-EMA gate trail (single source of truth for the
+     * backtest). Same symbol resolution + replay as the live run path
+     * (replayIndexEgGate); indexEgGateState delegates here. `$symbols` defaults
+     * to the enabled trio, matching live. The returned `series` key carries
+     * every per-day date/index/ema/state row.
+     */
+    public function indexEgTrail(int $span = 100, float $band = 0.0, ?array $symbols = null): array
+    {
+        $symbols = $symbols ?? Ticker::whereEnabled(1)
             ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
             ->pluck('symbol')
             ->values()
@@ -1132,6 +1153,369 @@ class TradeExecutorService
         $state = $this->replayIndexEgGate($symbols, $span, $band);
         $state['symbols'] = $symbols;
         return $state;
+    }
+
+    /**
+     * Per-leg EMA(span) weekly crossover — canonical signal behind variant P
+     * (backtest label P{span}w). Each ETF is decided INDEPENDENTLY on its OWN
+     * settled WEEKLY closes: long while close > EMA(span) (pure crossover, no
+     * band), seeded ewm(span, adjust=False) like the index gates — alpha 2/(span+1)
+     * starting from the first weekly close. Only fully settled weeks participate
+     * (week date + 7 <= today), so a week whose Friday close has not formed yet
+     * is never read — the same `_settled_weekly_idx` rule as every other weekly
+     * consumer. A week-W decision is actionable from the following Monday.
+     *
+     * The `series` key carries every per-week point per symbol and is the single
+     * source of truth for `backtest_trio_ew.py --leg-ema` (which shells out to
+     * `trades:coreew-leg-ema-series` and never re-implements the signal), so live
+     * and backtest cannot drift. Mirrors replayIndexEgGate/replayLegEmaSeries.
+     */
+    private function replayLegEmaSeries(array $symbols, int $span): array
+    {
+        $empty = ['error' => 'no data', 'symbols' => $symbols,
+                  'state' => [], 'last_week' => null, 'series' => null];
+        $weekly = [];
+        $datesRef = null;
+        foreach ($symbols as $sym) {
+            try {
+                $rows = \DB::table('tbl_scanner_tickers as d')
+                    ->join('tbl_stock_tickers as t', 'd.ticker_id', '=', 't.id')
+                    ->where('t.symbol', $sym)
+                    ->where('t.is_etf', true)
+                    ->whereRaw('(d.date::date + 7) <= CURRENT_DATE')
+                    ->orderBy('d.date')
+                    ->get(['d.date', 'd.close']);
+            } catch (\Exception $e) {
+                $empty['error'] = "load failed for $sym: " . $e->getMessage();
+                return $empty;
+            }
+            if (count($rows) === 0) {
+                $empty['error'] = "no settled weekly bars for $sym";
+                return $empty;
+            }
+            $map = [];
+            foreach ($rows as $r) {
+                $map[substr($r->date, 0, 10)] = floatval($r->close);
+            }
+            $weekly[$sym] = $map;
+            $datesRef = $datesRef === null ? array_keys($map) : $datesRef;
+        }
+
+        // Only weeks present for EVERY symbol can carry a comparison.
+        $dates = array_values(array_filter($datesRef, function ($d) use ($weekly) {
+            foreach ($weekly as $map) {
+                if (!isset($map[$d])) {
+                    return false;
+                }
+            }
+            return true;
+        }));
+        $bars = count($dates);
+        if ($bars < $span + 1) {
+            $empty['error'] = "only $bars aligned settled weeks (need > span $span)";
+            return $empty;
+        }
+
+        $alpha = 2.0 / ($span + 1.0);
+        $series = [];
+        $lastState = [];
+        foreach ($symbols as $sym) {
+            $c = [];
+            foreach ($dates as $d) {
+                $c[] = $weekly[$sym][$d];
+            }
+            $ema = [$c[0]];
+            for ($i = 1; $i < $bars; $i++) {
+                $ema[] = $alpha * $c[$i] + (1.0 - $alpha) * $ema[$i - 1];
+            }
+            $pts = [];
+            for ($i = 0; $i < $bars; $i++) {
+                $pts[] = [
+                    'week' => $dates[$i],
+                    'close' => round($c[$i], 6),
+                    'ema' => round($ema[$i], 6),
+                    'long' => $c[$i] > $ema[$i],
+                ];
+            }
+            $series[$sym] = $pts;
+            $lastState[$sym] = (bool) $pts[$bars - 1]['long'];
+        }
+
+        return [
+            'span' => $span,
+            'symbols' => $symbols,
+            'bars' => $bars,
+            'last_week' => $dates[$bars - 1],
+            'state' => $lastState,
+            'warm' => true,
+            'series' => $series,
+        ];
+    }
+
+    public function legEmaTrail(int $span = 20, ?array $symbols = null): array
+    {
+        $symbols = $symbols ?? Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        $symbols = array_values(array_intersect($symbols, ['QQQ', 'VTI', 'VTV']));
+        return $this->replayLegEmaSeries($symbols, $span);
+    }
+
+    /** Read-only P{span}w snapshot: last settled week's per-leg state. */
+    public function legEmaState(int $span = 20, ?array $symbols = null): array
+    {
+        return $this->legEmaTrail($span, $symbols);
+    }
+
+    /**
+     * Live variant P{span}w (per-leg weekly EMA{span} crossover, QQQ/VTI/VTV):
+     * each ETF long while its own settled weekly close > its EMA(span), flat to
+     * cash below. OFF legs idle in cash (never redeployed); the ON legs are
+     * rebalanced to EQUAL WEIGHT every new settled week — i.e. variant A's weekly
+     * EW trim applied to the currently-long set. All OFF -> the whole book cash.
+     *
+     * Weekly dedupe: the last settled WEEK date is the run identity
+     * (storage/coreew_leg_ema_last_week.txt), so it acts once per new week
+     * (typically Monday, on last Friday's settled close) and re-runs mid-week are
+     * NO-OPs — this is also what keeps the weekly EW rebalance from firing daily.
+     * Errors are NOT recorded, so the next tick retries; dry-run never writes.
+     *
+     * Same fill discipline as the other CoreEW drivers: trim before top-up, sell
+     * through rebalanceTrim when a DB trade exists (else a direct market sell
+     * gated on waitForOrderFill), buy through rebalanceTopUp, and never claim a
+     * fill that waitForOrderFill did not confirm.
+     */
+    public function runLegEma(bool $dryRun = false, int $span = 20, bool $override = false): array
+    {
+        $this->dryRun = $dryRun;
+
+        $results = [
+            'total' => 0, 'buys' => [], 'sells' => [], 'errors' => [],
+            'state' => [], 'noop' => null, 'last_week' => null,
+        ];
+        $symbols = Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        $symbols = array_values(array_intersect($symbols, ['QQQ', 'VTI', 'VTV']));
+        $results['total'] = count($symbols);
+        if (count($symbols) < 2) {
+            $results['errors'][] = 'need at least 2 of QQQ/VTI/VTV enabled';
+            return $results;
+        }
+
+        $gate = $this->replayLegEmaSeries($symbols, $span);
+        if (!empty($gate['error'])) {
+            $results['errors'][] = $gate['error'];
+            return $results;
+        }
+        $lastWeek = $gate['last_week'];
+        $targets = $gate['state'];          // symbol => long on the last settled week
+        $results['last_week'] = $lastWeek;
+        $results['state'] = $targets;
+
+        // Weekly dedupe: one action per new settled week, decided ATOMICALLY by
+        // the shared DB — a unique (strategy, span, week) index on coreew_runs is
+        // the lock. On a multi-instance deployment this prevents two hosts from
+        // acting on the same week (a local filesystem marker file would not).
+        // insertOrIgnore -> Postgres ON CONFLICT DO NOTHING: exactly one process
+        // per (strategy, span, week) inserts; the losers return 0 rows = NO-OP.
+        // Dry-run never claims, releases, deletes, or migrates — it stays a pure
+        // preview exactly like the old file version ("dry-run never writes").
+        $runId = $lastWeek ?? 'init';
+        $dbClaim = \DB::table('coreew_runs');
+        $already = $dbClaim
+            ->where('strategy', 'legema')
+            ->where('span', $span)
+            ->where('week', $runId)
+            ->exists();
+
+        // One-time migration: the legacy file marker recorded the week as already-
+        // acted before the DB version existed. If it holds exactly this week,
+        // re-record it as a DB row WITHOUT trading again, then delete it — the
+        // handover/current week must not re-fire.
+        $storage = storage_path('coreew_leg_ema_last_week.txt');
+        $legacy = @file_get_contents($storage);
+        if ($legacy !== false && trim($legacy) === $runId && !$already) {
+            if (!$dryRun) {
+                $dbClaim->insertOrIgnore([
+                    'strategy' => 'legema', 'span' => $span, 'week' => $runId,
+                ]);
+                @unlink($storage);
+            }
+            $results['noop'] = "week $runId already acted on (migrated from file)";
+            \Log::info("LegEMA EMA$span: migrated file marker for week $runId to coreew_runs");
+            return $results;
+        }
+
+        if (!$dryRun && $override && $already) {
+            // --override forces a re-action this run: release the previous claim
+            // for this week (the re-claim below then wins atomically).
+            $dbClaim
+                ->where('strategy', 'legema')
+                ->where('span', $span)
+                ->where('week', $runId)
+                ->delete();
+            $already = false;
+        }
+
+        $claimed = false;
+        if (!$dryRun) {
+            try {
+                $claimed = (bool) $dbClaim->insertOrIgnore([
+                    'strategy' => 'legema', 'span' => $span, 'week' => $runId,
+                ]);
+            } catch (\Exception $e) {
+                // Cannot record the claim -> MUST NOT trade: acting now and
+                // failing to record would let the next tick re-act on the same
+                // week. Fail closed.
+                $results['errors'][] = "coreew_runs claim failed: " . $e->getMessage();
+                return $results;
+            }
+            if (!$claimed) {
+                $results['noop'] = "week $runId already acted on";
+                if ($legacy !== false) {
+                    @unlink($storage);
+                }
+                return $results;
+            }
+            if ($legacy !== false) {
+                @unlink($storage);   // claim won; legacy file is stale from here on
+            }
+        } else {
+            // Dry-run: respect an existing claim as NO-OP (a real run already
+            // acted), but otherwise preview the action without claiming.
+            if ($already) {
+                $results['noop'] = "week $runId already acted on";
+                return $results;
+            }
+        }
+
+        if (!$dryRun) {
+            try {
+                $this->equityService->syncLiveTradesFromAlpaca($this->alpacaService);
+            } catch (\Exception $e) {
+                \Log::warning("LegEMA reconciliation failed: " . $e->getMessage());
+            }
+        }
+
+        try {
+            $account = $this->alpacaService->getAccount();
+            $positions = $this->alpacaService->getPositions();
+        } catch (\Exception $e) {
+            $results['errors'][] = "account/positions fetch failed: " . $e->getMessage();
+            return $results;
+        }
+        $equity = floatval($account['equity'] ?? 0);
+        if ($equity <= 0) {
+            $results['errors'][] = 'Account equity <= 0';
+            return $results;
+        }
+
+        $held = [];
+        $heldVal = [];
+        foreach ($positions ?? [] as $pos) {
+            $held[$pos['symbol']] = floatval($pos['qty'] ?? 0);
+            $heldVal[$pos['symbol']] = floatval($pos['market_value'] ?? 0);
+        }
+
+        $nActive = count(array_filter($targets));
+        $per = $nActive > 0 ? $equity / $nActive : 0.0;
+
+        // SELLS first: full exit of OFF legs, then trim ON legs down to $per.
+        foreach ($symbols as $sym) {
+            $long = !empty($targets[$sym]);
+            $qty = $held[$sym] ?? 0;
+            if ($qty <= 0) {
+                continue;
+            }
+            $targetVal = $long ? $per : 0.0;
+            $excessVal = $heldVal[$sym] - $targetVal;
+            if ($excessVal <= 0) {
+                continue;
+            }
+            $price = $this->getCurrentPrice($sym);
+            if (!$price) {
+                $results['errors'][] = "$sym trim: no price";
+                continue;
+            }
+            $sellQty = $long ? round($excessVal / $price, 4) : $qty;
+            if ($sellQty <= 0 || $sellQty * $price < 1.0) {
+                continue;
+            }
+            $label = $long ? " (trim to 1/$nActive)" : ' (gate exit)';
+            $openTrade = LiveTrade::where('symbol', $sym)->where('status', 'open')->first();
+            if ($long || $openTrade) {
+                if ($this->rebalanceTrim($sym, $sellQty) > 0) {
+                    $results['sells'][] = $sym . $label;
+                } else {
+                    $results['errors'][] = "$sym$label not filled";
+                }
+                continue;
+            }
+            if ($this->dryRun) {
+                $results['sells'][] = "$sym (gate exit DRY-only)";
+                continue;
+            }
+            try {
+                $order = $this->alpacaService->placeOrder($sym, $sellQty, 'sell');
+                $orderId = $order['id'] ?? null;
+                $filled = $orderId ? $this->alpacaService->waitForOrderFill($orderId) : null;
+                if ($filled && strtolower($filled['status'] ?? '') === 'filled') {
+                    $results['sells'][] = "$sym (gate exit)";
+                } else {
+                    $results['errors'][] = "$sym gate exit not filled";
+                }
+            } catch (\Exception $e) {
+                \Log::error("LegEMA gate exit failed for $sym: " . $e->getMessage());
+                $results['errors'][] = "$sym gate exit failed: " . $e->getMessage();
+            }
+        }
+
+        // BUYS: top up ON legs that are below their $per target.
+        if ($nActive > 0) {
+            foreach ($symbols as $sym) {
+                if (empty($targets[$sym])) {
+                    continue;
+                }
+                $needed = $per - $heldVal[$sym];
+                if ($needed <= 0) {
+                    continue;
+                }
+                $price = $this->getCurrentPrice($sym);
+                if (!$price) {
+                    $results['errors'][] = "$sym top-up: no price";
+                    continue;
+                }
+                $buyQty = round($needed / $price, 4);
+                if ($buyQty <= 0 || $buyQty * $price < 1.0) {
+                    continue;
+                }
+                if ($this->rebalanceTopUp($sym, $buyQty, $price)) {
+                    $results['buys'][] = $sym;
+                }
+            }
+        }
+
+        if (!$dryRun && count($results['errors']) === 0) {
+            \Log::info("LegEMA EMA$span: recorded acted week $runId ("
+                . json_encode($targets) . ")");
+        } elseif (!$dryRun && count($results['errors']) > 0) {
+            // Release the claim on failure so the next tick re-claims and retries,
+            // exactly like the old file version never wrote its marker on error.
+            \DB::table('coreew_runs')
+                ->where('strategy', 'legema')
+                ->where('span', $span)
+                ->where('week', $runId)
+                ->delete();
+            \Log::warning("LegEMA EMA$span: claim for week $runId released due to "
+                . count($results['errors']) . " errors");
+        }
+
+        return $results;
     }
 
     /**

@@ -55,10 +55,19 @@ close (settled bars only — in-progress day/week excluded):
                            effectively all-or-nothing, and M's cash there is
                            the edge. Research only; B (the live ratchet gate)
                            beat all of them: +523% / DD 21.0%.
-                           NOTE: the scanner tables only carry daily bars from
-                           2016-01-04, so the 2000-2026 M headline is NOT
-                           reproducible here — every index-gate number from this
-                           script is 2016+ only.
+NOTE: the scanner tables only carry daily bars from
+                            2016-01-04, so the 2000-2026 M headline is NOT
+                            reproducible here — every index-gate number from this
+                            script is 2016+ only.
+  P. per-leg EMA gate   : (--leg-ema N[,N...]) A's weekly-EW machinery + a PER-ETF
+                            binary crossover: each ETF is long only while its OWN
+                            price > its EMA(N) (pure crossover, no band). OFF legs
+                            sit in cash, never redeployed; the ON legs stay
+                            equal-weight and re-trim weekly exactly like A. The
+                            weekly variant (P{N}w — the live candidate, e.g. P20w
+                            EMA20) is decided by the LIVE code via
+                            trades:coreew-leg-ema-series; only the daily variant
+                            (research, a whipsaw dead end vs A) is computed here.
 
 Win rate reported as the fraction of weekly intervals with positive portfolio
 return — the honest metric for continuous-exposure strategies (no discrete
@@ -402,6 +411,98 @@ def settled_week_flags(daily_dates, w_dates, w_close, w_atr, mult, reset):
     return flags
 
 
+def _leg_ema_over(closes, n):
+    """EMA(n) over a close series (pandas ewm, same convention as the gates)."""
+    return pd.Series(closes).ewm(span=n, adjust=False).mean().to_numpy()
+
+
+def leg_ema_daily_flags(conn, tickers, daily_dates, n):
+    """Variant P (daily): per-ETF EMA(n) crossover on each leg's OWN settled
+    daily close — state[i] = close[i] > EMA(n)[i], per leg, independently.
+
+    RESEARCH-ONLY (the daily-close CO is a whipsaw machine and is NOT live).
+    run_sim then fills the decision of day i at day i+1's close and re-trims
+    to equal weight among the ON legs on every weekly boundary — the ONLY
+    differences vs A are the per-leg on/off switch (OFF legs idle in cash,
+    never redeployed) and the re-entry cadence. Returns {sym: flags} over the
+    window (flags[i] = state decided at the close of day i).
+    """
+    full = {s: load_full(conn, s, TABLE_D, '2000-01-01') for s in tickers}
+    today = datetime.now().date()
+    keep = [i for i, d in enumerate(full[tickers[0]][0]) if d < today]
+    dfull = [full[tickers[0]][0][i] for i in keep]
+    for s in tickers:
+        if [full[s][0][i] for i in keep] != dfull:
+            raise SystemExit(f'date mismatch for {s} (P daily EMA gate)')
+    off = dfull.index(daily_dates[0])
+    if dfull[off:off + len(daily_dates)] != list(daily_dates):
+        raise SystemExit('P daily EMA history does not line up with the backtest window')
+    flags = {}
+    for s in tickers:
+        c = np.array([full[s][1][i] for i in keep], dtype=np.float64)
+        ema = _leg_ema_over(c, n)
+        state = (c > ema) & ~np.isnan(ema)
+        flags[s] = state[off:off + len(daily_dates)]
+    return flags
+
+
+def fetch_live_leg_ema_series(span, symbols):
+    """P{span}w per-leg weekly EMA crossover decided by the LIVE code.
+
+    Shells out to `php artisan trades:coreew-leg-ema-series`, which calls
+    TradeExecutorService::legEmaTrail() -> replayLegEmaSeries() — the exact
+    method a live P20w driver would run (settled weekly closes only, same
+    ewm(span, adjust=False) recursion as the index gates). The backtest never
+    re-implements the signal, aligning the returned per-week `long` states to
+    daily days exactly like variant S. Read-only (~10 ms + Laravel boot).
+    """
+    backend = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
+    cmd = ['php', '-d', 'xdebug.mode=off', '-d', 'display_errors=0',
+           'artisan', 'trades:coreew-leg-ema-series',
+           f'--span={span}', '--symbols=' + ','.join(symbols)]
+    proc = subprocess.run(cmd, cwd=backend, capture_output=True, text=True, timeout=300)
+    payload = None
+    for line in reversed(proc.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith('{'):
+            try:
+                payload = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+    if payload is None:
+        raise RuntimeError(
+            f'could not parse leg-EMA series from `{" ".join(cmd)}`\n'
+            f'stdout: {proc.stdout[-2000:]}\nstderr: {proc.stderr[-2000:]}')
+    if payload.get('error') or not payload.get('series'):
+        raise RuntimeError(
+            f'leg-EMA series failed: {payload.get("error") or payload}\n'
+            f'cmd: `{" ".join(cmd)}`')
+    return payload
+
+
+def flags_from_live_leg_ema_series(daily_dates, payload):
+    """Align the live per-leg weekly EMA states onto trading days.
+
+    Same settled-week rule as variant S: week W's decision (made on its settled
+    Friday close, which the PHP series guarantees is fully formed) becomes
+    actionable only from the first daily day d with week+7 <= d — the following
+    Monday — held until the next decision. Flat before the first actionable
+    week. This alignment is the only gate logic in this file; the states
+    themselves come from PHP.
+    """
+    flags = {}
+    for sym in payload['symbols']:
+        pts = payload['series'][sym]
+        wdates = [date.fromisoformat(p['week']) for p in pts]
+        pos = settled_weekly_ref(daily_dates, wdates)
+        f = np.array([bool(pts[j]['long']) if j >= 0 else False for j in pos])
+        if len(f) != len(daily_dates):
+            raise SystemExit(f'P{payload["span"]}w leg flags length mismatch for {sym}')
+        flags[sym] = f
+    return flags
+
+
 def sma_gate_series(conn, tickers, n):
     """Shared index + SMA series behind every --sma-gate variant (M, M2, ...).
 
@@ -422,64 +523,6 @@ def sma_gate_series(conn, tickers, n):
     idx = (1 + px.pct_change().mean(axis=1).fillna(0.0)).cumprod().to_numpy()
     sma = pd.Series(idx).rolling(n).mean().to_numpy()
     return dfull, idx, sma
-
-
-def ema_gate_series(conn, tickers, n):
-    """Same synthetic index as sma_gate_series, but smoothed with an EMA(n).
-
-    An EMA weights recent bars more heavily than the SMA of the same length, so it
-    turns sooner in both directions. That is the one thing the SMA gate was bad
-    at: SMA200 needed nine months of cash spells to re-enter after a slow bear
-    because the index had to climb all the way back to a 200-day average. The
-    shorter spans here trade some of that responsiveness for more whipsaw, which
-    is the trade worth measuring.
-
-    Returns (dates, idx, ema) over the full settled history.
-    """
-    full = {s: load_full(conn, s, TABLE_D, '2000-01-01') for s in tickers}
-    today = datetime.now().date()
-    keep = [i for i, d in enumerate(full[tickers[0]][0]) if d < today]
-    dfull = [full[tickers[0]][0][i] for i in keep]
-    for s in tickers:
-        if [full[s][0][i] for i in keep] != dfull:
-            raise SystemExit(f'date mismatch for {s} (EMA gate history)')
-    px = pd.DataFrame({s: full[s][1][keep] for s in tickers}, index=dfull)
-    idx = (1 + px.pct_change().mean(axis=1).fillna(0.0)).cumprod().to_numpy()
-    ema = pd.Series(idx).ewm(span=n, adjust=False).mean().to_numpy()
-    return dfull, idx, ema
-
-
-def ema_gate_flags(conn, tickers, daily_dates, n, band=0.0, reentry='band'):
-    """EMA(n) gate on the synthetic index, long while the index is above it.
-
-    `band` mirrors the SMA family's hysteresis: exit below ema*(1-band), re-enter
-    above ema*(1+band), leaving a dead zone between. band=0 collapses to a pure
-    crossover (flip the instant the index crosses the EMA), which is the EG
-    variant. Holding span and band fixed and swapping SMA for EMA isolates the
-    weighting from the lookback length.
-
-    State is decided at the close of day t and held from t+1, the same causal
-    convention as the SMA family (and audited to zero lead by asof).
-    """
-    dfull, idx, ema = ema_gate_series(conn, tickers, n)
-    state = np.zeros(len(idx), dtype=bool)
-    st = None
-    for i in range(len(idx)):
-        if np.isnan(ema[i]):
-            continue
-        re_thresh = ema[i] * (1 + band) if reentry == 'band' else ema[i]
-        if st is None:
-            st = idx[i] > ema[i]
-        elif st and idx[i] < ema[i] * (1 - band):
-            st = False
-        elif (not st) and idx[i] > re_thresh:
-            st = True
-        state[i] = st
-    off = dfull.index(daily_dates[0])
-    if dfull[off:off + len(daily_dates)] != list(daily_dates):
-        raise SystemExit('EMA gate history does not line up with the backtest window')
-    lagged = np.concatenate([[False], state[:-1]])
-    return lagged[off:off + len(daily_dates)]
 
 
 def sma_gate_flags(conn, tickers, daily_dates, n, band, reentry='band'):
@@ -778,6 +821,64 @@ def flags_from_live_gate(daily_dates, series):
     return flags, reb
 
 
+def fetch_live_eg_series(span, symbols, band=0.0):
+    """EG index-EMA gate per-day decisions produced by the LIVE gate code.
+
+    Shells out to `php artisan trades:coreew-eg-series`, which calls
+    TradeExecutorService::indexEgTrail() -> replayIndexEgGate() — the exact
+    method the live trade path runs. The backtest therefore never re-implements
+    the index/EMA/crossover, so the two cannot drift apart. Read-only (no
+    Alpaca, no orders), ~10 ms of gate work plus Laravel boot.
+    """
+    backend = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
+    cmd = ['php', '-d', 'xdebug.mode=off', '-d', 'display_errors=0',
+           'artisan', 'trades:coreew-eg-series',
+           f'--span={span}', f'--band={band:g}', '--symbols=' + ','.join(symbols)]
+    proc = subprocess.run(cmd, cwd=backend, capture_output=True, text=True, timeout=300)
+    payload = None
+    for line in reversed(proc.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith('{'):
+            try:
+                payload = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+    if payload is None:
+        raise RuntimeError(
+            f'could not parse EG gate series from `{" ".join(cmd)}`\n'
+            f'stdout: {proc.stdout[-2000:]}\nstderr: {proc.stderr[-2000:]}')
+    if 'series' not in payload or payload.get('error'):
+        raise RuntimeError(
+            f'EG gate series failed: {payload.get("error") or payload}\n'
+            f'cmd: `{" ".join(cmd)}`')
+    return payload
+
+
+def flags_from_live_eg_series(daily_dates, payload):
+    """Align the live EG gate's per-day decisions onto trading days.
+
+    The live gate decides on the close of SETTLED day t (state[t] in the PHP
+    trail — the same tail `runEg100Gate` consumes) and may only be acted on
+    from session t+1, so this returns hold-from-next-day flags:
+    flags[i] = state at the close of day i-1; everything before the first
+    settled bar is flat. This lag is the only gate logic in this file — the
+    state itself comes from PHP.
+    """
+    sdates = [date.fromisoformat(d) for d in payload['series']['dates']]
+    state = np.asarray(payload['series']['state'], dtype=bool)
+    if len(sdates) != len(state):
+        raise SystemExit(f'EG series len mismatch: dates {len(sdates)} vs state {len(state)}')
+    if payload.get('bars') != len(sdates):
+        raise SystemExit(f'EG series bars {payload.get("bars")} != dates {len(sdates)}')
+    ordinals = np.array([d.toordinal() for d in sdates], dtype=np.int64)
+    off = int(np.searchsorted(ordinals, daily_dates[0].toordinal(), side='left'))
+    if sdates[off:off + len(daily_dates)] != list(daily_dates):
+        raise SystemExit('EG live series does not line up with the backtest window')
+    lagged = np.concatenate([[False], state[:-1]])
+    return lagged[off:off + len(daily_dates)]
+
+
 def prev_friday_close(dates, closes, sym, i):
     """Close of the most recent settled Friday on or just before day i — the
     settled weekly close that should have driven the decision (the previous
@@ -1008,6 +1109,11 @@ def main():
     ap.add_argument('--ema-band', type=float, default=0.0, metavar='PCT',
                     help='hysteresis band for --ema-gate, same semantics as --sma-band '
                          '(default 0 = pure crossover, no dead zone)')
+    ap.add_argument('--leg-ema', default='', metavar='LIST',
+                    help='variant P: comma-separated EMA spans for a PER-LEG crossover '
+                         'on each ETF\'s OWN settled closes (e.g. 10), run on BOTH daily '
+                         'closes and settled weekly closes. Off legs idle in cash; the ON '
+                         'legs re-trim to equal weight weekly exactly like A.')
     ap.add_argument('--sma-gate', type=int, default=0, metavar='N',
                     help='variant M: one index-level N-day SMA gate for the whole trio '
                          '(e.g. 200); decide on a settled close, fill next-day close')
@@ -1152,16 +1258,37 @@ def main():
             flagsS, rebS = flags_from_live_gate(daily_dates, liveSeries)
             eqS, dS, bS, sS = run_settled_sim(daily_dates, closes, flagsS, COST, reb=rebS)
 
-        # EG: pure EMA(n) crossover gate on the same synthetic index. Additive;
-        # comma-separated spans so one run sweeps them.
+        # EG: pure EMA(n) crossover gate on the same synthetic index, decided by
+        # the LIVE code (TradeExecutorService::replayIndexEgGate, via
+        # `trades:coreew-eg-series`) — the backtest only aligns dates and fills.
+        # Additive; comma-separated spans so one run sweeps them.
         eqEG = {}
+        egFlags = {}
         if args.ema_gate:
             for n_ema in [int(x) for x in args.ema_gate.split(',') if x.strip()]:
-                flagEG = ema_gate_flags(conn, tickers, daily_dates, n_ema,
-                                        args.ema_band / 100.0)
+                egSeries = fetch_live_eg_series(n_ema, tickers, args.ema_band)
+                flagEG = flags_from_live_eg_series(daily_dates, egSeries)
                 flagsEG = {s_: flagEG for s_ in tickers}
+                egFlags[n_ema] = flagsEG
                 eqEG[n_ema] = run_settled_sim(daily_dates, closes, flagsEG, COST,
                                               reb=weekly_mask)
+
+        # P: per-leg EMA(n) crossover — A's weekly-EW machinery + a per-ETF
+        # on/off switch off each ETF's OWN price vs its EMA(n) (settled closes).
+        # OFF legs idle in cash; ON legs stay equal-weight and re-trim weekly,
+        # exactly like A. The WEEKLY variant (P{n}w, the live candidate) is
+        # decided by the LIVE code via `trades:coreew-leg-ema-series`; only the
+        # daily variant (research, dead end) is computed here. Additive.
+        legP = {}
+        if args.leg_ema:
+            for n_leg in [int(x) for x in args.leg_ema.split(',') if x.strip()]:
+                fD = leg_ema_daily_flags(conn, tickers, daily_dates, n_leg)
+                eqP, dP, bP, sP = run_sim(daily_dates, closes, fD, reb, COST,
+                                          entry_daily=True)
+                legSeries = fetch_live_leg_ema_series(n_leg, tickers)
+                fW = flags_from_live_leg_ema_series(daily_dates, legSeries)
+                eqPw, dPw, bPw, sPw = run_sim(daily_dates, closes, fW, reb, COST)
+                legP[n_leg] = ((eqP, dP, bP, sP, fD), (eqPw, dPw, bPw, sPw, fW))
 
         # M: index-level SMA gate (additive; only with --sma-gate N). Same
         # settled-sim fill rule as S, but the flags come from ONE market signal.
@@ -1279,11 +1406,30 @@ def main():
             for n_ema, (eqEGv, dEGv, bEGv, sEGv) in eqEG.items():
                 tag = 'crossover' if args.ema_band == 0 else f'+/-{args.ema_band:g}% band'
                 stats(eqEGv, dEGv, f'EG{n_ema}. index EMA{n_ema} {tag}')
-                fEG = ema_gate_flags(conn, tickers, daily_dates, n_ema,
-                                     args.ema_band / 100.0)
+                fEG = egFlags[n_ema][tickers[0]]
                 flips = int(np.sum(fEG[1:] != fEG[:-1]))
                 print(f'  EG{n_ema}:  {bEGv} buys / {sEGv} sells | {flips} signal changes | '
                       f'{100*fEG.mean():.0f}% of days invested')
+
+        if legP:
+            dA_ret = (eqA[-1] - CAPITAL) / CAPITAL
+            for n_leg, ((eqP, dP, bP, sP, fD), (eqPw, dPw, bPw, sPw, fW)) in legP.items():
+                print()
+                stats(eqP, dP, f'P{n_leg}. per-leg EMA{n_leg} CO (daily closes)')
+                flipsD = {s: int(np.sum(fD[s][1:] != fD[s][:-1])) for s in tickers}
+                print(f'  P{n_leg}:   {bP} buys / {sP} sells | per-leg flips '
+                      f'{", ".join(f"{s}={flipsD[s]}" for s in tickers)} | '
+                      f'avg {100*np.mean([fD[s].mean() for s in tickers]):.0f}% invested')
+                stats(eqPw, dPw, f'P{n_leg}w. per-leg EMA{n_leg} CO (settled weekly)')
+                flipsW = {s: int(np.sum(fW[s][1:] != fW[s][:-1])) for s in tickers}
+                print(f'  P{n_leg}w:  {bPw} buys / {sPw} sells | per-leg flips '
+                      f'{", ".join(f"{s}={flipsW[s]}" for s in tickers)} | '
+                      f'avg {100*np.mean([fW[s].mean() for s in tickers]):.0f}% invested')
+                dP_ret = (eqP[-1] - CAPITAL) / CAPITAL
+                dPw_ret = (eqPw[-1] - CAPITAL) / CAPITAL
+                print(f'  A/B:   A {dA_ret*100:+.2f}% vs daily {dP_ret*100:+.2f}% '
+                      f'({(dP_ret-dA_ret)*100:+.2f} pts) vs weekly {dPw_ret*100:+.2f}% '
+                      f'({(dPw_ret-dA_ret)*100:+.2f} pts)')
 
         if eqM is not None:
             stats(eqM, dM, f'M. index SMA{args.sma_gate} +/-{args.sma_band:g}% gate')
