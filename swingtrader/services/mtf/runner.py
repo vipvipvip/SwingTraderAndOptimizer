@@ -572,6 +572,17 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     if baseline is None:
         conn.close()
         return False, ['No complete daily data date found'], None
+    # The baseline must never be NEWER than the date being scored. A pre-evening
+    # run scores the last SETTLED bar (sig_date) while today's intraday rows can
+    # already clear the 90% coverage bar — the 10:26 self-heal backfill plus the
+    # hourly sampler pushed 1419/1425 stocks and 28/28 ETFs to today on
+    # 2026-09-28. Baseline=today vs sig_date=2026-09-25 is a 3-day lag, so the
+    # 1-day tolerance flagged the ENTIRE universe: 1435/1435 excluded, both legs
+    # "no qualifying picks", zero orders. Same wipe hit the ETF leg Mon 2026-09-14.
+    # Capping at sig_date keeps the guard's real job (excluding genuinely stale
+    # tickers like APGE @ 2026-09-02) and is a no-op for --fresh (sig_date=today)
+    # and post-15:30 runs (also sig_date=today).
+    baseline = min(baseline, sig_date)
     STALE_LAG_DAYS = 1  # allow a single missing trading day; flag >=2
 
     candidates = []
