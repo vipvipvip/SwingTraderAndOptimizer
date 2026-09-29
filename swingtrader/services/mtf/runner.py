@@ -1077,7 +1077,13 @@ def _run_market_regime(conn, now, today):
 
 
 def run(mode='stock', live=False, strategy='mtf', dry_run=False, fresh=False):
-    """Run evening scoring (action='score') or morning execution (action='execute')."""
+    """Run evening scoring (action='score') or morning execution (action='execute').
+
+    Returns True only when the mode fully succeeded. The process exit code
+    mirrors this (see __main__) so a wrapper can tell "the step got all its
+    work done" from "it silently did nothing" — the 2026-09-28 zero-candidate
+    wipe exited 0 and read as a healthy run.
+    """
     now = datetime.now(NY)
     today = now.date()
     action = 'execute' if live else 'score'
@@ -1100,21 +1106,28 @@ def run(mode='stock', live=False, strategy='mtf', dry_run=False, fresh=False):
         except Exception:
             _send_crash_alert(sys.exc_info(), mode)
             raise
+    return bool(success)
 
 
 def _run_execute_all(today, dry_run=False):
-    """Execute pending trades for all modes. Sends ONE combined Slack message."""
+    """Execute pending trades for all modes. Sends ONE combined Slack message.
+
+    Returns True only when both modes executed (or had nothing to do)."""
     all_lines = []
     sig_date = str(today)
+    all_ok = True
 
     for mode in ('stock', 'etf'):
         all_lines.append('')
         try:
             success, lines, sd = _run_execute_pending(mode, today, dry_run=dry_run)
             all_lines.extend(lines)
+            if not success:
+                all_ok = False
             if sd:
                 sig_date = sd
         except Exception as exc:
+            all_ok = False
             tb = ''.join(traceback.format_exception(*sys.exc_info()))
             all_lines.append(f'❌ {MODE_LABEL[mode]} execution crashed: {exc}')
             all_lines.append(f'```{tb[-1500:]}```')
@@ -1124,29 +1137,38 @@ def _run_execute_all(today, dry_run=False):
     full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
     print(f'\n{full_msg}\n')
     _send_slack(full_msg, 'all')
+    return all_ok
 
 
 def run_all(live=False, strategy='mtf', dry_run=False, fresh=False):
-    """Evening scoring (default) or morning execution (live=True)."""
+    """Evening scoring (default) or morning execution (live=True).
+
+    Returns True only when EVERY mode succeeded — sector/regime info is
+    informational and does not count. The exit code mirrors this so
+    executor_retry.py can retry a partial failure instead of ending the day.
+    """
     now = datetime.now(NY)
     today = now.date()
     action = 'execute' if live else 'score'
 
     if action == 'execute':
-        _run_execute_all(today, dry_run=dry_run)
-        return
+        return _run_execute_all(today, dry_run=dry_run)
 
     all_lines = []
     sig_date = None
+    all_ok = True
 
     for mode in ('stock', 'etf'):
         all_lines.append('')
         try:
             success, lines, sd = _run_single_mode(mode, now, today, strategy=strategy, fresh=fresh)
             all_lines.extend(lines)
+            if not success:
+                all_ok = False
             if sd:
                 sig_date = sd
         except Exception as exc:
+            all_ok = False
             tb = ''.join(traceback.format_exception(*sys.exc_info()))
             all_lines.append(f'❌ {MODE_LABEL[mode]} crashed: {exc}')
             all_lines.append(f'```{tb[-1500:]}```')
@@ -1182,6 +1204,7 @@ def run_all(live=False, strategy='mtf', dry_run=False, fresh=False):
     full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
     print(f'\n{full_msg}\n')
     _send_slack(full_msg, 'all')
+    return all_ok
 
 
 if __name__ == '__main__':
@@ -1205,6 +1228,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     live = args.live or args.action == 'execute'
     if args.mode == 'all':
-        run_all(live=live, strategy=args.strategy, dry_run=args.dry_run, fresh=args.fresh)
+        ok = run_all(live=live, strategy=args.strategy, dry_run=args.dry_run, fresh=args.fresh)
     else:
-        run(mode=args.mode, live=live, strategy=args.strategy, dry_run=args.dry_run, fresh=args.fresh)
+        ok = run(mode=args.mode, live=live, strategy=args.strategy, dry_run=args.dry_run, fresh=args.fresh)
+    sys.exit(0 if ok else 1)

@@ -29,7 +29,7 @@ CoreEG100 is *not* a systemd unit — it's a plain cron entry (`crontab -l`). Se
 
 | Unit | Schedule (ET) | Status | Purpose |
 |---|---|---|---|
-| `swingtrader-mtf-executor.timer` | Mon–Fri 10:25 | ✅ enabled/active | MTF emasma score **+ execute** — places MTF stock/ETF orders |
+| `swingtrader-mtf-executor.timer` | Mon–Fri 10:25 | ✅ enabled/active | MTF emasma score **+ execute** — places MTF stock/ETF orders. Runs `executor_retry.py` (added 2026-09-28): the score step is retried every 30m until it has all the tickers' data **or 16:00 ET**, then the execute step runs once and the unit exits. No attempt starts at/after the close, so the 16:45 recap and tomorrow's 10:25 trigger are never blocked; `TimeoutStartSec=6h` is the backstop (systemd won't re-trigger an active oneshot, so a stuck loop would skip the next day). Give-up posts a red Slack alert with the last `mtf_runs` status. |
 | `swingtrader-mtf-scorer.timer` | Mon–Fri 16:45 | ✅ enabled/active | MTF evening recap — re-scores today's settled close, posts the **same** Slack summary the 10:25 run posts. **No orders**; `save_pending` is overwritten by tomorrow's inline score, so this can't double-execute. |
 | `swingtrader-daily-signal.timer` | Mon–Fri 17:00 | ✅ enabled/active | Daily Signal all-3-CO Slack emit. **No orders.** |
 | `swingtrader-weekly-takeoff.timer` | Fri 17:15 | ✅ enabled/active | Weekly EMA10/SMA40 take-off scanner, Slack post. **No orders.** |
