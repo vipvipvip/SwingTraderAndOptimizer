@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ============================================================
 # SwingTrader System Health Check
-# Verifies: DB, bars data (ETF + scanner), CoreEW intraday cron,
+# Verifies: DB, bars data (ETF + scanner), CoreEW LegEMA timer,
 #           optimizer retired status, backend/frontend services,
 #           timers, MTF Top-N, daily signal, API endpoints
 # ============================================================
@@ -170,34 +170,95 @@ for svc in swingtrader-scanner-update swingtrader-scanner-backfill; do
     fi
 done
 
-# ---- CoreEW (formerly CHAND) ----
-echo ""
-echo "--- CoreEW Intraday Rebalance ---"
+# Summarize a timer's OnCalendar entries (this systemd exposes TimersCalendar,
+# not the older TriggerOnCalendar). Multi-entry timers collapse to "first (+N)".
+timer_schedule() {
+    local entries first n
+    entries=$(systemctl show "$1" -p TimersCalendar --value 2>/dev/null | grep -o 'OnCalendar=[^;]*' | sed 's/[[:space:]]*$//' || true)
+    if [ -z "$entries" ]; then
+        echo "?"
+    else
+        first=$(echo "$entries" | head -1)
+        n=$(echo "$entries" | grep -c . || true)
+        if [ "$n" -gt 1 ]; then
+            echo "$first (+$((n - 1)) more)"
+        else
+            echo "$first"
+        fi
+    fi
+}
 
-# Live trigger is the 5-min crontab entry that runs artisan trades:execute-EW-ETF.
-if crontab -l 2>/dev/null | grep -q "trades:execute-EW-ETF"; then
-    pass "CoreEW cron entry present (every 5 min)"
+# ---- CoreEW (formerly CHAND) — live path is the LegEMA P20w systemd timer ----
+echo ""
+echo "--- CoreEW LegEMA (P20w) ---"
+
+if systemctl is-enabled swingtrader-legema.timer >/dev/null 2>&1; then
+    NEXT=$(systemctl show swingtrader-legema.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
+    TRIGGER=$(timer_schedule swingtrader-legema.timer)
+    pass "swingtrader-legema.timer enabled — next: $NEXT (schedule: $TRIGGER)"
 else
-    fail "CoreEW cron entry MISSING — trades:execute-EW-ETF not in crontab"
+    fail "swingtrader-legema.timer is NOT enabled — CoreEW P20w will not run"
 fi
 
+# Result of the last oneshot run: ExecMainStatus/Result are only meaningful after
+# the service has run at least once (empty while never started).
+COREEW_RESULT=$(systemctl show swingtrader-legema.service -p Result --value 2>/dev/null || echo "")
+COREEW_EXIT=$(systemctl show swingtrader-legema.service -p ExecMainStatus --value 2>/dev/null || echo "")
+COREEW_LAST=$(systemctl show swingtrader-legema.service -p ExecMainExitTimestamp --value 2>/dev/null || echo "")
+case "$COREEW_RESULT" in
+    "")
+        fail "swingtrader-legema.service has never run"
+        ;;
+    success)
+        if [ "$COREEW_EXIT" = "0" ]; then
+            pass "swingtrader-legema.service last run: success (exit 0) — $COREEW_LAST"
+        else
+            warn "swingtrader-legema.service result=success but exit=$COREEW_EXIT — $COREEW_LAST"
+        fi
+        ;;
+    *)
+        fail "swingtrader-legema.service last run: $COREEW_RESULT (exit $COREEW_EXIT) — $COREEW_LAST"
+        LAST_ERR=$(journalctl -u swingtrader-legema.service --since "3 days ago" --no-pager 2>/dev/null | grep -E "error|Error|FAIL|exception" | tail -3 || true)
+        if [ -n "$LAST_ERR" ]; then
+            echo "$LAST_ERR" | sed 's/^/    /'
+        fi
+        ;;
+esac
+
 # Freshness marker: the command stamps storage/trades_last_run.txt on every run
-# (market open or closed), so a modern mtime proves cron is firing.
+# (market open or closed), so its mtime must cover the most recent 10:05 ET
+# Mon-Fri slot — not a rolling window like the old 5-min cron.
 COREEW_MARKER="$PROJECT_DIR/swingtrader/backend/storage/trades_last_run.txt"
-if [ -f "$COREEW_MARKER" ]; then
-    # Count minutes since the last CoreEW run marker
+if [ ! -f "$COREEW_MARKER" ]; then
+    fail "CoreEW marker file missing at $COREEW_MARKER"
+else
     NOW_EPOCH=$(date +%s)
     MARKER_EPOCH=$(stat -c %Y "$COREEW_MARKER" 2>/dev/null || echo 0)
-    MIN_SINCE=$(( (NOW_EPOCH - MARKER_EPOCH) / 60 ))
-    if [ "$MIN_SINCE" -le 15 ]; then
-        pass "CoreEW last run $MIN_SINCE min ago (fresh)"
-    elif [ "$MIN_SINCE" -le 60 ]; then
-        warn "CoreEW last run $MIN_SINCE min ago — expect <=15 min during market hours"
+    DOW=$(date +%u)  # 1=Mon .. 7=Sun
+    NOW_HM=$(date +%H%M)
+
+    # Most recent scheduled 10:05 slot (weekdays only; holidays still stamp).
+    if [ "$DOW" -le 5 ] && [ "$NOW_HM" -ge 1005 ]; then
+        EXPECT_DAY=$(date +%Y-%m-%d)
     else
-        fail "CoreEW last run $MIN_SINCE min ago — cron may be stalled"
+        EXPECT_DAY=$(date -d "$(date +%Y-%m-%d) -1 day" +%Y-%m-%d 2>/dev/null || date +%Y-%m-%d)
+        # walk back over the weekend
+        while [ "$(date -d "$EXPECT_DAY" +%u)" -gt 5 ]; do
+            EXPECT_DAY=$(date -d "$EXPECT_DAY -1 day" +%Y-%m-%d)
+        done
     fi
-else
-    fail "CoreEW marker file missing at $COREEW_MARKER"
+    EXPECT_EPOCH=$(date -d "$EXPECT_DAY 10:05:00" +%s 2>/dev/null || echo 0)
+
+    if [ "$MARKER_EPOCH" -ge "$EXPECT_EPOCH" ]; then
+        MIN_SINCE=$(( (NOW_EPOCH - MARKER_EPOCH) / 60 ))
+        pass "CoreEW last run $MIN_SINCE min ago (covers $EXPECT_DAY 10:05 slot)"
+    elif [ "$MARKER_EPOCH" -ge $(( EXPECT_EPOCH - 300 )) ]; then
+        pass "CoreEW last run marker within 5 min before the $EXPECT_DAY 10:05 slot"
+    elif [ $(( NOW_EPOCH - MARKER_EPOCH )) -le 86400 ]; then
+        warn "CoreEW marker predates the $EXPECT_DAY 10:05 slot — run may have been missed"
+    else
+        fail "CoreEW last run $(( (NOW_EPOCH - MARKER_EPOCH) / 3600 ))h ago — expected a run at $EXPECT_DAY 10:05"
+    fi
 fi
 
 # ---- Strategy Parameters (DISABLED — optimizer retired 2026-09-12) ----
@@ -224,7 +285,7 @@ echo "--- System Timers ---"
 for timer in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader-mtf-executor swingtrader-daily-signal; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
-        TRIGGER=$(systemctl show "$timer.timer" -p TriggerOnCalendar --value 2>/dev/null || echo "?")
+        TRIGGER=$(timer_schedule "$timer.timer")
         pass "$timer.timer enabled — next: $NEXT (schedule: $TRIGGER)"
     else
         warn "$timer.timer is not enabled"
@@ -238,7 +299,7 @@ echo "    (disabled by design: swingtrader-mtf-scorer — score inline in 10:25 
 for timer in swingtrader-earnings-refresh swingtrader-earnings-screener; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
-        TRIGGER=$(systemctl show "$timer.timer" -p TriggerOnCalendar --value 2>/dev/null || echo "?")
+        TRIGGER=$(timer_schedule "$timer.timer")
         pass "$timer.timer enabled — next: $NEXT (schedule: $TRIGGER)"
     else
         warn "$timer.timer is not enabled"
@@ -246,7 +307,7 @@ for timer in swingtrader-earnings-refresh swingtrader-earnings-screener; do
 done
 
 # Infrastructure timers
-for timer in swingtrader-backup; do
+for timer in swingtrader-backup swingtrader-legema; do
     if systemctl is-enabled "$timer.timer" >/dev/null 2>&1; then
         NEXT=$(systemctl show "$timer.timer" -p NextElapseUSecRealtime --value 2>/dev/null || echo "?")
         pass "$timer.timer enabled (next: $NEXT)"
@@ -259,18 +320,22 @@ done
 echo ""
 echo "--- Recent Timer Service Runs ---"
 
-for svc in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader-mtf-executor swingtrader-daily-signal swingtrader-earnings-screener swingtrader-earnings-refresh; do
-    STATUS=$(systemctl is-active "$svc" 2>/dev/null || echo "not-found")
-    if [ "$STATUS" = "failed" ]; then
-        fail "$svc.service FAILED — last run errored"
-        LAST_ERR=$(journalctl -u "$svc.service" --since "3 days ago" --no-pager 2>/dev/null | grep -E "error|Error|traceback|Traceback|FAIL" | tail -2 || true)
+for svc in swingtrader-scanner-update swingtrader-scanner-backfill swingtrader-mtf-executor swingtrader-daily-signal swingtrader-earnings-screener swingtrader-earnings-refresh swingtrader-legema; do
+    # NOTE: `systemctl is-active` exits non-zero for inactive oneshots, so a bare
+    # `|| echo not-found` appends a bogus second line — capture the status only.
+    STATUS=$(systemctl is-active "$svc" 2>/dev/null || true)
+    RESULT=$(systemctl show "$svc" -p Result --value 2>/dev/null || true)
+    LAST=$(systemctl show "$svc" -p ExecMainExitTimestamp --value 2>/dev/null || true)
+    if [ -z "$STATUS" ] || [ "$STATUS" = "unknown" ] || [ "$STATUS" = "not-found" ]; then
+        warn "$svc.service not found"
+    elif [ "$STATUS" = "failed" ] || { [ -n "$RESULT" ] && [ "$RESULT" != "success" ]; }; then
+        fail "$svc.service last run: $STATUS/$RESULT — $LAST"
+        LAST_ERR=$(journalctl -u "$svc" --since "3 days ago" --no-pager 2>/dev/null | grep -E "error|Error|traceback|Traceback|FAIL" | tail -2 || true)
         if [ -n "$LAST_ERR" ]; then
             echo "$LAST_ERR" | sed 's/^/    /'
         fi
-    elif [ "$STATUS" = "success" ] || [ "$STATUS" = "inactive" ]; then
-        pass "$svc.service last run: $STATUS"
-    elif [ "$STATUS" = "not-found" ]; then
-        warn "$svc.service not found"
+    else
+        pass "$svc.service last run: $STATUS (result: ${RESULT:-n/a}) — $LAST"
     fi
 done
 
