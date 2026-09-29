@@ -68,6 +68,21 @@ NOTE: the scanner tables only carry daily bars from
                             EMA20) is decided by the LIVE code via
                             trades:coreew-leg-ema-series; only the daily variant
                             (research, a whipsaw dead end vs A) is computed here.
+  P+E. half trim     : (--leg-ema-trim EXIT:TRIM[,...]) RESEARCH-ONLY overlay on
+                            the same weekly per-leg gate, on settled weekly
+                            closes: a long leg drops to HALF its target while its
+                            close stays below EMA(TRIM) but above EMA(EXIT), is
+                            topped back up when it closes back above EMA(TRIM),
+                            and a close below EMA(EXIT) still exits fully. The
+                            freed half stays in CASH (the per-leg base target is
+                            untouched), so the only difference from the P{EXIT}w
+                            row is the half-size weeks. Exposure comes from PHP
+                            (trades:coreew-leg-ema-trim-series) and the exit leg
+                            is read from the LIVE P{EXIT}w code path. Not a live
+                            variant: measured, it cuts CAGR ~1.1-1.7 pts and
+                            leaves MaxDD flat (2016+ P20w +360.0%/−19.2% vs
+                            +T10 +294.0%/−18.4%) — the 20w exit already does the
+                            risk work, so the 10w trim only gives up the bounce.
 
 Win rate reported as the fraction of weekly intervals with positive portfolio
 return — the honest metric for continuous-exposure strategies (no discrete
@@ -244,14 +259,21 @@ def weekly_state_daily_reentry(daily_dates, d_close, w_dates, w_close, w_atr, wp
 
 
 def run_sim(daily_dates, closes, passers, reb, cost, entry_daily=False,
-            fill_signal_close=False):
+            fill_signal_close=False, weights=None):
     """Daily sim. passers[i] = symbols long that day (signal i, filled i+1);
     reb[i] = rebalance back to equal weight among passers on that signal day.
     entry_daily: buy a newly-signalled passer the day after the signal (mid-week
     re-entries), independent of the weekly rebalance cadence.
     fill_signal_close: fill at the signal day's OWN close instead of the next
     day's close — matches the live gate, which decides Monday from the settled
-    Friday bar and trades at Monday's price."""
+    Friday bar and trades at Monday's price.
+    weights: optional {sym: array} of per-day multipliers in (0, 1] applied to
+    the equal-weight target on the rebalance (1.0 = the full leg). RESEARCH-ONLY
+    half-position overlay (P{exit}w + {trim}w trim): a leg at 0.5 targets HALF
+    the per-leg value and the freed weight stays in CASH — it is NOT spread over
+    the other legs, and the per-leg base is unchanged (equity/N over LONG legs,
+    exactly like live P20w), so the A/B isolates the trim and nothing else.
+    Without this argument behaviour is bit-identical to the boolean-only path."""
     positions = {}
     cash = CAPITAL
     eq = []
@@ -283,11 +305,15 @@ def run_sim(daily_dates, closes, passers, reb, cost, entry_daily=False,
                     buys += 1
 
         if reb[i] and sig_pass:
-            total = cash + sum(positions.get(s, 0.0) * px[s] for s in sig_pass)
-            per = total / len(sig_pass)
+            total_now = cash + sum(positions.get(s, 0.0) * px[s] for s in sig_pass)
+            per = total_now / len(sig_pass)
             for sym in sig_pass:
+                w = 1.0 if weights is None else float(weights[sym][i])
+                if w <= 0.0:
+                    continue
                 held_val = positions.get(sym, 0.0) * px[sym]
-                diff = per - held_val
+                diff = per * w - held_val
+
                 if diff > 0:
                     sh = diff / px[sym] * (1 - cost)
                     cash -= sh * px[sym]
@@ -435,14 +461,22 @@ def leg_ema_daily_flags(conn, tickers, daily_dates, n):
         if [full[s][0][i] for i in keep] != dfull:
             raise SystemExit(f'date mismatch for {s} (P daily EMA gate)')
     off = dfull.index(daily_dates[0])
-    if dfull[off:off + len(daily_dates)] != list(daily_dates):
+    # The window can end on TODAY's partial bar (the hourly sampler writes it
+    # intraday), which `keep` excludes by construction — so compare and slice
+    # only the settled prefix, then hold the last settled flag across the
+    # trailing present-day row instead of failing the alignment outright.
+    n_settled = sum(1 for d in daily_dates if d < today)
+    if dfull[off:off + n_settled] != list(daily_dates[:n_settled]):
         raise SystemExit('P daily EMA history does not line up with the backtest window')
     flags = {}
     for s in tickers:
         c = np.array([full[s][1][i] for i in keep], dtype=np.float64)
         ema = _leg_ema_over(c, n)
         state = (c > ema) & ~np.isnan(ema)
-        flags[s] = state[off:off + len(daily_dates)]
+        f = state[off:off + n_settled]
+        if len(f) < len(daily_dates):
+            f = np.concatenate([f, np.repeat(f[-1:], len(daily_dates) - len(f))])
+        flags[s] = f
     return flags
 
 
@@ -501,6 +535,67 @@ def flags_from_live_leg_ema_series(daily_dates, payload):
             raise SystemExit(f'P{payload["span"]}w leg flags length mismatch for {sym}')
         flags[sym] = f
     return flags
+
+
+def fetch_live_leg_ema_trim_series(exit_span, trim_span, symbols):
+    """RESEARCH-ONLY P{exit}w + {trim}w half-trim series decided by the PHP code.
+
+    Shells out to `php artisan trades:coreew-leg-ema-trim-series`, which calls
+    TradeExecutorService::legEmaTrimTrail() -> replayLegEmaTrimSeries(). That
+    method reads its FULL-EXIT leg straight out of the LIVE replayLegEmaSeries()
+    code path, so the 20w gate here is the exact gate live trades; only the trim
+    EMA and the sticky 0/0.5/1 exposure machine are new, and both live in PHP.
+    The backtest never re-implements either. Read-only, no Alpaca, no orders.
+    """
+    backend = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
+    cmd = ['php', '-d', 'xdebug.mode=off', '-d', 'display_errors=0',
+           'artisan', 'trades:coreew-leg-ema-trim-series',
+           f'--exit-span={exit_span}', f'--trim-span={trim_span}',
+           '--symbols=' + ','.join(symbols)]
+    proc = subprocess.run(cmd, cwd=backend, capture_output=True, text=True, timeout=300)
+    payload = None
+    for line in reversed(proc.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith('{'):
+            try:
+                payload = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+    if payload is None:
+        raise RuntimeError(
+            f'could not parse leg-EMA trim series from `{" ".join(cmd)}`\n'
+            f'stdout: {proc.stdout[-2000:]}\nstderr: {proc.stderr[-2000:]}')
+    if payload.get('error') or not payload.get('series'):
+        raise RuntimeError(
+            f'leg-EMA trim series failed: {payload.get("error") or payload}\n'
+            f'cmd: `{" ".join(cmd)}`')
+    return payload
+
+
+def weights_from_live_leg_ema_trim_series(daily_dates, payload):
+    """Align the trim series' per-week `exposure` onto trading days.
+
+    Identical settled-week alignment to variant P/S (settled_weekly_ref: week W's
+    decision is actionable from the first day d with W + 7 <= d, flat before
+    that), so the trim overlay is compared on exactly the same fill calendar as
+    the `--leg-ema` baseline it is A/B'd against. Returns (flags, weights) where
+    flags[s][i] is "leg is long" and weights[s][i] is its exposure in
+    {0.0, 0.5, 1.0}; the exposure level is carried through unchanged (sticky
+    half), which is the whole point of the variant.
+    """
+    flags, weights = {}, {}
+    for sym in payload['symbols']:
+        pts = payload['series'][sym]
+        wdates = [date.fromisoformat(p['week']) for p in pts]
+        pos = settled_weekly_ref(daily_dates, wdates)
+        f = np.array([bool(pts[j]['long']) if j >= 0 else False for j in pos])
+        w = np.array([float(pts[j]['exposure']) if j >= 0 else 0.0 for j in pos])
+        if len(f) != len(daily_dates):
+            raise SystemExit(f'P{payload["exit_span"]}w+T{payload["trim_span"]} '
+                             f'weight length mismatch for {sym}')
+        flags[sym], weights[sym] = f, w
+    return flags, weights
 
 
 def sma_gate_series(conn, tickers, n):
@@ -1114,6 +1209,16 @@ def main():
                          'on each ETF\'s OWN settled closes (e.g. 10), run on BOTH daily '
                          'closes and settled weekly closes. Off legs idle in cash; the ON '
                          'legs re-trim to equal weight weekly exactly like A.')
+    ap.add_argument('--leg-ema-trim', default='', metavar='EXIT:TRIM[,...]',
+                    help='RESEARCH-ONLY trim overlay on the weekly per-leg gate: '
+                         'comma-separated EXIT:TRIM EMA spans in weeks (e.g. 20:10). '
+                         'A long leg cuts to HALF its size when its settled weekly close '
+                         'prints below EMA(TRIM) while staying above EMA(EXIT), is topped '
+                         'back up to the full target when it closes back above EMA(TRIM), '
+                         'and a close below EMA(EXIT) still exits fully. Freed weight '
+                         'stays in cash (the per-leg base target is unchanged), so the '
+                         'only difference from --leg-ema EXIT is the half-size weeks. '
+                         'Decided by PHP (trades:coreew-leg-ema-trim-series); not live.')
     ap.add_argument('--sma-gate', type=int, default=0, metavar='N',
                     help='variant M: one index-level N-day SMA gate for the whole trio '
                          '(e.g. 200); decide on a settled close, fill next-day close')
@@ -1290,6 +1395,26 @@ def main():
                 eqPw, dPw, bPw, sPw = run_sim(daily_dates, closes, fW, reb, COST)
                 legP[n_leg] = ((eqP, dP, bP, sP, fD), (eqPw, dPw, bPw, sPw, fW))
 
+        # P+E: the RESEARCH-ONLY half-position trim overlay on the same weekly
+        # per-leg gate (--leg-ema-trim EXIT:TRIM). Same flags, same settled-week
+        # alignment, same weekly EW rebalance, same per-leg base target as the
+        # P{exit}w row above — the ONLY difference is that a long leg whose
+        # settled weekly close sits below EMA(TRIM) carries 0.5 weight until it
+        # closes back above it, with the freed half held in cash. Exposure comes
+        # from PHP; `weights` here only scales the rebalance target.
+        legPT = {}
+        for pair in [x for x in args.leg_ema_trim.split(',') if x.strip()]:
+            if ':' not in pair:
+                raise SystemExit(f'--leg-ema-trim wants EXIT:TRIM, got "{pair}"')
+            e_s, t_s = pair.split(':', 1)
+            e_leg, t_leg = int(e_s), int(t_s)
+            if t_leg >= e_leg:
+                raise SystemExit(f'--leg-ema-trim TRIM ({t_leg}) must be < EXIT ({e_leg})')
+            trimPayload = fetch_live_leg_ema_trim_series(e_leg, t_leg, tickers)
+            fT, wT = weights_from_live_leg_ema_trim_series(daily_dates, trimPayload)
+            eqT, dT, bT, sT = run_sim(daily_dates, closes, fT, reb, COST, weights=wT)
+            legPT[(e_leg, t_leg)] = (eqT, dT, bT, sT, fT, wT, trimPayload)
+
         # M: index-level SMA gate (additive; only with --sma-gate N). Same
         # settled-sim fill rule as S, but the flags come from ONE market signal.
         eqM = dM = bM = sM = flagsM = None
@@ -1430,6 +1555,33 @@ def main():
                 print(f'  A/B:   A {dA_ret*100:+.2f}% vs daily {dP_ret*100:+.2f}% '
                       f'({(dP_ret-dA_ret)*100:+.2f} pts) vs weekly {dPw_ret*100:+.2f}% '
                       f'({(dPw_ret-dA_ret)*100:+.2f} pts)')
+
+        if legPT:
+            dA_ret = (eqA[-1] - CAPITAL) / CAPITAL
+            baseW = {n: v for n, v in
+                     ((n, legP[n][1][0]) for n in legP)}
+            for (e_leg, t_leg), (eqT, dT, bT, sT, fT, wT, payload) in legPT.items():
+                print()
+                stats(eqT, dT, f'P{e_leg}w+T{t_leg}. P{e_leg}w + half trim below EMA{t_leg}w')
+                ev = payload.get('events', {})
+                avg_w = float(np.mean([wT[s].mean() for s in tickers]))
+                half = {s: int(np.sum((wT[s] > 0.0) & (wT[s] < 1.0))) for s in tickers}
+                print(f'  {e_leg}/{t_leg}: {bT} buys / {sT} sells | weekly events '
+                      f'{ev.get("trim", 0)} trim / {ev.get("restore", 0)} restore / '
+                      f'{ev.get("entry", 0)} entry / {ev.get("exit", 0)} exit | '
+                      f'avg {100*avg_w:.0f}% invested (P{e_leg}w baseline: '
+                      f'{100*np.mean([fT[s].mean() for s in tickers]):.0f}%) | '
+                      f'half-size days {", ".join(f"{s}={half[s]}" for s in tickers)}')
+                dT_ret = (eqT[-1] - CAPITAL) / CAPITAL
+                if e_leg in baseW:
+                    dBase = (baseW[e_leg][-1] - CAPITAL) / CAPITAL
+                    print(f'  A/B:   A {dA_ret*100:+.2f}% vs P{e_leg}w {dBase*100:+.2f}% '
+                          f'({(dBase-dA_ret)*100:+.2f} pts) vs +T{t_leg} {dT_ret*100:+.2f}% '
+                          f'({(dT_ret-dBase)*100:+.2f} pts vs the same gate un-trimmed)')
+                else:
+                    print(f'  A/B:   A {dA_ret*100:+.2f}% vs +T{t_leg} {dT_ret*100:+.2f}% '
+                          f'({(dT_ret-dA_ret)*100:+.2f} pts) — run --leg-ema {e_leg} '
+                          f'too for the un-trimmed baseline')
 
         if eqM is not None:
             stats(eqM, dM, f'M. index SMA{args.sma_gate} +/-{args.sma_band:g}% gate')

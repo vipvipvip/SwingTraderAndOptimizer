@@ -16,6 +16,24 @@ Fill discipline: trim BEFORE top-up, exits via `rebalanceTrim` when a DB trade e
 
 The DAILY-close per-leg CO (P{span}d) is a research dead end (whipsaw vs A) and is intentionally the only piece still computed in Python — it will never go live.
 
+## Experiment 2026-09-28: "P20w + 10w half trim" — measured, REJECTED (not live)
+
+**The idea:** a long leg that dips below its 10W EMA cuts to half (16.7% instead of 33%), is topped back up on a recross of the 10W, and a close below the 20W still exits fully — i.e. a shallow dip should cost half a leg, not a whole one.
+
+**Built PHP-canonically, as required:** `replayLegEmaTrimSeries()`/`legEmaTrimTrail()` in `TradeExecutorService` + `trades:coreew-leg-ema-trim-series` (read-only) + `backtest_trio_ew.py --leg-ema-trim EXIT:TRIM`. The **exit leg is read straight out of the live `replayLegEmaSeries()`** rather than re-implemented, so the 20W gate in the experiment is bit-identical to what live trades; only the trim EMA and the sticky 0/0.5/1 exposure machine are new. Settled weekly closes, same week+7 rule, same weekly-EW rebalance, same per-leg base target (`equity/N` over long legs) — the freed half stays in **cash**, not redistributed, so the A/B isolates the trim. Rules that keep it an overlay rather than a new strategy: the full exit always beats the trim, a flat leg can only re-enter on a 20W cross (a 10W cross never re-enters), and an entry week is never trimmed in the same week. **No driver, no timer, no order path** — `exposure` is consumed only by the backtest.
+
+**Result — it costs returns and buys no drawdown protection** (relative signal-quality read, not a returns promise):
+
+| Variant | 2016+ return | MaxDD | CAGR | avg invested |
+|---|---|---|---|---|
+| A. EW weekly | +391.6% | −33.2% | +16.0% | 100% |
+| **P20w (live)** | **+360.0%** | **−19.2%** | **+15.3%** | 81% |
+| P20w+T15 | +312.4% | −19.3% | +14.2% | 80% |
+| P20w+T10 | +294.0% | −18.4% | +13.7% | 78% |
+| P20w+T8 | +292.5% | −19.3% | +13.6% | 77% |
+
+Same ordering in the 813-day window (+77.6% baseline vs +70.4/+67.1/+66.6% for T8/T10/T12) and at every trim span tried. MaxDD is **flat** (19.2% → 18.4–19.3%) while CAGR drops 1.1–1.7 pts, and the trim only removes 1–4% of invested time (79 trims / 57 restores over 560 weeks) — those weeks land disproportionately in the bounce after a dip, so the trim donates the recovery. The 20W exit is already doing the risk work (that's what took MaxDD from A's 33% to 19%); a 10W cross inside an uptrend is mostly a shallow dip, not the start of a drawdown. **No go — P20w stays as-is.** A trim span closer to the exit (T15) is the least-bad, i.e. the effect is monotone in "how often it fires", which is what you'd expect if the trim has no edge of its own.
+
 ## Predecessor: EG100 (variant "CoreEG100") — RETIRED 2026-09-28
 
 Shortest-lived strategy: live 2026-09-27 → replaced 09-28 by LegEMA P20w. `runEg100Gate(dryRun, span, override)` + `replayIndexEgGate()` + `indexEgGateState()`/`indexEgTrail()`: equal-weight (daily-rebalanced) QQQ/VTI/VTV index from settled daily closes (seeded 1.0, day-0 return 0) vs its own `ewm(span=100, adjust=False)` EMA (alpha 2/101, seeded at first index value) as a PURE crossover — no band. LONG = all 3 at equity/N, OFF = all flat; whole-book decision, not per-leg. Settled bars only (`date < CURRENT_DATE`) so a day-t decision acts in session t+1.
