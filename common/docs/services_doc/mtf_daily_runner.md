@@ -115,11 +115,25 @@ live price enters, and it approximates the backtest's fill-at-next-open.
 Everything upstream (selection, ratchet exit) is decided on settled bars only.
 
 `_ensure_daily_data` (pre-evening 10:25 run) picks the latest `date::date < today`
-whose enabled-ticker coverage is `>= expected - MISSING_TOLERANCE` (5). So a day
+whose enabled-ticker coverage is `>= 90%` of the enabled universe
+(`COVERAGE_DATE_PICK`), then refuses to trade that date unless coverage is
+`>= 99%` (`COVERAGE_TRADE_FLOOR`) — otherwise it retries a backfill. So a day
 with a couple of missing bars (e.g. 1432/1433 stocks) is still scored instead of
 falling back to a stale date, and today's in-progress bar is never scored. This
 guards against both failure modes seen on 2026-09-11: stocks scored a stale
-09-02 signal (09-10 was 1432/1433) and ETFs scored today's partial bar.
+09-02 signal (09-10 was 1432/1433) and ETFs scored today's partial bar. Both bars
+are fractions, never a fixed count: the old `MISSING_TOLERANCE = 5` was
+knife-edge — six thin names with no provider bar (2026-09-28, 1419/1425) rolled
+the whole stock leg back a full session to 09-25 and then burned ~15 min of
+futile backfill retries before aborting the leg.
+
+Per-ticker staleness is handled separately and more precisely: the staleness
+guard compares each ticker's bar against `min(get_last_complete_daily_date(...),
+sig_date)` and excludes anything lagging by more than one day (never entering it
+NEW, while held positions are preserved). The baseline is capped at `sig_date`
+on purpose — an uncapped baseline can be NEWER than the date being scored once
+today's intraday rows clear 90% coverage, which on 2026-09-28 flagged all 1,435
+tickers and produced zero picks on both legs.
 
 ## Files
 
@@ -127,7 +141,8 @@ All files live under `swingtrader/services/mtf/`:
 
 | File | Purpose |
 |------|---------|
-| `runner.py` | Two-phase in one daily run: `--action score` (settled-bar scoring on `sig_date=guard_date`, saves pending) then `--action execute` (morning fills). Both legs scored with emasma (`--strategy emasma`) |
+| `runner.py` | One step per invocation: `--action score` (settled-bar scoring on `sig_date=guard_date`, saves pending) or `--action execute` (morning fills). Both legs scored with emasma (`--strategy emasma`). Exits non-zero if any leg failed or produced no candidates — `executor_retry.py` depends on that |
+| `executor_retry.py` | What the 10:25 unit actually runs: retry the score step every 30m until it succeeds for BOTH legs or 16:00 ET, then execute once and exit. Give-up posts a red Slack alert with the last `mtf_runs` status per leg |
 | `config.py` | DB creds, scoring params (TOP_N=10, ETF_TOP_N=3, EMA/SMA periods, cost, capital) |
 | `db.py` | Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state |
 | `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA368CPXNS13, etf #PA3U8GZ96PEN — from `mtf/.env`); `reconcile_trades()` rebuilds `mtf_trades` from Alpaca fills |
@@ -139,7 +154,7 @@ All files live under `swingtrader/services/mtf/`:
 | `data/mtf_picks_etf.csv` | Daily ETF top-N picks with scores and components (pick history) |
 | `systemd/swingtrader-scanner-hourly.{service,timer}` | Intraday hourly sampler (weekdays 09:10–15:10 ET) — captures prices + recomputes MACD/EMA/SMA each hour |
 | `systemd/swingtrader-mtf-scorer.{service,timer}` | DISABLED 2026-08-27 (score is inline in the executor); kept for manual/analytics use |
-| `systemd/swingtrader-mtf-executor.{service,timer}` | emasma executor (once/day at 10:25, `--action score` then `--action execute`, both `--strategy emasma` on settled daily bars; no `--fresh`) |
+| `systemd/swingtrader-mtf-executor.{service,timer}` | emasma executor (once/day at 10:25): `ExecStart=executor_retry.py` — score (retried to market close) then `--action execute`, both `--strategy emasma` on settled daily bars; no `--fresh`. `TimeoutStartSec=6h` backstop (`RuntimeMaxSec` is ignored on `Type=oneshot`) |
 
 ## Backtest Results (Multi-TF Daily Rebalance) — ⚠️ signal-quality only, not returns
 

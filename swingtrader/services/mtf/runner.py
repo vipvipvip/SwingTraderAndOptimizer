@@ -32,10 +32,17 @@ COMPUTE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'c
 DATA_GATE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'data_readiness.py')
 DATA_RETRIES = 3
 DATA_RETRY_DELAY = 60
-# Proceed with scoring if only a few tickers lack the latest daily bar
-# (e.g. a single stock whose price feed glitched). Abort only when more than
-# this many are missing — a broad outage would poison the rotation.
-MISSING_TOLERANCE = 5
+# Daily-data completeness is a COVERAGE FRACTION of the enabled universe, with a
+# different bar per job (see `date_pick_required` / `trade_floor_required` in
+# `_ensure_daily_data`):
+#   90% — "is this the newest settled date for the cohort?" (date selection)
+#   99% — "is it safe to trade on it?" (proceed/retry gate)
+# The old single MISSING_TOLERANCE = 5 was knife-edge: one extra thin name with
+# no bar from the provider (2026-09-28: 1419/1425) rolled the whole stock leg back
+# a session AND then burned ~15 min of futile backfill retries before aborting.
+# Individual stale names are the STALE_LAG_DAYS guard's job, not either bar's.
+COVERAGE_DATE_PICK = 0.90
+COVERAGE_TRADE_FLOOR = 0.99
 # Decoupled score+execute: the 10:25 service runs --action score THEN
 # --action execute in sequence. Execute must only trade the pending written by
 # that same run — anything older (e.g. leftover from a failed prior score) is
@@ -240,14 +247,29 @@ def _ensure_daily_data(conn, mode, now, today, fresh=False):
         return True, f'v2-fresh: scoring on {today} (partial-day data accepted)', conn, today
 
     required_date = today
+    # Two coverage bars, one per job (see the module constants). Both are
+    # FRACTIONS of the enabled universe, never a fixed ticker count.
+    date_pick_required = max(int(expected * COVERAGE_DATE_PICK), 1)
+    trade_floor_required = max(int(expected * COVERAGE_TRADE_FLOOR), 1)
     if now.time() < EVENING_CUTOFF:
         # Pre-evening: pick the latest SETTLED daily date (strictly before
         # today, so today's in-progress/partial bar is never scored) with
-        # near-full universe coverage (within MISSING_TOLERANCE). This keeps
-        # emasma on the last genuinely complete daily close even when a few
-        # tickers are missing one bar (e.g. 1432/1433) — previously the strict
-        # full-count filter fell back to a stale date (09-02) for stocks while
-        # the ETF leg scored today's partial bar.
+        # near-full universe coverage. This keeps emasma on the last genuinely
+        # complete daily close even when a few tickers are missing one bar
+        # (e.g. 1432/1433) — previously the strict full-count filter fell back
+        # to a stale date (09-02) for stocks while the ETF leg scored today's
+        # partial bar.
+        #
+        # "Near-full" here is a COVERAGE FRACTION (90%), the same rule the
+        # per-ticker staleness baseline uses (`get_last_complete_daily_date`) —
+        # not `expected - MISSING_TOLERANCE`. The fixed count was too brittle:
+        # on 2026-09-28 six thin names (CSM/PLBC/QCRH/SENEA/UNTY/UTMD) got no
+        # daily bar from Alpaca, so 09-28 settled at 1419/1425 = one ticker
+        # under the 1420 bar and the whole stock leg fell back a full session to
+        # 09-25 — re-trading yesterday's signal set while the ETF leg (28/28)
+        # scored 09-28. This query only picks the settled DATE; genuinely
+        # lagging tickers are excluded individually by the STALE_LAG_DAYS guard
+        # in `_run_single_mode`, which is the right place for them.
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT d.date::date
@@ -259,12 +281,13 @@ def _ensure_daily_data(conn, mode, now, today, fresh=False):
                 HAVING COUNT(DISTINCT d.ticker_id) >= %s
                 ORDER BY d.date::date DESC
                 LIMIT 1
-            """, (is_etf, today, expected - MISSING_TOLERANCE))
+            """, (is_etf, today, date_pick_required))
             row = cur.fetchone()
         if row is None:
             return False, f'No complete daily data date found for {MODE_LABEL[mode]}', conn, None
         required_date = row[0]
-        print(f'[MTF] Pre-evening run — latest settled date: {required_date}')
+        print(f'[MTF] Pre-evening run — latest settled date: {required_date} '
+              f'(coverage bar {date_pick_required}/{expected} = 90%)')
 
     for attempt in range(1, DATA_RETRIES + 2):
         with conn.cursor() as cur:
@@ -280,10 +303,18 @@ def _ensure_daily_data(conn, mode, now, today, fresh=False):
             print(f'[MTF] Data complete: {today_count}/{expected} {MODE_LABEL[mode]}')
             return True, '', conn, required_date
 
+        # Trading floor: stay strict about the date we are about to trade on
+        # (99% of the universe has its bar), but as a FRACTION, so a handful of
+        # thin names with no provider bar can't decide the day. The old fixed
+        # MISSING_TOLERANCE (5) meant 6 such tickers cost ~15 min of futile
+        # populate/compute retries and then aborted the leg (2026-09-28) — and
+        # that abort is now cheap anyway: `executor_retry.py` re-runs this whole
+        # step every 30m until market close, and a real outage (well under 99%)
+        # still triggers the backfill retries below.
         missing = expected - today_count
-        if missing <= MISSING_TOLERANCE:
+        if today_count >= trade_floor_required:
             print(f'[MTF] Data nearly complete: {today_count}/{expected} {MODE_LABEL[mode]} '
-                  f'({missing} missing, within tolerance {MISSING_TOLERANCE}) — proceeding')
+                  f'({missing} missing, >= {trade_floor_required} = 99% coverage) — proceeding')
             return True, f'{today_count}/{expected} {MODE_LABEL[mode]} have daily data ({missing} missing)', conn, required_date
 
         msg = f'[{required_date}] {today_count}/{expected} {MODE_LABEL[mode]} have daily data'
