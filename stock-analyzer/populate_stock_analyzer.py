@@ -398,11 +398,11 @@ def main():
     try:
         with conn.cursor() as cur:
             if args.symbol:
-                cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE symbol = %s',
+                cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE is_etf=false and symbol = %s',
                             (args.symbol.upper(),))
             else:
                 cur.execute('SELECT id, symbol FROM tbl_stock_tickers '
-                            'WHERE enabled = true ORDER BY symbol')
+                            'WHERE is_etf=false and enabled = true ORDER BY symbol')
             tickers = cur.fetchall()
     finally:
         conn.close()
