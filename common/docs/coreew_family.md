@@ -16,15 +16,11 @@ Fill discipline: trim BEFORE top-up, exits via `rebalanceTrim` when a DB trade e
 
 The DAILY-close per-leg CO (P{span}d) is a research dead end (whipsaw vs A) and is intentionally the only piece still computed in Python — it will never go live.
 
-## Experiment 2026-09-28: "P20w + 10w half trim" — measured, REJECTED (not live)
+## Tried and rejected 2026-09-28: "P20w + 10w half trim" (code removed, not parked)
 
-**The idea:** a long leg that dips below its 10W EMA cuts to half (16.7% instead of 33%), is topped back up on a recross of the 10W, and a close below the 20W still exits fully — i.e. a shallow dip should cost half a leg, not a whole one.
+**The idea:** a long leg that dips below its 10W EMA should cost half the position (16.7% instead of 33%) and be topped back up on a 10W recross, with a close below the 20W still exiting fully — a shallow dip shouldn't cost a whole leg. Built PHP-canonically as a pure overlay (settled weekly closes, freed half held in cash, per-leg base target untouched, exit leg read from the live `replayLegEmaSeries()`) and measured over 2016+ (2699d, cost 0.05%, as-of guard clean):
 
-**Built PHP-canonically, as required:** `replayLegEmaTrimSeries()`/`legEmaTrimTrail()` in `TradeExecutorService` + `trades:coreew-leg-ema-trim-series` (read-only) + `backtest_trio_ew.py --leg-ema-trim EXIT:TRIM`. The **exit leg is read straight out of the live `replayLegEmaSeries()`** rather than re-implemented, so the 20W gate in the experiment is bit-identical to what live trades; only the trim EMA and the sticky 0/0.5/1 exposure machine are new. Settled weekly closes, same week+7 rule, same weekly-EW rebalance, same per-leg base target (`equity/N` over long legs) — the freed half stays in **cash**, not redistributed, so the A/B isolates the trim. Rules that keep it an overlay rather than a new strategy: the full exit always beats the trim, a flat leg can only re-enter on a 20W cross (a 10W cross never re-enters), and an entry week is never trimmed in the same week. **No driver, no timer, no order path** — `exposure` is consumed only by the backtest.
-
-**Result — it costs returns and buys no drawdown protection** (relative signal-quality read, not a returns promise):
-
-| Variant | 2016+ return | MaxDD | CAGR | avg invested |
+| Variant | Return | MaxDD | CAGR | avg invested |
 |---|---|---|---|---|
 | A. EW weekly | +391.6% | −33.2% | +16.0% | 100% |
 | **P20w (live)** | **+360.0%** | **−19.2%** | **+15.3%** | 81% |
@@ -32,7 +28,7 @@ The DAILY-close per-leg CO (P{span}d) is a research dead end (whipsaw vs A) and 
 | P20w+T10 | +294.0% | −18.4% | +13.7% | 78% |
 | P20w+T8 | +292.5% | −19.3% | +13.6% | 77% |
 
-Same ordering in the 813-day window (+77.6% baseline vs +70.4/+67.1/+66.6% for T8/T10/T12) and at every trim span tried. MaxDD is **flat** (19.2% → 18.4–19.3%) while CAGR drops 1.1–1.7 pts, and the trim only removes 1–4% of invested time (79 trims / 57 restores over 560 weeks) — those weeks land disproportionately in the bounce after a dip, so the trim donates the recovery. The 20W exit is already doing the risk work (that's what took MaxDD from A's 33% to 19%); a 10W cross inside an uptrend is mostly a shallow dip, not the start of a drawdown. **No go — P20w stays as-is.** A trim span closer to the exit (T15) is the least-bad, i.e. the effect is monotone in "how often it fires", which is what you'd expect if the trim has no edge of its own.
+Same ordering in the 813-day window (+77.6% baseline vs +67.1% for T10) and at **every** trim span tried: **1.1–1.7 pts of CAGR given up for a flat MaxDD.** The 20W exit is already doing the risk work — it is what took MaxDD from A's 33% to 19% — while a close below the 10W inside an uptrend is a shallow dip. The trim fired 79 times and restored 57 over 560 weeks, cutting only 1–4% of invested time but disproportionately the bounce after each dip; T15 (fires least) was least-bad, i.e. monotone in how often it fires, which is the signature of no edge. Abandoned the same day and the implementation **removed rather than parked** — it never had a driver or timer, so unlike EG100/variant S there was nothing to roll back to. **P20w unchanged.**
 
 ## Predecessor: EG100 (variant "CoreEG100") — RETIRED 2026-09-28
 
