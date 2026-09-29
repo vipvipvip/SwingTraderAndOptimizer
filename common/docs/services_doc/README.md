@@ -1,7 +1,7 @@
 # Services Index — single source of truth for what's actually deployed
 
 Every row below was cross-checked against live `systemctl list-timers --all`,
-`systemctl is-enabled`, and `crontab -l` on **2026-09-27**. If this table and a unit
+`systemctl is-enabled`, and `crontab -l` on **2026-09-28**. If this table and a unit
 file in this directory ever disagree, re-run those commands — this file (and the
 `.service`/`.timer` files next to it) should always mirror `/etc/systemd/system/`
 and the box's crontab, not the other way around. The per-service `systemd/`
@@ -12,10 +12,15 @@ is the deploy source; the copies here are the documentation mirror.
 
 | Driver | Mechanism | Schedule | Status |
 |---|---|---|---|
-| **CoreEG100** (`trades:execute-EW-gate100`) | user **crontab**, not systemd | every 5 min, market hours | ✅ live — the only driver that places orders |
+| **CoreEW P20w** — "LegEMA" (`trades:execute-leg-ema --span=20`) | systemd `swingtrader-legema.{service,timer}` | Mon–Fri 10:05 ET (+0–60 s `RandomizedDelaySec`) | ✅ enabled/active — per-leg weekly EMA(20) crossover, acts once per new settled week |
+| **MTF Top-N** (`swingtrader-mtf-executor --mode all`) | systemd `swingtrader-mtf-executor.{service,timer}` | Mon–Fri 10:25 ET | ✅ enabled/active — scores **and** executes both legs (stocks #PA368CPXNS13, ETFs #PA3U8GZ96PEN) |
 
-CoreEG100 is *not* a systemd unit — it's a plain cron entry (`crontab -l`). See
-`AGENTS.md` for the strategy logic; there is no unit file for it in this directory.
+Both order-placing drivers are systemd units in this directory. **The old CoreEG100 crontab
+line is commented out** (`trades:execute-EW-gate100`, retired 2026-09-28) — the file and code
+are kept for rollback, and uncommenting it is the rollback procedure. Strategy logic:
+`AGENTS.md` / `OPERATING_RULES.md` and [../BUY_SELL_TRIGGERS.md](../BUY_SELL_TRIGGERS.md).
+The `swingtrader-legema` deploy source lives in
+`swingtrader/services/mtf/systemd/`; the copies here are the documentation mirror.
 
 ## Scanner data pipeline (no orders)
 
@@ -25,7 +30,7 @@ CoreEG100 is *not* a systemd unit — it's a plain cron entry (`crontab -l`). Se
 | `swingtrader-scanner-hourly.timer` | Mon–Fri 09:10, 10:10, …, 15:10 (7 runs) | ✅ enabled/active | Intraday hourly capture + MACD/EMA recompute |
 | `swingtrader-scanner-backfill.timer` | Mon–Fri 16:30 | ✅ enabled/active | Post-close settle (weekly+daily final closes) + hourly backfill + indicators |
 
-## Live strategies / signal services (Slack; CoreEG100 above is the only order-placer)
+## Live strategies / signal services (Slack; the two trading drivers above are the only order-placers)
 
 | Unit | Schedule (ET) | Status | Purpose |
 |---|---|---|---|
@@ -60,3 +65,13 @@ Audit against live `systemctl`/`crontab` found this directory had drifted:
 - `swingtrader-mtf-scorer.{service,timer}` here still said **DISABLED** ("scoring is done inline by the 10:25 executor... no OnCalendar set"). It has since been re-enabled live as a 16:45 ET evening-recap timer — file replaced with the live version.
 - `swingtrader-scanner-backfill.service` here was missing the weekly+daily settle `ExecStart` lines (only had hourly backfill) and had stale worker counts — replaced with the live version.
 - `swingtrader-scanner-update.service` here had `--workers 10`; live runs `--workers 3` — replaced with the live version.
+
+## Corrections made 2026-09-28 (CoreEW P20w go-live)
+
+- `swingtrader-legema.{service,timer}` are **enabled and active** (verified via
+  `systemctl is-enabled` + `systemctl list-timers --all`) but were **missing entirely** from
+  this directory — added (copies verified byte-identical to `/etc/systemd/system/` and to the
+  deploy source in `swingtrader/services/mtf/systemd/`).
+- CoreEG100's `trades:execute-EW-gate100` crontab line is now **commented out** (retired
+  2026-09-28, replaced by P20w). The "user crontab, every 5 min" row in the Trading table was
+  wrong after that date — rewritten to list both live order-placing drivers as systemd units.

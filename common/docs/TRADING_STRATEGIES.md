@@ -6,7 +6,7 @@ This project contains three distinct trading systems that operate independently:
 
 | # | Name | Universe | Signals | Status |
 |---|------|----------|---------|--------|
-| 1 | **CoreEG100** (trio book, formerly CHAND → CoreEW variant S) | QQQ/VTI/VTV | Since 2026-09-27: whole-book **index EMA(100) crossover gate** — equal-weight daily-rebalanced QQQ/VTI/VTV index vs its own EMA(100), pure crossover, no band (`trades:execute-EW-gate100`, 5-min cron, deduped on the newest flip date). LONG = all 3 at equity/3, OFF = all flat. Retired variant S (`trades:execute-EW-gate`, weekly per-leg ATR ratchet) and the original pure-EW drift-gated driver (`trades:execute-EW-ETF`) are kept off-cron as rollbacks, in that order. See [BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md) for the full mechanics and the 2026-09-25 audit note in §1 for why variant S was replaced. | ✅ Live (Laravel, paper) |
+| 1 | **CoreEW P20w** ("LegEMA"; formerly CHAND → variant S → CoreEG100) | QQQ/VTI/VTV | Since 2026-09-28: **per-leg weekly EMA(20) crossover** — each ETF is long only while its OWN settled weekly close is above its own EMA(20); ON legs are equal-weighted, OFF legs sit in cash (`trades:execute-leg-ema --span=20`, `swingtrader-legema.timer` Mon–Fri 10:05 ET, atomic weekly claim on `coreew_runs`). Pure crossover, no band. Retired predecessors kept off-cron as rollbacks, in order: CoreEG100 (`trades:execute-EW-gate100`, whole-book index EMA(100) daily gate, retired 09-28), variant S (`trades:execute-EW-gate`, weekly per-leg ATR ratchet, retired 09-27), and the original pure-EW drift-gated driver (`trades:execute-EW-ETF`). See [BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md) for the live mechanics, [coreew_family.md](coreew_family.md) for the full narrative + backtests, and the status banner at the top of §1 for what in this section is historical. | ✅ Live (Laravel, paper) |
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 4 | **MTF Top-N** (emasma rotation) | VTI stocks (top-10) + ETFs (top-3) | `min(gap_w/5, 5)` weekly score, long-eligible only while weekly EMA(10)>SMA(40); stock leg exits on daily-ATR ratchet, ETF leg exits on rotation only | ✅ Live (both legs, once/day 10:25 ET) |
@@ -18,16 +18,33 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 
 # 1. CoreEW — Equal-Weight Trio Book
 
+> **⚠ Status 2026-09-28 — everything below this banner describes a RETIRED driver.**
+> Live CoreEW is **variant P20w ("LegEMA")**: per-leg weekly EMA(20) crossover, ON legs
+> equal-weighted, OFF legs in cash, acting once per new settled week
+> (`trades:execute-leg-ema --span=20` via `swingtrader-legema.timer`, Mon–Fri 10:05 ET).
+> Canonical docs: [BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md) (live buy/sell mechanics),
+> [coreew_family.md](coreew_family.md) (narrative, backtests, decision history),
+> `OPERATING_RULES.md` (operational rules). The subsections below — rebalance rule, execution
+> flow, risk notes, console-command table — document the **pure-EW intraday drift-gated**
+> driver (`trades:execute-EW-ETF`, 5-min cron), which is now the *deepest* rollback, plus the
+> 2026-09-25 audit of the then-live weekly-ratchet gate. Neither of those is the live path.
+> `trades:execute-EW-ETF` remains the only one of the three you can still place orders with,
+> and only by pointing the cron at it manually.
+>
+> P20w backtest reference (signal quality, **not** a return — A/B only, and the sim fills a
+> session later than live): 2016→2026 +364.27% / −19.2% DD vs benchmark A +396.17% / −33.2%
+> and EG100 +268.83% / −16.1%; 813d window +79.26% / −9.4%.
+
 > **⚠ 2026-09-25 audit — read before trusting any CoreEW gate backtest number.**
-> Live CoreEW has been the monotone weekly-ratchet **gate** since 2026-09-21 (commit
-> `0d51a21`, `trades:execute-EW-gate`; details in AGENTS.md). The pure-EW status notes
-> below describe the off-cron rollback driver. Every gate backtest published before
-> 2026-09-25 (variant B in `backtest_trio_ew.py`, the old `dump_coreew_equity.py`
-> dashboard curves, the "+98.3% / 7.1% DD" and "+304.76% / 11% DD" references) read the
-> **current week's** weekly row, which in the DB already holds that week's **Friday**
-> close — Monday–Friday decisions peeked ahead. The live gate reads only completed
-> weeks (variant S, `backtest_trio_ew.py --settled-friday`), verified by an independent
-> recompute (2019 window: $148,998.34, 161 legs, identical).
+> At the time of this audit live CoreEW was the monotone weekly-ratchet **gate**
+> (2026-09-21, commit `0d51a21`, `trades:execute-EW-gate`; itself since replaced). The
+> pure-EW status notes below describe the off-cron rollback driver. Every gate backtest
+> published before 2026-09-25 (variant B in `backtest_trio_ew.py`, the old
+> `dump_coreew_equity.py` dashboard curves, the "+98.3% / 7.1% DD" and "+304.76% / 11% DD"
+> references) read the **current week's** weekly row, which in the DB already holds that
+> week's **Friday** close — Monday–Friday decisions peeked ahead. The live gate reads only
+> completed weeks (variant S, `backtest_trio_ew.py --settled-friday`), verified by an
+> independent recompute (2019 window: $148,998.34, 161 legs, identical).
 >
 > | Window (monotone, mult 2.0, 0.05% cost) | B — lookahead | **S — live-parity** | EW buy-and-hold |
 > |---|---|---|---|
@@ -432,28 +449,28 @@ The Daily Signal and MTF Top-N share the **same universe**, the **same hard filt
 
 # 6. Key Differences
 
-| Aspect | CoreEG100 | Scanner | MTF Top-N | Daily Signal |
+| Aspect | CoreEW P20w | Scanner | MTF Top-N | Daily Signal |
 |--------|-------|---------|-----------|--------------|
-| **Goal** | Whole-market beta book, gated | Market screening | Rotation trading | Signal alerts |
-| **Strategy** | Index EMA(100) crossover, all-in/all-out | 3-way crossover convergence | emasma score top-N (2 legs) | Multi-TF fresh crosses |
+| **Goal** | Whole-market beta book, trend-gated per leg | Market screening | Rotation trading | Signal alerts |
+| **Strategy** | Per-leg weekly EMA(20) crossover, EW-rebalance among ON legs | 3-way crossover convergence | emasma score top-N (2 legs) | Multi-TF fresh crosses |
 | **Universe** | QQQ/VTI/VTV | S&P 500 | VTI stocks (top-10) + ETFs (top-3) | All enabled (VTI stocks + ETFs) |
-| **Data Frequency** | Daily bars, checked every 5 min | Weekly, Daily, 1-Hour | Weekly, Daily | Weekly, Daily, 1-Hour |
+| **Data Frequency** | Settled **weekly** bars, checked Mon–Fri 10:05 ET | Weekly, Daily, 1-Hour | Weekly, Daily | Weekly, Daily, 1-Hour |
 | **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders (both legs) | Slack + CSV only |
-| **Entry** | Index crosses above its EMA(100) → all 3 at equity/3 | 3 aligned crossovers | Enters top-N by score | Fresh 1-hour cross |
-| **Exit** | Index crosses below its EMA(100) → all flat | N/A (scanner only) | Drops from top-N, or stock-leg ATR ratchet | N/A |
-| **Parameters** | EMA span (100) | Fixed | Fixed | Fixed |
-| **Return (backtest)** | +73.5%/−8.4% DD (3y) vs weekly EW rebalance | N/A | +5,469% (signal-quality only, not a return) | N/A |
-| **Max DD** | see above (backtest, not live-verified) | N/A | 22.2% (signal-quality only) | N/A |
+| **Entry** | A leg's weekly close crosses **above** its EMA(20) → ON, topped up to `equity / #ON legs` | 3 aligned crossovers | Enters top-N by score | Fresh 1-hour cross |
+| **Exit** | A leg's weekly close crosses **below** its EMA(20) → sold to cash (plus the weekly EW rebalance of the ON legs) | N/A (scanner only) | Drops from top-N, or stock-leg ATR ratchet | N/A |
+| **Parameters** | EMA span in **weeks** (20 live) | Fixed | Fixed | Fixed |
+| **Return (backtest)** | +364.27% 2016+ / +79.26% 813d (signal quality only, not a return) | N/A | +5,469% (signal-quality only, not a return) | N/A |
+| **Max DD** | −19.2% 2016+ / −9.4% 813d (backtest, not live-verified) | N/A | 22.2% (signal-quality only) | N/A |
 
 ---
 
 # 7. Parameters Quick Reference
 
-| Parameter | CoreEG100 | Scanner | MTF Top-N | Daily Signal |
+| Parameter | CoreEW P20w | Scanner | MTF Top-N | Daily Signal |
 |-----------|-------|---------|-----------|--------------|
-| Fast MA | **none — gated by index EMA(100), not a fast/slow MA pair** | 24 | 10 (EMA) | 10 (EMA) |
+| Fast MA | **none — gated by each leg's own weekly EMA, not a fast/slow MA pair** | 24 | 10 (EMA) | 10 (EMA) |
 | Slow MA | N/A | 52 | 40 (SMA) | 40 (SMA) |
 | Signal Line | N/A | 18 (MACD), 9 (PPO) | N/A | N/A |
 | ATR Period | N/A | 14 | 14 (stock-leg ratchet only) | N/A |
 | ATR Multiplier | N/A | 2.0 | 2.0 (stock-leg ratchet only) | N/A |
-| Primary Metric | EMA span (100) vs equal-weight index | Crossover recency | Score (gap_w, capped 5) | Momentum score |
+| Primary Metric | Weekly close vs its own EMA(span in weeks, 20 live) | Crossover recency | Score (gap_w, capped 5) | Momentum score |

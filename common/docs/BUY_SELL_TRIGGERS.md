@@ -1,82 +1,100 @@
 # Buy/Sell Triggers — Current Live Strategies
 
-**As of:** 2026-09-27. Source of truth is always `AGENTS.md` (repo root) + the code cited
-below — this doc is a readable explanation of the same logic, not a separate spec. If it
-ever disagrees with AGENTS.md or the code, the code wins.
+**As of:** 2026-09-28 (CoreEW **P20w** go-live, replacing CoreEG100). Source of truth is
+always `AGENTS.md` (repo root) + the code cited below — this doc is a readable explanation of
+the same logic, not a separate spec. If it ever disagrees with AGENTS.md or the code, the
+code wins.
 
 Three strategies are live. Only two place real orders:
 
 | Strategy | Decision cadence | Places orders? | Buy trigger | Sell trigger |
 |---|---|---|---|---|
-| **CoreEG100** | Checked every 5 min, market open only | ✅ Yes (Alpaca) | Equal-weight QQQ/VTI/VTV index crosses **above** its own EMA(100) | Index crosses **below** its own EMA(100) |
+| **CoreEW P20w** ("LegEMA") | Once/week — Mon–Fri 10:05 ET systemd timer, acts on a **new settled week** only | ✅ Yes (Alpaca) | A leg's own settled **weekly** close is **above** its own EMA(20) → held long and equal-weighted with the other ON legs | That leg's weekly close crosses **below** its own EMA(20) → sold to cash; plus the weekly equal-weight rebalance of the ON legs (over-weights are trimmed, under-weights topped up) |
 | **MTF Top-N — stock leg** | Once/day, 10:25 ET | ✅ Yes (Alpaca, acct `#PA368CPXNS13`) | Ticker enters the top-**10** by weekly score | Drops out of top-10, **or** daily-ATR ratchet stop hit |
 | **MTF Top-N — ETF leg** | Once/day, 10:25 ET (same run) | ✅ Yes (Alpaca, acct `#PA3U8GZ96PEN`) | Ticker enters the top-**3** by weekly score | Drops out of top-3 (no ratchet on this leg) |
 | **Daily Signal** | Once/day, 17:00 ET | ❌ No — Slack alert only | All three of weekly+daily+hourly EMA(10)>SMA(40) crosses are done | N/A — never holds a position |
 
 ---
 
-## 1. CoreEG100 — index EMA(100) crossover (the only whole-book, always-on/all-out strategy)
+## 1. CoreEW P20w ("LegEMA") — per-leg weekly EMA(20) crossover (the only whole-book strategy)
 
-**Code:** `TradeExecutorService::runEg100Gate()` / `replayIndexEgGate()` / `indexEgGateState()`
-(`swingtrader/backend/app/Services/TradeExecutorService.php`), driven by
-`php artisan trades:execute-EW-gate100` (`ExecuteEWGate100.php`), on a 5-min cron while the
-market is open. Tickers: QQQ, VTI, VTV. Account `#PA3GKZYLVO68`.
+**Code:** `TradeExecutorService::runLegEma()` / `replayLegEmaSeries()` / `legEmaTrail()` /
+`legEmaState()` (`swingtrader/backend/app/Services/TradeExecutorService.php`), driven by
+`php artisan trades:execute-leg-ema --span=20` (`ExecuteLegEma.php`) via the systemd timer
+`swingtrader-legema.timer` (`swingtrader/services/mtf/systemd/`), Mon–Fri 10:05 ET,
+`Persistent=true`. Tickers: QQQ, VTI, VTV. Account `#PA3GKZYLVO68`. Slack `[CoreEW-LegEMA]`.
 
 ### What decides "buy" vs "sell"
 
-This is a **portfolio-level** decision — all three ETFs move together, there is no per-leg
-signal. Every run rebuilds the same index from scratch:
+This is a **per-leg** decision — each ETF is judged on its own trend, so the three legs can be
+LONG/LONG/CASH, LONG/CASH/CASH, or all cash. Every run rebuilds the same series from scratch:
 
-1. **Build the index** — pull each ticker's settled daily closes (`date < CURRENT_DATE`,
-   from `tbl_scanner_tickers_daily`), keep only dates present for all three, and compute an
-   equal-weight, daily-rebalanced index: seed at `1.0`, then each day multiply by
-   `1 + mean(pct_change of the 3 closes)`. Day 0's return is defined as 0.
-2. **Compute its EMA(100)** — `ewm(span=100, adjust=False)`: seeded with the index's first
-   value, then recursively `ema[i] = alpha*index[i] + (1-alpha)*ema[i-1]` with
-   `alpha = 2/(span+1)`. No warm-up gap — it's defined from bar 0.
-3. **Compare** — this is a **pure crossover, no band**: `index > EMA(100)` → LONG,
-   `index < EMA(100)` → CASH. The state only changes on the bar where the index actually
-   crosses the EMA (a "flip").
+1. **Collect settled weekly closes** — for each of QQQ/VTI/VTV, take its weekly closes where
+   `date + 7 <= CURRENT_DATE` (a week whose Friday close has not fully formed is never read),
+   and keep only week dates present for **all three**.
+2. **Compute each leg's EMA(20)** — `ewm(span=20, adjust=False)`: seeded with the leg's first
+   weekly close, then `ema[i] = alpha*close[i] + (1-alpha)*ema[i-1]` with `alpha = 2/21`. No
+   warm-up gap — it's defined from bar 0.
+3. **Compare, per leg** — this is a **pure crossover, no band**: `close > EMA(20)` → that leg
+   is **ON** (long), `close < EMA(20)` → **OFF** (cash). ON/OFF only changes on the week where
+   the leg actually crosses.
 
-### What happens on each state
+**The signal is PHP-canonical and the backtest cannot drift from it:** the backtest
+(`backtest_trio_ew.py --leg-ema 20`) shells out to `php artisan trades:coreew-leg-ema-series`
+and consumes the very series this driver computes. Any new CoreEW variant must be added in
+PHP for the same reason — never re-implemented in Python.
 
-- **LONG (index > EMA):** every one of QQQ/VTI/VTV should be at `account_equity / 3`.
-  **Trim runs before top-up** on every cycle (a leg holding more than its equal share is sold
-  down first) — this matters most right after a cutover, when the book can be left unequal
-  by whatever ran before; topping up alone could never converge it. Only then are underweight
-  legs bought up to their equal share.
-- **CASH (index < EMA):** every held leg is sold to zero. If a DB trade record exists for
-  the position, the exit goes through `rebalanceTrim`; otherwise it's a direct market sell
-  gated on `waitForOrderFill`. **A sell is never logged/claimed until Alpaca actually
-  confirms `status=filled`** — a `new`/`accepted` order is not a fill.
+### What happens on each weekly action
 
-### Why it doesn't trade every 5 minutes despite checking every 5 minutes
+- **ON legs are equal-weighted against each other**, target value = `account_equity / (number
+  of ON legs)`. If all three are OFF, the whole book is cash and nothing is bought.
+- **Sells run before buys (trim-before-top-up)** on every action: a leg holding more than its
+  equal share is sold down first (this is what keeps winners trimmed and losers parked), then
+  the underweight ON legs are bought up to their equal share. Exits go through `rebalanceTrim`
+  when a DB trade record exists for the position, otherwise a direct market sell gated on
+  `waitForOrderFill`. **A sell is never logged/claimed until Alpaca actually confirms
+  `status=filled`** — a `new`/`accepted` order is not a fill.
 
-The command dedupes on the **date of the most recent flip** (stored in
-`storage/coreew_eg100_last_flip.txt`). If today's settled bar didn't produce a new flip,
-the run is a no-op — the gate does not rebalance daily drift, only real state changes.
-`--override` bypasses the dedupe to force a re-evaluation.
+### Why it doesn't trade every day despite running every weekday
+
+The last settled **week** date is the run's identity, claimed atomically in the `coreew_runs`
+table (unique `strategy='legema'`, `span`, `week` → `insertOrIgnore` → Postgres
+`ON CONFLICT DO NOTHING`). Exactly one process can claim a given week, cluster-safely; losers
+get 0 rows and return a NO-OP. So the 10:05 weekday timer costs nothing mid-week — the book
+acts once per **new settled week** (Monday, on last Friday's close). `--override` releases the
+current week's claim to force a re-action; `--dry-run` never claims, releases, or writes, and
+respects an existing claim as a NO-OP.
 
 ### Other guardrails
 
-- **Settled bars only** (`date < CURRENT_DATE`) — a decision made on day *t*'s close is acted
-  on in session *t+1*. The **backtest** fills at *t+1*'s close; **live** fills intraday
-  whenever the 5-min cron happens to run that day — this is a real, expected divergence, not a bug.
+- **Settled weeks only** (`date + 7 <= CURRENT_DATE`) — week *W*'s Friday close decides, and
+  the action is taken from the following Monday. The **backtest** prices the trade at the
+  following **Tuesday's close**; **live** fills Monday intraday at 10:05 ET (+0–60 s
+  randomized delay) — a real, expected one-session divergence, documented in
+  `coreew_family.md`, not a bug.
 - **30-minute opening warm-up**: no trades in the first 30 minutes of the session
-  (09:30–10:00 ET), even with `--override`.
+  (09:30–10:00 ET), even with `--override`. This check happens *before* the week claim, so a
+  catch-up run landing in the warm-up window can never burn a week.
 - Read-only state check anytime (works market-closed too, no orders):
-  `php artisan trades:execute-EW-gate100 --state` (or `--json` for machine-readable output,
-  also used to verify backtest parity).
+  `php artisan trades:execute-leg-ema --span=20 --state` (or `--json` for machine-readable
+  output, also used to verify backtest parity).
+- Performance history, rejected overlays, and the full predecessor timeline:
+  [coreew_family.md](coreew_family.md). Backtest figures are **signal quality, not expected
+  returns** (A/B comparison only, and the published numbers fill a session later than live).
 
 ### What this replaced
 
-CoreEG100 (live 2026-09-27) replaced the **monotone weekly-ratchet gate** ("variant S",
-`trades:execute-EW-gate`, retired the same day) — a completely different algorithm (weekly,
-per-leg, peak-anchored ATR ratchet) rather than a re-tune of it. Variant S's code is retained
-off the cron for rollback. The original pure drift-gated equal-weight driver
-(`trades:execute-EW-ETF`, intraday, no signal at all — always long all three) is retained
-further back as the deepest rollback. **Any doc describing CoreEW's trigger as a weekly ATR
-ratchet or a 0.5%-drift rebalance is describing a retired driver, not the live one.**
+**CoreEG100 / EG100** (`trades:execute-EW-gate100`) was live 2026-09-27 → replaced 2026-09-28
+by P20w. It was a **portfolio-level** all-in/all-out gate: a synthetic equal-weight QQQ/VTI/VTV
+index vs its own **EMA(100)** on *daily* closes, pure crossover, one switch for all three legs.
+P20w is a different algorithm (per-leg, **weekly**, EMA 20) that reuses variant A's weekly
+equal-weight machinery. EG100's code is retained **off-cron** for rollback (uncomment the
+crontab line — the books hand over cleanly, since both target EW among the 3 legs). Before it
+came the **monotone weekly-ratchet gate** ("variant S", `trades:execute-EW-gate`, retired
+2026-09-27) and before that the original pure drift-gated equal-weight driver
+(`trades:execute-EW-ETF`, intraday, no signal at all). **Any doc describing CoreEW's trigger as
+an index EMA(100) gate, a weekly ATR ratchet, or a 0.5%-drift rebalance is describing a
+retired driver, not the live one.**
 
 ---
 
@@ -130,8 +148,12 @@ in-progress/partial bar.
 
 ## Reference
 
-- `AGENTS.md` "Live Strategies" table and "CoreEG100 logic" bullet — authoritative summary,
-  updated whenever any of the above changes.
-- `swingtrader/backend/app/Services/TradeExecutorService.php` — CoreEG100 implementation.
+- `AGENTS.md` (repo root) + `common/docs/OPERATING_RULES.md` "CoreEW family" bullets —
+  authoritative summary, updated whenever any of the above changes.
+- `swingtrader/backend/app/Services/TradeExecutorService.php` — CoreEW P20w implementation
+  (`runLegEma`/`replayLegEmaSeries`); `swingtrader/backend/app/Console/Commands/ExecuteLegEma.php`
+  — the live driver (`trades:execute-leg-ema --span=20`).
+- `common/docs/coreew_family.md` — CoreEW narrative, backtest numbers, rejected overlays, and
+  the EG100 → P20w decision history.
 - `swingtrader/services/mtf/{runner.py,executor.py,config.py}` — MTF Top-N implementation.
 - `swingtrader/services/ema_sma_crossover/daily_signal_service.py` — Daily Signal implementation.

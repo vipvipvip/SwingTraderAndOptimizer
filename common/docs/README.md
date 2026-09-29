@@ -9,7 +9,7 @@ AGENTS.md and the code over the doc.
 ## Start here
 
 - **[BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md)** — what causes each live strategy
-  (CoreEG100, MTF Top-N stock+ETF legs, Daily Signal) to actually buy or sell, verified
+  (CoreEW P20w, MTF Top-N stock+ETF legs, Daily Signal) to actually buy or sell, verified
   against the code. The fastest way to answer "why did/didn't this trade."
 - **`AGENTS.md`** (repo root) — architecture, live strategy table, operating rules,
   known invariants. Read this first for anything beyond buy/sell logic.
@@ -18,16 +18,16 @@ AGENTS.md and the code over the doc.
 
 - **[TRADING_STRATEGIES.md](TRADING_STRATEGIES.md)** — per-strategy deep dive (universe,
   parameters, execution flow, backtests). ⚠️ Its CoreEW section (§1) still describes the
-  retired weekly-ratchet gate ("variant S"), not CoreEG100 — use BUY_SELL_TRIGGERS.md or
-  AGENTS.md for the current CoreEW trigger until this is refreshed.
+  retired whole-book EMA(100) gate ("CoreEG100", replaced 2026-09-28) — use
+  BUY_SELL_TRIGGERS.md, `coreew_family.md`, or AGENTS.md for the current CoreEW trigger.
 - **[perf_explanations.md](perf_explanations.md)** — dated research log (exit-logic bugs,
   live-vs-backtest gaps, lookahead audits). Each entry is timestamped and later corrections
   are appended inline rather than rewriting history — read it as a log, not a current-state doc.
 - **[HANDOFF_DailySignal_All3CO.md](HANDOFF_DailySignal_All3CO.md)** — Daily Signal
   all-3-CO service: settled-bar/quality-gate conventions, Slack format, verification steps.
 - **[HANDOFF_CoreEW_rename.md](HANDOFF_CoreEW_rename.md)** — historical handoff from the
-  CHAND→CoreEW rename + intraday drift-gate/gain-rake work. Superseded by CoreEG100; kept
-  for context on how the current driver's predecessor worked.
+  CHAND→CoreEW rename + intraday drift-gate/gain-rake work. Superseded by CoreEG100 and then
+  by P20w; kept for context on how the current driver's predecessors worked.
 - **[mtf-infra-refactor-plan.md](mtf-infra-refactor-plan.md)** — archived infra plan.
 
 ## Operations
@@ -106,8 +106,9 @@ Previously removed: `NEW_SERVER_SETUP.md` (incomplete, SQLite-based), `FE-BE-Flo
 **SwingTrader** finds and trades entries across three independent live strategies, all on
 $1M/$100K Alpaca paper accounts:
 
-1. **CoreEG100** — whole-book equal-weight QQQ/VTI/VTV, gated all-in/all-out by an index
-   EMA(100) crossover. Checked every 5 min, trades only on a state flip.
+1. **CoreEW P20w ("LegEMA")** — QQQ/VTI/VTV, each leg long only while its own settled weekly
+   close is above its own EMA(20); ON legs are equal-weighted, OFF legs sit in cash. Acts once
+   per new settled week (systemd timer, Mon–Fri 10:05 ET).
 2. **MTF Top-N** — daily rotation into the top-10 stocks / top-3 ETFs by weekly EMA/SMA gap
    score, once/day at 10:25 ET, with a daily-ATR ratchet exit on the stock leg.
 3. **Daily Signal** — Slack-only alert (no orders) when a ticker completes all three of
@@ -120,8 +121,9 @@ uptime reality).
 **Infrastructure:** PostgreSQL (`swingtrader-db`, Docker) · Laravel backend (port 9000) ·
 Svelte/Vite frontend (port 5173) · systemd services/timers for everything scheduled (see
 `services_doc/`) — there is no framework-level (`php artisan schedule:run`) trade execution
-anymore; every live driver is either an OS cron entry (CoreEG100) or a systemd timer (MTF,
-Daily Signal, scanner ingestion).
+anymore; every live driver is a systemd timer (CoreEW P20w, MTF, Daily Signal, scanner
+ingestion). CoreEG100's old 5-min crontab line is the only remaining cron entry, and it is
+commented out (retired 2026-09-28, kept for rollback).
 
 ---
 
