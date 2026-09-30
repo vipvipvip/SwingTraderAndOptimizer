@@ -126,7 +126,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 let currentMode = '{{ $mode }}';
 let allData = [];
 let allSymbols = [];
-let chartInstance = null;
+let chartInstances = [];
+function destroyCharts() {
+  chartInstances.forEach(c => { try { c.remove(); } catch (e) {} });
+  chartInstances = [];
+}
 let activeTicker = null;
 let selectedIndex = -1;
 let sortField = 'combined';
@@ -267,7 +271,7 @@ async function loadData() {
 
 function switchMode(mode) {
   currentMode = mode;
-  if (chartInstance) { chartInstance.remove(); chartInstance = null; }
+  destroyCharts();
   activeTicker = null;
   selectedIndex = -1;
   document.getElementById('chartBody').innerHTML = '<div class="empty-chart">Select a ticker to view chart</div>';
@@ -333,7 +337,7 @@ function loadChart(ticker, row) {
 
 function closeChart() {
   getRows().forEach(r => r.classList.remove('active'));
-  if (chartInstance) { chartInstance.remove(); chartInstance = null; }
+  destroyCharts();
   activeTicker = null;
   selectedIndex = -1;
   document.getElementById('chartBody').innerHTML = '<div class="empty-chart">Select a ticker to view chart</div>';
@@ -341,14 +345,17 @@ function closeChart() {
 
 function renderChart(d) {
   const body = document.getElementById('chartBody');
-  if (chartInstance) { chartInstance.remove(); chartInstance = null; }
+  destroyCharts();
   const header = document.getElementById('chartHeader');
   body.innerHTML = '';
   body.style.display = 'flex'; body.style.flexDirection = 'column'; body.style.gap = '2px';
   if (header) body.appendChild(header);
 
-  const pricePanel = document.createElement('div'); pricePanel.style.flex = '1'; body.appendChild(pricePanel);
+  // min-height:0 — without it a pane's floor is its canvas height, and a tall
+  // price chart can push the bottom pane out of the container.
+  const pricePanel = document.createElement('div'); pricePanel.style.flex = '3'; pricePanel.style.minHeight = '0'; body.appendChild(pricePanel);
   pricePanel.style.position = 'relative';
+  const ppoPanel = document.createElement('div'); ppoPanel.style.flex = '2'; ppoPanel.style.minHeight = '0'; body.appendChild(ppoPanel);
 
   const base = {
     layout: { textColor:'#8b949e', background:{ color:'#13151f' } },
@@ -357,8 +364,14 @@ function renderChart(d) {
     rightPriceScale: { borderColor:'#2d2f3a' },
     timeScale: { borderColor:'#2d2f3a', timeVisible:false, secondsVisible:false, rightOffset:4 },
   };
+  // Fresh object per sub-chart: lightweight-charts keeps references to the nested
+  // option objects, so one shared literal lets the two panes clobber each other's
+  // price/time scale state.
+  const subOpts = () => ({ ...base, layout:{...base.layout}, grid:{...base.grid}, crosshair:{...base.crosshair}, rightPriceScale: { ...base.rightPriceScale, scaleMargins: { top:0.1, bottom:0.1 } }, timeScale: { ...base.timeScale, visible:false } });
 
   const chart = LightweightCharts.createChart(pricePanel, base);
+  const ppoC = LightweightCharts.createChart(ppoPanel, subOpts());
+  chartInstances = [chart, ppoC];
   const allLineSeries = [];
 
   const candleData = d.bars.map(b => ({ time:b.date, open:parseFloat(b.open), high:parseFloat(b.high), low:parseFloat(b.low), close:parseFloat(b.close) }));
@@ -400,11 +413,53 @@ function renderChart(d) {
     allLineSeries.push({ series:atrLine, color:'#f0883e' });
   }
 
-  const ind = d.indicators;
-  function nn(v) { return v != null && !isNaN(v); }
+  // PPO is computed client-side from the closes /scanner/data returns:
+  // no stored columns (the old ones were lookahead-biased) and no server work.
+  // PPO, not MACD: MACD is the same signal in dollars (corr 0.95, same zero
+  // crosses), so one pane covers it. EMA is seeded with an SMA of the first
+  // `period` values, null before that.
+  function emaValues(values, period) {
+    const out = new Array(values.length).fill(null);
+    if (values.length < period) return out;
+    let sum = 0;
+    for (let i = 0; i < period; i++) sum += values[i];
+    let prev = sum / period;
+    out[period - 1] = prev;
+    const mult = 2 / (period + 1);
+    for (let i = period; i < values.length; i++) {
+      prev = (values[i] - prev) * mult + prev;
+      out[i] = prev;
+    }
+    return out;
+  }
 
+  function signalLine(points, period) {
+    const ema = emaValues(points.map(p => p.value), period);
+    return points.map((p, i) => ema[i] === null ? null : { time: p.time, value: ema[i] }).filter(p => p !== null);
+  }
 
-  const priceMarkers = [], smaMarkers = [];
+  const closes = candleData.map(c => c.close);
+  const ema12 = emaValues(closes, 12);
+  const ema26 = emaValues(closes, 26);
+
+  const ppoPts = [];
+  candleData.forEach((c, i) => {
+    if (ema12[i] === null || ema26[i] === null) return;
+    const diff = ema12[i] - ema26[i];
+    ppoPts.push({ time: c.time, value: ema26[i] === 0 ? 0 : diff / ema26[i] * 100 });
+  });
+  const ppoSigPts = signalLine(ppoPts, 9);
+  const ppoSigAt = new Map(ppoSigPts.map(p => [p.time, p.value]));
+  const ppoHistPts = ppoPts
+    .filter(p => ppoSigAt.has(p.time))
+    .map(p => ({ time: p.time, value: p.value - ppoSigAt.get(p.time) }));
+
+  const ppoLine = ppoC.addLineSeries({ color:'#3fb950', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }); ppoLine.setData(ppoPts); allLineSeries.push({ series:ppoLine, color:'#3fb950' });
+  const ppoSig = ppoC.addLineSeries({ color:'#ffa657', lineWidth:2, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }); ppoSig.setData(ppoSigPts); allLineSeries.push({ series:ppoSig, color:'#ffa657' });
+  const ppoHist = ppoC.addHistogramSeries({ priceFormat:{ type:'volume' }, priceScaleId:'' }); ppoHist.setData(ppoHistPts.map(p => ({ time:p.time, value:p.value, color:p.value>=0?'rgba(63,185,80,0.5)':'rgba(248,81,73,0.5)' })));
+  const ppoZero = ppoC.addLineSeries({ color:'#f85149', lineWidth:1, priceLineVisible:false, lastValueVisible:false, priceFormat:{ type:'price', precision:2, minMove:0.01 } }); ppoZero.setData(ppoPts.map(p => ({ time:p.time, value:0 }))); allLineSeries.push({ series:ppoZero, color:'#f85149' });
+
+  const priceMarkers = [];
   for (let i = 1; i < candleData.length; i++) {
     const pc = candleData[i], pp = candleData[i-1];
     const c10 = ema10.find(e => e.time === pc.time)?.value;
@@ -416,12 +471,22 @@ function renderChart(d) {
       if (c10 < c40 && p10 >= p40) priceMarkers.push({ time:pc.time, position:'aboveBar', shape:'arrowDown', color:'#f85149', size:1 });
     }
   }
-  for (let i = 1; i < ind.length; i++) {
-    const c = ind[i], p = ind[i-1];
-    const t = c.date;
+  // Zero-crosses on the PPO line AND on the signal line (the TOS convention for
+  // discretionary PPO reading), each marker sitting on the line that crossed so
+  // the two are distinguishable.
+  function zeroCrossMarkers(points) {
+    const out = [];
+    for (let i = 1; i < points.length; i++) {
+      const c = points[i], p = points[i-1];
+      if (p.value <= 0 && c.value > 0) out.push({ time:c.time, position:'belowBar', shape:'arrowUp', color:'#3fb950', size:1 });
+      if (p.value >= 0 && c.value < 0) out.push({ time:c.time, position:'aboveBar', shape:'arrowDown', color:'#f85149', size:1 });
+    }
+    return out;
   }
+  const ppoMarkers = zeroCrossMarkers(ppoPts);
+  const ppoSigMarkers = zeroCrossMarkers(ppoSigPts);
 
-  const allPriceMarkers = [...priceMarkers, ...smaMarkers];
+  const allPriceMarkers = [...priceMarkers];
 
   let crosshairTime = null;
   function syncCrosshair(param) {
@@ -429,12 +494,17 @@ function renderChart(d) {
     allLineSeries.forEach(({ series, color }) => {
       if (series === ema10s) {
         ema10s.setMarkers(crosshairTime ? [...allPriceMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : allPriceMarkers);
+      } else if (series === ppoLine) {
+        ppoLine.setMarkers(crosshairTime ? [...ppoMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : ppoMarkers);
+      } else if (series === ppoSig) {
+        ppoSig.setMarkers(crosshairTime ? [...ppoSigMarkers, { time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : ppoSigMarkers);
       } else {
         series.setMarkers(crosshairTime ? [{ time:crosshairTime, position:'inBar', shape:'circle', color, size:2 }] : []);
       }
     });
   }
   chart.subscribeCrosshairMove(syncCrosshair);
+  ppoC.subscribeCrosshairMove(syncCrosshair);
   syncCrosshair({});
   let zoomSyncing = false;
   function onZoomSync(source, range) {
@@ -442,12 +512,14 @@ function renderChart(d) {
     zoomSyncing = true;
     const rr = { from: range.from, to: range.to };
     if (source !== chart) chart.timeScale().setVisibleRange(rr);
+    if (source !== ppoC) ppoC.timeScale().setVisibleRange(rr);
     zoomSyncing = false;
   }
   chart.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(chart, r));
+  ppoC.timeScale().subscribeVisibleTimeRangeChange(r => onZoomSync(ppoC, r));
 
   chart.timeScale().fitContent();
-  chartInstance = chart;
+  ppoC.timeScale().fitContent();
 }
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -208,9 +208,31 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 > really EMA24 vs SMA52; `ppo_crossover` was a 24/52 zero-cross, i.e. the same
 > event as `sma_crossover` under a second name). They have been dropped from the
 > weekly and daily tables, `compute_indicators.py` now computes only `atr_stop`,
-> and the MACD/PPO screens were removed from the UI. The scanner now serves the
+> and the MACD/PPO *signal screens* were removed from the UI. The scanner now serves the
 > multi-timeframe uptrend view (weekly EMA10>SMA40 + daily + hourly confirmation),
 > computed inline by `ScannerController::closeSma40Ema10()`.
+>
+> The **PPO chart pane** is back (2026-09-30) on the scanner and explorer charts,
+> but as a pure client-side compute (12/26/9, SMA-seeded EMA) over the closes
+> `/scanner/data/{ticker}` already returns — deliberately **not** re-added as
+> columns, so the lookahead bias cannot return. Same convention as
+> `closeSma40Ema10()` and the `earnings_screener.py` conversion below.
+>
+> PPO only, no MACD pane: MACD is the same signal in dollars
+> (`ppo = macd / ema26 * 100`), so on real data the two correlate 0.95, agree on
+> histogram sign for 98% of bars, and produce the *same 19* zero-crosses. One pane
+> covers both readings; PPO is the scale-free one, so it transfers across price
+> levels and across the 1,435-stock universe where a dollar MACD threshold does not.
+>
+> Arrows mark **zero-crosses on the PPO line and on the signal line** (TOS
+> convention, discretionary eyeballing only — no strategy consumes them), *not*
+> line-vs-signal crosses. The distinction is the whole ballgame: on CHTR daily,
+> 84 line×signal crosses fired of which **56 (67%) while PPO was below zero** — a
+> "bullish" cross under zero means EMA12 rose above its own 9-EMA while still
+> below EMA26, i.e. a bounce inside a downtrend by construction. Zero-crosses on
+> the same window: 21. Weekly is cleaner still (7 in 5.7y vs 21 in 2y daily),
+> so expect daily whipsaws (CHTR flipped bull 04-13 → bear 04-14) and treat the
+> weekly zero-cross as the high-conviction read.
 >
 > Hourly `close`/`atr_stop` are still maintained because the live MTF stock leg
 > scores and exits off them. `earnings_screener.py` was converted to **daily**
