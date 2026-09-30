@@ -234,6 +234,31 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 > so expect daily whipsaws (CHTR flipped bull 04-13 → bear 04-14) and treat the
 > weekly zero-cross as the high-conviction read.
 >
+> **Zero-cross exit study (2026-09-30) — RESEARCH ONLY, not a live strategy and not
+> a proposal to change emasma.** `scanner/services/scripts/ppo_zero_cross_study.py`
+> reproduces it. Three results worth keeping:
+> - **"Either line" is a no-op, universe-wide.** 51,397/51,397 signal-line zero
+>   crosses arrive *after* the PPO line already crossed the same way — the signal is
+>   a 9-EMA of the line, so it can never cross first. The chart's second arrow set is
+>   visual confirmation only; it adds no entries and no exits.
+> - **As a long/flat flip it loses to buy & hold over a full cycle** (QQQ daily
+>   11.8% vs 20.3% CAGR; AAPL daily 4.5% vs 23.3%), but on the 2022 bear it *wins* on
+>   QQQ (87.4k vs 69.4k, maxDD −15.0% vs −35.0% on a −30.6% tape) and loses on AAPL,
+>   whose "bear" was only −12.1%. **Bull-vs-bear is the wrong axis.**
+> - **The right axis is post-exit decline depth.** Over 24,625 universe-wide bearish
+>   crosses: dead money below ~−27% (+41.6% given up in the 0..−10% bucket, −42.7%
+>   avoided below −60%). 64% of all crosses are dead money, and of a ≥35% decline a
+>   median **23% is already gone when the cross fires** — so this is "stay out of the
+>   rest of it", never crash protection. Dead money is bounded and short: median 41
+>   bars, p90 122, over a year in 7 crosses.
+>
+> So the real argument for a rule-based re-entry is not return, it is that re-entering
+> on the cross converts unbounded dead money (a discretionary "I'll decide when to get
+> back") into that measured distribution. Cost of the protection: 22–74 bars flat,
+> ~64% of exits wrong. Best single case is ROKU 2021-08-13 (peak +145%, exited 18
+> days later, dodged −82%, then 1.31y flat). The screen is conditioned on the
+> outcome, so it sizes the wins — it is not a hit rate.
+>
 > Hourly `close`/`atr_stop` are still maintained because the live MTF stock leg
 > scores and exits off them. `earnings_screener.py` was converted to **daily**
 > MACD (computed inline from settled closes) rather than dropped.

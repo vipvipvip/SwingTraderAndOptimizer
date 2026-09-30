@@ -45,5 +45,6 @@ Source of truth for the rules AGENTS.md summarizes. **Read the section relevant 
 - `swingtrader/services/ema_sma_crossover/daily_signal_service.py` — Daily Signal, all-3-CO settled-bar emitter (dir holds only this + config.py/db.py)
 - `scanner/backend/Controllers/ScannerController.php`, `scanner/backend/views/scanner/explorer.blade.php` — Explorer endpoint + dashboard
 - `scanner/services/scripts/{compute_indicators.py, get_vti_universe.py, populate_tickers.py}` — partition-aware indicator worker, VTI universe fetcher, bar ingestion (+yfinance fallback)
+- `scanner/services/scripts/ppo_zero_cross_study.py` — PPO zero-cross exit study (research/what-if, **not live, not a strategy**). Settled bars only, next-bar-close fills, COST=0.0005. Findings in `TRADING_STRATEGIES.md`: "either line" is a no-op (signal always crosses second), loses to B&H over a full cycle, wins only past ~−27% post-exit DD, and is never crash protection (median 23% of a ≥35% decline is gone before the cross fires)
 - `common/docs/mtf-infra-refactor-plan.md` — archived infra plan
 ## Relevant Files (index)
