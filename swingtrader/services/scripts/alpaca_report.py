@@ -25,7 +25,7 @@ Usage:
   python3 alpaca_report.py                # all strategies
   python3 alpaca_report.py --strategy mtf-stock mtf-etf coreew
   python3 alpaca_report.py --snapshot     # snapshot table only
-  python3 alpaca_report.py --live-spy     # benchmark through today's partial close
+  python3 alpaca_report.py --settled-spy  # benchmark pinned to last settled close
   python3 alpaca_report.py --json         # machine-readable (--snapshot = snapshot JSON)
   python3 alpaca_report.py --open-only    # skip closed-trade detail, positions only
 """
@@ -37,6 +37,7 @@ import sys
 import textwrap
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -44,6 +45,12 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 MTF_DIR = os.path.join(BASE, '..', 'mtf')
 BACKEND_DIR = os.path.join(BASE, '..', '..', 'backend')
 PAPER_URL = 'https://paper-api.alpaca.markets'
+
+try:
+    MARKET_TZ = ZoneInfo('America/New_York')
+except Exception:
+    MARKET_TZ = None
+SETTLED_AFTER_ET = (16, 5)
 
 STRATEGIES = {
     'mtf-stock': {'name': 'TOP stocks', 'acct': 'PA368CPXNS13',
@@ -119,21 +126,30 @@ def _parse_ts(s):
         return None
 
 
-def _spy_closes(start, end, headers=None):
-    """SPY daily closes over [start, end] ascending — [{'t': date, 'c': close}].
+def _et_now():
+    """Current time in the US market timezone (falls back to host local time)."""
+    return datetime.now(MARKET_TZ) if MARKET_TZ else datetime.now().astimezone()
 
-    Uses the Alpaca data API when headers are available, otherwise falls back
-    to the scanner DB daily table (same fallback chain as every other read here).
+
+def _spy_closes(start, end, headers=None):
+    """SPY daily closes over [start, end] ascending.
+
+    Returns (bars, source) where bars is [{'t': date, 'c': close}] and source is
+    whichever provider actually served the data ('alpaca', 'db', or None). The
+    DB fallback only ever holds settled bars, so callers must carry `source`
+    through rather than assume the Alpaca path succeeded.
     """
     bars = []
+    source = None
     if headers:
         try:
             data = _get('https://data.alpaca.markets/v2/stocks/bars', headers,
                         params={'symbols': 'SPY', 'timeframe': '1Day',
-                                'adjustment': 'split', 'start': start,
-                                'end': end, 'limit': 10000})
+                                'adjustment': 'split', 'feed': 'iex',
+                                'start': start, 'end': end, 'limit': 10000})
             bars = [{'t': str(b['t'])[:10], 'c': float(b['c'])}
                     for b in data.get('bars', {}).get('SPY') or []]
+            source = 'alpaca' if bars else None
         except Exception:
             bars = []
     if not bars:
@@ -149,9 +165,11 @@ def _spy_closes(start, end, headers=None):
                     'ORDER BY date ASC', (start, end))
                 bars = [{'t': str(r[0])[:10], 'c': float(r[1])} for r in cur.fetchall()]
             conn.close()
+            source = 'db' if bars else None
         except Exception:
             bars = []
-    return bars
+            source = None
+    return bars, source
 
 
 def _spy_window(closes, inception, end_date=None):
@@ -179,18 +197,22 @@ def _spy_return(start, end, headers=None):
     Returns a dict with start/end closes and the return %, or None if the window
     can't be resolved.
     """
-    return _spy_window(_spy_closes(start, end, headers), start, end)
+    closes, _source = _spy_closes(start, end, headers)
+    return _spy_window(closes, start, end)
 
 
-def _build_snapshot(reports, headers=None, live_spy=False):
+def _build_snapshot(reports, headers=None, settled_only=False):
     """Strategy-vs-SPY snapshot: one column per strategy, inception → as-of.
 
     Inception is the date of the first filled trade. Initial is the strategy's
-    declared starting capital, current is Alpaca account equity. The benchmark is
-    SPY buy-and-hold over each strategy's own inception date, priced on the last
-    settled close (`--live-spy` extends it through today's partial close).
+    declared starting capital, current is Alpaca account equity (which re-marks at
+    the latest available price). The benchmark is SPY buy-and-hold over each
+    strategy's own inception date, priced at the latest available bar by default;
+    `settled_only` drops today's bar so the benchmark is always the last settled
+    close.
     """
-    today = datetime.now().date().isoformat()
+    now_et = _et_now()
+    today = now_et.date().isoformat()
     cols = []
     for r in reports:
         c = {'strategy': r.get('strategy'), 'account': r.get('account'),
@@ -204,9 +226,10 @@ def _build_snapshot(reports, headers=None, live_spy=False):
         cols.append(c)
 
     inceptions = sorted(c['inception'] for c in cols if c['inception'])
+    source = None
     if inceptions:
-        closes = _spy_closes(inceptions[0], today, headers)
-        if not live_spy:
+        closes, source = _spy_closes(inceptions[0], today, headers)
+        if settled_only:
             closes = [b for b in closes if b['t'] < today]
         for c in cols:
             if not c['inception']:
@@ -220,8 +243,27 @@ def _build_snapshot(reports, headers=None, live_spy=False):
                 c['vs_spy_pts'] = c['gain_pct'] - win['pct']
 
     as_of = max((c['spy']['end'] for c in cols if c['spy']), default=None)
-    return {'as_of': as_of, 'benchmark': 'SPY', 'live_spy': live_spy,
-            'today': today, 'strategies': cols}
+    return {'as_of': as_of, 'benchmark': 'SPY', 'settled_only': settled_only,
+            'source': source, 'today': today, 'now_et': now_et, 'strategies': cols}
+
+
+def _bench_label(snap):
+    """Describe the benchmark's actual price basis from the data, not the mode.
+
+    Derived from the as-of bar date, the clock and which provider served the bars,
+    so a stale fallback or a settled session can never be described as live.
+    """
+    as_of = snap.get('as_of')
+    if not as_of:
+        return 'unavailable'
+    today = snap['today']
+    now_et = snap.get('now_et')
+    if as_of < today:
+        return f'last settled close {as_of}'
+    if now_et and (now_et.hour, now_et.minute) >= SETTLED_AFTER_ET:
+        return f'today\'s settled close {as_of}'
+    stamp = f'{now_et:%H:%M} ET' if now_et else 'session open'
+    return f'today\'s partial close {as_of} (as of {stamp})'
 
 
 def _avg_cost_realized(fills):
@@ -390,8 +432,7 @@ def _cell(value, fmt, empty='—'):
 def _fmt_snapshot(snap):
     """Strategy × SPY-B&H snapshot table (one column per strategy) + footnotes."""
     cols = snap['strategies']
-    as_of = (f'{snap["today"]} (live, partial close)' if snap['live_spy']
-             else snap['as_of'] or 'no data')
+    as_of = _bench_label(snap)
     lines = [_title_box(f'Strategy snapshot — each strategy vs SPY B&H '
                         f'(as of {as_of})')]
 
@@ -410,18 +451,23 @@ def _fmt_snapshot(snap):
     lines.extend(_table(['Metric'] + [c['strategy'] for c in cols], rows,
                         aligns=['<'] + ['>'] * len(cols)))
 
-    bench = ('today\'s partial close' if snap['live_spy']
-             else f'last settled close {snap["as_of"] or "unavailable"}')
+    src = snap.get('source')
+    src_note = ('Alpaca data API' if src == 'alpaca' else
+                'scanner DB fallback (settled bars only)' if src == 'db' else
+                'unavailable')
     notes = [
         'Inception = date of the first filled trade. Current = Alpaca account '
-        'equity (cash + positions).',
+        'equity (cash + positions), marked at the latest available price.',
         'Initial = declared starting capital; a cash transfer into an account '
         'would skew its return.',
         f'SPY B&H = split-adjusted close on that strategy\'s inception date → '
-        f'{bench}; dividends excluded.',
+        f'{as_of}; dividends excluded. Bars via {src_note}.',
         'vs SPY = strategy % gain − SPY % gain, in percentage points (over '
         'different inception windows — not a like-for-like period).',
     ]
+    if snap.get('settled_only'):
+        notes.insert(3, 'Benchmark pinned to the last settled close (--settled-spy), '
+                        'so it can lag the live-marked strategy columns.')
     notes += [f"{c['strategy']}: unavailable — {c['error']}"
               for c in cols if c.get('error')]
     for note in notes:
@@ -534,9 +580,9 @@ def main():
                     help='skip closed-trade detail, show account + positions only')
     ap.add_argument('--snapshot', action='store_true',
                     help='print only the strategy snapshot (per-strategy vs SPY B&H)')
-    ap.add_argument('--live-spy', action='store_true',
-                    help='benchmark SPY through today\'s partial close instead of '
-                         'the last settled close')
+    ap.add_argument('--settled-spy', action='store_true',
+                    help='pin the SPY benchmark to the last settled close '
+                         'instead of the latest available bar')
     args = ap.parse_args()
 
     chosen = args.strategy or list(STRATEGIES)
@@ -549,7 +595,7 @@ def main():
 
     bench_headers = next((h for h in (_headers_for(STRATEGIES[t]) for t in chosen)
                           if h), None)
-    snap = _build_snapshot(reports, bench_headers, args.live_spy)
+    snap = _build_snapshot(reports, bench_headers, args.settled_spy)
     for r, c in zip(reports, snap['strategies']):
         r['inception_date'] = c['inception']
         r['current_amount'] = c['current']
