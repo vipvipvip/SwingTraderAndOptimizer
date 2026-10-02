@@ -46,15 +46,15 @@ BACKEND_DIR = os.path.join(BASE, '..', '..', 'backend')
 PAPER_URL = 'https://paper-api.alpaca.markets'
 
 STRATEGIES = {
-    'mtf-stock': {'name': 'MTF Top-N stocks', 'acct': 'PA368CPXNS13',
+    'mtf-stock': {'name': 'TOP stocks', 'acct': 'PA368CPXNS13',
                   'env': os.path.join(MTF_DIR, '.env'),
                   'keys': ('ALPACA_API_KEY', 'ALPACA_SECRET_KEY'),
                   'initial_capital': 100000.0},
-    'mtf-etf': {'name': 'EMA/SMA ETF leg', 'acct': 'PA3U8GZ96PEN',
+    'mtf-etf': {'name': 'TOP ETFs', 'acct': 'PA3U8GZ96PEN',
                 'env': os.path.join(MTF_DIR, '.env'),
                 'keys': ('ALPACA_ETF_API_KEY', 'ALPACA_ETF_SECRET_KEY'),
                 'initial_capital': 100000.0},
-    'coreew': {'name': 'CoreEW trio', 'acct': 'PA3GKZYLVO68',
+    'coreew': {'name': 'CORE ETF', 'acct': 'PA3GKZYLVO68',
               'env': os.path.join(BACKEND_DIR, '.env'),
               'keys': ('ALPACA_API_KEY', 'ALPACA_SECRET_KEY'),
               'initial_capital': 100000.0},
