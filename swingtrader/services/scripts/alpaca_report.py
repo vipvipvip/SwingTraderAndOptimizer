@@ -2,8 +2,12 @@
 """alpaca_report.py — read-only per-strategy Alpaca trading/positions report.
 
 Pulls each strategy's Alpaca paper account directly from the API (authoritative
-order + position history) and prints a summary since inception:
+order + position history) and prints a strategy snapshot (one column per
+strategy, inception → today vs SPY buy-and-hold from the same inception date)
+followed by per-strategy detail since inception:
 
+  - Snapshot: inception date, initial amount, current equity, $ gain, % gain,
+    SPY B&H over the same window, and the % difference
   - Account: number, status, equity, cash, buying power, portfolio value
   - Activity: first/last fill, buy/sell counts, total turnover
   - Current positions: qty, avg entry, mark, market value, unrealized PnL
@@ -20,7 +24,9 @@ Never places orders and never writes state. Only reads Alpaca + the DB.
 Usage:
   python3 alpaca_report.py                # all strategies
   python3 alpaca_report.py --strategy mtf-stock mtf-etf coreew
-  python3 alpaca_report.py --json         # machine-readable
+  python3 alpaca_report.py --snapshot     # snapshot table only
+  python3 alpaca_report.py --live-spy     # benchmark through today's partial close
+  python3 alpaca_report.py --json         # machine-readable (--snapshot = snapshot JSON)
   python3 alpaca_report.py --open-only    # skip closed-trade detail, positions only
 """
 
@@ -28,6 +34,7 @@ import argparse
 import json
 import os
 import sys
+import textwrap
 import time
 from datetime import datetime
 
@@ -112,12 +119,11 @@ def _parse_ts(s):
         return None
 
 
-def _spy_return(start, end, headers=None):
-    """SPY buy-and-hold return (%) over the report window [start, end] (inclusive).
+def _spy_closes(start, end, headers=None):
+    """SPY daily closes over [start, end] ascending — [{'t': date, 'c': close}].
 
     Uses the Alpaca data API when headers are available, otherwise falls back
-    to the scanner DB daily table. Returns a dict with start/end closes and the
-    return %, or None if the window can't be resolved.
+    to the scanner DB daily table (same fallback chain as every other read here).
     """
     bars = []
     if headers:
@@ -125,8 +131,9 @@ def _spy_return(start, end, headers=None):
             data = _get('https://data.alpaca.markets/v2/stocks/bars', headers,
                         params={'symbols': 'SPY', 'timeframe': '1Day',
                                 'adjustment': 'split', 'start': start,
-                                'end': end, 'limit': 2000})
-            bars = data.get('bars', {}).get('SPY') or []
+                                'end': end, 'limit': 10000})
+            bars = [{'t': str(b['t'])[:10], 'c': float(b['c'])}
+                    for b in data.get('bars', {}).get('SPY') or []]
         except Exception:
             bars = []
     if not bars:
@@ -140,16 +147,81 @@ def _spy_return(start, end, headers=None):
                     'WHERE ticker_id = (SELECT id FROM tbl_stock_tickers '
                     "WHERE symbol = 'SPY') AND date >= %s AND date <= %s "
                     'ORDER BY date ASC', (start, end))
-                bars = [{'t': str(r[0]), 'c': float(r[1])} for r in cur.fetchall()]
+                bars = [{'t': str(r[0])[:10], 'c': float(r[1])} for r in cur.fetchall()]
             conn.close()
         except Exception:
             bars = []
-    if len(bars) < 2:
+    return bars
+
+
+def _spy_window(closes, inception, end_date=None):
+    """SPY buy-and-hold over [inception, end_date] from an ascending close list.
+
+    Entry is the first close on/after inception (you cannot buy before the
+    account existed), exit the last close on/before end_date. None if the window
+    has fewer than two bars.
+    """
+    win = [b for b in closes if b['t'] >= inception]
+    if end_date:
+        win = [b for b in win if b['t'] <= end_date]
+    if len(win) < 2:
         return None
-    s = float(bars[0]['c'])
-    e = float(bars[-1]['c'])
-    return {'start': str(bars[0]['t'])[:10], 'end': str(bars[-1]['t'])[:10],
-            'start_close': s, 'end_close': e, 'pct': (e - s) / s * 100}
+    s, e = float(win[0]['c']), float(win[-1]['c'])
+    if s <= 0:
+        return None
+    return {'start': win[0]['t'], 'end': win[-1]['t'], 'start_close': s,
+            'end_close': e, 'pct': (e - s) / s * 100}
+
+
+def _spy_return(start, end, headers=None):
+    """SPY buy-and-hold return (%) over the report window [start, end] (inclusive).
+
+    Returns a dict with start/end closes and the return %, or None if the window
+    can't be resolved.
+    """
+    return _spy_window(_spy_closes(start, end, headers), start, end)
+
+
+def _build_snapshot(reports, headers=None, live_spy=False):
+    """Strategy-vs-SPY snapshot: one column per strategy, inception → as-of.
+
+    Inception is the date of the first filled trade. Initial is the strategy's
+    declared starting capital, current is Alpaca account equity. The benchmark is
+    SPY buy-and-hold over each strategy's own inception date, priced on the last
+    settled close (`--live-spy` extends it through today's partial close).
+    """
+    today = datetime.now().date().isoformat()
+    cols = []
+    for r in reports:
+        c = {'strategy': r.get('strategy'), 'account': r.get('account'),
+             'error': r.get('error'), 'initial': r.get('initial_capital'),
+             'inception': (r.get('first_fill') or '')[:10] or None,
+             'current': r.get('equity'), 'gain': None, 'gain_pct': None,
+             'spy': None, 'vs_spy_pts': None}
+        if c['current'] is not None and c['initial']:
+            c['gain'] = c['current'] - c['initial']
+            c['gain_pct'] = c['gain'] / c['initial'] * 100
+        cols.append(c)
+
+    inceptions = sorted(c['inception'] for c in cols if c['inception'])
+    if inceptions:
+        closes = _spy_closes(inceptions[0], today, headers)
+        if not live_spy:
+            closes = [b for b in closes if b['t'] < today]
+        for c in cols:
+            if not c['inception']:
+                continue
+            win = _spy_window(closes, c['inception'])
+            if not win:
+                continue
+            win['gain'] = (c['initial'] or 0.0) * win['pct'] / 100.0
+            c['spy'] = win
+            if c['gain_pct'] is not None:
+                c['vs_spy_pts'] = c['gain_pct'] - win['pct']
+
+    as_of = max((c['spy']['end'] for c in cols if c['spy']), default=None)
+    return {'as_of': as_of, 'benchmark': 'SPY', 'live_spy': live_spy,
+            'today': today, 'strategies': cols}
 
 
 def _avg_cost_realized(fills):
@@ -194,14 +266,22 @@ def _avg_cost_realized(fills):
     return book, realized_total
 
 
-def _alpaca_account_report(tag):
+def _headers_for(tag):
+    """Alpaca auth headers for a strategy's account, or None if keys are missing."""
     env = _read_env(tag['env'])
     api_key = env.get(tag['keys'][0])
     api_secret = env.get(tag['keys'][1])
     if not api_key or not api_secret:
+        return None
+    return {'APCA-API-KEY-ID': api_key, 'APCA-API-SECRET-KEY': api_secret}
+
+
+def _alpaca_account_report(tag):
+    headers = _headers_for(tag)
+    if not headers:
         return {'strategy': tag['name'], 'account': tag['acct'],
-                'error': 'API keys not found in env file'}
-    headers = {'APCA-API-KEY-ID': api_key, 'APCA-API-SECRET-KEY': api_secret}
+                'error': 'API keys not found in env file',
+                'initial_capital': tag.get('initial_capital'), 'equity': None}
 
     try:
         account = _get(f'{PAPER_URL}/v2/account', headers)
@@ -209,7 +289,8 @@ def _alpaca_account_report(tag):
         fills = _fetch_all_fills(headers)
     except Exception as e:
         return {'strategy': tag['name'], 'account': tag['acct'],
-                'error': f'API error: {e}'}
+                'error': f'API error: {e}',
+                'initial_capital': tag.get('initial_capital'), 'equity': None}
 
     book, realized_total = _avg_cost_realized(fills)
 
@@ -291,6 +372,64 @@ def _fmt_money(v):
     return f'${v:,.2f}'
 
 
+def _fmt_signed_money(v):
+    return ('+' if v >= 0 else '-') + _fmt_money(abs(v))
+
+
+def _title_box(text):
+    """Boxed section title (border sized to the text)."""
+    return '\n'.join(['┌' + '─' * (len(text) + 2) + '┐',
+                      '│' + f' {text} ' + '│',
+                      '└' + '─' * (len(text) + 2) + '┘'])
+
+
+def _cell(value, fmt, empty='—'):
+    return empty if value is None else fmt(value)
+
+
+def _fmt_snapshot(snap):
+    """Strategy × SPY-B&H snapshot table (one column per strategy) + footnotes."""
+    cols = snap['strategies']
+    as_of = (f'{snap["today"]} (live, partial close)' if snap['live_spy']
+             else snap['as_of'] or 'no data')
+    lines = [_title_box(f'Strategy snapshot — each strategy vs SPY B&H '
+                        f'(as of {as_of})')]
+
+    rows = [
+        ['Inception'] + [_cell(c['inception'], str) for c in cols],
+        ['Initial'] + [_cell(c['initial'], _fmt_money) for c in cols],
+        ['Current'] + [_cell(c['current'], _fmt_money) for c in cols],
+        ['$ Gain'] + [_cell(c['gain'], _fmt_signed_money) for c in cols],
+        ['% Gain'] + [_cell(c['gain_pct'], lambda v: f'{v:+.2f}%') for c in cols],
+        ['SPY B&H $'] + [_cell(c['spy'] and c['spy']['gain'], lambda v: f'{v:+,.0f}')
+                         for c in cols],
+        ['SPY B&H %'] + [_cell(c['spy'] and c['spy']['pct'], lambda v: f'{v:+.2f}%')
+                         for c in cols],
+        ['vs SPY'] + [_cell(c['vs_spy_pts'], lambda v: f'{v:+.2f} pts') for c in cols],
+    ]
+    lines.extend(_table(['Metric'] + [c['strategy'] for c in cols], rows,
+                        aligns=['<'] + ['>'] * len(cols)))
+
+    bench = ('today\'s partial close' if snap['live_spy']
+             else f'last settled close {snap["as_of"] or "unavailable"}')
+    notes = [
+        'Inception = date of the first filled trade. Current = Alpaca account '
+        'equity (cash + positions).',
+        'Initial = declared starting capital; a cash transfer into an account '
+        'would skew its return.',
+        f'SPY B&H = split-adjusted close on that strategy\'s inception date → '
+        f'{bench}; dividends excluded.',
+        'vs SPY = strategy % gain − SPY % gain, in percentage points (over '
+        'different inception windows — not a like-for-like period).',
+    ]
+    notes += [f"{c['strategy']}: unavailable — {c['error']}"
+              for c in cols if c.get('error')]
+    for note in notes:
+        lines.extend(textwrap.wrap(note, width=78,
+                                   subsequent_indent='  '))
+    return '\n'.join(lines)
+
+
 def _table(headers, rows, aligns=None):
     """Render a bordered table (box-drawing). Returns a list of lines."""
     aligns = aligns or ['<'] * len(headers)
@@ -326,9 +465,7 @@ def _fmt_report(r):
         return '\n'.join(lines)
 
     title = f" {r['strategy']} ({r['account']}) — {r.get('status', '?')} "
-    lines.append('┌' + '─' * (len(title) + 2) + '┐')
-    lines.append('│' + f' {title} ' + '│')
-    lines.append('└' + '─' * (len(title) + 2) + '┘')
+    lines.extend(_title_box(title).split('\n'))
 
     if r.get('first_fill'):
         info_rows = []
@@ -395,6 +532,11 @@ def main():
     ap.add_argument('--json', action='store_true', help='emit JSON')
     ap.add_argument('--open-only', action='store_true',
                     help='skip closed-trade detail, show account + positions only')
+    ap.add_argument('--snapshot', action='store_true',
+                    help='print only the strategy snapshot (per-strategy vs SPY B&H)')
+    ap.add_argument('--live-spy', action='store_true',
+                    help='benchmark SPY through today\'s partial close instead of '
+                         'the last settled close')
     args = ap.parse_args()
 
     chosen = args.strategy or list(STRATEGIES)
@@ -405,10 +547,26 @@ def main():
             r.pop('closed', None)
         reports.append(r)
 
+    bench_headers = next((h for h in (_headers_for(STRATEGIES[t]) for t in chosen)
+                          if h), None)
+    snap = _build_snapshot(reports, bench_headers, args.live_spy)
+    for r, c in zip(reports, snap['strategies']):
+        r['inception_date'] = c['inception']
+        r['current_amount'] = c['current']
+        r['gain'] = c['gain']
+        r['gain_pct'] = c['gain_pct']
+        r['spy_since_inception'] = c['spy']
+        r['vs_spy_pts'] = c['vs_spy_pts']
+
     if args.json:
-        print(json.dumps(reports, indent=2, default=str))
+        print(json.dumps(snap if args.snapshot else reports, indent=2, default=str))
+        return
+
+    print(_fmt_snapshot(snap))
+    if args.snapshot:
         return
     for r in reports:
+        print()
         print(_fmt_report(r))
         print()
 
