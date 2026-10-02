@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Multi-timeframe daily signal scanner — runs after market close.
+"""Daily signal scanner — runs after market close.
 
-Emit ONLY tickers where ALL THREE EM(10)>SM(40) crossovers are done:
+Emit tickers where BOTH EM(10)>SM(40) crossovers are done on settled bars:
 1. WCO done — weekly EMA10 > SMA40 (settled weekly bar)
 2. DCO done — daily EMA10 > SMA40 (settled daily bar)
-3. HCO done + fresh — hourly EMA10 > SMA40 with the up-cross within the last
-   1-2 trading days of the SETTLED hourly series (quality-gated: degraded /
-   synthetic bars, vol < MIN_HOURLY_VOL, are dropped so today's partial capture
-   never drives the signal).
+
+Hourly (HCO) was removed 2026-10-02: it was sourced from last-trade snapshots
+rather than real bars, and its only live use was an unvalidated gate. Prices,
+ATR distance and scores now come from the settled daily series.
 
 Sends Slack summary and logs entry signals to CSV.
 """
@@ -21,8 +21,6 @@ import numpy as np
 import pandas as pd
 import requests
 
-MIN_HOURLY_VOL = 1000.0  # drop degraded/synthetic hourly bars (DB vol 40-700)
-
 
 def _bar_date(r):
     return r['dt'].date() if hasattr(r['dt'], 'date') else r['dt']
@@ -31,6 +29,7 @@ import config
 import db as db_module
 
 NY = ZoneInfo('America/New_York')
+SLACK_TOP_N = 25  # Slack renders the top N by score; CSV/state keep every signal
 SIGNALS_CSV = os.path.join(os.path.dirname(__file__), 'data', 'daily_signals.csv')
 STATE_FILE = os.path.join(os.path.dirname(__file__), '.daily_signal_state.json')
 TS_START = datetime(2023, 6, 30).date()
@@ -78,7 +77,7 @@ def _ensure_data_ready():
     (skip run + Slack alert) if the gate cannot confirm data readiness."""
     try:
         r = subprocess.run(
-            [SCANNER_VENV_PYTHON, DATA_GATE_SCRIPT, '--ensure', '--tf', 'day,hour,week',
+            [SCANNER_VENV_PYTHON, DATA_GATE_SCRIPT, '--ensure', '--tf', 'day,week',
              '--mode', 'all', '--workers', '10'],
             capture_output=True, text=True, timeout=1800)
         if r.stdout:
@@ -140,11 +139,10 @@ def run():
         ema_period = config.EMA_PERIOD
         sma_period = config.SMA_PERIOD
 
-        # Batch-load bars for all three timeframes
+        # Batch-load bars for both timeframes
         print(f'  Loading data for {len(ticker_ids)} tickers...')
         weekly_raw = _batch_load_bars(conn, ticker_ids, 'tbl_scanner_tickers', 'date', limit=300)
         daily_raw = _batch_load_bars(conn, ticker_ids, 'tbl_scanner_tickers_daily', 'date', limit=300)
-        hourly_raw = _batch_load_bars(conn, ticker_ids, 'tbl_scanner_tickers_1hour', 'date', limit=300)
 
         # Organize by ticker_id
         weekly_by_tid = {}
@@ -154,10 +152,6 @@ def run():
         daily_by_tid = {}
         for r in daily_raw:
             daily_by_tid.setdefault(r['ticker_id'], []).append(r)
-
-        hourly_by_tid = {}
-        for r in hourly_raw:
-            hourly_by_tid.setdefault(r['ticker_id'], []).append(r)
 
         now_date = datetime.now(NY).date()
         today_str = str(now_date)
@@ -169,7 +163,6 @@ def run():
         for tid, sym in id_to_symbol.items():
             w_raw = weekly_by_tid.get(tid, [])
             d_raw = daily_by_tid.get(tid, [])
-            h_raw = hourly_by_tid.get(tid, [])
 
             # Need SMA(40) periods of data
             if len(w_raw) < sma_period + 5 or len(d_raw) < sma_period + 5:
@@ -196,41 +189,15 @@ def run():
             weekly_bullish = w_ema[wi] > w_sma[wi]
             daily_bullish = d_ema[di] > d_sma[di]
 
-            # WCO + DCO done → breadth tally (hourly only gates entry emission)
+            # WCO + DCO done → this is the entry condition
             if not (weekly_bullish and daily_bullish):
                 continue
             uptrend_tickers.append(sym)
 
-            # Hourly: quality-gated SETTLED series (drop degraded/synthetic bars + today)
-            h_valid = [r for r in h_raw if (r['volume'] or 0) >= MIN_HOURLY_VOL and _bar_date(r) < now_date]
-            h_close = np.array([r['close'] for r in h_valid])
-            if len(h_close) < sma_period + 5:
-                continue
-            h_ema = pd.Series(h_close).ewm(span=ema_period, adjust=False).mean().values
-            h_sma = pd.Series(h_close).rolling(window=sma_period).mean().values
-            hi = len(h_close) - 1
-            if any(np.isnan(x) for x in (h_ema[hi], h_sma[hi])):
-                continue
-
-            # HCO done + fresh: current hourly bull AND the up-cross within the
-            # last 1-2 trading days of the settled hourly series (may be 1-2d old).
-            cross_dt = None
-            for j in range(hi, 0, -1):
-                if np.isnan(h_sma[j]) or np.isnan(h_sma[j - 1]):
-                    continue
-                if h_ema[j] > h_sma[j] and h_ema[j - 1] <= h_sma[j - 1]:
-                    cross_dt = _bar_date(h_valid[j])
-                    break
-            settled_days = sorted({_bar_date(r) for r in h_valid})
-            h_fresh = (h_ema[hi] > h_sma[hi]) and cross_dt is not None and cross_dt in settled_days[-2:]
-
-            # Emit ONLY when all three COs are done: W bull + D bull + H bull&fresh (<=2d old)
-            if not h_fresh:
-                continue
-
-            # Momentum score (unchanged weights) from top predictive features
-            atr_stop = float(h_valid[hi]['atr_stop']) if h_valid[hi]['atr_stop'] else 0
-            atr_dist = (h_close[hi] - atr_stop) / h_close[hi] * 100 if atr_stop > 0 else 0
+            # Momentum score (unchanged weights) from top predictive features.
+            # Price/ATR now come from the settled daily bar that drove the DCO.
+            atr_stop = float(d_raw[di]['atr_stop']) if d_raw[di]['atr_stop'] else 0
+            atr_dist = (d_close[di] - atr_stop) / d_close[di] * 100 if atr_stop > 0 else 0
             gap_w_pct = (w_close[wi] - w_sma[wi]) / w_sma[wi] * 100
 
             # Days since weekly cross (freshness check)
@@ -249,17 +216,16 @@ def run():
             score += freshness
             score = round(score, 1)
 
-            entry_price = h_close[hi]
+            entry_price = d_close[di]
             entry_signals.append({
                 'ticker': sym,
                 'close': entry_price,
-                'date': h_valid[hi]['dt'],
+                'date': d_raw[di]['dt'],
                 'score': score,
                 'gap_w': round(gap_w_pct, 1),
                 'atr_dist': round(atr_dist, 1),
                 'infancy': is_infancy,
                 'days_weekly': days_since_weekly,
-                'hco': cross_dt,
             })
 
             # Log to CSV + state dedup
@@ -267,7 +233,7 @@ def run():
             if prev.get('action') != 'ENTRY' or prev.get('date') != today_str:
                 label = 'INFANCY' if is_infancy else 'MATURE'
                 _log_csv(today_str, sym, 'ENTRY', entry_price,
-                         f'All-3 CO (W+D bull, HCO {cross_dt}) ({label}, score={score}, gap_w={gap_w_pct:.1f}%, atr_dist={atr_dist:.1f}%, wk_cross={days_since_weekly}d)')
+                         f'W+D CO (both bull) ({label}, score={score}, gap_w={gap_w_pct:.1f}%, atr_dist={atr_dist:.1f}%, wk_cross={days_since_weekly}d)')
                 state[sym] = {'action': 'ENTRY', 'date': today_str}
                 new_signals_logged.append(sym)
 
@@ -285,32 +251,36 @@ def run():
             regime = '➖ Neutral'
 
         lines = [
-            f'*Daily Signal* — {today_str} (all-3 COs only)',
+            f'*Daily Signal* — {today_str} (W+D COs)',
             f'In uptrend (W+D): {uptrend_count}/{total} ({pct_uptrend}%) — {regime}',
         ]
 
         if entry_signals:
-            infancy = [s for s in entry_signals if s['infancy']]
-            mature = [s for s in entry_signals if not s['infancy']]
+            ranked = sorted(entry_signals,
+                            key=lambda s: (-s['score'], s['ticker']))
+            shown = ranked[:SLACK_TOP_N]
+            infancy = [s for s in shown if s['infancy']]
+            mature = [s for s in shown if not s['infancy']]
 
             def fmt_signal(s):
-                return (f'{s["ticker"]} (HCO {s.get("hco")}, score={s["score"]}, '
+                return (f'{s["ticker"]} (score={s["score"]}, '
                         f'gap_w={s["gap_w"]}%, atr={s["atr_dist"]}%, wk={s["days_weekly"]}d)')
 
             if infancy:
-                infancy.sort(key=lambda s: s['score'], reverse=True)
                 sig_lines = '\n'.join(fmt_signal(s) for s in infancy)
                 lines.append(f'🚀 *Infancy entries ({len(infancy)}):*')
-                lines.append(f'```' + sig_lines + '```')
+                lines.append('```' + sig_lines + '```')
                 lines.append('Tickers: ' + ', '.join(s['ticker'] for s in infancy))
             if mature:
-                mature.sort(key=lambda s: s['score'], reverse=True)
                 sig_lines = '\n'.join(fmt_signal(s) for s in mature)
                 lines.append(f'📈 *Mature entries ({len(mature)}):*')
-                lines.append(f'```' + sig_lines + '```')
+                lines.append('```' + sig_lines + '```')
                 lines.append('Tickers: ' + ', '.join(s['ticker'] for s in mature))
+            if len(ranked) > SLACK_TOP_N:
+                lines.append(f'_Showing top {SLACK_TOP_N} of {len(ranked)} by score '
+                             f'(ticker breaks ties); all signals are in daily_signals.csv._')
         else:
-            lines.append('No tickers with all 3 crossovers (W+D bull, fresh HCO <=2d old) today')
+            lines.append('No tickers with both W+D crossovers today')
 
         slack_msg = '\n'.join(lines)
         print(f'\n[DAILY] Result:\n{slack_msg}\n')
