@@ -13,9 +13,10 @@ dividend re-adjustments Alpaca retroactively applies.
 SAFETY — the DELETE is unconditional, so a short or partial fetch silently
 destroys history irreversibly (the previous version had no guard and still
 exited 0). Alpaca IEX returns only ~1,555 bars from 2020-07-27 versus SIP's
-~2,703 from 2016-01-04, so a one-line feed change would have truncated four
-and a half years for every ETF on the next quarterly run. SIP NVDA also stops
-at 2023-07-10, which is why the end date is checked and not just the count.
+~2,703 from 2016-01-04, so a one-line feed change would truncate four and a
+half years for every ETF on the next quarterly run. The end date is checked
+as well as the row count, because a per-symbol feed gap can return more rows
+than the table holds while still ending years earlier.
 
 Every refresh therefore:
   1. dumps the symbol's current rows to a timestamped JSONL backup and
