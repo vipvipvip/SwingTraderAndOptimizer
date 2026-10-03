@@ -1,0 +1,62 @@
+Loaded cached Adj Close: /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/trio_yf_adjclose.csv
+
+Data: 2016-01-04 -> 2026-10-02  (2703 sessions, 560 settled weeks, EMA seeded 2016-01-04)
+Cost 5 bp/side, cash at 0%, fill = next session close after Monday decision
+
+========================================================================================================
+P20w  — flips: QQQ=45, VTI=41, VTV=63  | avg legs long 2.44/3 | current state: QQQ=ON, VTI=ON, VTV=ON
+
+ 2004-2015 (out-of-sample): not covered by the data, skipped
+
+ 2016-today (selection window): 2016-01-04 -> 2026-10-02
+                       Return   CAGR  MaxDD Sharpe Calmar  DD trough   recovery
+  P20w                 363.0%   15.3%   19.2%   1.15   0.80  2022-11-03      707d
+  A: EW weekly         394.5%   16.0%   33.1%   0.92   0.48  2020-03-23      168d
+  C: EW buy&hold       409.6%   16.4%   32.6%   0.92   0.50  2020-03-23      152d
+
+ NOTE: 2004-today (full) starts 2016-01-04 (first available), not 2004-01-01
+
+ 2004-today (full): 2016-01-04 -> 2026-10-02
+                       Return   CAGR  MaxDD Sharpe Calmar  DD trough   recovery
+  P20w                 363.0%   15.3%   19.2%   1.15   0.80  2022-11-03      707d
+  A: EW weekly         394.5%   16.0%   33.1%   0.92   0.48  2020-03-23      168d
+  C: EW buy&hold       409.6%   16.4%   32.6%   0.92   0.50  2020-03-23      152d
+
+ Crash windows (P20w) — start just before the peak; strategy already running (warm EMA)
+  window              start       strategy           1y ret  1y DD  2y ret  2y DD  to-today     DD
+  GFC (pre-peak)      2007-10-01  not covered by the data, skipped
+  GFC (pre-Lehman)    2008-09-02  not covered by the data, skipped
+  2010 flash crash    2010-04-15  not covered by the data, skipped
+  2011 US downgrade   2011-07-01  not covered by the data, skipped
+  2015-16 selloff     2015-07-15  not covered by the data, skipped
+  2018 Q4             2018-09-20  P20w                 0.4%   7.4%   29.9%  12.8%      222%  19.2%
+                                  A: EW weekly         3.4%  19.6%   20.1%  33.1%      212%  33.1%
+                                  C: EW buy&hold       3.1%  19.7%   21.0%  32.9%      216%  32.9%
+
+  COVID               2020-02-14  P20w                35.0%  12.8%   52.0%  12.8%      179%  19.2%
+                                  A: EW weekly        24.3%  33.1%   37.6%  33.1%      163%  33.1%
+                                  C: EW buy&hold      24.4%  33.1%   36.8%  33.1%      162%  33.1%
+
+  2022 bear           2021-12-27  P20w               -16.7%  19.2%    4.4%  19.2%       73%  19.2%
+                                  A: EW weekly       -19.4%  24.8%    4.8%  24.8%       76%  24.8%
+                                  C: EW buy&hold     -18.7%  24.5%    4.1%  24.5%       74%  24.5%
+
+  2025 tariffs        2025-02-14  P20w                17.5%   9.4%   32.6%   9.4%       33%   9.4%
+                                  A: EW weekly        14.5%  18.7%   31.7%  18.7%       32%  18.7%
+                                  C: EW buy&hold      14.7%  18.6%   31.8%  18.6%       32%  18.6%
+
+ Calendar-year returns, %  (P20w, full history)
+      P20w  A: EW weekly  C: EW buy&hold
+2016  11.7          14.1            14.2
+2017  23.6          23.6            23.5
+2018  -3.5          -3.5            -3.6
+2019  18.4          31.7            32.0
+2020  33.6          23.0            25.6
+2021  26.8          26.8            26.7
+2022 -16.5         -18.7           -21.0
+2023  25.2          29.0            31.8
+2024  19.0          22.0            22.6
+2025  20.9          17.9            18.3
+2026  15.2          17.4            18.2
+
+Wrote p20w_yf_parity/summary.csv, equity_full_*.csv, calendar_years_*.csv
