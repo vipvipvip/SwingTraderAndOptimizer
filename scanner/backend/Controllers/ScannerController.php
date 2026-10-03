@@ -651,7 +651,10 @@ class ScannerController
             $fresh_pts = max(0, 2 - $daysSince / 60);
             $score = round($gap_pts + $atr_pts + $fresh_pts, 1);
 
-            // CoreEW: close > ATR stop on hourly = bullish (legacy CHAND read)
+            // CoreEW (legacy CHAND read): close > ATR stop = bullish. Read from
+            // tbl_prices_daily since the hourly purge (2026-10-02), so this is a
+            // daily close vs daily ATR stop comparison - the Explorer column is
+            // labelled "ATR Break (daily)" to avoid implying the live P20w signal.
             $coreew = $close_h > $atr_stop ? 'bull' : 'bear';
             // Daily EMA10 > SMA40 = bullish (true EMA10 from closeSma40Ema10)
             $emac = ($d && $d->ema10 !== null && $d->sma40 !== null && (float)$d->ema10 > (float)$d->sma40)

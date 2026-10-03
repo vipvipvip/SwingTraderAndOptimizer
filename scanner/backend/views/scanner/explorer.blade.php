@@ -105,7 +105,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
         <th data-sort="mtf_score" class="sortable" style="text-align:right;">MTF Score <span class="sort-arrow"></span></th>
         <th data-sort="daily_signal" class="sortable" style="text-align:center;">Daily Signal <span class="sort-arrow"></span></th>
         <th data-sort="emac" class="sortable" style="text-align:center;">EMAC <span class="sort-arrow"></span></th>
-        <th data-sort="coreew" class="sortable" style="text-align:center;">CoreEW <span class="sort-arrow"></span></th>
+        <th data-sort="coreew" class="sortable" style="text-align:center;" title="Daily close above its daily ATR stop. Not the live CoreEW P20w signal - this is the legacy CHAND read, previously measured on hourly bars until the hourly purge (2026-10-02).">ATR Break (daily) <span class="sort-arrow"></span></th>
         <th data-sort="mtcs" class="sortable" style="text-align:center;">MTCS <span class="sort-arrow"></span></th>
         <th data-sort="combined" class="sortable" style="text-align:right;">Combined <span class="sort-arrow"></span></th>
         <th data-sort="early" class="sortable" style="text-align:right;">Early <span class="sort-arrow"></span></th>
