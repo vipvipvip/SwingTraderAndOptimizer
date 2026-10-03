@@ -300,67 +300,6 @@ def _latest_trade_price(symbol):
     return None
 
 
-# Daily gap threshold for the hourly-bearish filter.  When hourly EMA10 < SMA40,
-# block entry only if the daily close is more than this % below daily EMA10
-# (i.e. a deep pullback / broken trend).  Small daily pullbacks (>-5%) are
-# allowed because they often precede big winners (AGL +302%, CIEN +180%).
-HOURLY_BEARISH_DAILY_GAP_LIMIT = config.HOURLY_BEARISH_DAILY_GAP_LIMIT
-
-
-def _block_hourly_bearish_deep_pullback(symbol, conn):
-    """Block entry when hourly is bearish AND daily gap is a deep pullback.
-
-    Research finding: bearish hourly entries with daily gap <= -5% have 0%
-    win rate (0/7 in paper account).  But bearish hourly with shallow daily
-    pullback (>-5%) includes big winners like AGL +302% and CIEN +180%.
-
-    Returns (blocked, reason)."""
-    try:
-        with conn.cursor() as cur:
-            # Get ticker_id
-            cur.execute('SELECT id FROM tbl_stock_tickers WHERE symbol = %s', (symbol,))
-            row = cur.fetchone()
-            if not row:
-                return False, ''
-            ticker_id = row[0]
-
-            # Hourly EMA10 vs SMA40 (true EMA10, seeded at the oldest close)
-            cur.execute(
-                'SELECT close FROM tbl_scanner_tickers_1hour '
-                'WHERE ticker_id = %s ORDER BY date DESC LIMIT 60', (ticker_id,))
-            hr_bars = cur.fetchall()
-            if len(hr_bars) < 40:
-                return False, ''
-            hr_closes = [float(b[0]) for b in reversed(hr_bars)]
-            hr_ema10 = db_module.ema(hr_closes, 10)[-1]
-            hr_sma40 = db_module.sma(hr_closes, 40)[-1]
-            if hr_sma40 is None:
-                return False, ''
-            if hr_ema10 > hr_sma40:
-                return False, ''  # hourly is bullish, no filter needed
-
-            # Daily gap: (close - ema10) / ema10 * 100
-            cur.execute(
-                'SELECT close FROM tbl_scanner_tickers_daily '
-                'WHERE ticker_id = %s ORDER BY date DESC LIMIT 50', (ticker_id,))
-            dy_bars = cur.fetchall()
-            if len(dy_bars) < 10:
-                return False, ''
-            dy_closes = [float(b[0]) for b in reversed(dy_bars)]
-            dy_ema10 = db_module.ema(dy_closes, 10)[-1]
-            if dy_ema10 <= 0:
-                return False, ''
-            daily_gap = (dy_closes[-1] - dy_ema10) / dy_ema10 * 100
-
-            if daily_gap <= HOURLY_BEARISH_DAILY_GAP_LIMIT:
-                reason = (f'hourly bearish + deep pullback: daily gap '
-                          f'{daily_gap:+.1f}% <= {HOURLY_BEARISH_DAILY_GAP_LIMIT}%')
-                return True, reason
-    except Exception:
-        pass
-    return False, ''
-
-
 def _compute_ratchet_stops(conn, held_symbols):
     """Compute the ratchet-ATR stop for each held symbol (stateless).
 
@@ -557,9 +496,9 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         if mode == 'stock' and config.RATCHET_EXIT:
             # Same-day ratchet cool-off (persisted in DB): a symbol ratchet-sold
             # earlier today cannot be re-bought until the next trading day.
-            # Fixes the CNXN/HOOD/MU/SFST same-day sell+re-buy whipsaw — the bar
-            # close dips below the peak-anchored stop intraday, the next hourly
-            # cycle re-buys it. Stale rows purge on date rollover; blocked slots
+            # Fixes the CNXN/HOOD/MU/SFST same-day sell+re-buy whipsaw — a close
+            # dips below the peak-anchored stop and the same run re-buys it.
+            # Stale rows purge on date rollover; blocked slots
             # are backfilled from rank 11+ so the book still holds ~TOP_N names.
             db_module.purge_ratchet_cooldowns(conn, mode, now.date())
             cooled_out |= db_module.get_ratchet_cooldowns(conn, mode, now.date())
@@ -666,8 +605,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         held_after_sell = held_symbols - symbols_to_sell
         buy_targets = [s for s in target_symbols
                        if s not in held_after_sell and s not in blocked_buys]
-        # Pre-check chase-guard blocks AND hourly-bearish deep pullback so we
-        # can backfill from rank 11+.
+        # Pre-check chase-guard blocks so we can backfill from rank 11+.
         pre_blocked = set()
         for sym in buy_targets:
             sd = score_detail.get(sym, {})
@@ -676,10 +614,6 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
                 blocked, _ = _block_rebuy(sym, price, conn)
                 if blocked:
                     pre_blocked.add(sym)
-                    continue
-            blocked, _ = _block_hourly_bearish_deep_pullback(sym, conn)
-            if blocked:
-                pre_blocked.add(sym)
         # Backfill slots freed by ratchet-sold (incl. same-day cool-off) AND blocked names.
         blocked_buy_ban = sorted(s for s in target_symbols if s in blocked_buys)
         if blocked_buy_ban:
@@ -866,12 +800,6 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
                     _send_slack_error(f'{symbol} BUY blocked — {reason}')
                     trade_lines.append(f'  ⚠️ BUY {symbol}: blocked ({reason})')
                     print(f'[MTF EXECUTOR] ⚠️ BUY {symbol}: blocked ({reason})')
-                    continue
-
-                blocked, reason = _block_hourly_bearish_deep_pullback(symbol, conn)
-                if blocked:
-                    trade_lines.append(f'  ⚠️ BUY {symbol}: skipped ({reason})')
-                    print(f'[MTF EXECUTOR] ⚠️ BUY {symbol}: skipped ({reason})')
                     continue
 
                 qty = int(per_position * 0.97 / price)

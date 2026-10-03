@@ -52,12 +52,6 @@ TS_START = '2023-06-30'
 RATCHET_EXIT = True
 RATCHET_ATR_MULT = 2.0
 
-# Hourly-bearish deep pullback filter: block entry when hourly EMA10 < SMA40
-# AND daily close is more than this % below daily EMA10.  Bearish hourly
-# entries with shallow daily pullback (>-5%) include big winners (AGL +326%,
-# CIEN +181%); deep pullbacks (<=-5%) have 0% win rate in paper trading.
-HOURLY_BEARISH_DAILY_GAP_LIMIT = -5.0
-
 # Chase-guard: block re-entry when a symbol's price rises more than a
 # toleranced % above the last SELL (fine-grained against buying back a name
 # right after taking a loss).   It aggressively blocks top-N names the sandbox

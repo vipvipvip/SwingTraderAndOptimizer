@@ -112,8 +112,11 @@ def _get_db_conn():
     raise RuntimeError(f'Could not connect to database after {MAX_DB_RETRIES} attempts')
 
 
-def _check_data_freshness(conn, mode='stock', fresh=False):
-    """Verify daily + hourly scanner data is fresh enough to generate reliable signals.
+def _check_data_freshness(conn, mode='stock', fresh=False, strategy='mtf'):
+    """Verify the scanner data the chosen strategy reads is fresh enough to signal.
+
+    Timeframes are strategy-dependent: emasma reads settled weekly + daily only,
+    while --strategy mtf additionally reads hourly.
 
     Resilient to server-off days: when data is stale but the machine has just
     booted (a missed-day catch-up scenario), this triggers the scanner daily
@@ -159,14 +162,13 @@ def _check_data_freshness(conn, mode='stock', fresh=False):
             f'⚠️  Daily bar data is {age}d old (latest: {latest}) — picks may be based on stale prices',
             mode)
 
-    # Deep data-readiness gate: verifies that bars (incl. hourly — which the
-    # old `fresh` shortcut skipped entirely, and which capture_hourly cannot
-    # heal across a multi-day server-off gap) AND stored indicators (atr_stop)
-    # are complete on the newest bars before any scoring/trading. If not, it
-    # self-heals (calendar-aware backfill + recompute) and re-verifies.
-    # `fresh` is intentionally no longer consulted here: the gate already
-    # tolerates a partial current-day bar via its coverage-based rules.
-    return _run_readiness_gate(mode)
+    # Deep data-readiness gate: verifies that the bars the chosen strategy
+    # actually reads AND stored indicators (atr_stop) are complete on the newest
+    # bars before any scoring/trading. If not, it self-heals (calendar-aware
+    # backfill + recompute) and re-verifies. `fresh` is intentionally no longer
+    # consulted here: the gate already tolerates a partial current-day bar via
+    # its coverage-based rules.
+    return _run_readiness_gate(mode, strategy)
 
 
 def _backfill_daily(conn, mode='stock'):
@@ -193,15 +195,21 @@ def _backfill_daily(conn, mode='stock'):
         print(f'[MTF] Backfill script timed out')
 
 
-def _run_readiness_gate(mode='stock'):
+def _run_readiness_gate(mode='stock', strategy='mtf'):
     """Invoke the scanner Data Readiness Gate (data_readiness.py) for the mode.
 
-    Gate = verify -> repair (calendar-aware backfill of missing bars incl. the
-    hourly holes capture_hourly can't heal, + indicator recompute) -> re-verify.
+    Gate = verify -> repair (calendar-aware backfill of missing bars, + indicator
+    recompute) -> re-verify. Which timeframes are checked depends on strategy
+    (see below).
     Subspawns the scanner venv (this process runs under the optimizer venv).
     Returns True only if ALL checked timeframes are READY (exit 0)."""
-    # ETF v2 relies on weekly EMA/SMA; stock v2 on hourly ratchet + fresh hourly.
-    tfs = {'stock': 'day,hour', 'etf': 'day,week'}.get(mode, 'day,hour')
+    # emasma scores on settled weekly + daily bars only (its ratchet ATR source
+    # is daily, see --ratchet-atr-src daily), so no timeframe here needs hourly.
+    # --strategy mtf still scores on hourly, so it keeps the stock leg's hour.
+    if strategy == 'emasma':
+        tfs = 'day,week'
+    else:
+        tfs = {'stock': 'day,hour', 'etf': 'day,week'}.get(mode, 'day,hour')
     cmd = [SCANNER_VENV_PYTHON, DATA_GATE_SCRIPT, '--ensure', '--tf', tfs,
            '--mode', mode]
     print(f'[MTF] Running data-readiness gate for {mode} (tfs: {tfs})...', flush=True)
@@ -466,7 +474,7 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
 
     # Data freshness check — self-heals via daily backfill on boot-day catch-up.
     # `fresh` accepts a partial current-day daily bar (v2 intraday cap).
-    if not _check_data_freshness(conn, mode, fresh=fresh):
+    if not _check_data_freshness(conn, mode, fresh=fresh, strategy=strategy):
         db_module.log_run(conn, mode, today, 'score', 'error', 'stale data')
         conn.close()
         return False, [f'Skipped {MODE_LABEL[mode]} — stale data'], None
@@ -897,20 +905,17 @@ def _run_sector_info(conn, now, today):
 
     weekly_data = {}
     daily_data = {}
-    hourly_data = {}
     ticker_names = {}
     for tid, sym in tickers:
         ticker_names[tid] = sym
         w = db_module.load_weekly(conn, tid)
         d = db_module.load_daily(conn, tid)
-        h = db_module.load_hourly(conn, tid)
-        if w and d and h:
+        if w and d:
             weekly_data[tid] = w
             daily_data[tid] = d
-            hourly_data[tid] = h
 
     if not weekly_data:
-        return ['  No sector ETFs with all 3 timeframes']
+        return ['  No sector ETFs with weekly + daily data']
 
     daily_idx = {}
     for tid in daily_data:
@@ -918,9 +923,6 @@ def _run_sector_info(conn, now, today):
     weekly_idx = {}
     for tid in weekly_data:
         weekly_idx[tid] = {dt: i for i, dt in enumerate(weekly_data[tid]['dates'])}
-    hourly_idx = {}
-    for tid in hourly_data:
-        hourly_idx[tid] = {dt: i for i, dt in enumerate(hourly_data[tid]['dates'])}
 
     def _nearest(date_map, dates, target):
         if target in date_map:
@@ -947,8 +949,7 @@ def _run_sector_info(conn, now, today):
     for tid in weekly_data:
         di = _nearest(daily_idx[tid], daily_data[tid]['dates'], sig_date)
         wi = _nearest(weekly_idx[tid], weekly_data[tid]['dates'], sig_date)
-        hi = _nearest(hourly_idx[tid], hourly_data[tid]['dates'], sig_date)
-        if di is None or wi is None or hi is None:
+        if di is None or wi is None:
             continue
         sym = ticker_names[tid]
         # Official ranking = the audited sector strategy: weekly EMA10>SMA40
@@ -958,15 +959,13 @@ def _run_sector_info(conn, now, today):
         if res is None:
             flat.append(sym)  # weekly bearish — not eligible
             continue
-        ctx = _compute_score(weekly_data[tid], daily_data[tid], hourly_data[tid],
-                             wi, di, hi, sig_date)
         rows.append({
             'symbol': sym,
             'score': res['score'],
             'gap_w': res['gap_w'],
             'freshness': res['freshness'],
             'close': res['close'],
-            'atr_dist': ctx['atr_dist'] if ctx else None,
+            'atr_dist': None,
             'wk_ema': float(weekly_data[tid]['ema'][wi]),
             'wk_sma': float(weekly_data[tid]['sma'][wi]),
         })
