@@ -11,8 +11,14 @@ The hourly table (tbl_scanner_tickers_1hour) still HAS its macd_*/ppo_* columns
 — they were intentionally left in place, but this script no longer writes them,
 so they are frozen at their last computed values. That is harmless: nothing reads
 hourly MACD any more (earnings_screener.py was converted to daily MACD on
-2026-09-26). Hourly `close` + `atr_stop` are still maintained because the live
-MTF stock leg scores and exits off them.
+2026-09-26).
+
+Hourly `close` + `atr_stop` are no longer maintained for trading. The live MTF
+stock leg used to score and exit off them; that ended with commit 42b4fa3
+(2026-10-02), which removed the hourly bearish-pullback veto and the hourly ATR
+ratchet source. runner.py now loads hourly only when `strategy == 'mtf'`
+(research). The hourly sampler timer was disabled the same day, so these columns
+are frozen and only the research path can still add to them.
 
 Partition-aware: 16 workers (1 per hash partition on tbl_scanner_tickers_1hour),
 COPY bulk writes instead of individual UPDATEs. Targets ~5-8 min on 1.5K+ tickers.
@@ -47,6 +53,10 @@ TABLES = {
     'week': 'tbl_scanner_tickers',
     'day': 'tbl_scanner_tickers_daily',
     'hour': 'tbl_scanner_tickers_1hour',
+    # Clean blue/green replacements. Not partitioned, so is_hourly stays False
+    # and these take the plain (non-partition-aware) path.
+    'prices-daily': 'tbl_prices_daily',
+    'prices-weekly': 'tbl_prices_weekly',
 }
 
 PARTITION_COUNT = 16

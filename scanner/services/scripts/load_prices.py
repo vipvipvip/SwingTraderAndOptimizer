@@ -30,12 +30,20 @@ Usage:
 
 import argparse
 import os
+import socket
 import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+# Without this, a request that never returns blocks its worker thread forever.
+# Observed on MGRC and MHK: both fetched 2,703 bars fine when retried alone,
+# but hung indefinitely inside a 1,453-ticker run and stalled the whole load.
+# A socket timeout turns a silent hang into a retryable exception.
+REQUEST_TIMEOUT = 60
+socket.setdefaulttimeout(REQUEST_TIMEOUT)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import get_db_conn, API_KEY, SECRET_KEY
