@@ -159,7 +159,7 @@ def _spy_closes(start, end, headers=None):
             conn = db_module.get_conn()
             with conn.cursor() as cur:
                 cur.execute(
-                    'SELECT date, close FROM tbl_scanner_tickers_daily '
+                    'SELECT date, close FROM tbl_prices_daily '
                     'WHERE ticker_id = (SELECT id FROM tbl_stock_tickers '
                     "WHERE symbol = 'SPY') AND date >= %s AND date <= %s "
                     'ORDER BY date ASC', (start, end))

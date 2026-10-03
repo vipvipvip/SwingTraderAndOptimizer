@@ -141,8 +141,8 @@ def run():
 
         # Batch-load bars for both timeframes
         print(f'  Loading data for {len(ticker_ids)} tickers...')
-        weekly_raw = _batch_load_bars(conn, ticker_ids, 'tbl_scanner_tickers', 'date', limit=300)
-        daily_raw = _batch_load_bars(conn, ticker_ids, 'tbl_scanner_tickers_daily', 'date', limit=300)
+        weekly_raw = _batch_load_bars(conn, ticker_ids, 'tbl_prices_weekly', 'date', limit=300)
+        daily_raw = _batch_load_bars(conn, ticker_ids, 'tbl_prices_daily', 'date', limit=300)
 
         # Organize by ticker_id
         weekly_by_tid = {}

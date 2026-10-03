@@ -270,12 +270,12 @@ class StrategyService
         $spy = \DB::table('tbl_stock_tickers')->where('symbol', 'SPY')->first();
         $sp500Return = null;
         if ($spy) {
-            $firstBar = DB::table('tbl_scanner_tickers_daily')
+            $firstBar = DB::table('tbl_prices_daily')
                 ->where('ticker_id', $spy->id)
                 ->whereDate('date', '>=', '2019-01-02')
                 ->orderBy('date')
                 ->first(['date', 'close']);
-            $lastBar = DB::table('tbl_scanner_tickers_daily')
+            $lastBar = DB::table('tbl_prices_daily')
                 ->where('ticker_id', $spy->id)
                 ->whereDate('date', '<', (new \DateTime('now'))->format('Y-m-d'))
                 ->orderByDesc('date')

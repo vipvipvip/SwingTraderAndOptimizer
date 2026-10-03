@@ -98,8 +98,8 @@ def main():
                 SELECT st.id
                 FROM tbl_stock_tickers st
                 WHERE st.enabled = true
-                  AND EXISTS (SELECT 1 FROM tbl_scanner_tickers w WHERE w.ticker_id = st.id)
-                  AND EXISTS (SELECT 1 FROM tbl_scanner_tickers_daily d WHERE d.ticker_id = st.id)
+                  AND EXISTS (SELECT 1 FROM tbl_prices_weekly w WHERE w.ticker_id = st.id)
+                  AND EXISTS (SELECT 1 FROM tbl_prices_daily d WHERE d.ticker_id = st.id)
                   AND EXISTS (SELECT 1 FROM tbl_scanner_tickers_1hour h WHERE h.ticker_id = st.id)
             ) sub
         """)

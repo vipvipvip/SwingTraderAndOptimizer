@@ -340,12 +340,12 @@ def _compute_ratchet_stops(conn, held_symbols):
         with conn.cursor() as cur:
             if since:
                 cur.execute(
-                    'SELECT date, close, atr_stop FROM tbl_scanner_tickers_daily '
+                    'SELECT date, close, atr_stop FROM tbl_prices_daily '
                     'WHERE ticker_id = %s AND date::date >= %s AND date::date < %s '
                     'ORDER BY date ASC', (tid, since, today))
             else:
                 cur.execute(
-                    'SELECT date, close, atr_stop FROM tbl_scanner_tickers_daily '
+                    'SELECT date, close, atr_stop FROM tbl_prices_daily '
                     'WHERE ticker_id = %s AND date::date < %s ORDER BY date ASC',
                     (tid, today))
             d_rows = cur.fetchall()
@@ -390,7 +390,7 @@ def latest_settled_daily_closes(conn, held_symbols):
     for symbol in held_symbols:
         with conn.cursor() as cur:
             cur.execute(
-                'SELECT close FROM tbl_scanner_tickers_daily '
+                'SELECT close FROM tbl_prices_daily '
                 'WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol=%s) '
                 'AND date::date < %s ORDER BY date DESC LIMIT 1', (symbol, today))
             r = cur.fetchone()

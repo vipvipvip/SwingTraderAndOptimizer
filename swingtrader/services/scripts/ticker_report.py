@@ -164,7 +164,7 @@ def _position_stats(conn, tid, symbol, is_etf, close, manual_pos=None):
             if since:
                 with conn.cursor() as cur:
                     cur.execute(
-                        'SELECT close FROM tbl_scanner_tickers_daily '
+                        'SELECT close FROM tbl_prices_daily '
                         'WHERE ticker_id = %s AND date::date >= %s ORDER BY date ASC',
                         (tid, since))
                     rows = cur.fetchall()
@@ -183,7 +183,7 @@ def _manual_ratchet(conn, tid, since):
         return None, None
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT date, close FROM tbl_scanner_tickers_daily '
+            'SELECT date, close FROM tbl_prices_daily '
             'WHERE ticker_id = %s AND date::date >= %s ORDER BY date ASC',
             (tid, since))
         d_rows = cur.fetchall()

@@ -584,7 +584,7 @@ class TradeExecutorService
 
         foreach ($symbols as $sym) {
             try {
-                $rows = \DB::table('tbl_scanner_tickers as w')
+                $rows = \DB::table('tbl_prices_weekly as w')
                     ->join('tbl_stock_tickers as t', 'w.ticker_id', '=', 't.id')
                     ->where('t.symbol', $sym)
                     ->where('t.is_etf', true)
@@ -715,7 +715,7 @@ class TradeExecutorService
         $datesRef = null;
         foreach ($symbols as $sym) {
             try {
-                $rows = \DB::table('tbl_scanner_tickers_daily as d')
+                $rows = \DB::table('tbl_prices_daily as d')
                     ->join('tbl_stock_tickers as t', 'd.ticker_id', '=', 't.id')
                     ->where('t.symbol', $sym)
                     ->where('t.is_etf', true)
@@ -1029,7 +1029,7 @@ class TradeExecutorService
         $datesRef = null;
         foreach ($symbols as $sym) {
             try {
-                $rows = \DB::table('tbl_scanner_tickers_daily as d')
+                $rows = \DB::table('tbl_prices_daily as d')
                     ->join('tbl_stock_tickers as t', 'd.ticker_id', '=', 't.id')
                     ->where('t.symbol', $sym)
                     ->where('t.is_etf', true)
@@ -1178,7 +1178,7 @@ class TradeExecutorService
         $datesRef = null;
         foreach ($symbols as $sym) {
             try {
-                $rows = \DB::table('tbl_scanner_tickers as d')
+                $rows = \DB::table('tbl_prices_weekly as d')
                     ->join('tbl_stock_tickers as t', 'd.ticker_id', '=', 't.id')
                     ->where('t.symbol', $sym)
                     ->where('t.is_etf', true)

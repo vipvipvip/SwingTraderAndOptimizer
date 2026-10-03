@@ -18,7 +18,7 @@ DB_CONFIG = {
 ATR_PERIOD = 14
 ATR_MULT = 2.0
 
-TABLE = 'tbl_scanner_tickers'
+TABLE = 'tbl_prices_weekly'
 
 
 def get_db_conn():

@@ -261,7 +261,7 @@ def check_daily_macd(ticker: str) -> dict:
     ticker_id = result[0]
 
     # Last complete daily date across the whole table = the settled bar date.
-    cur.execute("SELECT max(date) FROM tbl_scanner_tickers_daily")
+    cur.execute("SELECT max(date) FROM tbl_prices_daily")
     settled = cur.fetchone()[0]
     if settled is None:
         cur.close()
@@ -271,7 +271,7 @@ def check_daily_macd(ticker: str) -> dict:
     # Oldest-first close series, settled bars only.
     cur.execute("""
         SELECT date, close
-        FROM tbl_scanner_tickers_daily
+        FROM tbl_prices_daily
         WHERE ticker_id = %s AND date <= %s AND close IS NOT NULL
         ORDER BY date ASC
         LIMIT 400

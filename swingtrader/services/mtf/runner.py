@@ -281,7 +281,7 @@ def _ensure_daily_data(conn, mode, now, today, fresh=False):
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT d.date::date
-                FROM tbl_scanner_tickers_daily d
+                FROM tbl_prices_daily d
                 JOIN tbl_stock_tickers s ON d.ticker_id = s.id
                 WHERE s.enabled = true AND s.is_etf = %s
                   AND d.date::date < %s::date
@@ -301,7 +301,7 @@ def _ensure_daily_data(conn, mode, now, today, fresh=False):
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT COUNT(DISTINCT d.ticker_id)
-                FROM tbl_scanner_tickers_daily d
+                FROM tbl_prices_daily d
                 JOIN tbl_stock_tickers s ON d.ticker_id = s.id
                 WHERE d.date::date = %s AND s.enabled = true AND s.is_etf = %s
             """, (required_date, is_etf))
@@ -754,7 +754,7 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
                 try:
                     with conn.cursor() as cur:
                         cur.execute(
-                            "SELECT close FROM tbl_scanner_tickers_daily "
+                            "SELECT close FROM tbl_prices_daily "
                             "WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol=%s) "
                             "ORDER BY date DESC LIMIT 1", (sym,))
                         row = cur.fetchone()
@@ -940,7 +940,7 @@ def _run_sector_info(conn, now, today):
     if now.weekday() == 0 and (now.hour < 9 or (now.hour == 9 and now.minute < 30)):
         last_trading = today - timedelta(days=3)
         with conn.cursor() as cur:
-            cur.execute('SELECT 1 FROM tbl_scanner_tickers_daily WHERE date::date = %s LIMIT 1', (last_trading,))
+            cur.execute('SELECT 1 FROM tbl_prices_daily WHERE date::date = %s LIMIT 1', (last_trading,))
             if cur.fetchone():
                 sig_date = last_trading
 

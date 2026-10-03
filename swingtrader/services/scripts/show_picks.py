@@ -25,7 +25,7 @@ def db_close(symbol):
     try:
         r = subprocess.run(
             ['docker', 'exec', 'swingtrader-db', 'psql', '-U', 'swingtrader', '-d', 'swingtrader', '-t',
-             '-c', f"SELECT close, date FROM tbl_scanner_tickers_daily WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol='{symbol}') ORDER BY date DESC LIMIT 1"],
+             '-c', f"SELECT close, date FROM tbl_prices_daily WHERE ticker_id=(SELECT id FROM tbl_stock_tickers WHERE symbol='{symbol}') ORDER BY date DESC LIMIT 1"],
             capture_output=True, text=True, timeout=15)
         parts = r.stdout.strip().split('|')
         daily_close = float(parts[0]) if parts and parts[0].strip() and parts[0].strip() != '(0 rows)' else None

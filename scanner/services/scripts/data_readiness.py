@@ -46,8 +46,8 @@ import backfill_all_missing as bf
 
 NY = ZoneInfo('America/New_York')
 TABLES = {
-    'week': 'tbl_scanner_tickers',
-    'day': 'tbl_scanner_tickers_daily',
+    'week': 'tbl_prices_weekly',
+    'day': 'tbl_prices_daily',
     'hour': 'tbl_scanner_tickers_1hour',
 }
 # compute_indicators.py skips tickers with fewer than ATR_PERIOD+1 bars (the

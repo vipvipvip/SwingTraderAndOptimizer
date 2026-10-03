@@ -10,9 +10,9 @@ class ScannerController
     private function tableForTimeframe(string $timeframe): string
     {
         return match ($timeframe) {
-            'daily' => 'tbl_scanner_tickers_daily',
+            'daily' => 'tbl_prices_daily',
             '1hour' => 'tbl_scanner_tickers_1hour',
-            default => 'tbl_scanner_tickers',
+            default => 'tbl_prices_weekly',
         };
     }
 
@@ -58,7 +58,7 @@ class ScannerController
                 FROM (
                     SELECT ticker_id, date, close::float8 AS close,
                            ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
-                    FROM tbl_scanner_tickers
+                    FROM tbl_prices_weekly
                 ) sub
                 WHERE rnd <= 40
                 GROUP BY ticker_id
@@ -70,7 +70,7 @@ class ScannerController
                 FROM (
                     SELECT ticker_id, date, close::float8 AS close,
                            ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
-                    FROM tbl_scanner_tickers_daily
+                    FROM tbl_prices_daily
                 ) sub
                 WHERE rnd <= 40
                 GROUP BY ticker_id
@@ -299,14 +299,14 @@ class ScannerController
             ->keyBy('id');
 
         $weeklyById = [];
-        foreach ($this->closeSma40Ema10('tbl_scanner_tickers') as $tid => $r) {
+        foreach ($this->closeSma40Ema10('tbl_prices_weekly') as $tid => $r) {
             if ($r->sma40 !== null && $r->sma40 > 0) {
                 $weeklyById[$tid] = $r;
             }
         }
 
         $dailyById = [];
-        foreach ($this->closeSma40Ema10('tbl_scanner_tickers_daily') as $tid => $r) {
+        foreach ($this->closeSma40Ema10('tbl_prices_daily') as $tid => $r) {
             if ($r->sma40 !== null && $r->sma40 > 0) {
                 $dailyById[$tid] = $r;
             }
@@ -336,7 +336,7 @@ class ScannerController
             WITH ranked AS (
                 SELECT ticker_id, date, close::float8 AS close,
                        ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
-                FROM tbl_scanner_tickers
+                FROM tbl_prices_weekly
             ),
             sma AS (
                 SELECT ticker_id, date, close,
@@ -364,7 +364,7 @@ class ScannerController
             WITH ranked AS (
                 SELECT ticker_id, date, close::float8 AS close,
                        ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
-                FROM tbl_scanner_tickers_daily
+                FROM tbl_prices_daily
             ),
             sma AS (
                 SELECT ticker_id, date, close,
@@ -535,8 +535,8 @@ class ScannerController
             ->get()
             ->keyBy('id');
 
-        $latestWeekly = DB::selectOne("SELECT MAX(date) AS d FROM tbl_scanner_tickers");
-        $latestDaily = DB::selectOne("SELECT MAX(date) AS d FROM tbl_scanner_tickers_daily");
+        $latestWeekly = DB::selectOne("SELECT MAX(date) AS d FROM tbl_prices_weekly");
+        $latestDaily = DB::selectOne("SELECT MAX(date) AS d FROM tbl_prices_daily");
         $latestHourlyDate = DB::selectOne("SELECT MAX(date)::date AS d FROM tbl_scanner_tickers_1hour");
         if (!$latestWeekly || !$latestDaily || !$latestHourlyDate) {
             return response()->json(['error' => 'No data'], 500);
@@ -547,14 +547,14 @@ class ScannerController
         // SMA40/EMA10 come from closeSma40Ema10() (true recursive EMA10).
         // The 5-min file cache means this runs at most once per session.
         $weeklyById = [];
-        foreach ($this->closeSma40Ema10('tbl_scanner_tickers') as $tid => $r) {
+        foreach ($this->closeSma40Ema10('tbl_prices_weekly') as $tid => $r) {
             if ($r->sma40 !== null && $r->sma40 > 0) {
                 $weeklyById[$tid] = $r;
             }
         }
 
         $dailyById = [];
-        foreach ($this->closeSma40Ema10('tbl_scanner_tickers_daily') as $tid => $r) {
+        foreach ($this->closeSma40Ema10('tbl_prices_daily') as $tid => $r) {
             $dailyById[$tid] = $r;
         }
 
@@ -580,7 +580,7 @@ class ScannerController
             WITH ranked AS (
                 SELECT ticker_id, date, close::float8 AS close,
                        ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rnd
-                FROM tbl_scanner_tickers
+                FROM tbl_prices_weekly
             ),
             sma AS (
                 SELECT ticker_id, date, close,

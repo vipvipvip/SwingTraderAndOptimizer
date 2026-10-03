@@ -295,7 +295,7 @@ def get_etf_name(conn, ticker_id):
 def load_weekly(conn, ticker_id):
     cur = conn.cursor()
     cur.execute(
-        'SELECT date, close FROM tbl_scanner_tickers WHERE ticker_id = %s ORDER BY date ASC',
+        'SELECT date, close FROM tbl_prices_weekly WHERE ticker_id = %s ORDER BY date ASC',
         (ticker_id,))
     rows = cur.fetchall()
     cur.close()
@@ -312,7 +312,7 @@ def load_weekly(conn, ticker_id):
 def load_daily(conn, ticker_id):
     cur = conn.cursor()
     cur.execute(
-        'SELECT date, open, close FROM tbl_scanner_tickers_daily WHERE ticker_id = %s ORDER BY date ASC',
+        'SELECT date, open, close FROM tbl_prices_daily WHERE ticker_id = %s ORDER BY date ASC',
         (ticker_id,))
     rows = cur.fetchall()
     cur.close()
@@ -350,7 +350,7 @@ def load_hourly(conn, ticker_id):
 def get_latest_daily_bar_date(conn):
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT MAX(date) FROM tbl_scanner_tickers_daily')
+            'SELECT MAX(date) FROM tbl_prices_daily')
         return cur.fetchone()[0]
 
 
@@ -382,7 +382,7 @@ def get_last_complete_daily_date(conn, is_etf=False):
     with conn.cursor() as cur:
         cur.execute(
             'SELECT d.date::date '
-            'FROM tbl_scanner_tickers_daily d '
+            'FROM tbl_prices_daily d '
             'JOIN tbl_stock_tickers s ON d.ticker_id = s.id '
             'WHERE s.enabled = true AND s.is_etf = %s '
             'GROUP BY d.date::date '
@@ -398,10 +398,10 @@ def bulk_load_weekly(conn, ticker_ids=None):
     import pandas as pd
     cur = conn.cursor()
     if ticker_ids:
-        cur.execute('SELECT ticker_id, date, close FROM tbl_scanner_tickers WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date',
+        cur.execute('SELECT ticker_id, date, close FROM tbl_prices_weekly WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date',
                     (list(ticker_ids),))
     else:
-        cur.execute('SELECT ticker_id, date, close FROM tbl_scanner_tickers ORDER BY ticker_id, date')
+        cur.execute('SELECT ticker_id, date, close FROM tbl_prices_weekly ORDER BY ticker_id, date')
     rows = cur.fetchall()
     cur.close()
     data = {}
@@ -422,10 +422,10 @@ def bulk_load_daily(conn, ticker_ids=None):
     import pandas as pd
     cur = conn.cursor()
     if ticker_ids:
-        cur.execute('SELECT ticker_id, date, open, close FROM tbl_scanner_tickers_daily WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date',
+        cur.execute('SELECT ticker_id, date, open, close FROM tbl_prices_daily WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date',
                     (list(ticker_ids),))
     else:
-        cur.execute('SELECT ticker_id, date, open, close FROM tbl_scanner_tickers_daily ORDER BY ticker_id, date')
+        cur.execute('SELECT ticker_id, date, open, close FROM tbl_prices_daily ORDER BY ticker_id, date')
     rows = cur.fetchall()
     cur.close()
     data = {}
@@ -504,13 +504,13 @@ def get_market_breadth(conn, is_etf=False):
                 SELECT ticker_id, close::float8 AS close,
                        AVG(close::float8) OVER (PARTITION BY ticker_id ORDER BY date ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) AS sma40,
                        ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rn
-                FROM tbl_scanner_tickers
+                FROM tbl_prices_weekly
             ),
             dy AS (
                 SELECT ticker_id, close::float8 AS close,
                        AVG(close::float8) OVER (PARTITION BY ticker_id ORDER BY date ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) AS sma40,
                        ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rn
-                FROM tbl_scanner_tickers_daily
+                FROM tbl_prices_daily
             )
             SELECT COUNT(*) FILTER (WHERE wk.close > wk.sma40 AND dy.close > dy.sma40) AS uptrend,
                    COUNT(*) AS total
