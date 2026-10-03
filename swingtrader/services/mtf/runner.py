@@ -1252,7 +1252,9 @@ if __name__ == '__main__':
     parser.add_argument('--fresh', action='store_true',
                         help='score/execute path: use TODAY\'s (intraday, partial-day) bars as the '
                              'signal date instead of the last complete date; requires the '
-                             'swingtrader-scanner-hourly intraday sampler to have run')
+                             'swingtrader-scanner-hourly intraday sampler, whose timer is '
+                             'DISABLED since 2026-10-02 — research use only, re-enable the '
+                             'timer first')
     parser.add_argument('--live', action='store_true',
                         help='Deprecated: use --action execute instead')
     args = parser.parse_args()

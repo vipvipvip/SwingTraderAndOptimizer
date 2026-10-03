@@ -27,7 +27,7 @@ The `swingtrader-legema` deploy source lives in
 | Unit | Schedule (ET) | Status | Purpose |
 |---|---|---|---|
 | `swingtrader-scanner-update.timer` | Mon–Fri 09:00 | ✅ enabled/active | Pre-close weekly+daily bar populate + indicators |
-| `swingtrader-scanner-hourly.timer` | Mon–Fri 09:10, 10:10, …, 15:10 (7 runs) | ✅ enabled/active | Intraday hourly capture + MACD/EMA recompute |
+| `swingtrader-scanner-hourly.timer` | — | ⛔ **disabled 2026-10-02** | Hourly latest-trade capture. No live consumer left (HCO removed from Daily Signal, MTF emasma never read it); kept for the `--strategy mtf` research path only |
 | `swingtrader-scanner-backfill.timer` | Mon–Fri 16:30 | ✅ enabled/active | Post-close settle (weekly+daily final closes) + hourly backfill + indicators |
 
 ## Live strategies / signal services (Slack; the two trading drivers above are the only order-placers)

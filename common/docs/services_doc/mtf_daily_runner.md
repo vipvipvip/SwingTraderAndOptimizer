@@ -4,7 +4,7 @@
 
 MTF Top-N replaces MTCS (Hilbert sine/lead) as the primary rotation strategy.
 Both legs now run the weekly EMA10>SMA40 gap rotation (**emasma**): `--strategy
-emasma` on the stock leg (top-10) and the same emasma rotation on the ETF leg
+emasma` on the stock leg (top-25) and the same emasma rotation on the ETF leg
 (top-3). Stock emasma replaces the v2 freshest-crossover strategy (validated
 2026-09-10 for signal quality; backtested emasma top-10 + daily-ATR ratchet
 2021-09-20→2026-09-10 ≈ +17,052% nominal, but ⚠️ see "Backtest honesty" —
@@ -39,11 +39,11 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 ```
 
 - Long only while weekly EMA(10) > SMA(40); flat otherwise.
-- Stocks rank top-10 (`TOP_N = 10`), ETFs top-3 (`ETF_TOP_N = 3`).
+- Stocks rank top-25 (`TOP_N = 25`, raised from 10 on 2026-09-13 with equal-weight sizing), ETFs top-3 (`ETF_TOP_N = 3`).
 - **Deterministic tie-break**: candidate selection sorts by `(-score, -gap_w)`
   (both `runner.py` and `backtest_topn_multitf.py`). Scores cap at `5.0`, so on
   strong days 150+ stocks tie at the max and the tie-break reproduces a
-  backtest-identical, replicable top-10 — live == backtest, manual re-runs give
+  backtest-identical, replicable top-N — live == backtest, manual re-runs give
   identical picks (the weekly bar is the last completed week in both since 2026-09-25;
   earlier backtests read the decision-day Monday row = a 4-day lookahead). Without it, ties resolved to an arbitrary stable-sort
   (hash-order in the backtest, SQL row order live).
@@ -65,7 +65,7 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 
 ## Architecture
 
-**Intraday sampler (`swingtrader-scanner-hourly`)** — 09:10–15:10 ET: captures latest-trade prices into the hourly table, then recomputes MACD/EMA/SMA (retained; emasma scoring doesn't consume hourly data).
+**Intraday sampler (`swingtrader-scanner-hourly`)** — ⛔ **timer disabled 2026-10-02.** Captured latest-trade prices into the hourly table (open=high=low=close, volume = that one trade's size — degenerate bars, median volume ~100 shares). No live consumer remains: HCO was removed from Daily Signal, and MTF emasma scores on settled weekly+daily only. Re-enable only to feed the `--strategy mtf` research path.
 **Executor (`swingtrader-mtf-executor`)** — once/day at 10:25: `--action score` then `--action execute` on the last COMPLETE daily bar (no `--fresh`): emasma stock leg (top-10) + EMA/SMA ETF leg (top-3), with the daily-ATR ratchet exit on the stock leg. Execute has a **freshness guard** (`FRESH_PENDING_MAX_AGE_HOURS = 6`): if the pending row is older than 6 hours it is refused — a failed score step can never leave stale picks to be traded at a 10:25 fill.
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
@@ -143,7 +143,7 @@ All files live under `swingtrader/services/mtf/`:
 |------|---------|
 | `runner.py` | One step per invocation: `--action score` (settled-bar scoring on `sig_date=guard_date`, saves pending) or `--action execute` (morning fills). Both legs scored with emasma (`--strategy emasma`). Exits non-zero if any leg failed or produced no candidates — `executor_retry.py` depends on that |
 | `executor_retry.py` | What the 10:25 unit actually runs: retry the score step every 30m until it succeeds for BOTH legs or 16:00 ET, then execute once and exit. Give-up posts a red Slack alert with the last `mtf_runs` status per leg |
-| `config.py` | DB creds, scoring params (TOP_N=10, ETF_TOP_N=3, EMA/SMA periods, cost, capital) |
+| `config.py` | DB creds, scoring params (TOP_N=25, ETF_TOP_N=3, EMA/SMA periods, cost, capital) |
 | `db.py` | Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state |
 | `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA368CPXNS13, etf #PA3U8GZ96PEN — from `mtf/.env`); `reconcile_trades()` rebuilds `mtf_trades` from Alpaca fills |
 | `reconcile_trades.py` | CLI wrapper: `--mode all\|stock\|etf` — idempotent fill-log rebuild from Alpaca's authoritative order history |
@@ -152,7 +152,7 @@ All files live under `swingtrader/services/mtf/`:
 | `.env` | Environment variables (DB creds, Slack webhook URL) |
 | `data/mtf_picks_stock.csv` | Daily stock top-N picks with scores and components (pick history) |
 | `data/mtf_picks_etf.csv` | Daily ETF top-N picks with scores and components (pick history) |
-| `systemd/swingtrader-scanner-hourly.{service,timer}` | Intraday hourly sampler (weekdays 09:10–15:10 ET) — captures prices + recomputes MACD/EMA/SMA each hour |
+| `systemd/swingtrader-scanner-hourly.{service,timer}` | ⛔ timer disabled 2026-10-02 — hourly latest-trade capture, no live consumer (research/`--strategy mtf` only) |
 | `systemd/swingtrader-mtf-scorer.{service,timer}` | DISABLED 2026-08-27 (score is inline in the executor); kept for manual/analytics use |
 | `systemd/swingtrader-mtf-executor.{service,timer}` | emasma executor (once/day at 10:25): `ExecStart=executor_retry.py` — score (retried to market close) then `--action execute`, both `--strategy emasma` on settled daily bars; no `--fresh`. `TimeoutStartSec=6h` backstop (`RuntimeMaxSec` is ignored on `Type=oneshot`) |
 
@@ -367,7 +367,7 @@ sudo journalctl -u swingtrader-mtf-executor.service -f
 
 | Timer | Time | Action | Service |
 |-------|------|--------|---------|
-| `swingtrader-scanner-hourly.timer` | Mon–Fri 09:10–15:10 ET | Intraday hourly capture + recompute | `swingtrader-scanner-hourly.service` |
+| `swingtrader-scanner-hourly.timer` | ⛔ disabled 2026-10-02 | Hourly capture — no live consumer | `swingtrader-scanner-hourly.service` |
 | `swingtrader-mtf-executor.timer` | Mon–Fri 10:25 ET (once/day) | emasma score+execute on settled daily bars | `swingtrader-mtf-executor.service` |
 
 ### Manual
