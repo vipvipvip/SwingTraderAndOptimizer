@@ -1,0 +1,55 @@
+{
+  "_about": "Baseline outputs on the validated tbl_prices_daily/weekly refresh. Supersedes every pre-2026-10-02 figure in config.py comments and common/docs/commercial/performance.md.",
+  "_caution": "per AGENTS.md these are NOT expected returns. MTF stock-leg return is dominated by survivorship + concentration (config.py: without the top ~50 names the same leg is ~+132%). Use for signal quality and replicable picks only.",
+  "provenance": {
+    "data_tables": ["tbl_prices_daily", "tbl_prices_weekly"],
+    "daily_max_date": "2026-10-02",
+    "weekly_max_date": "2026-09-28",
+    "generated": "2026-10-05",
+    "cost_per_side": 0.0005,
+    "initial_capital": 100000,
+    "signal_source": "emasma_core (shared with live runner.py)",
+    "coreew_signal_source": "PHP TradeExecutorService::replayLegEmaSeries (shared with live trades:execute-leg-ema)"
+  },
+  "mtf_emasma_etf": {
+    "window": "2023-06-30 -> 2026-10-02",
+    "total_return_pct": 182.68,
+    "cagr_pct": 38.13,
+    "max_dd_pct": -13.2,
+    "calmar": 2.88,
+    "periods_up_pct": 60.7,
+    "orders": 471,
+    "avg_invested_pct": 87.6,
+    "note": "Window is config.TS_START (2023-06-30), NOT comparable to the old 2021-09-21->2026-09-25 comment (+106%/-31.7%). Re-run on a matched window before quoting either."
+  },
+  "mtf_emasma_stock": {
+    "window": "2023-06-30 -> 2026-10-02",
+    "total_return_pct": 107326.53,
+    "cagr_pct": 775.44,
+    "max_dd_pct": -18.5,
+    "calmar": 41.87,
+    "periods_up_pct": 78.6,
+    "orders": 4899,
+    "avg_invested_pct": 97.0,
+    "SURVIVORSHIP_ARTIFACT": "Do NOT publish. Equal-weight top-25 over today's 1,425-name survivor list. Matches the pre-existing 'returns are fantasy' warning in config.py."
+  },
+  "coreew_p20w": {
+    "window": "2016-01-04 -> 2026-09-28 (560 weekly bars, last decision 2026-09-21)",
+    "total_return_pct": 696.82,
+    "cagr_pct": 21.38,
+    "max_dd_pct": -10.3,
+    "calmar": 2.07,
+    "periods_up_pct": 58.5,
+    "orders": 1103,
+    "avg_invested_pct": 85.1,
+    "UNRECONCILED": "Published performance.md says +364.27% / -19.2% DD / Calmar 0.80 on pre-refresh data. Harness sanity-checked: B&H reproduces (+393% here vs +410% published), so the delta is driven by the refreshed price series changing the PHP crossover states, not by the harness. Reconcile before this replaces any published figure."
+  },
+  "benchmark_sanity_check": {
+    "what": "Buy-and-hold, rounded equal-weight QQQ+VTI,VTI,VTV over the same window through this harness",
+    "total_return_pct": 393.2,
+    "cagr_pct": 16.01,
+    "max_dd_pct": -25.3,
+    "published": "+410.41% / 16.4% / -32.6%",
+    "verdict": "Harness reproduces B&H within ~4% on return and CAGR; validates the execution engine."
+  }
+}

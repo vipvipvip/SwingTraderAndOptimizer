@@ -20,6 +20,9 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
+from emasma_core import (settled_weekly_idx as _settled_weekly_idx,
+                             compute_emasma_score as _compute_emasma_score,
+                             rank_candidates as _rank_candidates)
 import db as db_module
 import executor
 
@@ -398,54 +401,6 @@ def _compute_score(weekly, daily, hourly, wi, di, hi, sig_date):
     }
 
 
-def _compute_emasma_score(weekly, daily_close, wi, sig_date):
-    """EMA/SMA score for ETF rotation (matches backtest --score emasma).
-
-    Pure weekly strategy: long when weekly EMA10 > SMA40, flat otherwise.
-    Rank = min(gap_w / 5, 5) where gap_w is the weekly close vs SMA40 gap.
-    No daily/hourly/ATR filters.
-    """
-    if wi < config.WARMUP_BARS:
-        return None
-
-    wc = weekly['close'][wi]
-    we = weekly['ema'][wi]
-    ws = weekly['sma'][wi]
-
-    import math
-    if any(math.isnan(x) for x in (wc, we, ws)):
-        return None
-    if we <= ws:
-        return None
-
-    gap_w = (wc - ws) / ws * 100
-    score = round(min(gap_w / 5, 5), 2)
-
-    # Freshness: days since last weekly EMA/SMA crossover (informational)
-    days_since = 999
-    w_ema = weekly['ema']
-    w_sma = weekly['sma']
-    w_dates = weekly['dates']
-    for j in range(wi, 0, -1):
-        wj_ema = w_ema[j]
-        wj_sma = w_sma[j]
-        wj_ema_prev = w_ema[j - 1]
-        wj_sma_prev = w_sma[j - 1]
-        if not (math.isnan(wj_ema) or math.isnan(wj_sma) or math.isnan(wj_ema_prev) or math.isnan(wj_sma_prev)):
-            if wj_ema > wj_sma and wj_ema_prev <= wj_sma_prev:
-                days_since = (sig_date - w_dates[j]).days
-                break
-
-    return {
-        'score': score,
-        'gap_w': round(gap_w, 1),
-        'atr_dist': 0.0,
-        'freshness': days_since,
-        'close': round(daily_close, 2),
-        'name': None,
-    }
-
-
 def _get_ticker_name(conn, tid):
     with conn.cursor() as cur:
         cur.execute('SELECT symbol FROM tbl_stock_tickers WHERE id = %s', (tid,))
@@ -564,23 +519,6 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
                 return date_map.get(d)
         return None
 
-    def _settled_weekly_idx(weekly_idx, weekly_dates, today):
-        """Index of the last COMPLETED weekly bar: the Monday-stamped row whose
-        week has fully passed (bar_date + 7 <= today), so its settled Friday
-        close is in the DB. Excludes the in-progress week's running aggregate.
-
-        Fixes live==backtest parity (2026-09-24): the old nearest-date read
-        pulled the in-progress Monday-stamped bar intraweek (e.g. SMH week of
-        2026-09-21 had close 594.49 = a partial week-to-date close), making the
-        rotation react intraweek to a half-baked weekly bar, while the backtest
-        (exact Monday match) only re-ranked weekly. Now both use the last fully
-        settled week; a new week enters on its following Monday."""
-        cutoff = today - timedelta(days=7)
-        for d in reversed(weekly_dates):
-            if d <= cutoff:
-                return weekly_idx.get(d)
-        return None
-
     latest_date = db_module.get_latest_daily_bar_date(conn)
     if latest_date is None:
         conn.close()
@@ -672,10 +610,7 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
         conn.close()
         return False, lines, sig_date
 
-    # Sort by score DESC, then by weekly gap DESC for a deterministic,
-    # replicable selection when many tickers tie at the emasma score cap (5).
-    candidates.sort(key=lambda x: (-x['score'], -x['gap_w']))
-    top_n = candidates[:config.ETF_TOP_N if is_etf else config.TOP_N]
+    top_n = _rank_candidates(candidates, is_etf)
 
     score_detail = {}
     for t in candidates:
