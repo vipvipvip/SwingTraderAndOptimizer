@@ -101,3 +101,6 @@ portfolio-backtest/portfolio_backtest_*.csv
 # git's directory walk fail on status/checkout ("Permission denied",
 # "failed to remove postgres_data/") unless it's excluded up front.
 /postgres_data/
+
+# bar backups written by backfill_etf_daily_history.py before any DELETE
+backups/
