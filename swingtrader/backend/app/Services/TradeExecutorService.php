@@ -2365,39 +2365,68 @@ class TradeExecutorService
     }
 
     /**
-     * Current price fallback. Call sites already try alpacaService->getLatestPrices()
-     * first; this is the backstop, so it must never return a stale bar.
-     * 1) live Alpaca quote, 2) last settled daily close from tbl_prices_daily,
-     * 3) legacy tbl_etf_tickers_1hour (frozen since 2026-09-11, symbols outside
-     * tbl_stock_tickers such as BLENDED), else null.
-     * The hourly table it used to read was purged 2026-10-02 — a frozen hourly
-     * close silently mis-sized positions via excess / price at 11+ call sites.
+     * Price used to SIZE orders (dollars -> qty). Never used as a signal input:
+     * every caller converts a dollar target into shares or checks availability.
+     *
+     * Order of preference:
+     *   1. Alpaca latest trade (IEX) — the market price at the moment of the order.
+     *      Since the 09:10 hourly sampler was disabled (2026-10-02) the newest
+     *      hourly row is the previous session's 16:30 capture, so sizing off the
+     *      DB alone carries the overnight/weekend gap into every qty.
+     *   2. Newest DB price (hourly table, then legacy table) — previous behaviour,
+     *      kept as the fallback when the data API is down or returns nothing.
+     *
+     * Guard: a live price more than LIVE_PRICE_MAX_DEVIATION away from the DB
+     * price is treated as a bad print and the DB price is used instead (logged).
      */
+    private const LIVE_PRICE_MAX_DEVIATION = 0.15;
+
     private function getCurrentPrice($symbol)
     {
+        $dbPrice = $this->getDbPrice($symbol);
+
+        $live = null;
         try {
-            $quote = $this->alpacaService->getLatestPrices([$symbol]);
-            if (isset($quote[$symbol]) && $quote[$symbol] > 0) {
-                return floatval($quote[$symbol]);
-            }
+            $prices = $this->alpacaService->getLatestPrices([$symbol]);
+            $p = floatval($prices[$symbol] ?? 0);
+            $live = $p > 0 ? $p : null;
         } catch (\Exception $e) {
-            \Log::debug("Alpaca quote failed for $symbol: " . $e->getMessage());
+            \Log::debug("getCurrentPrice: live price failed for $symbol: " . $e->getMessage());
         }
 
+        if ($live === null) {
+            return $dbPrice;
+        }
+        if ($dbPrice !== null && abs($live / $dbPrice - 1.0) > self::LIVE_PRICE_MAX_DEVIATION) {
+            \Log::warning(sprintf(
+                'getCurrentPrice: %s live %.4f deviates %.1f%% from DB %.4f — using DB price',
+                $symbol, $live, ($live / $dbPrice - 1.0) * 100, $dbPrice
+            ));
+            return $dbPrice;
+        }
+        return $live;
+    }
+
+    /**
+     * Newest stored price: live scanner hourly table (tbl_scanner_tickers_1hour,
+     * keyed by tbl_stock_tickers.id), then the legacy tbl_etf_tickers_1hour for
+     * symbols that only exist there (e.g. BLENDED), else null.
+     */
+    private function getDbPrice($symbol)
+    {
         try {
-            $bar = \DB::table('tbl_prices_daily as p')
-                ->join('tbl_stock_tickers as t', 'p.ticker_id', '=', 't.id')
+            $bar = \DB::table('tbl_scanner_tickers_1hour as h')
+                ->join('tbl_stock_tickers as t', 'h.ticker_id', '=', 't.id')
                 ->where('t.symbol', $symbol)
-                ->whereDate('p.date', '<', now('America/New_York')->toDateString())
-                ->orderBy('p.date', 'desc')
-                ->select('p.close')
+                ->orderBy('h.date', 'desc')
+                ->select('h.close')
                 ->first();
 
             if ($bar) {
                 return floatval($bar->close);
             }
         } catch (\Exception $e) {
-            \Log::debug("Could not fetch from tbl_prices_daily for $symbol: " . $e->getMessage());
+            \Log::debug("Could not fetch from tbl_scanner_tickers_1hour for $symbol: " . $e->getMessage());
         }
 
         // Legacy fallback (frozen since 09-11 2026 — only for symbols not in tbl_stock_tickers)
@@ -2418,7 +2447,6 @@ class TradeExecutorService
 
         return null;
     }
-
     /**
      * Handle sell signal
      */
