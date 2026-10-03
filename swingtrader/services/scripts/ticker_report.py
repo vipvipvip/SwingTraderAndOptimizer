@@ -131,7 +131,7 @@ def _fresh_score(conn, tid, is_etf):
         return None
     if is_etf:
         return runner._compute_emasma_score(weekly, daily['close'][di], wi, sig_date)
-    hourly = db_module.load_hourly(conn, tid)
+    hourly = None  # hourly purged 2026-10-02
     if hourly is None:
         return None
     hi = _nearest_index(hourly['dates'], sig_date)
@@ -192,7 +192,7 @@ def _manual_ratchet(conn, tid, since):
     h_by_day = {}
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT date, close, atr_stop FROM tbl_scanner_tickers_1hour '
+            'SELECT date, close, atr_stop FROM tbl_prices_daily '
             'WHERE ticker_id = %s ORDER BY date ASC', (tid,))
         for r in cur.fetchall():
             h_by_day[r[0].date()] = (float(r[1]) if r[1] else 0.0,
@@ -278,7 +278,7 @@ def report_one(conn, symbol, is_etf, top_ctx, manual_pos=None):
 
     weekly = db_module.load_weekly(conn, tid)
     daily = db_module.load_daily(conn, tid)
-    hourly = db_module.load_hourly(conn, tid) if not is_etf else None
+    hourly = None  # hourly purged 2026-10-02
     sig_date = daily['dates'][-1] if daily else None
 
     report = {'symbol': symbol, 'mode': mode}

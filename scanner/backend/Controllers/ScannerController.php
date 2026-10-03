@@ -11,7 +11,6 @@ class ScannerController
     {
         return match ($timeframe) {
             'daily' => 'tbl_prices_daily',
-            '1hour' => 'tbl_scanner_tickers_1hour',
             default => 'tbl_prices_weekly',
         };
     }
@@ -312,13 +311,14 @@ class ScannerController
             }
         }
 
-        // Latest + previous hourly bar (close, ATR stop) for the ATR filter
-        // and a fresh ATR-break detection.
+        // Latest + previous bar (close, ATR stop) for the ATR filter and a fresh
+        // ATR-break detection. Sourced from tbl_prices_daily since the hourly table
+        // was purged 2026-10-02; ATR distance is now measured on daily bars.
         $hourlyBars = DB::select("
             WITH ranked AS (
                 SELECT ticker_id, date, close::float8 AS close, atr_stop::float8 AS atr_stop,
                        ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date DESC) AS rn
-                FROM tbl_scanner_tickers_1hour
+                FROM tbl_prices_daily
             )
             SELECT c.ticker_id, c.close AS close, c.atr_stop AS atr_stop,
                    p.close AS prev_close, p.atr_stop AS prev_atr_stop
@@ -537,8 +537,7 @@ class ScannerController
 
         $latestWeekly = DB::selectOne("SELECT MAX(date) AS d FROM tbl_prices_weekly");
         $latestDaily = DB::selectOne("SELECT MAX(date) AS d FROM tbl_prices_daily");
-        $latestHourlyDate = DB::selectOne("SELECT MAX(date)::date AS d FROM tbl_scanner_tickers_1hour");
-        if (!$latestWeekly || !$latestDaily || !$latestHourlyDate) {
+        if (!$latestWeekly || !$latestDaily) {
             return response()->json(['error' => 'No data'], 500);
         }
         $wkDate = $latestWeekly->d;
@@ -562,7 +561,7 @@ class ScannerController
             SELECT DISTINCT ON (ticker_id) ticker_id,
                    close::float8 AS close,
                    atr_stop::float8 AS atr_stop
-            FROM tbl_scanner_tickers_1hour
+            FROM tbl_prices_daily
             WHERE date >= ?
               AND atr_stop IS NOT NULL
               AND atr_stop > 0

@@ -2365,26 +2365,39 @@ class TradeExecutorService
     }
 
     /**
-     * Get current price from latest bar in the live scanner hourly table
-     * (tbl_scanner_tickers_1hour, keyed by tbl_stock_tickers.id).
-     * Falls back to the legacy tbl_etf_tickers_1hour for any symbols that
-     * only exist in the legacy table (e.g. BLENDED), then returns null.
+     * Current price fallback. Call sites already try alpacaService->getLatestPrices()
+     * first; this is the backstop, so it must never return a stale bar.
+     * 1) live Alpaca quote, 2) last settled daily close from tbl_prices_daily,
+     * 3) legacy tbl_etf_tickers_1hour (frozen since 2026-09-11, symbols outside
+     * tbl_stock_tickers such as BLENDED), else null.
+     * The hourly table it used to read was purged 2026-10-02 — a frozen hourly
+     * close silently mis-sized positions via excess / price at 11+ call sites.
      */
     private function getCurrentPrice($symbol)
     {
         try {
-            $bar = \DB::table('tbl_scanner_tickers_1hour as h')
-                ->join('tbl_stock_tickers as t', 'h.ticker_id', '=', 't.id')
+            $quote = $this->alpacaService->getLatestPrices([$symbol]);
+            if (isset($quote[$symbol]) && $quote[$symbol] > 0) {
+                return floatval($quote[$symbol]);
+            }
+        } catch (\Exception $e) {
+            \Log::debug("Alpaca quote failed for $symbol: " . $e->getMessage());
+        }
+
+        try {
+            $bar = \DB::table('tbl_prices_daily as p')
+                ->join('tbl_stock_tickers as t', 'p.ticker_id', '=', 't.id')
                 ->where('t.symbol', $symbol)
-                ->orderBy('h.date', 'desc')
-                ->select('h.close')
+                ->whereDate('p.date', '<', now('America/New_York')->toDateString())
+                ->orderBy('p.date', 'desc')
+                ->select('p.close')
                 ->first();
 
             if ($bar) {
                 return floatval($bar->close);
             }
         } catch (\Exception $e) {
-            \Log::debug("Could not fetch from tbl_scanner_tickers_1hour for $symbol: " . $e->getMessage());
+            \Log::debug("Could not fetch from tbl_prices_daily for $symbol: " . $e->getMessage());
         }
 
         // Legacy fallback (frozen since 09-11 2026 — only for symbols not in tbl_stock_tickers)

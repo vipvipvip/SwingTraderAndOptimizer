@@ -23,7 +23,6 @@ NY = ZoneInfo('America/New_York')
 TIMEFRAMES = {
     'week': {'tf': TimeFrame.Week, 'table': 'tbl_scanner_tickers', 'label': 'weeks', 'start_lookback_days': 90},
     'day':  {'tf': TimeFrame.Day,  'table': 'tbl_scanner_tickers_daily', 'label': 'days', 'start_lookback_days': 30},
-    'hour': {'tf': TimeFrame.Hour, 'table': 'tbl_scanner_tickers_1hour', 'label': 'hours', 'start_lookback_days': 3},
 }
 
 def get_latest_date(table):

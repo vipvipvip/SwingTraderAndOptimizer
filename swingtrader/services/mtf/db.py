@@ -327,7 +327,19 @@ def load_daily(conn, ticker_id):
     return dict(dates=dates, open=opens, close=closes, ema=ema, sma=sma)
 
 
+_HOURLY_RETIRED = (
+    "Hourly bars were purged 2026-10-02 (tbl_scanner_tickers_1hour dropped). "
+    "The research --strategy mtf path needs them; live emasma never did "
+    "(runner.py: uses_hourly = (not is_etf) and strategy == 'mtf'). "
+    "Use tbl_prices_daily / tbl_prices_weekly instead."
+)
+
+
 def load_hourly(conn, ticker_id):
+    raise RuntimeError(_HOURLY_RETIRED)
+
+
+def _load_hourly_removed(conn, ticker_id):
     cur = conn.cursor()
     cur.execute(
         "SELECT date::date AS bar_date, close, atr_stop FROM tbl_scanner_tickers_1hour "
@@ -443,6 +455,10 @@ def bulk_load_daily(conn, ticker_ids=None):
 
 
 def bulk_load_hourly(conn, ticker_ids=None):
+    raise RuntimeError(_HOURLY_RETIRED)
+
+
+def _bulk_load_hourly_removed(conn, ticker_ids=None):
     """Load hourly data in one query. If ticker_ids provided, only load those."""
     cur = conn.cursor()
     if ticker_ids:

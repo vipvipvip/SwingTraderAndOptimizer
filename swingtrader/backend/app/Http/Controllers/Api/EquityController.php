@@ -91,22 +91,22 @@ class EquityController extends Controller
         $mapped = collect($trades->items())->map(function ($trade) {
             $high = $low = null;
             if ($trade->status === 'closed' && $trade->entry_at && $trade->exit_at) {
-                $range = DB::table('tbl_scanner_tickers_1hour')
-                    ->join('tbl_stock_tickers', 'tbl_scanner_tickers_1hour.ticker_id', '=', 'tbl_stock_tickers.id')
+                $range = DB::table('tbl_prices_daily')
+                    ->join('tbl_stock_tickers', 'tbl_prices_daily.ticker_id', '=', 'tbl_stock_tickers.id')
                     ->where('tbl_stock_tickers.symbol', $trade->symbol)
-                    ->whereBetween('tbl_scanner_tickers_1hour.date', [$trade->entry_at, $trade->exit_at])
-                    ->selectRaw('MAX(tbl_scanner_tickers_1hour.high) as high, MIN(tbl_scanner_tickers_1hour.low) as low')
+                    ->whereBetween('tbl_prices_daily.date', [$trade->entry_at, $trade->exit_at])
+                    ->selectRaw('MAX(tbl_prices_daily.high) as high, MIN(tbl_prices_daily.low) as low')
                     ->first();
                 if ($range) {
                     $high = $range->high !== null ? (float) $range->high : null;
                     $low = $range->low !== null ? (float) $range->low : null;
                 }
             } elseif ($trade->status === 'open' && $trade->entry_at) {
-                $range = DB::table('tbl_scanner_tickers_1hour')
-                    ->join('tbl_stock_tickers', 'tbl_scanner_tickers_1hour.ticker_id', '=', 'tbl_stock_tickers.id')
+                $range = DB::table('tbl_prices_daily')
+                    ->join('tbl_stock_tickers', 'tbl_prices_daily.ticker_id', '=', 'tbl_stock_tickers.id')
                     ->where('tbl_stock_tickers.symbol', $trade->symbol)
-                    ->where('tbl_scanner_tickers_1hour.date', '>=', $trade->entry_at)
-                    ->selectRaw('MAX(tbl_scanner_tickers_1hour.high) as high, MIN(tbl_scanner_tickers_1hour.low) as low')
+                    ->where('tbl_prices_daily.date', '>=', $trade->entry_at)
+                    ->selectRaw('MAX(tbl_prices_daily.high) as high, MIN(tbl_prices_daily.low) as low')
                     ->first();
                 if ($range) {
                     $high = $range->high !== null ? (float) $range->high : null;

@@ -31,7 +31,6 @@ NY = ZoneInfo('America/New_York')
 TIMEFRAMES = {
     'week': {'tf': TimeFrame.Week, 'table': 'tbl_scanner_tickers', 'label': 'weeks', 'yf_interval': '1wk'},
     'day': {'tf': TimeFrame.Day, 'table': 'tbl_scanner_tickers_daily', 'label': 'days', 'yf_interval': '1d'},
-    'hour': {'tf': TimeFrame.Hour, 'table': 'tbl_scanner_tickers_1hour', 'label': 'hours', 'yf_interval': '1h'},
 }
 
 # Delisted / taken-over / dead tickers. Never re-populate or re-add these.

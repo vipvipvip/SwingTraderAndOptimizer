@@ -100,11 +100,10 @@ def main():
                 WHERE st.enabled = true
                   AND EXISTS (SELECT 1 FROM tbl_prices_weekly w WHERE w.ticker_id = st.id)
                   AND EXISTS (SELECT 1 FROM tbl_prices_daily d WHERE d.ticker_id = st.id)
-                  AND EXISTS (SELECT 1 FROM tbl_scanner_tickers_1hour h WHERE h.ticker_id = st.id)
             ) sub
         """)
         qual = cur.fetchone()[0]
-        ok(f'{qual}/{len(tickers)} tickers have all 3 timeframes')
+        ok(f'{qual}/{len(tickers)} tickers have both timeframes (daily + weekly)')
 
         # Market breadth
         pct = db_module.get_market_breadth(conn)

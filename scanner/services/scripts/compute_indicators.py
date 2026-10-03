@@ -7,7 +7,7 @@ them (sma_crossover = EMA24 vs SMA52, ppo_crossover = 24/52 zero-cross) were
 misnamed legacy artifacts. `atr_stop` is the sole stored indicator because
 both live strategies invert it to recover ATR: ATR = (close - atr_stop)/2.
 
-The hourly table (tbl_scanner_tickers_1hour) still HAS its macd_*/ppo_* columns
+macd_*/ppo_* columns were dropped 2026-09-26; atr_stop is the only stored indicator
 — they were intentionally left in place, but this script no longer writes them,
 so they are frozen at their last computed values. That is harmless: nothing reads
 hourly MACD any more (earnings_screener.py was converted to daily MACD on
@@ -20,7 +20,7 @@ ratchet source. runner.py now loads hourly only when `strategy == 'mtf'`
 (research). The hourly sampler timer was disabled the same day, so these columns
 are frozen and only the research path can still add to them.
 
-Partition-aware: 16 workers (1 per hash partition on tbl_scanner_tickers_1hour),
+Hourly (tbl_scanner_tickers_1hour) was purged 2026-10-02, so no table here is partitioned;
 COPY bulk writes instead of individual UPDATEs. Targets ~5-8 min on 1.5K+ tickers.
 
 Supports weekly, daily (non-partitioned), and 1-hour (hash-partitioned) tables.
@@ -52,7 +52,6 @@ from config import (
 TABLES = {
     'week': 'tbl_scanner_tickers',
     'day': 'tbl_scanner_tickers_daily',
-    'hour': 'tbl_scanner_tickers_1hour',
     # Clean blue/green replacements. Not partitioned, so is_hourly stays False
     # and these take the plain (non-partition-aware) path.
     'prices-daily': 'tbl_prices_daily',

@@ -4,41 +4,26 @@ namespace App\Services;
 
 trait MarketDataTrait
 {
+    /**
+     * RETIRED 2026-10-02 — always returns [].
+     *
+     * This built the CoreEW chandelier entry/stop from 04:00-06:00 ET pre-market
+     * hourly bars. tbl_scanner_tickers_1hour was purged, and the newest such bar
+     * was already 2026-09-15 (the hourly backfill that fetched them stopped
+     * running), so the series has been unusable since mid-September. Callers
+     * already treat an empty result as "no ATR" and skip, which is exactly what
+     * has been happening in production. strategy_parameters is also empty, so
+     * $entryMult is null and the chandelier override is bypassed regardless.
+     *
+     * Do NOT repoint this at daily bars: chandelier ATR(18) over pre-market
+     * hours is a different quantity from atr_stop (ATR 14, regular session), so
+     * substituting it would silently change live entry/stop behaviour. Any new
+     * CoreEW variant goes in PHP per the backtest/live parity rule.
+     */
     private function getOhlcBars($symbol)
     {
-        try {
-            $rows = \DB::table('tbl_scanner_tickers_1hour')
-                ->join('tbl_stock_tickers', 'tbl_scanner_tickers_1hour.ticker_id', '=', 'tbl_stock_tickers.id')
-                ->where('tbl_stock_tickers.symbol', $symbol)
-                ->orderBy('tbl_scanner_tickers_1hour.date', 'asc')
-                ->get(['tbl_scanner_tickers_1hour.date', 'tbl_scanner_tickers_1hour.high', 'tbl_scanner_tickers_1hour.low', 'tbl_scanner_tickers_1hour.close']);
-
-            if ($rows->isEmpty()) {
-                return [];
-            }
-
-            $bars = [];
-            foreach ($rows as $row) {
-                $ts = $row->date;
-                if (date('G', strtotime($ts)) == 4 || date('G', strtotime($ts)) == 5) {
-                    if (date('i', strtotime($ts)) == 0) {
-                        $bars[] = [
-                            'timestamp' => $ts,
-                            'high' => floatval($row->high),
-                            'low' => floatval($row->low),
-                            'close' => floatval($row->close),
-                        ];
-                    }
-                }
-            }
-
-            return $bars;
-        } catch (\Exception $e) {
-            \Log::error("$symbol: Error fetching OHLC bars: " . $e->getMessage());
-            return [];
-        }
+        return [];
     }
-
     private function calculateATR($ohlc, $period)
     {
         $n = count($ohlc);
