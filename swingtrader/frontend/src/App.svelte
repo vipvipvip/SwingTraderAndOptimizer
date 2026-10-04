@@ -13,17 +13,12 @@
   let loading = true
   let error = ''
   let selectedSymbol = 'SPY'
-  let optimizerRunning = false
   let tradesRunning = false
-  let optimizerMessage = ''
   let tradesMessage = ''
   let nextTradeTime = ''
   let nextTradeDay = ''
-  let lastOptimizerRun = ''
   let lastTradesRun = ''
-  let lastOptimizerRunRaw = ''
   let lastTradesRunRaw = ''
-  let optimizerPollTimer = null
   let totalUnrealizedPnl = 0
   let totalUnrealizedPnlPercent = 0
   let totalMarketValue = 0
@@ -133,52 +128,6 @@
     nextTradeTime = `${nextTradeDay} ${timeStr} ET`
   }
 
-  async function triggerOptimizer() {
-    optimizerRunning = true
-    optimizerMessage = 'Starting optimizer...'
-    try {
-      const beforeRun = lastOptimizerRunRaw
-      const res = await fetchWithBackoff('/api/v1/admin/optimize/trigger', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) {
-        optimizerMessage = `✗ Error: ${data.error}`
-        optimizerRunning = false
-        setTimeout(() => optimizerMessage = '', 3000)
-        return
-      }
-      optimizerMessage = 'Optimizer started — awaiting completion...'
-      const pollStart = Date.now()
-      const poll = async () => {
-        try {
-          const pollRes = await fetchWithBackoff('/api/v1/admin/last-runs', {}, 2, 500, 3000)
-          if (pollRes.ok) {
-            const pollData = await pollRes.json()
-            if (pollData.last_optimizer_run && pollData.last_optimizer_run !== beforeRun) {
-              lastOptimizerRunRaw = pollData.last_optimizer_run
-              lastOptimizerRun = formatDateTime(pollData.last_optimizer_run)
-              optimizerMessage = '✓ Optimizer completed'
-              optimizerRunning = false
-              setTimeout(() => optimizerMessage = '', 3000)
-              return
-            }
-          }
-        } catch (_) {}
-        if (Date.now() - pollStart > 600000) {
-          optimizerMessage = '⚠ Optimizer still running (check logs)'
-          optimizerRunning = false
-          setTimeout(() => optimizerMessage = '', 5000)
-          return
-        }
-        optimizerPollTimer = setTimeout(poll, 10000)
-      }
-      optimizerPollTimer = setTimeout(poll, 10000)
-    } catch (e) {
-      optimizerMessage = `✗ Error: ${e instanceof Error ? e.message : 'Unknown error'}`
-      optimizerRunning = false
-      setTimeout(() => optimizerMessage = '', 3000)
-    }
-  }
-
   async function triggerTrades() {
     tradesRunning = true
     tradesMessage = 'Executing trades...'
@@ -241,10 +190,6 @@
 
       try {
         const lastRunsData = await apiFetch('/admin/last-runs')
-        if (lastRunsData.last_optimizer_run) {
-          lastOptimizerRunRaw = lastRunsData.last_optimizer_run
-          lastOptimizerRun = formatDateTime(lastRunsData.last_optimizer_run)
-        }
         if (lastRunsData.last_trades_run) {
           lastTradesRunRaw = lastRunsData.last_trades_run
           lastTradesRun = formatDateTime(lastRunsData.last_trades_run)
@@ -356,16 +301,6 @@
     white-space: nowrap;
   }
 
-  .optimizer-btn {
-    background: #4f46e5;
-    color: white;
-  }
-
-  .optimizer-btn:hover:not(:disabled) {
-    background: #4338ca;
-    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
-  }
-
   .trades-btn {
     background: #059669;
     color: white;
@@ -414,19 +349,6 @@
   <div class="header">
     <h1>Trading Dashboard</h1>
     <div class="control-panel">
-      <div class="control-buttons">
-        {#if lastOptimizerRun}
-          <div style="font-size: 12px; color: #666;">Last updated: {lastOptimizerRun}</div>
-        {/if}
-        {#if optimizerMessage}
-          <div class="status-message" class:error={optimizerMessage.startsWith('✗')}>
-            {optimizerMessage}
-          </div>
-        {/if}
-        <button on:click={triggerOptimizer} disabled={optimizerRunning} class="control-btn optimizer-btn">
-          {optimizerRunning ? 'Running...' : '⚙️ Trigger Optimizer'}
-        </button>
-      </div>
       <div class="control-buttons">
         {#if lastTradesRun}
           <div style="font-size: 12px; color: #666;">Last updated: {lastTradesRun}</div>

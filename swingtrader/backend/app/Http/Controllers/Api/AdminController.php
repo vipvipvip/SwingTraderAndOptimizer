@@ -41,53 +41,6 @@ class AdminController extends Controller
 
     /**
      * @OA\Post(
-     *      path="/admin/optimize/trigger",
-     *      operationId="triggerOptimizer",
-     *      tags={"Admin"},
-     *      summary="Manually trigger nightly optimizer",
-     *      description="Run parameter optimization for all tickers immediately (normally runs at 8:18 AM ET daily)",
-     *      @OA\Response(
-     *          response=200,
-     *          description="Optimizer started successfully",
-     *          @OA\JsonContent(
-     *              @OA\Property(property="message", type="string", example="Optimizer started in background. Check optimizer/logs/nightly.log for progress")
-     *          )
-     *      ),
-     *      @OA\Response(
-     *          response=500,
-     *          description="Optimizer failed to start",
-     *          @OA\JsonContent(
-     *              @OA\Property(property="error", type="string")
-     *          )
-     *      )
-     * )
-     */
-    public function triggerOptimizer()
-    {
-        try {
-            $phpPath = PHP_BINDIR . DIRECTORY_SEPARATOR . 'php';
-            $artisanPath = base_path('artisan');
-            $logDir = base_path('../optimizer/logs');
-            @mkdir($logDir, 0777, true);
-            $logFile = $logDir . DIRECTORY_SEPARATOR . 'nightly.log';
-
-            if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-                $command = "start /B " . escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' optimize:nightly >> ' . escapeshellarg($logFile) . ' 2>&1';
-                $output = [];
-                exec($command, $output);
-            } else {
-                $command = escapeshellarg($phpPath) . ' ' . escapeshellarg($artisanPath) . ' optimize:nightly >> ' . escapeshellarg($logFile) . ' 2>&1 &';
-                exec($command);
-            }
-
-            return response()->json(['message' => 'Optimizer started in background. Check optimizer/logs/nightly.log and backend/data/ for progress']);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
-     * @OA\Post(
      *      path="/admin/trades/trigger",
      *      operationId="triggerTrades",
      *      tags={"Admin"},

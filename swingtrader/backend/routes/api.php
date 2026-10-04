@@ -81,7 +81,6 @@ Route::prefix('v1')->group(function () {
     Route::get('/trades/backtest/{symbol}', [BacktestTradesController::class, 'bySymbol']);
     Route::get('/trades/pnl', [EquityController::class, 'pnlSummary']);
 
-    Route::post('/admin/optimize/trigger', [AdminController::class, 'triggerOptimizer']);
     Route::post('/admin/trades/trigger', [AdminController::class, 'triggerTrades']);
     Route::post('/admin/trades/sync', [AdminController::class, 'syncTrades']);
     Route::get('/admin/market-status', [AdminController::class, 'getMarketStatus']);
@@ -289,15 +288,6 @@ Route::get('/v1/openapi.json', function (Request $request) {
                     'tags' => ['Equity & P&L'],
                     'responses' => [
                         '200' => ['description' => 'Profit/loss summary']
-                    ]
-                ],
-            ],
-            '/api/v1/admin/optimize/trigger' => [
-                'post' => [
-                    'summary' => 'Trigger nightly optimizer',
-                    'tags' => ['Admin'],
-                    'responses' => [
-                        '200' => ['description' => 'Optimizer triggered successfully']
                     ]
                 ],
             ],

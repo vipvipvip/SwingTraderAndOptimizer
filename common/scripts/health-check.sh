@@ -68,37 +68,16 @@ _trading_days_since() {
     echo "$count"
 }
 
-# ---- ETF Bars Data (per ticker) ----
-# Reads the LIVE partitioned table (tbl_scanner_tickers_1hour, keyed by
-# tbl_stock_tickers.id — all 28 ETFs are flagged is_etf=true there). The legacy
-# tbl_etf_tickers_1hour (keyed by tbl_etf_tickers.id) froze 09-11 when the
-# optimizer/backfill was retired and is no longer written; don't check it.
+# ---- ETF universe ----
 echo ""
-echo "--- ETF Bar Data ---"
+echo "--- ETF Universe ---"
 
 ENABLED_ETF=$(PSQL "SELECT symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=true ORDER BY symbol;")
 if [ -z "$ENABLED_ETF" ]; then
     fail "No enabled ETF tickers found"
 else
     pass "Enabled ETFs: $(echo "$ENABLED_ETF" | tr '\n' ' ')"
-    for sym in $ENABLED_ETF; do
-        LATEST=$(PSQL "SELECT MAX(DATE(h.date)) FROM tbl_scanner_tickers_1hour h JOIN tbl_stock_tickers t ON h.ticker_id = t.id WHERE t.symbol='$sym';")
-        COUNT=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_1hour h JOIN tbl_stock_tickers t ON h.ticker_id = t.id WHERE t.symbol='$sym';")
-        if [ -n "$LATEST" ] && [ "$LATEST" != " " ]; then
-            HOUR_TRADING_DAYS=$(_trading_days_since "$LATEST")
-            if [ "$HOUR_TRADING_DAYS" -le 1 ] 2>/dev/null; then
-                pass "  $sym: $COUNT bars, latest $LATEST ($HOUR_TRADING_DAYS trading days ago)"
-            else
-                warn "  $sym: $COUNT bars, latest $LATEST ($HOUR_TRADING_DAYS trading days ago - stale)"
-            fi
-        else
-            fail "  $sym: no bar data found"
-        fi
-    done
 fi
-
-ETF_BAR_TOTAL=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_1hour h JOIN tbl_stock_tickers t ON h.ticker_id = t.id WHERE t.enabled=true AND t.is_etf=true;")
-echo "  Total ETF bars: $ETF_BAR_TOTAL"
 
 # ---- Stock / Scanner Data ----
 echo ""
@@ -124,23 +103,8 @@ else
     fail "Scanner daily table is empty"
 fi
 
-SCAN_HOURLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers_1hour;")
-SCAN_HOURLY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_HOURLY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
 SCAN_WEEKLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers;")
 SCAN_WEEKLY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_WEEKLY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
-# Count trading days (Mon-Fri) since the latest bar
-SCAN_HOURLY_TRADING_DAYS=$(_trading_days_since "$SCAN_HOURLY_LATEST")
-if [ -n "$SCAN_HOURLY_LATEST" ]; then
-    if [ "$SCAN_HOURLY_TRADING_DAYS" -le 1 ] 2>/dev/null; then
-        pass "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_TRADING_DAYS trading days ago)"
-    elif [ "$SCAN_HOURLY_TRADING_DAYS" -le 3 ] 2>/dev/null; then
-        warn "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_TRADING_DAYS trading days ago - stale)"
-    else
-        fail "Scanner hourly: latest $SCAN_HOURLY_LATEST ($SCAN_HOURLY_TRADING_DAYS trading days ago - severely stale)"
-    fi
-else
-    fail "Scanner hourly table is empty"
-fi
 if [ -n "$SCAN_WEEKLY_LATEST" ]; then
     if [ "$SCAN_WEEKLY_DAYS" -le 10 ] 2>/dev/null; then
         pass "Scanner weekly: latest $SCAN_WEEKLY_LATEST ($SCAN_WEEKLY_DAYS days ago)"

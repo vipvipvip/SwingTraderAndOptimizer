@@ -9,10 +9,6 @@ class Kernel extends ConsoleKernel
 {
     protected function schedule(Schedule $schedule)
     {
-        // Nightly optimizer is now managed by OS scheduler (Windows Task Scheduler / cron)
-        // See scripts/setup-optimizer-wts.ps1 (Windows) or scripts/setup-optimizer-cron.sh (Linux)
-        // Manual trigger: php artisan optimize:nightly
-
         // Price fetching is handled by trade executor (calls fetchLatestPrices internally every 5 min)
 
         // NOTE: live trigger is the crontab entry (artisan trades:execute-EW-ETF
