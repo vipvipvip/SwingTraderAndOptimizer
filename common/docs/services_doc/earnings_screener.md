@@ -40,8 +40,10 @@ python3 services/earnings_screener.py --stats
 
 | Service | Timer | Schedule |
 |---------|-------|----------|
-| swingtrader-earnings-refresh | swingtrader-earnings-refresh.timer | Sun 6:00 AM ET |
 | swingtrader-earnings-screener | swingtrader-earnings-screener.timer | Mon-Fri every 30 min, 9:30 AM - 3:30 PM ET |
+
+⛔ `swingtrader-earnings-refresh.{service,timer}` was **REMOVED 2026-10-05**. The cache is
+refreshed **on demand** — see [Cache refresh](#cache-refresh) below.
 
 The scheduled run is `--days 14 --all --slack`. It passes `--all` deliberately:
 on hourly data the default fresh-only filter ("cross on the latest bar") fired
@@ -53,16 +55,33 @@ posts the full ranked list instead, sorted by how many days since the cross.
 
 ```bash
 # Unit files moved out of services_doc/ on 2026-10-05 — they now live with the
-# scanner component that owns earnings_screener.py.
-sudo cp scanner/systemd/swingtrader-earnings-*.service /etc/systemd/system/
-sudo cp scanner/systemd/swingtrader-earnings-*.timer /etc/systemd/system/
+# scanner component that owns earnings_screener.py. Only ONE unit remains.
+sudo cp scanner/systemd/swingtrader-earnings-screener.service /etc/systemd/system/
+sudo cp scanner/systemd/swingtrader-earnings-screener.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now swingtrader-earnings-refresh.timer swingtrader-earnings-screener.timer
+sudo systemctl enable --now swingtrader-earnings-screener.timer
 ```
 
-Both timers are already installed and enabled on this box. Note
-`swingtrader-earnings-refresh.service` is currently **failing** (exit 1) on every run — the
-screener runs off the existing cache regardless. See `services_doc/README.md`.
+The screener timer is installed and enabled on this box.
+
+## Cache refresh
+
+⛔ There is **no scheduled refresh timer** — it was removed 2026-10-05 after a long run of
+silent failures (the persistent Sun 06:00 timer fired before `swingtrader-db.service` was
+ready, so it exited 1 every week and the cache silently aged; last real update drifted to
+`2026-09-13`). Refresh explicitly instead:
+
+```bash
+cd scanner
+./.venv/bin/python3 services/earnings_screener.py --refresh
+```
+
+The screener itself reads the existing cache — it does **not** refresh — so a stale cache
+means the 30-min Slack posts go out against old dates. Accepted for now; nothing consumes
+this table for trading. Only `earnings_screener.py` (Slack) and `sec_research.py` (ticker
+selection) read `tbl_earnings_calendar`; no strategy reads it.
+
+Last refresh: 1,380 rows, horizon `2026-11-02`, done manually 2026-10-05.
 
 ## Output
 

@@ -314,7 +314,7 @@ MTF + EMA/SMA Execution — 2026-07-14 (stocks + ETFs)
 
 ### Slack
 Multiple Slack messages per day:
-- **Sampler (09:10–15:10 ET)** — intraday hourly capture + recompute (silent unless an alert; retained for the scanner, not consumed by emasma).
+- ~~**Sampler (09:10–15:10 ET)**~~ — intraday hourly capture + recompute. ⛔ **REMOVED 2026-10-05** — unit and service deleted; the hourly table was dropped from the DB. No longer posts. See [Timers](#timers).
 - **Executor 1×/day (10:25 ET)** — scores emasma on the last complete daily bar, fills the rotation, then posts one combined picks message and one combined fills message.
 
 Morning messages include:
@@ -369,6 +369,16 @@ sudo journalctl -u swingtrader-mtf-executor.service -f
 |-------|------|--------|---------|
 | ~~`swingtrader-scanner-hourly.timer`~~ | ⛔ removed 2026-10-05 | Hourly capture — purged 2026-10-02 | (deleted) |
 | `swingtrader-mtf-executor.timer` | Mon–Fri 10:25 ET (once/day) | emasma score+execute on settled daily bars | `swingtrader-mtf-executor.service` |
+| `swingtrader-mtf-scorer.timer` | Mon–Fri 16:45 ET | evening score recap, Slack only — no orders | `swingtrader-mtf-scorer.service` |
+
+⚠️ **`Persistent=false` on both, deliberately (changed 2026-10-05).** Data comes from the
+canonical load (`swingtrader-prices-load.timer`, 09:05 ET, `Persistent=true`). A missed
+*data* load must still be caught up; a missed *order* run must be **skipped**, not replayed
+at the wrong hour. Both MTF timers were `Persistent=true` until 2026-10-05, which meant a
+reboot or power-off after the scheduled minute replayed the day's timer immediately —
+executing pre-market before `prices-load` had loaded a bar. A boot after 10:25 now skips the
+run instead; the readiness gate is the backstop, not the schedule. Full table in
+[`README.md`](README.md#persistenttrue-vs-false--do-not-normalise-these).
 
 ### Manual
 ```bash
