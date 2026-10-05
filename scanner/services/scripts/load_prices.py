@@ -71,13 +71,18 @@ def conn():
     return _local.conn
 
 
-def fetch(symbol, tf_name, start_year=START_YEAR):
-    """Paginated SIP fetch. Returns [(date, o, h, l, c, v), ...] or raises."""
+def fetch(symbol, tf_name, start_year=START_YEAR, start=None):
+    """Paginated SIP fetch. Returns [(date, o, h, l, c, v), ...] or raises.
+
+    `start` (a tz-aware datetime) narrows the window; when omitted this behaves exactly
+    as before and pulls from start_year. backfill_prices_incremental.py passes
+    frontier+1 here so a one-day gap costs one bar per ticker instead of ~2,650.
+    """
     client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
     request = StockBarsRequest(
         symbol_or_symbols=symbol,
         timeframe=ALPACA_TF[tf_name],
-        start=datetime(start_year, 1, 1, tzinfo=NY),
+        start=start or datetime(start_year, 1, 1, tzinfo=NY),
         adjustment=ADJUSTMENT,
         feed=FEED,
     )
@@ -102,11 +107,11 @@ def fetch(symbol, tf_name, start_year=START_YEAR):
     return out
 
 
-def fetch_with_retry(symbol, tf_name):
+def fetch_with_retry(symbol, tf_name, start=None):
     delay = 2
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            return fetch(symbol, tf_name), None
+            return fetch(symbol, tf_name, start=start), None
         except Exception as e:
             if attempt == MAX_RETRIES:
                 return [], f'{type(e).__name__}: {str(e)[:120]}'

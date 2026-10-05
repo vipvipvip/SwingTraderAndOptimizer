@@ -3,6 +3,14 @@ Description=Refresh canonical price tables (tbl_prices_daily / tbl_prices_weekly
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network-online.target swingtrader-db.service
 Wants=network-online.target
+# Ordering rail (2026-10-05): these units read tbl_prices_daily / tbl_prices_weekly, so the
+# refresh must finish before any scoring or trade can start. OnCalendar times already keep
+# this true on a normal boot; Before= makes it true when several timers are dispatched
+# together (late boot / manual catch-up), which is exactly when stale prices leak into a
+# scoring run. Ordering only applies to units started in the same transaction.
+Before=swingtrader-legema.service swingtrader-mtf-executor.service \
+swingtrader-mtf-scorer.service swingtrader-daily-signal.service \
+swingtrader-weekly-takeoff.service
 
 [Service]
 Type=oneshot
