@@ -1,5 +1,5 @@
 [Unit]
-Description=SwingTrader post-close settle (weekly + daily) + hourly-bar backfill + indicators
+Description=SwingTrader post-close settle (weekly + daily) + indicators
 After=network-online.target swingtrader-db.service
 Wants=network-online.target swingtrader-db.service
 
@@ -11,13 +11,20 @@ WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
 # weeks, so Friday's 16:30 run is what puts Friday's close into the
 # Monday-stamped weekly row (WEEKLY_SETTLE_TIME = 16:05) — before this existed,
 # the newest weekly row stayed a partial bar until Monday 09:00.
+#
+# The hourly leg was removed 2026-10-02 (tbl_scanner_tickers_1hour dropped),
+# but its ExecStartPre/ExecStart lines stayed here. 'hour' is no longer a key in
+# populate_tickers.TIMEFRAMES or compute_indicators.TABLES, so argparse rejects
+# --timeframe hour with exit 2 — and ExecStartPre runs BEFORE every ExecStart,
+# so from the next 16:30 the unit aborted on line 1 and the weekly+daily settle
+# above never ran at all. Silent: the timer still "fired", just with Result=exit-code.
+# Anything removed from a service's Exec lines must come out of the unit in the
+# same change. Keep the legacy scanner tables (tbl_scanner_tickers*) alive here:
+# compute_indicators --timeframe week/day still owns their atr_stop.
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe week --workers 3
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe week --workers 3
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe day --workers 3
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe day --workers 3
-ExecStartPre=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe hour --workers 5
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/capture_hourly.py
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe hour --workers 3
 
 [Install]
 WantedBy=timers.target

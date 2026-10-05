@@ -65,7 +65,7 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 
 ## Architecture
 
-**Intraday sampler (`swingtrader-scanner-hourly`)** — ⛔ **timer disabled 2026-10-02.** Captured latest-trade prices into the hourly table (open=high=low=close, volume = that one trade's size — degenerate bars, median volume ~100 shares). No live consumer remains: HCO was removed from Daily Signal, and MTF emasma scores on settled weekly+daily only. Re-enable only to feed the `--strategy mtf` research path.
+**Intraday sampler (`swingtrader-scanner-hourly`)** — ⛔ **REMOVED 2026-10-05.** It captured latest-trade prices into the hourly table (open=high=low=close, volume = that one trade's size — degenerate bars, median volume ~100 shares), and no live consumer ever remained: HCO was removed from Daily Signal, and MTF emasma scores on settled weekly+daily only. The 2026-10-02 HOURLY purge dropped the table and deleted `capture_hourly.py`, so the units were uninstalled on 10-05. Its one real casualty is `runner.py --fresh`, which read that table and is now unrunnable.
 **Executor (`swingtrader-mtf-executor`)** — once/day at 10:25: `--action score` then `--action execute` on the last COMPLETE daily bar (no `--fresh`): emasma stock leg (top-10) + EMA/SMA ETF leg (top-3), with the daily-ATR ratchet exit on the stock leg. Execute has a **freshness guard** (`FRESH_PENDING_MAX_AGE_HOURS = 6`): if the pending row is older than 6 hours it is refused — a failed score step can never leave stale picks to be traded at a 10:25 fill.
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
@@ -152,7 +152,7 @@ All files live under `swingtrader/services/mtf/`:
 | `.env` | Environment variables (DB creds, Slack webhook URL) |
 | `data/mtf_picks_stock.csv` | Daily stock top-N picks with scores and components (pick history) |
 | `data/mtf_picks_etf.csv` | Daily ETF top-N picks with scores and components (pick history) |
-| `systemd/swingtrader-scanner-hourly.{service,timer}` | ⛔ timer disabled 2026-10-02 — hourly latest-trade capture, no live consumer (research/`--strategy mtf` only) |
+| ~~`systemd/swingtrader-scanner-hourly.{service,timer}`~~ | ⛔ **removed 2026-10-05** — hourly capture; table and script purged 2026-10-02, units uninstalled 10-05 |
 | `systemd/swingtrader-mtf-scorer.{service,timer}` | DISABLED 2026-08-27 (score is inline in the executor); kept for manual/analytics use |
 | `systemd/swingtrader-mtf-executor.{service,timer}` | emasma executor (once/day at 10:25): `ExecStart=executor_retry.py` — score (retried to market close) then `--action execute`, both `--strategy emasma` on settled daily bars; no `--fresh`. `TimeoutStartSec=6h` backstop (`RuntimeMaxSec` is ignored on `Type=oneshot`) |
 
@@ -367,7 +367,7 @@ sudo journalctl -u swingtrader-mtf-executor.service -f
 
 | Timer | Time | Action | Service |
 |-------|------|--------|---------|
-| `swingtrader-scanner-hourly.timer` | ⛔ disabled 2026-10-02 | Hourly capture — no live consumer | `swingtrader-scanner-hourly.service` |
+| ~~`swingtrader-scanner-hourly.timer`~~ | ⛔ removed 2026-10-05 | Hourly capture — purged 2026-10-02 | (deleted) |
 | `swingtrader-mtf-executor.timer` | Mon–Fri 10:25 ET (once/day) | emasma score+execute on settled daily bars | `swingtrader-mtf-executor.service` |
 
 ### Manual

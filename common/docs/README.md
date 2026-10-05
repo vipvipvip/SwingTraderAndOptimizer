@@ -34,12 +34,16 @@ AGENTS.md and the code over the doc.
 
 - **[ALPACA_KEYS.md](ALPACA_KEYS.md)** — which `.env` file and account each key pair
   belongs to, and the exact failure mode when they're mixed up. Open this whenever keys rotate.
-- **[services_doc/](services_doc/)** — the current systemd unit files (source of truth for
-  what's enabled/disabled/schedule); start with **[services_doc/README.md](services_doc/README.md)**
-  for the full inventory (every unit's live status, schedule, and purpose, cross-checked
-  against `systemctl`/`crontab` directly) — plus service-specific docs: `mtf_daily_runner.md`
-  (MTF Top-N architecture), `earnings_screener.md`, `sec_research_guide.md`,
-  `comprehensive_research.md`, `advanced_research.md`.
+- **[services_doc/](services_doc/)** — service documentation + the full live inventory;
+  start with **[services_doc/README.md](services_doc/README.md)** (every unit's live status,
+  schedule, and purpose, cross-checked against `systemctl`/`crontab` directly) — plus
+  service-specific docs: `mtf_daily_runner.md` (MTF Top-N architecture),
+  `earnings_screener.md`, `sec_research_guide.md`. Since 2026-10-05 this directory holds
+  **no unit files**: each `.service`/`.timer` lives in the `systemd/` dir of the component
+  that owns it (see the table in that README).
+- **[advanced_research.md](advanced_research.md)** /
+  **[comprehensive_research.md](comprehensive_research.md)** — research-module write-ups
+  (moved up from `services_doc/` on 2026-10-05; they document research code, not services).
 
 ## Setup & commands
 

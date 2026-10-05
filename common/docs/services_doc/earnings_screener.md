@@ -52,11 +52,17 @@ posts the full ranked list instead, sorted by how many days since the cross.
 ## Installation
 
 ```bash
-sudo cp common/docs/services_doc/swingtrader-earnings-*.service /etc/systemd/system/
-sudo cp common/docs/services_doc/swingtrader-earnings-*.timer /etc/systemd/system/
+# Unit files moved out of services_doc/ on 2026-10-05 — they now live with the
+# scanner component that owns earnings_screener.py.
+sudo cp scanner/systemd/swingtrader-earnings-*.service /etc/systemd/system/
+sudo cp scanner/systemd/swingtrader-earnings-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now swingtrader-earnings-refresh.timer swingtrader-earnings-screener.timer
 ```
+
+Both timers are already installed and enabled on this box. Note
+`swingtrader-earnings-refresh.service` is currently **failing** (exit 1) on every run — the
+screener runs off the existing cache regardless. See `services_doc/README.md`.
 
 ## Output
 

@@ -48,22 +48,17 @@ psql -U swingtrader -d swingtrader -f scanner/services/migrations/001_create_sec
 psql -U swingtrader -d swingtrader -c "SELECT * FROM tbl_sec_research_analysis LIMIT 1;"
 ```
 
-### 2. Install Systemd Service (Optional)
+### 2. Systemd Service — there isn't one
 
-If you want automated daily runs:
+`sec-research.{service,timer}` were **never installed on this box** and the wrapper files were
+removed from the repo on 2026-10-05, so there is no scheduled run and nothing to verify with
+`systemctl`. `scanner/services/sec_research.py` itself works fine and caches into
+`tbl_sec_research_analysis` — it just has to be invoked by hand (next section).
 
-```bash
-sudo cp common/docs/services_doc/sec-research.service /etc/systemd/system/
-sudo cp common/docs/services_doc/sec-research.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now sec-research.timer
-```
-
-**Verify:**
-```bash
-systemctl status sec-research.timer
-sudo journalctl -u sec-research -f  # tail logs
-```
+If you later want it on a timer, write the unit fresh against the script's real flags
+(`--upcoming`, `--ticker`, `--output`, `--db-only`) rather than restoring the old wrapper, and
+put it in `scanner/systemd/` with the rest of the scanner units — not in `services_doc/`,
+which is documentation only.
 
 ### 3. Run Manually (No Systemd)
 
@@ -323,9 +318,7 @@ scanner/
       001_create_sec_research_table.sql
 
 common/docs/services_doc/
-  sec-research.service              # Systemd service
-  sec-research.timer                # Daily scheduler (3 PM ET)
-  sec_research_guide.md             # This file
+  sec_research_guide.md             # This file (no systemd wrapper — see §2)
 
 swingtrader/backend/database/migrations/
   2026_08_05_000000_create_sec_research_analysis_table.php

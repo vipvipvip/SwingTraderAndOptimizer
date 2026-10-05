@@ -297,10 +297,13 @@ def _ensure_daily_data(conn, mode, now, today, fresh=False):
     expected = db_module.count_enabled_tickers(conn, is_etf=is_etf)
     EVENING_CUTOFF = dt_time(15, 30)
 
-    # v2-fresh: score on TODAY and use partial-day bars as-is. The intraday
-    # hourly sampler (swingtrader-scanner-hourly) feeds today's bars; today's
-    # daily bar is partial until the 16:30 backfill, which is accepted here
-    # (matches the user's chosen fresh-13:00 model). No completeness retry.
+    # v2-fresh: score on TODAY and use partial-day bars as-is. DEAD since the
+    # 2026-10-02 HOURLY purge — the intraday sampler that fed today's bars is
+    # gone (capture_hourly.py and swingtrader-scanner-hourly.* deleted,
+    # tbl_scanner_tickers_1hour dropped), so this path can no longer find
+    # today's data. Kept only so --fresh fails loudly instead of silently
+    # scoring a stale date. Do not re-point it at daily: "fresh" means
+    # intraday, and a partial daily bar is a different quantity.
     if fresh:
         return True, f'v2-fresh: scoring on {today} (partial-day data accepted)', conn, today
 
@@ -1243,10 +1246,10 @@ if __name__ == '__main__':
                         help='execute path: report pending buys/sells without placing orders')
     parser.add_argument('--fresh', action='store_true',
                         help='score/execute path: use TODAY\'s (intraday, partial-day) bars as the '
-                             'signal date instead of the last complete date; requires the '
-                             'swingtrader-scanner-hourly intraday sampler, whose timer is '
-                             'DISABLED since 2026-10-02 — research use only, re-enable the '
-                             'timer first')
+                             'signal date instead of the last complete date. DEAD since 2026-10-02: '
+                             'it read tbl_scanner_tickers_1hour, which was dropped when HOURLY was '
+                             'purged, and the capture_hourly.py sampler plus its systemd units were '
+                             'deleted. Not re-enablable without re-adding the table and the writer.')
     parser.add_argument('--live', action='store_true',
                         help='Deprecated: use --action execute instead')
     args = parser.parse_args()

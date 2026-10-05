@@ -1,9 +1,0 @@
-[Unit]
-Description=SwingTrader daily hourly-bar backfill (weekdays 4:30 PM ET after market close)
-
-[Timer]
-OnCalendar=Mon..Fri *-*-* 16:30:00 America/New_York
-Persistent=true
-
-[Install]
-WantedBy=timers.target

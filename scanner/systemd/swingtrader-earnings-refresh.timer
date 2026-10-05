@@ -2,9 +2,8 @@
 Description=Weekly Earnings Calendar Refresh (Sunday 6 AM ET)
 
 [Timer]
-OnCalendar=Sun 06:00:00
+OnCalendar=Sun 06:00:00 America/New_York
 Persistent=true
-Timezone=America/New_York
 
 [Install]
 WantedBy=timers.target

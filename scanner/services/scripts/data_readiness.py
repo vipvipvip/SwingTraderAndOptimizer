@@ -4,13 +4,14 @@
 The gate is the "verify -> repair -> verify -> trade" checkpoint every data
 consumer (MTF scorer/executor, Daily Signal) runs before generating signals.
 
-Per timeframe (week/day/hour) it checks:
+Per timeframe (week/day) it checks:
   1. Bar coverage frontier   — the newest date where >= COVERAGE[tf]% of the
      mode's enabled universe has a bar (robust to intraday partial backfills).
   2. Expected frontier       — the newest trading session (Alpaca Market
      Calendar) that MUST already be present at this time of day. This catches
-     multi-day server-off gaps, including the *permanent hourly holes* that
-     capture_hourly.py cannot heal (it only snapshots the current hour).
+     multi-day server-off gaps. (The old 'hour' timeframe also had *permanent
+     holes* capture_hourly.py could not heal; moot since HOURLY was purged
+     2026-10-02 and that gate is gone with the table.)
   3. Per-ticker staleness    — tickers whose latest bar lags the frontier by
      more than STALE_LAG_DAYS are REPORTED as warnings (halted tickers like
      APGE, new IPOs), but do not block — the frontier/expected + indicator
