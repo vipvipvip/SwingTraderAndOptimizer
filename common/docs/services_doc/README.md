@@ -47,6 +47,24 @@ Both legacy units still own `tbl_scanner_tickers*` (`compute_indicators --timefr
 week/day`). Those tables are *not* the trading path — see the canonical/legacy split in
 `OPERATING_RULES.md`.
 
+### `Persistent=true` vs `false` — do not normalise these
+
+Changed 2026-10-05. `Persistent=true` means *"if this would have fired while the box was
+off, fire it at the next boot."* With all ten timers `true`, an evening power-off — or any
+reboot after the scheduled minute — made **every** timer of the missed day due at once,
+including both order-placers. That ran `legema` and `mtf-executor` **pre-market at 08:45,
+before `prices-load` had loaded a bar**, and hit Alpaca with ~10 concurrent units.
+
+| `Persistent=true` — a missed run must still happen | `Persistent=false` — a missed run must be **skipped** |
+|---|---|
+| `prices-load` (09:05), `scanner-update` (09:00), `scanner-backfill` (16:30), `backup` (16:15) | `legema` (10:05), `mtf-executor` (10:25), `mtf-scorer` (16:45), `daily-signal` (17:00), `weekly-takeoff` (Fri 17:15), `earnings-screener` (09:30–15:30) |
+
+The rule: **data refresh and backup catch up; anything that trades or posts a signal does
+not.** A boot after 10:25 therefore skips the day's MTF run instead of replaying it at the
+wrong time — the readiness gate is the backstop, not the schedule. This is what makes a
+future nightly power-off safe. Both sides of the split are commented in the unit files so
+the asymmetry does not get "corrected" away.
+
 ## Live strategies / signal services (Slack only; not order-placers)
 
 | Unit | Schedule (ET) | Status | Purpose |

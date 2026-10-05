@@ -15,7 +15,19 @@ OnCalendar=Mon..Fri *-*-* 14:00:00 America/New_York
 OnCalendar=Mon..Fri *-*-* 14:30:00 America/New_York
 OnCalendar=Mon..Fri *-*-* 15:00:00 America/New_York
 OnCalendar=Mon..Fri *-*-* 15:30:00 America/New_York
-Persistent=true
+# Persistent=false is DELIBERATE — do not "fix" it back to true.
+# Persistent means "if this would have fired while the box was off, fire it at the
+# next boot." With every timer Persistent=true, an evening power-off (or any reboot
+# after the scheduled minute) made ALL of the day's timers due simultaneously at the
+# next boot — including legema and mtf-executor, which PLACE ORDERS. That ran the
+# order-placers pre-market at 08:45, before prices-load had loaded a single bar, and
+# hit Alpaca with ~10 concurrent units.
+# The rule now: Persistent=true only where a missed run must still happen (data
+# refresh + backup). Where a missed run must be SKIPPED rather than replayed at the
+# wrong time — anything that trades or posts a signal — it is false. The readiness
+# gate is the backstop, not the schedule: a boot after 10:25 skips the day's MTF run
+# instead of trading on data it never verified.
+Persistent=false
 
 [Install]
 WantedBy=timers.target

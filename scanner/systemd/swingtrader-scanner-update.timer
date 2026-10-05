@@ -3,6 +3,9 @@ Description=SwingTrader scanner data update (weekdays 9 AM ET)
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 09:00:00 America/New_York
+# Persistent=true is CORRECT here (see the note on legema/mtf-executor timers).
+# Data refresh and backup must still happen after a gap — catching up at the next
+# boot is the whole point. Only timers that trade or post a signal are false.
 Persistent=true
 
 [Install]

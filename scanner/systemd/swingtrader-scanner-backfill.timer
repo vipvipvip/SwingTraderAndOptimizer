@@ -3,6 +3,9 @@ Description=SwingTrader daily hourly-bar backfill (weekdays 4:30 PM ET after mar
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 16:30:00 America/New_York
+# Persistent=true is CORRECT here (see the note on legema/mtf-executor timers).
+# Data refresh and backup must still happen after a gap — catching up at the next
+# boot is the whole point. Only timers that trade or post a signal are false.
 Persistent=true
 
 [Install]

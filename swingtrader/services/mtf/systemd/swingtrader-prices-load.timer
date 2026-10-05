@@ -6,6 +6,9 @@ After=network.target swingtrader-db.service
 [Timer]
 # 09:05 ET is deliberate on two counts: after Monday's open, so the current week's
 # weekly bar exists (Alpaca does not emit it before the week trades), and with ~80
+# minutes of margin before the 10:25 executor. Persistent is correct here and
+# false on legema/mtf-executor on purpose: a missed DATA load must still be caught
+# up, a missed ORDER run must be skipped, not replayed pre-market. ~80
 # minutes of margin before the 10:25 executor. Persistent so a missed boot-time
 # trigger still runs the load before trading -- without it a box that boots after
 # 09:05 would silently trade Monday off a stale weekly table.
