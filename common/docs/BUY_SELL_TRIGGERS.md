@@ -12,7 +12,7 @@ Three strategies are live. Only two place real orders:
 | **CoreEW P20w** ("LegEMA") | Once/week — Mon–Fri 10:05 ET systemd timer, acts on a **new settled week** only | ✅ Yes (Alpaca) | A leg's own settled **weekly** close is **above** its own EMA(20) → held long and equal-weighted with the other ON legs | That leg's weekly close crosses **below** its own EMA(20) → sold to cash; plus the weekly equal-weight rebalance of the ON legs (over-weights are trimmed, under-weights topped up) |
 | **MTF Top-N — stock leg** | Once/day, 10:25 ET | ✅ Yes (Alpaca, acct `#PA368CPXNS13`) | Ticker enters the top-**10** by weekly score | Drops out of top-10, **or** daily-ATR ratchet stop hit |
 | **MTF Top-N — ETF leg** | Once/day, 10:25 ET (same run) | ✅ Yes (Alpaca, acct `#PA3U8GZ96PEN`) | Ticker enters the top-**3** by weekly score | Drops out of top-3 (no ratchet on this leg) |
-| **Daily Signal** | Once/day, 17:00 ET | ❌ No — Slack alert only | All three of weekly+daily+hourly EMA(10)>SMA(40) crosses are done | N/A — never holds a position |
+| **Daily Signal** | Once/day, 17:00 ET | ❌ No — Slack alert only | **Both** of weekly + daily EMA(10)>SMA(40) crosses are done (HCO removed 2026-10-02 — see §3) | N/A — never holds a position |
 
 ---
 
@@ -136,12 +136,16 @@ in-progress/partial bar.
 17:00 ET. Full detail in
 [HANDOFF_DailySignal_All3CO.md](HANDOFF_DailySignal_All3CO.md).
 
-- **Trigger (all three required, on settled bars only):**
+- **Trigger (both required, on settled bars only):**
   1. **WCO** — weekly EMA(10) > SMA(40) on the last settled weekly bar.
   2. **DCO** — daily EMA(10) > SMA(40) on the last settled daily bar.
-  3. **HCO** — hourly EMA(10) > SMA(40) on the last settled, quality-gated (`vol >= 1000`)
-     hourly bar, **and** that up-cross happened within the last 1-2 trading days.
-- When all three are true, the ticker is posted to Slack (`[DAILY]`) with its score. There is
+
+⛔ **HCO was REMOVED 2026-10-02 — this is a two-CO signal, not three.** The old third
+condition (hourly EMA(10) > SMA(40), quality-gated `vol >= 1000`, up-cross within 1–2
+trading days) was sourced from *last-trade snapshots rather than real bars*, so it was an
+unvalidated gate. Prices, ATR distance and scores now come from the settled daily series.
+Don't read a missing `[DAILY]` post as a data gap — the confluence is just WCO ∧ DCO.
+- When both are true, the ticker is posted to Slack (`[DAILY]`) with its score. There is
   no "sell" side — it's a one-shot alert, not a position.
 
 ---

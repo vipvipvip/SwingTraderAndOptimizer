@@ -1,5 +1,15 @@
 # Handoff — Daily Signal all-3-CO gate (session resume)
 
+> ⛔ **SUPERSEDED 2026-10-02 — the all-3-CO design described below NO LONGER RUNS.**
+> **HCO was removed** from `daily_signal_service.py`: it was sourced from *last-trade
+> snapshots rather than real bars*, making it an unvalidated gate. The service is now a
+> **two-CO** signal — `WCO ∧ DCO` only — with prices, ATR distance and scores taken from
+> the settled daily series. There is no hourly bar, no `vol >= 1000` quality gate, and no
+> 1–2 day HCO freshness check. Everything below is kept as a **historical record** of the
+> 2026-09-16 work only; do not use it to reason about current behaviour. The live spec is
+> [BUY_SELL_TRIGGERS.md §3](BUY_SELL_TRIGGERS.md#3-daily-signal--alert-only-never-places-an-order).
+> The file name is left as-is so existing links resolve.
+
 **Date:** 2026-09-16 (updated 2026-09-16)
 **Owner of record:** AGENTS.md (repo root) — read it first; this doc is the *live-state* resume guide.
 **Commit:** `c24b084` (pushed to `main`) — `feat(daily-signal): emit all-3-CO tickers only ...`
