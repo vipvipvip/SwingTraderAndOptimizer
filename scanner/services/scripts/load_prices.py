@@ -172,6 +172,55 @@ def work(item, tf_name, table, dry_run):
     return sym, n, 'ok'
 
 
+DAILY_SETTLE_TIME = '16:00'
+
+
+def _trading_sessions(start, end):
+    """NYSE session dates in [start, end]; Mon-Fri fallback if the calendar API fails."""
+    try:
+        from alpaca.trading.client import TradingClient
+        from alpaca.trading.requests import GetCalendarRequest
+        tc = TradingClient(API_KEY, SECRET_KEY, paper=True)
+        days = sorted(c.date for c in tc.get_calendar(
+            GetCalendarRequest(start=start, end=end)))
+        if days:
+            return days
+    except Exception as e:
+        print(f'  ! calendar unavailable ({e}) - falling back to Mon-Fri weekdays')
+    return sorted({start + timedelta(days=n)
+                   for n in range((end - start).days + 1)
+                   if (start + timedelta(days=n)).weekday() < 5})
+
+
+def resume_cutoff(tf, now=None):
+    """Newest date this timeframe must already have for a ticker to count as current.
+
+    MUST stay identical to data_readiness._expected_session_date: if the loader
+    considers a ticker current before the readiness gate expects its bar, the loader
+    skips it and the gate then blocks the very run the loader was feeding. The old
+    `now - 4 days` wall-clock cutoff could not do this - it skipped the whole daily
+    universe on Mon and Tue (already "within 4 days") while the gate correctly
+    wanted Monday's bar on Tuesday, and it used one cutoff for both timeframes
+    although weekly and daily settle on different dates.
+    """
+    now = now or datetime.now(NY)
+    today = now.date()
+    if tf == 'week':
+        # Alpaca timestamps every weekly bar at the ISO-week start (Monday), holiday
+        # or not, and does NOT re-stamp later in the week. So this week's Monday is
+        # the newest row the week gate expects - and it only exists once the week has
+        # traded, which is why the loader must run after Monday's open.
+        return today - timedelta(days=today.weekday())
+    # day: the newest fully-completed session. Before 16:00 ET today's bar is still
+    # partial, so only the previous session is required.
+    sessions = _trading_sessions(today - timedelta(days=14), today)
+    if not sessions:
+        return today - timedelta(days=1)
+    if sessions[-1] == today and now.time() < datetime.strptime(DAILY_SETTLE_TIME, '%H:%M').time():
+        sessions = sessions[:-1]
+    return sessions[-1]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--timeframe', choices=['day', 'week', 'both'], default='both')
@@ -179,7 +228,7 @@ def main():
     ap.add_argument('--limit', type=int, default=None, help='only first N tickers')
     ap.add_argument('--workers', type=int, default=4)
     ap.add_argument('--resume', action='store_true',
-                    help='skip tickers already current within 4 days')
+                    help='skip tickers already current for this timeframe (see resume_cutoff)')
     ap.add_argument('--dry-run', action='store_true', help='fetch and report, write nothing')
     args = ap.parse_args()
 
@@ -191,7 +240,6 @@ def main():
         universe = universe[:args.limit]
 
     tfs = ['day', 'week'] if args.timeframe == 'both' else [args.timeframe]
-    cutoff = (datetime.now(NY) - timedelta(days=4)).date()
 
     print(f'universe={len(universe)} tickers  feed={FEED} adjustment={ADJUSTMENT} '
           f'workers={args.workers}{"  [DRY-RUN]" if args.dry_run else ""}')
@@ -199,6 +247,7 @@ def main():
     failures = []
     for tf in tfs:
         table = TABLES[tf]
+        cutoff = resume_cutoff(tf)  # per-timeframe: weekly and daily settle differently
         todo = universe
         if args.resume:
             c = get_db_conn()
@@ -208,9 +257,10 @@ def main():
                             if not already_current(cur, table, it[0], cutoff)]
             finally:
                 c.close()
-            print(f'--- {tf}: {len(todo)} to load, {len(universe) - len(todo)} already current')
+            print(f'--- {tf}: cutoff {cutoff} -> {len(todo)} to load, '
+                  f'{len(universe) - len(todo)} already current')
         else:
-            print(f'--- {tf}: {len(todo)} to load')
+            print(f'--- {tf}: cutoff {cutoff} -> {len(todo)} to load')
 
         done = 0
         t0 = time.time()

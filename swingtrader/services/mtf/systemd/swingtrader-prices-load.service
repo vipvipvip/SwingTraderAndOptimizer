@@ -1,0 +1,49 @@
+[Unit]
+Description=Refresh canonical price tables (tbl_prices_daily / tbl_prices_weekly) + atr_stop
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network-online.target swingtrader-db.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer
+# load_prices.py is the ONLY writer of tbl_prices_daily / tbl_prices_weekly -- the
+# tables the entire live MTF path reads (db.py bulk loaders, executor.py ratchet
+# stops, data_readiness.py, daily_signal_service.py, the backtests). Nothing else
+# writes them: compute_indicators.py only UPDATEs atr_stop into existing rows.
+# Until 2026-10-05 this ran by hand only, so the Monday 10:25 gate failed with
+# "week bars behind (frontier 2026-09-28 < expected 2026-10-05)".
+#
+# Runs AFTER the open on purpose: Alpaca stamps weekly bars at the ISO-week start
+# (Monday) and only emits the current week's bar once that week has traded, so a
+# pre-open or weekend run cannot create it and Monday would still be blocked.
+#
+# Deliberately NOT RemainAfterExit=yes and NOT wired into the executor via
+# Requires=: a daily-recurring oneshot that stays "active (exited)" would make
+# systemd refuse to re-trigger it the next day, and Requires= would fire a second
+# full 1,453-ticker load at 10:25. Decoupled instead -- the 09:05->10:25 margin is
+# deliberate, and data_readiness.py stays the authoritative gate (it re-checks the
+# frontier and atr_stop, so a failed or overlapping load blocks the run rather than
+# letting it trade on a half-written table).
+#
+# Workers stay at the script default of 4: a full-universe SIP pull is already the
+# heaviest API use in the system, and the data provider returned
+# {"message":"too many requests."} during backfills on 2026-10-05.
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python /home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/scripts/load_prices.py --resume
+# Required after every load: load_prices.py NULLs atr_stop on every upsert (a
+# refreshed close invalidates the stored ATR, and the executor's ratchet reads it).
+# compute_indicators repopulates it for the canonical tables.
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python /home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/scripts/compute_indicators.py --timeframe prices-daily
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python /home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/scripts/compute_indicators.py --timeframe prices-weekly
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+TimeoutStopSec=120
+# Type=oneshot defaults TimeoutStartSec to infinity; pin it so a hung API worker
+# cannot occupy the slot forever. Generous: a full 1,453-ticker x 2-timeframe
+# refresh runs ~10-30 min.
+TimeoutStartSec=2h
+
+[Install]
+WantedBy=multi-user.target

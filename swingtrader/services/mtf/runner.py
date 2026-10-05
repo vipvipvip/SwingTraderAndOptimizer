@@ -15,7 +15,7 @@ from format_etf import etf_table_lines
 import argparse
 import traceback
 import requests
-from datetime import datetime, time as dt_time, date as dt_date, timedelta
+from datetime import datetime, time as dt_time, timedelta
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -30,9 +30,12 @@ NY = ZoneInfo('America/New_York')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(BASE_DIR)))
 SCANNER_VENV_PYTHON = os.path.join(PROJECT_ROOT, 'scanner', '.venv', 'bin', 'python')
-POPULATE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'populate_tickers.py')
 COMPUTE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'compute_indicators.py')
 DATA_GATE_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'data_readiness.py')
+# Only writer of the canonical tbl_prices_daily / tbl_prices_weekly (upsert-only,
+# resumable). Nothing else writes them - compute_indicators.py only UPDATEs
+# atr_stop into existing rows - so any heal must go through here.
+LOAD_PRICES_SCRIPT = os.path.join(PROJECT_ROOT, 'scanner', 'services', 'scripts', 'load_prices.py')
 DATA_RETRIES = 3
 DATA_RETRY_DELAY = 60
 # Daily-data completeness is a COVERAGE FRACTION of the enabled universe, with a
@@ -66,7 +69,14 @@ def _csv_path(name, mode='stock'):
 
 MAX_DB_RETRIES = 3
 DB_RETRY_DELAY = 5
-MAX_STALE_DAYS = 2
+# Staleness is counted in TRADING SESSIONS, never calendar days (2026-10-05).
+# The old gate was `age = (today - latest).days` in CALENDAR days against a 2-day
+# cap, which made every Monday structurally untradeable: the newest settled bar is
+# always Friday, so age=3 > 2, and the 3 self-heal backfills could never fix it
+# (no weekend bar exists to fetch). Mondays 09-14, 09-28 and 10-05 all skipped
+# BOTH legs with zero orders. Sessions are counted from bar dates, so weekends and
+# market holidays are free and only genuinely missed sessions trip the gate.
+MAX_STALE_SESSIONS = 1
 
 
 def _send_slack(msg, mode='stock'):
@@ -115,55 +125,85 @@ def _get_db_conn():
     raise RuntimeError(f'Could not connect to database after {MAX_DB_RETRIES} attempts')
 
 
+def _latest_settled_bar_date(conn):
+    """Newest SETTLED daily bar date in tbl_prices_daily — the canonical table the
+    whole MTF stack reads (db.py bulk loaders, executor.py ratchet stops,
+    data_readiness.py, daily_signal_service.py, the backtests).
+
+    Excludes today's in-progress bar (settled-bar rule: date < today), which is
+    what made the old calendar-day gate fail on Mondays.
+    """
+    with conn.cursor() as cur:
+        cur.execute('SELECT MAX(date)::date FROM tbl_prices_daily '
+                    'WHERE date::date < CURRENT_DATE')
+        return cur.fetchone()[0]
+
+
+def _sessions_since(conn, latest):
+    """Trading sessions that have closed after `latest` and before today.
+
+    Counted from distinct bar dates, so a weekend or market holiday costs nothing
+    (no bar => never counted) and only genuinely missed sessions trip the gate.
+    0 = `latest` is the newest settled session.
+    """
+    with conn.cursor() as cur:
+        cur.execute('SELECT count(DISTINCT date::date) FROM tbl_prices_daily '
+                    'WHERE date::date > %s AND date::date < CURRENT_DATE', (latest,))
+        return int(cur.fetchone()[0] or 0)
+
+
 def _check_data_freshness(conn, mode='stock', fresh=False, strategy='mtf'):
     """Verify the scanner data the chosen strategy reads is fresh enough to signal.
 
     Timeframes are strategy-dependent: emasma reads settled weekly + daily only,
     while --strategy mtf additionally reads hourly.
 
-    Resilient to server-off days: when data is stale but the machine has just
-    booted (a missed-day catch-up scenario), this triggers the scanner daily
-    backfill (populate + compute) and retries before giving up — so a boot
-    after an outage always has a chance to trade the current day instead of
-    silently skipping it (the previous behavior). `fresh` accepts a partial
-    current-day daily bar (v2 intraday cap).
+    Freshness is the count of TRADING SESSIONS since the newest settled daily bar
+    (see MAX_STALE_SESSIONS): a weekend/holiday gap is 0, so Monday trades on
+    Friday's bar, while a box that missed sessions self-heals first. Resilient to
+    server-off days: when the gap is too wide this runs the canonical price load
+    (load_prices.py --resume + compute_indicators --timeframe prices-daily) and
+    retries before giving up — so a boot after an outage always has a chance to
+    trade the current day instead of silently skipping it (the previous behavior).
     """
-    latest = db_module.get_latest_daily_bar_date(conn)
+    latest = _latest_settled_bar_date(conn)
     if latest is None:
-        _send_slack('❌ No daily bar data found in scanner tables — aborting', mode)
+        _send_slack('❌ No daily bar data found in tbl_prices_daily — aborting', mode)
         return False
-    age = (dt_date.today() - latest).days
+    gap = _sessions_since(conn, latest)
 
-    # self-heal: for a boot-day catch-up, run the daily backfill and recheck.
-    if age > MAX_STALE_DAYS:
-        print(f'[MTF] {mode} data stale ({latest}, {age}d old) — triggering backfill to self-heal')
+    # self-heal: for a boot-day catch-up, run the canonical price load and recheck.
+    if gap > MAX_STALE_SESSIONS:
+        print(f'[MTF] {mode} data stale (latest settled bar {latest}, '
+              f'{gap} session(s) behind) — triggering backfill to self-heal')
         _send_slack(
-            f'⚠️ {MODE_LABEL[mode]} data {age}d old (latest {latest}) — server was likely down; '
-            f'running daily backfill + retry', mode)
+            f'⚠️ {MODE_LABEL[mode]} data {gap} session(s) behind (latest bar {latest}) — '
+            f'server was likely down; running price load + retry', mode)
         healed = False
         for attempt in range(1, DATA_RETRIES + 1):
             _backfill_daily(conn, mode)
             time.sleep(DATA_RETRY_DELAY)
             # READ COMMITTED: the caller's conn re-snapshots each statement, so
             # re-reading through it sees the freshly committed backfill data.
-            latest = db_module.get_latest_daily_bar_date(conn)
+            latest = _latest_settled_bar_date(conn)
             if latest is None:
                 continue
-            age = (dt_date.today() - latest).days
-            if age <= MAX_STALE_DAYS:
-                print(f'[MTF] {mode} data healed: latest bar now {latest} ({age}d old)')
+            gap = _sessions_since(conn, latest)
+            if gap <= MAX_STALE_SESSIONS:
+                print(f'[MTF] {mode} data healed: latest settled bar now {latest} '
+                      f'({gap} session(s) behind)')
                 healed = True
                 break
         if not healed:
             _send_slack(
                 f'❌ Stale daily data after {DATA_RETRIES} backfill retries: latest bar {latest} '
-                f'({age}d old) — skipping {MODE_LABEL[mode]} run today', mode)
+                f'({gap} session(s) behind) — skipping {MODE_LABEL[mode]} run today', mode)
             return False
 
-    if age > 1:
+    if gap > 0:
         _send_slack(
-            f'⚠️  Daily bar data is {age}d old (latest: {latest}) — picks may be based on stale prices',
-            mode)
+            f'⚠️  Daily bar data is {gap} session(s) behind (latest: {latest}) — '
+            f'picks may be based on stale prices', mode)
 
     # Deep data-readiness gate: verifies that the bars the chosen strategy
     # actually reads AND stored indicators (atr_stop) are complete on the newest
@@ -175,27 +215,34 @@ def _check_data_freshness(conn, mode='stock', fresh=False, strategy='mtf'):
 
 
 def _backfill_daily(conn, mode='stock'):
-    """Run the scanner daily backfill (populate + compute) to self-heal stale data.
-    Invested tickers are force-fetched so exit signals always have fresh prices.
-    Best-effort; returns nothing. Presence callback already refreshed conn."""
-    invested = ''
+    """Refresh the CANONICAL tables the live MTF stack actually scores on.
+
+    2026-10-05: this used to run populate_tickers.py + compute_indicators.py
+    --timeframe day, which write the legacy tbl_scanner_* pair. But the entire live
+    path reads tbl_prices_daily / tbl_prices_weekly (db.py bulk loaders,
+    executor.py ratchet stops, data_readiness.py, daily_signal_service.py), so the
+    heal repaired tables nothing traded on and _sessions_since never improved - the
+    run then failed the very gate the heal was trying to satisfy.
+
+    load_prices.py is the only writer of the canonical tables and is upsert-only
+    and resumable by construction (no DELETE). The old --priority flag for invested
+    tickers is subsumed by --resume: a ticker with no bar row at all is never
+    already_current, so it is always in the fetch set.
+    """
     try:
-        invested = ','.join(sorted(db_module.get_all_positions(conn).keys()))
-    except Exception:
-        invested = ''
-    try:
-        cmd = [SCANNER_VENV_PYTHON, POPULATE_SCRIPT, '--timeframe', 'day', '--workers', '10']
-        if invested:
-            cmd += ['--priority', invested]
-        subprocess.run(cmd, check=True, capture_output=True, timeout=300)
         subprocess.run(
-            [SCANNER_VENV_PYTHON, COMPUTE_SCRIPT, '--timeframe', 'day', '--workers', '10'],
+            [SCANNER_VENV_PYTHON, LOAD_PRICES_SCRIPT, '--resume', '--timeframe', 'day',
+             '--workers', '10'],
+            check=True, capture_output=True, timeout=600)
+        subprocess.run(
+            [SCANNER_VENV_PYTHON, COMPUTE_SCRIPT, '--timeframe', 'prices-daily',
+             '--workers', '10'],
             check=True, capture_output=True, timeout=300)
-        print(f'[MTF] {mode} daily backfill complete')
+        print(f'[MTF] {mode} daily prices heal complete')
     except subprocess.CalledProcessError as e:
-        print(f'[MTF] Backfill script failed: {e}')
+        print(f'[MTF] Prices heal script failed: {e}')
     except subprocess.TimeoutExpired:
-        print(f'[MTF] Backfill script timed out')
+        print(f'[MTF] Prices heal script timed out')
 
 
 def _run_readiness_gate(mode='stock', strategy='mtf'):
@@ -987,13 +1034,23 @@ def _run_market_regime(conn, now, today):
     if not weekly_data:
         return ['  No market gate weekly data']
 
-    # Latest weekly date available for the gate ETFs
+    # Latest SETTLED weekly date available for the gate ETFs. Alpaca stamps weekly
+    # bars at the ISO-week start (Monday) and does NOT re-stamp later in the week,
+    # so the newest row is the current week's running aggregate. Scoring the regime
+    # on it repaints the gate state intraweek — same settled-bar rule as
+    # emasma_core.settled_weekly_idx (bar_date + 7 <= today) and as the sector
+    # table, which anchors on sig_date. Only became reachable once load_prices.py
+    # began writing current-week rows (2026-10-05).
     all_dates = sorted(set().union(*[set(w['dates']) for w in weekly_data.values()]))
     if not all_dates:
         return ['  No market gate weekly data']
+    settled_cutoff = today - timedelta(days=7)
+    all_dates = [d for d in all_dates if d <= settled_cutoff]
+    if not all_dates:
+        return ['  No settled market gate weekly data']
     last_date = all_dates[-1]
 
-    # Last 4 distinct weekly dates
+    # Last 4 distinct settled weekly dates
     last4 = all_dates[-4:]
 
     lines = []

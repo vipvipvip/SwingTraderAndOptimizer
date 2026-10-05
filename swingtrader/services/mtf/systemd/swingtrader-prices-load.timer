@@ -1,0 +1,17 @@
+[Unit]
+Description=Canonical price load Timer (once/day, 09:05 ET, feeds the 10:25 MTF executor)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target swingtrader-db.service
+
+[Timer]
+# 09:05 ET is deliberate on two counts: after Monday's open, so the current week's
+# weekly bar exists (Alpaca does not emit it before the week trades), and with ~80
+# minutes of margin before the 10:25 executor. Persistent so a missed boot-time
+# trigger still runs the load before trading -- without it a box that boots after
+# 09:05 would silently trade Monday off a stale weekly table.
+OnCalendar=Mon..Fri *-*-* 09:05:00 America/New_York
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

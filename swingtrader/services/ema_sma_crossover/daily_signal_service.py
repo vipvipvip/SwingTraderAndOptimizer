@@ -14,7 +14,7 @@ Sends Slack summary and logs entry signals to CSV.
 import json
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -176,9 +176,20 @@ def run():
             d_ema = pd.Series(d_close).ewm(span=ema_period, adjust=False).mean().values
             d_sma = pd.Series(d_close).rolling(window=sma_period).mean().values
 
-            # Last SETTLED bars only — exclude today's in-progress/partial bars
-            wi = next((i for i in range(len(w_raw) - 1, -1, -1) if _bar_date(w_raw[i]) < now_date), -1)
-            di = next((i for i in range(len(d_raw) - 1, -1, -1) if _bar_date(d_raw[i]) < now_date), -1)
+            # Last SETTLED bars only — exclude today's in-progress/partial bars.
+            # The two timeframes need DIFFERENT tests. A daily bar is stamped its
+            # own session date, so `date < today` correctly drops today's partial
+            # bar. A weekly bar is stamped the ISO-week start (Monday) and Alpaca
+            # does NOT re-stamp it later in the week, so `date < today` would
+            # happily accept the current week's running aggregate from Tuesday
+            # onward and the WCO would repaint on a half-baked weekly bar. Match
+            # emasma_core.settled_weekly_idx: a weekly bar counts only once its
+            # week has fully passed (bar_date + 7 <= today).
+            w_cutoff = now_date - timedelta(days=7)
+            wi = next((i for i in range(len(w_raw) - 1, -1, -1)
+                       if _bar_date(w_raw[i]) <= w_cutoff), -1)
+            di = next((i for i in range(len(d_raw) - 1, -1, -1)
+                       if _bar_date(d_raw[i]) < now_date), -1)
             if wi < 0 or di < 0:
                 continue
 
