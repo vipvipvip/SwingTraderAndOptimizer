@@ -55,11 +55,13 @@ TABLES = {
 # listings are never false-failures.
 MIN_ROWS = ATR_PERIOD + 1
 STALE_LAG_DAYS = 1
-COVERAGE = {'week': 0.90, 'day': 0.90, 'hour': 0.75}  # intraday hour is partial
+# 'hour' was dropped with the 2026-10-02 HOURLY purge. Leaving the key here made
+# the DEFAULT --tf (day,hour) die with KeyError: 'hour' at TABLES[tf_name] -- the
+# authoritative pre-trade gate crashed on a bare invocation.
+COVERAGE = {'week': 0.90, 'day': 0.90}
 FRONTIER_LOOKBACK_DAYS = 15
 # windows used to count bars per ticker (must comfortably exceed MIN_ROWS bars)
-BARCOUNT_WINDOW = {'week': timedelta(days=400), 'day': timedelta(days=150),
-                   'hour': timedelta(days=10)}
+BARCOUNT_WINDOW = {'week': timedelta(days=400), 'day': timedelta(days=150)}
 
 
 def _get_trading_days(now):
@@ -261,7 +263,7 @@ def main():
                     help='Repair missing data + recompute indicators, then re-verify')
     ap.add_argument('--check', dest='ensure', action='store_false')
     ap.set_defaults(ensure=True)
-    ap.add_argument('--tf', default='day,hour',
+    ap.add_argument('--tf', default='week,day',
                     help='Comma-separated timeframes (default: day,hour)')
     ap.add_argument('--mode', default='stock', choices=['stock', 'etf', 'all'])
     ap.add_argument('--workers', type=int, default=10)

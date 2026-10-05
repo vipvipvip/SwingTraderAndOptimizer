@@ -47,14 +47,16 @@ AGENTS.md and the code over the doc.
 
 ## Setup & commands
 
-- **[UBUNTU_SETUP.md](UBUNTU_SETUP.md)** / **[COMMAND_REFERENCE.md](COMMAND_REFERENCE.md)**
-  — ⚠️ **Pre-restructure.** Both predate the move of backend/frontend/scanner/optimizer into
-  `swingtrader/` and predate CoreEW/MTF — paths (`cd backend`, `cd optimizer`,
-  `tbl_etf_tickers_1hour`) and the optimizer/every-minute-executor sections throughout no
-  longer match the codebase. Kept for whoever eventually rewrites them for the current
-  layout; don't run commands from either without checking the real path first. For accurate
-  current commands, prefer `services_doc/` (systemd) and `AGENTS.md` (console commands per
-  driver).
+- **[UBUNTU_SETUP.md](UBUNTU_SETUP.md)** — ✅ **rewritten 2026-10-05**, current. Install guide
+  for native Ubuntu/WSL2: real paths, DB via Docker, the `--path=` migration caveat, every
+  live unit and schedule, on-demand jobs, and troubleshooting. Its earlier version was
+  pre-restructure *and actively misleading* (it told you to add a `schedule:run` crontab
+  entry that does not exist, referenced the retired `run_nightly.sh`, and used root-level
+  `backend/`/`optimizer/` paths).
+- **[COMMAND_REFERENCE.md](COMMAND_REFERENCE.md)** — ⚠️ **still pre-restructure.** Predates the
+  move into `swingtrader/` and CoreEW/MTF; paths and the optimizer/executor sections no longer
+  match. Don't run commands from it without checking the real path. For current commands use
+  `UBUNTU_SETUP.md`, `services_doc/README.md`, and `AGENTS.md`.
 
 ## Development
 

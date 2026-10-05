@@ -55,8 +55,8 @@ week/day`). Those tables are *not* the trading path — see the canonical/legacy
 | `swingtrader-mtf-scorer.timer` | Mon–Fri 16:45 | ✅ enabled/active | MTF evening recap — re-scores today's settled close, posts the **same** Slack summary as 10:25. **No orders**; `save_pending` is overwritten by tomorrow's inline score, so it cannot double-execute. |
 | `swingtrader-daily-signal.timer` | Mon–Fri 17:00 | ✅ enabled/active | Daily Signal all-3-CO Slack emit. **No orders.** |
 | `swingtrader-weekly-takeoff.timer` | Fri 17:15 | ✅ enabled/active | Weekly EMA10/SMA40 take-off scanner, Slack post. **No orders.** |
-| `swingtrader-earnings-screener.timer` | Mon–Fri, every 30 min 09:30–15:30 | ✅ enabled/active | Daily-MACD earnings-crossover screener, Slack post. **No orders.** |
-| `swingtrader-earnings-refresh.timer` | Sun 06:00 | ⚠️ enabled/active but **failing** (exit 1, every run since at least 2026-10-05) | Refreshes the earnings-date cache the screener reads. Not investigated — the screener still runs off the existing cache. Fix or retire deliberately. |
+| `swingtrader-earnings-screener.timer` | Mon–Fri, every 30 min 09:30–15:30 | ✅ enabled/active | Daily-MACD earnings-crossover screener, Slack post. **No orders.** Reads `tbl_earnings_calendar`. |
+| ~~`swingtrader-earnings-refresh.timer`~~ | ⛔ **REMOVED 2026-10-05** | Refreshes the earnings-date cache the screener reads. **On demand by design** — run `cd scanner && ./.venv/bin/python3 services/earnings_screener.py --refresh`. It was failing on *every* boot with `Connection refused` on 5432 (the Sunday 06:00 fire is always caught at boot by `Persistent=true`, before `swingtrader-db.service` has the container listening), so `tbl_earnings_calendar` had silently gone stale from **2026-09-13 to 2026-10-05** while the screener kept posting from it. The cache was refreshed on 10-05 (941 → 1380 rows, horizon 10-08 → 11-02). Refresh before you rely on the screener. |
 
 ## Infra
 

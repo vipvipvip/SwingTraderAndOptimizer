@@ -1,22 +1,50 @@
 # SwingTrader — Ubuntu/WSL2 Setup & Systemd Services
 
-Complete guide to installing the trading system on **native Ubuntu/Linux** or **Windows Subsystem for Linux 2 (WSL2)**, and running the Laravel backend + frontend + optimizer as auto-restarting systemd services.
+Installing and running the trading system on **native Ubuntu/Linux** or **WSL2**.
 
-**Status:** Production-ready on Ubuntu 22.04+ | Tested on Windows 11 with WSL2 Ubuntu-24.04
+> **Rewritten 2026-10-05.** The previous version of this file described a
+> generic Laravel + nightly-optimizer app and was wrong about this codebase in ways
+> that would break a fresh install. Specifically, all of the following were incorrect
+> and have been corrected or removed below:
+>
+> - **Paths.** The app is `swingtrader/backend`, `swingtrader/frontend`, `scanner/` —
+>   not `backend/`, `frontend/`, `optimizer/` at the repo root.
+> - **The crontab section was dangerous.** It instructed you to add
+>   `* * * * * php artisan schedule:run` and warned "never comment out this line — a
+>   `#` prefix stops trade execution." **That is false.** There is no framework-level
+>   schedule and no trade execution in crontab; all order placement is systemd. The
+>   live crontab has **zero active entries** (only commented-out history for the
+>   retired CoreEG100/variant-S strategies). Adding that line does nothing useful.
+> - **`php artisan migrate --force` fails in this repo** (see [Migrations](#migrations)).
+> - **`nightly_optimizer.py --timeframe 1Hour` does not exist.** The optimizer's
+>   `run_nightly.sh` was deleted and the hourly timeframe was purged 2026-10-02. What
+>   remains in `swingtrader/services/optimizer/` is just a `venv` + `requirements.txt`,
+>   and that venv is still load-bearing — it runs the MTF units.
+> - **`swingtrader-startup.service` and `swingtrader-frontend.service` were never real.**
+>   The frontend unit is `swingtrader-fe-dev.service`; there is no startup orchestrator
+>   unit, because `swingtrader-db.service` starts the database container.
+
+**Start here too:** [`services_doc/README.md`](services_doc/README.md) is the live
+inventory of every unit — status, schedule, purpose. This file covers installing the
+box; that one covers what is currently deployed.
 
 ---
+
 ## Contents
+
 1. [Prerequisites](#prerequisites)
-2. [Project Setup](#project-setup)
+2. [Project layout](#project-layout)
 3. [Database (PostgreSQL via Docker)](#database)
-4. [Backend](#backend)
-5. [Frontend / Python Optimizer](#frontend--python-optimizer)
-6. [Systemd Services (backend, optimizer, frontend)](#systemd-services)
-7. [Crontab](#crontab)
-8. [First Run / Reboot Behavior](#first-run--reboot-behavior)
-9. [Verify Everything](#verify-everything)
-10. [Troubleshooting](#troubleshooting)
-11. [See Also](#see-also)
+4. [Migrations](#migrations)
+5. [Backend (Laravel)](#backend-laravel)
+6. [Frontend](#frontend)
+7. [Python environments](#python-environments)
+8. [Systemd services](#systemd-services)
+9. [Crontab](#crontab)
+10. [On-demand jobs](#on-demand-jobs)
+11. [First run / reboot behavior](#first-run--reboot-behavior)
+12. [Verify everything](#verify-everything)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -34,28 +62,27 @@ sudo apt-get install -y \
   git curl
 ```
 
-Install Composer (Laravel dependency manager):
+Composer:
+
 ```bash
 curl -sS https://getcomposer.org/installer | php
 sudo mv composer.phar /usr/local/bin/composer
-sudo chmod +x /usr/local/bin/composer
+sudo chmod +x composer.phar
 ```
 
-Configure Git:
-```bash
-git config --global user.name "Your Name"
-git config --global user.email "your.email@example.com"
-```
+> **Ops tooling worth installing on this box:** `ethtool` (to arm Wake-on-LAN),
+> `rtcwake` (already present — schedule RTC wake/power-on). See
+> [`services_doc/README.md`](services_doc/README.md) for why morning boot time matters.
 
 ### WSL2 (not WSL1)
 
 ```bash
-# Check version from Windows PowerShell — must show VERSION 2
+# From Windows PowerShell — must show VERSION 2
 wsl --list --verbose
-wsl --set-version Ubuntu-24.04 2
 ```
 
-Enable systemd (`sudo nano /etc/wsl.conf`):
+Enable systemd in `sudo nano /etc/wsl.conf`:
+
 ```ini
 [boot]
 systemd=true
@@ -64,74 +91,61 @@ systemd=true
 default=YOUR_USERNAME
 ```
 
-Restart WSL (PowerShell, admin): `wsl --shutdown`, then verify `systemctl is-system-running` → `running`.
+Restart WSL from an **admin** PowerShell: `wsl --shutdown`, then
+`systemctl is-system-running` → `running`.
 
-Install **Docker Desktop for Windows** → Settings → Resources → WSL Integration → enable your distro. Verify in WSL: `docker --version && docker ps`.
+Install **Docker Desktop** → Settings → Resources → WSL Integration → enable the
+distro. Verify: `docker --version && docker ps`.
 
-Install system deps (same apt packages as native, plus `php-sqlite3`) and Composer:
-```bash
-sudo apt-get update && sudo apt-get install -y \
-  php-cli php-pgsql php-xml php-dom php-mbstring php-curl php-json php-fileinfo php-sqlite3 \
-  php-xdebug nodejs npm python3 python3-venv python3-pip git curl
-curl -sS https://getcomposer.org/installer | php
-sudo mv composer.phar /usr/local/bin/composer && sudo chmod +x /usr/local/bin/composer
-# If npm not available:
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
+Same apt packages as native, plus `php-sqlite3`. Keep the project inside the WSL
+filesystem (`/home/$USER/...`), never `/mnt/c/`.
 
-> **Performance:** keep the project in the WSL filesystem (`/home/$USER/...`), never `/mnt/c/`. Docker Desktop: 4GB+ RAM, 4+ CPUs. Disable Windows sleep while plugged in — WSL suspension stops trading.
+> **Disable Windows sleep while plugged in.** WSL suspension stops the trading timers
+> mid-run. Note that on this box the morning is the fragile part regardless of host:
+> the 09:00/09:05 timers fire on boot, not at their scheduled minute.
 
 ---
 
-## Project Setup
+## Project layout
 
-```bash
-git clone https://github.com/vipvipvip/SwingTraderAndOptimizer.git
-cd SwingTraderAndOptimizer
-PROJECT_DIR=$(pwd)
+```
+swingtrader/
+  backend/            Laravel app (artisan) — port 9000
+  frontend/           Svelte/Vite — port 5173
+  systemd/            backend, db, backup, fe-dev units
+  services/
+    mtf/              MTF Top-N strategy + systemd/
+    ema_sma_crossover/ Daily Signal + systemd/
+    weekly_takeoff/   Weekly take-off scanner + systemd/
+    optimizer/        venv only (no run_nightly.sh — retired)
+scanner/              Python data pipeline + its own .venv + systemd/
+common/docs/          operating rules, service inventory, handoffs
 ```
 
-Configure backend env:
-```bash
-cd $PROJECT_DIR/backend
-cp .env.example .env
-nano .env
-```
-
-```env
-DB_CONNECTION=pgsql
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_DATABASE=swingtrader
-DB_USERNAME=swingtrader
-DB_PASSWORD=swingtrader_dev_password
-
-ALPACA_API_KEY=<your_paper_trading_key>
-ALPACA_SECRET_KEY=<your_paper_trading_secret>
-ALPACA_BASE_URL=https://paper-api.alpaca.markets
-
-SLACK_WEBHOOK_URL=your_webhook_url
-PYTHON_PATH=python3
-```
-
-> **Alpaca:** get keys at app.alpaca.markets → Paper Trading. Paper keys start with `PKS...`. If you get 401 errors, regenerate — old keys become invalid. Never commit `backend/.env`.
+Each service's `systemd/` directory is the **single deploy source** for its units.
+There are no unit files in `common/docs/services_doc/` — that directory is
+documentation only.
 
 ---
 
 ## Database
 
-Named volume (`postgres_data`) persists data across restarts — never use a bind mount, never `docker-compose down -v`.
+PostgreSQL runs as the Docker container `swingtrader-db`. The named volume
+(`postgres_data`) persists data across restarts — **never use a bind mount, never
+`docker-compose down -v`**.
 
 ```bash
 cd $PROJECT_DIR
-docker-compose up -d
-until docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT 1" > /dev/null 2>&1; do sleep 2; done
-cd backend && php artisan key:generate && php artisan migrate --force
+docker compose up -d
+until docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT 1" >/dev/null 2>&1; do sleep 2; done
 ```
 
-Seed initial tickers:
+`systemd` does this for you via `swingtrader-db.service` (enabled at boot).
+
+Seed tickers:
+
 ```bash
+cd $PROJECT_DIR/swingtrader/backend
 php artisan tinker --execute="
 App\Models\Ticker::firstOrCreate(['symbol'=>'SPY'],['allocation_weight'=>33.33,'enabled'=>1]);
 App\Models\Ticker::firstOrCreate(['symbol'=>'QQQ'],['allocation_weight'=>33.33,'enabled'=>1]);
@@ -139,350 +153,320 @@ App\Models\Ticker::firstOrCreate(['symbol'=>'IWM'],['allocation_weight'=>33.34,'
 "
 ```
 
-Verify: `docker volume ls | grep swingtrader` and
-`docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT COUNT(*) FROM tickers;"`.
+> **If a Python service reports `Connection refused` on `127.0.0.1:5432`, the database
+> container is not up yet.** This is not a bug in the service. Order it after
+> `swingtrader-db.service`, or wait for `SELECT 1` to succeed. It is exactly how
+> `swingtrader-earnings-refresh` failed on every boot for three weeks before being
+> removed on 2026-10-05.
 
 ---
 
-## Backend
+## Migrations
+
+**`php artisan migrate` FAILS in this repo.** The `migrations` table is stale relative
+to the raw-SQL tables the Python pipeline owns. Apply a specific migration by path:
 
 ```bash
-cd $PROJECT_DIR/backend
+cd $PROJECT_DIR/swingtrader/backend
+php artisan migrate --force --path=database/migrations/2026_08_05_000000_create_sec_research_analysis_table.php
+```
+
+Do not run a bare `migrate` and do not pass `--force` over the whole set without
+knowing what it will touch.
+
+---
+
+## Backend (Laravel)
+
+```bash
+cd $PROJECT_DIR/swingtrader/backend
 composer install --no-interaction --prefer-dist
 mkdir -p storage/logs storage/app bootstrap/cache
 chmod -R 775 storage bootstrap/cache
+cp .env.example .env && nano .env
 ```
 
-Dev/manual mode: `php artisan serve --host=0.0.0.0 --port=9000`
+Key `.env` values:
+
+```env
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=swingtrader
+DB_USERNAME=swingtrader
+DB_PASSWORD=<password>
+
+ALPACA_API_KEY=<paper key>
+ALPACA_SECRET_KEY=<paper secret>
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+
+SLACK_WEBHOOK_URL=<webhook>
+```
+
+> **Alpaca keys are per-account and per-component.** The wrong `.env` produces a
+> confusing failure rather than an obvious one — see
+> [`ALPACA_KEYS.md`](ALPACA_KEYS.md) before rotating or debugging a 401/403. Never
+> commit any `.env`.
+
+Manual mode: `php artisan serve --host=0.0.0.0 --port=9000`
+
+After editing any `.blade.php`, clear `swingtrader/backend/storage/framework/{cache,views}/`
+— **not** `scanner/backend/`.
 
 ---
 
-## Frontend / Python Optimizer
+## Frontend
 
 ```bash
-# Frontend
-cd $PROJECT_DIR/frontend
+cd $PROJECT_DIR/swingtrader/frontend
 npm install
-npm run dev        # development (hot reload)
-# npm run build    # production build → dist/
-
-# Python optimizer
-cd $PROJECT_DIR/optimizer
-python3 -m venv venv && source venv/bin/activate
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
-pip install psycopg2-binary alpaca-py   # required for Postgres + new Alpaca SDK
-deactivate
+npm run dev        # dev server, port 5173
+# npm run build    # production bundle → dist/
 ```
+
+`localhost:5173` in dev. The Explorer dashboard is at
+`http://localhost:9000/scanner/explorer`.
 
 ---
 
-## Systemd Services
+## Python environments
 
-Services start in order on boot with no manual intervention:
+Two venvs, both required:
 
-```
-swingtrader-startup   → Docker up → DB ready → Migrate → Seed tickers
-       ↓ (depends)
-swingtrader-backend   → php artisan serve :9000
-swingtrader-frontend  → npm run dev :5173 (dev) | nginx (prod)
-swingtrader-optimizer.timer → 2 AM nightly run
-crontab               → schedule:run every minute
-```
-
-### Set project variables once
+| venv | Python | Used by |
+|---|---|---|
+| `scanner/.venv` | 3.14 | bar populate, indicators, data readiness, earnings screener |
+| `swingtrader/services/optimizer/venv` | 3.13/3.14 | MTF runner / executor / daily signal |
 
 ```bash
-cd /path/to/SwingTraderAndOptimizer
-PROJECT_DIR=$(pwd)
-PHP_PATH=$(which php)
-NPM_PATH=$(which npm)
-echo "Project: $PROJECT_DIR | User: $USER"
+# scanner
+cd $PROJECT_DIR/scanner && python3 -m venv .venv
+./.venv/bin/pip install --upgrade pip setuptools wheel
+./.venv/bin/pip install -r services/requirements.txt   # if present
+./.venv/bin/pip install psycopg2-binary alpaca-py pandas sqlalchemy
+
+# MTF / services
+cd $PROJECT_DIR/swingtrader/services/optimizer
+python3 -m venv venv
+./venv/bin/pip install --upgrade pip setuptools wheel
+./venv/bin/pip install -r requirements.txt
 ```
 
-### Startup orchestration (Docker → DB → migrate → seed)
+> The `optimizer/venv` name is historical — the nightly optimizer that gave the
+> directory its name is retired. The venv itself is **not** optional; deleting it
+> breaks every MTF unit.
+
+---
+
+## Systemd services
+
+Copy a unit in, then reload:
 
 ```bash
-sudo bash -c "cat > /etc/systemd/system/swingtrader-startup.service << EOF
-[Unit]
-Description=SwingTrader Startup Orchestration (Docker + DB + Migrate)
-After=network.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-User=$USER
-WorkingDirectory=$PROJECT_DIR
-
-ExecStartPre=/bin/bash -c 'until docker info > /dev/null 2>&1; do sleep 3; done'
-ExecStart=/usr/bin/docker-compose up -d
-ExecStartPost=/bin/bash -c 'until docker exec swingtrader-db psql -U swingtrader -d swingtrader -c \"SELECT 1\" > /dev/null 2>&1; do sleep 2; done'
-ExecStartPost=$PHP_PATH $PROJECT_DIR/backend/artisan migrate --force
-
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=swingtrader-startup
-TimeoutStartSec=120
-
-[Install]
-WantedBy=multi-user.target
-EOF"
+sudo cp <component>/systemd/<unit> /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now <unit>.timer
 ```
 
-### Backend service
+### Always-on (enable; they start at boot)
 
-```bash
-sudo bash -c "cat > /etc/systemd/system/swingtrader-backend.service << EOF
-[Unit]
-Description=SwingTrader Laravel Backend
-After=swingtrader-startup.service
-Requires=swingtrader-startup.service
+| Unit | Source | Purpose |
+|---|---|---|
+| `swingtrader-db.service` | `swingtrader/systemd/` | starts the PostgreSQL container, then exits |
+| `swingtrader-backend.service` | `swingtrader/systemd/` | Laravel on port 9000 |
+| `swingtrader-fe-dev.service` | `swingtrader/systemd/` | Vite dev server on port 5173 (not needed for trading — safe to disable) |
 
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=$PROJECT_DIR/backend
-ExecStartPre=$PHP_PATH artisan config:clear
-ExecStartPre=$PHP_PATH artisan cache:clear
-ExecStart=$PHP_PATH artisan serve --host=0.0.0.0 --port=9000
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=swingtrader-backend
+### Timers (enable the `.timer`; the paired `.service` stays disabled — that is normal)
 
-[Install]
-WantedBy=multi-user.target
-EOF"
-```
+| Timer | Source | Schedule (ET) | Purpose |
+|---|---|---|---|
+| `swingtrader-prices-load` | `mtf/systemd/` | Mon–Fri 09:05 | canonical `tbl_prices_*` load + ATR |
+| `swingtrader-scanner-update` | `scanner/systemd/` | Mon–Fri 09:00 | pre-close legacy bar populate |
+| `swingtrader-legema` | `mtf/systemd/` | Mon–Fri 10:05 | **CoreEW P20w — places orders** |
+| `swingtrader-mtf-executor` | `mtf/systemd/` | Mon–Fri 10:25 | **MTF Top-N — scores and places orders** |
+| `swingtrader-scanner-backfill` | `scanner/systemd/` | Mon–Fri 16:30 | post-close settle of the 16:00 close |
+| `swingtrader-backup` | `swingtrader/systemd/` | daily 16:15 | PostgreSQL backup |
+| `swingtrader-earnings-screener` | `scanner/systemd/` | Mon–Fri every 30 min, 09:30–15:30 | earnings-crossover scan → Slack |
+| `swingtrader-mtf-scorer` | `mtf/systemd/` | Mon–Fri 16:45 | MTF evening recap → Slack, no orders |
+| `swingtrader-daily-signal` | `ema_sma_crossover/systemd/` | Mon–Fri 17:00 | Daily Signal → Slack, no orders |
+| `swingtrader-weekly-takeoff` | `weekly_takeoff/systemd/` | Fri 17:15 | take-off scan → Slack, no orders |
 
-> Change backend port: edit `ExecStart`; change optimizer schedule: edit the timer's `OnCalendar` (e.g. `Mon-Fri *-*-* 02:00:00` for weekdays-only).
-
-### Optimizer service + timer (2 AM daily)
-
-```bash
-sudo bash -c "cat > /etc/systemd/system/swingtrader-optimizer.service << EOF
-[Unit]
-Description=SwingTrader Nightly Optimizer
-After=network.target
-
-[Service]
-Type=oneshot
-User=$USER
-WorkingDirectory=$PROJECT_DIR/optimizer
-ExecStart=/bin/bash $PROJECT_DIR/optimizer/run_nightly.sh
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=swingtrader-optimizer
-TimeoutStartSec=3600
-
-[Install]
-WantedBy=multi-user.target
-EOF"
-
-sudo bash -c "cat > /etc/systemd/system/swingtrader-optimizer.timer << EOF
-[Unit]
-Description=SwingTrader Nightly Optimizer Timer
-Requires=swingtrader-optimizer.service
-
-[Timer]
-OnCalendar=*-*-* 02:00:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF"
-```
-
-### Frontend — dev mode
-
-```bash
-sudo bash -c "cat > /etc/systemd/system/swingtrader-frontend.service << EOF
-[Unit]
-Description=SwingTrader Frontend (Vite Dev Server)
-After=swingtrader-backend.service
-Requires=swingtrader-startup.service
-
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=$PROJECT_DIR/frontend
-ExecStart=$NPM_PATH run dev
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=swingtrader-frontend
-Environment=\"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"
-
-[Install]
-WantedBy=multi-user.target
-EOF"
-```
-
-> If npm isn't found, add its bin dir to `PATH` (check with `which npm`) or use the absolute path in `ExecStart`.
-
-### Frontend — production mode (nginx)
-
-```bash
-sudo apt-get install -y nginx
-cd $PROJECT_DIR/frontend && npm run build
-```
-
-```bash
-sudo bash -c 'cat > /etc/nginx/sites-available/swingtrader-fe' <<'EOF'
-server {
-    listen 5173;
-    server_name _;
-    root /path/to/SwingTraderAndOptimizer/frontend/dist;
-    index index.html;
-
-    gzip on;
-    gzip_types text/plain text/css text/javascript application/json application/javascript;
-    gzip_min_length 1000;
-
-    location ~ ^/(assets|css|js|img)/ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    location /api/ {
-        proxy_pass http://localhost:9000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_buffering off;
-        proxy_request_buffering off;
-    }
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location ~ /\. { deny all; }
-}
-EOF
-
-sudo ln -sf /etc/nginx/sites-available/swingtrader-fe /etc/nginx/sites-enabled/swingtrader-fe
-sudo rm -f /etc/nginx/sites-enabled/default   # optional
-sudo nginx -t && sudo systemctl restart nginx && sudo systemctl enable nginx
-```
-
-Run only ONE of dev/prod on port 5173 to avoid conflicts.
-
-### Enable everything
+Enable them all:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable swingtrader-startup.service swingtrader-backend.service
-sudo systemctl enable swingtrader-frontend.service   # dev mode (or nginx in prod)
-sudo systemctl enable swingtrader-optimizer.timer
-sudo systemctl start swingtrader-startup.service swingtrader-backend.service
-sudo systemctl start swingtrader-frontend.service
-sudo systemctl start swingtrader-optimizer.timer
+sudo systemctl enable swingtrader-db.service swingtrader-backend.service
+sudo systemctl enable \
+  swingtrader-prices-load.timer swingtrader-scanner-update.timer \
+  swingtrader-legema.timer swingtrader-mtf-executor.timer \
+  swingtrader-scanner-backfill.timer swingtrader-backup.timer \
+  swingtrader-earnings-screener.timer swingtrader-mtf-scorer.timer \
+  swingtrader-daily-signal.timer swingtrader-weekly-takeoff.timer
 ```
+
+> **Not installed, do not enable blind:** `swingtrader-mtf-preview.*` exists in
+> `mtf/systemd/` but was never deployed; running it alongside the live scorer would
+> post the evening Slack summary twice.
+>
+> **Every timer is `Persistent=true`.** A timer missed while the box was off fires at
+> the next boot. That is what rescues a late morning — but it also means a unit can
+> fire *before* `swingtrader-db.service` has the container listening, and fail. If you
+> add a new timer that touches the database, order it after `swingtrader-db.service`.
 
 ---
 
 ## Crontab
 
-ONE entry only — Laravel's Kernel.php handles the internal schedule (trades every 5 min, positions sync, alerts):
+**There are no active crontab entries, and there should not be.**
 
 ```bash
-PHP_PATH=$(which php)
-PROJECT_DIR=$(pwd)  # run from project root
-(echo "* * * * * $PHP_PATH $PROJECT_DIR/backend/artisan schedule:run >> /dev/null 2>&1") | crontab -
-crontab -l
+crontab -l    # shows only commented-out history
 ```
 
-> Never comment out this line — a `#` prefix stops trade execution.
+All order placement and scheduling is systemd. The commented lines are kept on purpose
+as the documented rollback path for retired strategies (`trades:execute-EW-gate100`,
+retired 2026-09-28 in favour of CoreEW P20w). Uncommenting one re-enables that retired
+strategy — do not do it casually.
+
+**Do not add `* * * * * php artisan schedule:run`.** There is no framework-level trade
+execution on this box; that line is a leftover from an earlier architecture and an
+older version of this doc told you otherwise.
 
 ---
 
-## First Run / Reboot Behavior
+## On-demand jobs
 
-Populate 2 years of bars + strategy params (30–45 min; must run after any DB wipe):
+Run these by hand when you want them — they are deliberately not scheduled:
+
 ```bash
-cd $PROJECT_DIR/optimizer
-./venv/bin/python nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM
-tail -f optimizer/logs/nightly.log
+cd $PROJECT_DIR/scanner
+
+# Refresh the earnings-date cache (28-day / 4-week lookahead) — run this
+# BEFORE an undervalued scan. Feeds tbl_earnings_calendar, which the
+# earnings-screener timer reads.
+./.venv/bin/python3 services/earnings_screener.py --refresh
+
+# Scan now. Prints locally; add --slack to also post to Slack.
+./.venv/bin/python3 services/earnings_screener.py --days 14 --all
+./.venv/bin/python3 services/earnings_screener.py --stats    # cache freshness
+
+# Data readiness gate — run this before assuming a bad signal is a strategy problem
+./.venv/bin/python services/scripts/data_readiness.py --check --tf week,day --mode all
 ```
 
-**After every reboot: nothing to do.** Systemd starts all services in order. Note: on WSL, Docker Desktop must be running on Windows before WSL starts, else `swingtrader-startup` waits (up to 2 min) for the Docker socket.
+> The earnings cache is only as fresh as your last manual `--refresh`. The removed
+> Sunday timer used to do this weekly and had been failing on every boot since
+> 2026-09-13, so the cache had silently gone three weeks stale. If you rely on the
+> weekday `earnings-screener` timer, refresh before you scan.
 
 ---
 
-## Verify Everything
+## First run / reboot behavior
+
+**After a reboot there is nothing to do.** `swingtrader-db`, `-backend` and `-fe-dev`
+start at boot; the timers catch up anything missed.
+
+Two things to know on a fresh or wiped database:
+
+1. Bars must exist before any strategy can score. Load the canonical pair:
+   ```bash
+   cd $PROJECT_DIR/scanner
+   ./.venv/bin/python services/scripts/load_prices.py --resume --timeframe day
+   ./.venv/bin/python services/scripts/load_prices.py --resume --timeframe week
+   ./.venv/bin/python services/scripts/compute_indicators.py --timeframe prices-daily
+   ./.venv/bin/python services/scripts/compute_indicators.py --timeframe prices-weekly
+   ```
+   Or just wait for `swingtrader-prices-load.timer` at 09:05.
+2. `strategy_parameters` must be populated for CoreEW, or the entry-multiple override
+   is bypassed. The CoreEW signal is canonical in PHP (`trades:execute-leg-ema`) — do
+   not reimplement it in Python.
+
+---
+
+## Verify everything
 
 ```bash
-sudo systemctl is-active swingtrader-startup swingtrader-backend swingtrader-frontend swingtrader-optimizer.timer
-curl http://localhost:9000/api/health
-curl http://localhost:5173/                      # frontend + API proxy (nginx)
-curl http://localhost:9000/api/v1/account        # Alpaca balance
-sudo systemctl list-timers swingtrader-optimizer.timer
+sudo systemctl is-active swingtrader-db swingtrader-backend swingtrader-fe-dev
+sudo systemctl list-timers --all | grep swingtrader     # 10 timers expected
+curl -s http://localhost:9000/api/health
+curl -s http://localhost:5173/
+
 docker exec swingtrader-db psql -U swingtrader -d swingtrader \
   -c "SELECT COUNT(*) FROM pg_tables WHERE schemaname='public';"
+
+# data side
+cd $PROJECT_DIR/scanner
+./.venv/bin/python services/scripts/data_readiness.py --check --tf week,day --mode all
 ```
 
 ---
 
 ## Troubleshooting
 
-**Backend fails: "relation cache does not exist"** — migrations didn't run before backend started:
+**Python service: `Connection refused` on `127.0.0.1:5432`** — the DB container is
+not up. This is the single most common failure on this box:
+
 ```bash
-sudo systemctl status swingtrader-startup --no-pager
-cd backend && php artisan migrate --force
+sudo systemctl status swingtrader-db
+docker ps | grep swingtrader-db
+until docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "SELECT 1"; do sleep 2; done
+```
+
+**A timer "fired" but nothing happened** — check the result, not the timer:
+
+```bash
+systemctl show <unit>.service -p Result -p ExecMainStatus
+sudo journalctl -u <unit> -n 50 --no-pager
+```
+
+`Result=exit-code` with the timer still counted as "fired" is the signature of a unit
+whose `ExecStart` referenced something that no longer exists. `ExecStartPre` is the
+nasty version: it gates every sibling `ExecStart`, so one stale line silently disables
+the entire unit.
+
+**Strategy unit ran but placed no orders** — usually the data gate, not the strategy:
+
+```bash
+sudo journalctl -u swingtrader-mtf-executor -n 80 --no-pager | grep -iE 'readiness|freshness|blocked'
+```
+
+`data_readiness.py` is authoritative. A skipped run is the gate working correctly.
+
+**Alpaca 401** — keys rotated, or the wrong component's `.env`. See
+[`ALPACA_KEYS.md`](ALPACA_KEYS.md).
+
+**Laravel "relation cache does not exist"** — cache after a config change:
+
+```bash
+cd $PROJECT_DIR/swingtrader/backend
+php artisan config:clear && php artisan cache:clear
 sudo systemctl restart swingtrader-backend
 ```
 
-**Database empty after reboot** — named volume deleted or Docker reset:
+**Port conflict:**
+
 ```bash
-docker volume ls | grep swingtrader
-cd backend && php artisan migrate --force && php artisan tinker --execute="
-App\Models\Ticker::firstOrCreate(['symbol'=>'SPY'],['allocation_weight'=>33.33,'enabled'=>1]);
-App\Models\Ticker::firstOrCreate(['symbol'=>'QQQ'],['allocation_weight'=>33.33,'enabled'=>1]);
-App\Models\Ticker::firstOrCreate(['symbol'=>'IWM'],['allocation_weight'=>33.34,'enabled'=>1]);
-"
-cd ../optimizer && ./venv/bin/python nightly_optimizer.py --timeframe 1Hour --tickers SPY QQQ IWM
+lsof -i :9000; lsof -i :5173
 ```
 
-**Crontab commented out (trades not executing):**
+**Roll back / disable something:**
+
 ```bash
-crontab -l   # if line starts with #, re-add it (see Crontab section)
+sudo systemctl disable --now <unit>.timer
+sudo rm /etc/systemd/system/<unit>.{service,timer}
+sudo systemctl daemon-reload
 ```
 
-**Alpaca returns 401** — regenerate keys at app.alpaca.markets. Test:
-```bash
-curl -H "APCA-API-KEY-ID: YOUR_KEY" -H "APCA-API-SECRET-KEY: YOUR_SECRET" https://paper-api.alpaca.markets/v2/account
-```
-
-**Optimizer ModuleNotFoundError:**
-```bash
-cd optimizer && ./venv/bin/pip install psycopg2-binary alpaca-py
-./venv/bin/python -c "import psycopg2; import alpaca; print('OK')"
-```
-
-**Service won't start / port conflicts:**
-```bash
-journalctl -u swingtrader-backend -n 50
-sudo systemctl status swingtrader-startup --no-pager
-lsof -i :9000; lsof -i :5173   # find conflicting process
-sudo systemctl restart swingtrader-backend
-```
-
-**Frontend can't reach backend (nginx):** verify `curl http://localhost:9000/api/health`, `sudo nginx -t`, `sudo grep -A 5 "location /api" /etc/nginx/sites-enabled/swingtrader-fe`.
-
-**Rollback / disable a service:**
-```bash
-sudo systemctl disable --now swingtrader-backend.service swingtrader-optimizer.timer
-```
+Removing the unit file from `/etc/systemd/system/` does **not** remove it from the
+repo — the deploy source stays in the component's `systemd/` dir. Delete it there too,
+or the next deploy resurrects it.
 
 ---
 
 ## See Also
 
-- [How_System_Works.md](How_System_Works.md) — Architecture and data flow
-- [MONITORING.md](MONITORING.md) — Daily health checks and troubleshooting
-- [COMMAND_REFERENCE.md](COMMAND_REFERENCE.md) — All useful commands
-- [Github-SSH-COMMANDS.md](Github-SSH-COMMANDS.md) — SSH key setup for GitHub
+- [`services_doc/README.md`](services_doc/README.md) — **live service inventory** (status, schedule, purpose)
+- [`OPERATING_RULES.md`](OPERATING_RULES.md) — operating rules and current system state
+- [`ALPACA_KEYS.md`](ALPACA_KEYS.md) — which keys belong to which account/component
+- [`COMMAND_REFERENCE.md`](COMMAND_REFERENCE.md) — command reference ⚠️ **also pre-restructure**
+- [`AGENTS.md`](../../AGENTS.md) — repo entry point and safety rails
