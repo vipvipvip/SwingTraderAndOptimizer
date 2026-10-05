@@ -23,8 +23,10 @@ AGENTS.md and the code over the doc.
 - **[perf_explanations.md](perf_explanations.md)** — dated research log (exit-logic bugs,
   live-vs-backtest gaps, lookahead audits). Each entry is timestamped and later corrections
   are appended inline rather than rewriting history — read it as a log, not a current-state doc.
-- **[HANDOFF_DailySignal_All3CO.md](HANDOFF_DailySignal_All3CO.md)** — Daily Signal
-  all-3-CO service: settled-bar/quality-gate conventions, Slack format, verification steps.
+- **[HANDOFF_DailySignal_All3CO.md](HANDOFF_DailySignal_All3CO.md)** — ⛔ SUPERSEDED (HCO
+  removed 2026-10-02; signal is now WCO∧DCO). Kept as a historical record of the 2026-09-16
+  work — settled-bar/quality-gate conventions, Slack format, verification steps. For current
+  behaviour read [BUY_SELL_TRIGGERS.md §3](BUY_SELL_TRIGGERS.md).
 - **[HANDOFF_CoreEW_rename.md](HANDOFF_CoreEW_rename.md)** — historical handoff from the
   CHAND→CoreEW rename + intraday drift-gate/gain-rake work. Superseded by CoreEG100 and then
   by P20w; kept for context on how the current driver's predecessors worked.
@@ -117,8 +119,8 @@ $1M/$100K Alpaca paper accounts:
    per new settled week (systemd timer, Mon–Fri 10:05 ET).
 2. **MTF Top-N** — daily rotation into the top-10 stocks / top-3 ETFs by weekly EMA/SMA gap
    score, once/day at 10:25 ET, with a daily-ATR ratchet exit on the stock leg.
-3. **Daily Signal** — Slack-only alert (no orders) when a ticker completes all three of
-   weekly/daily/hourly EMA(10)>SMA(40), once/day at 17:00 ET.
+3. **Daily Signal** — Slack-only alert (no orders) when a ticker completes **both** of the
+   weekly/daily EMA(10)>SMA(40) crosses (⛔ hourly/HCO removed 2026-10-02), once/day at 17:00 ET.
 
 See [BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md) for exactly how each one decides, and
 `AGENTS.md` for everything else (operating rules, key routing, known invariants, server
