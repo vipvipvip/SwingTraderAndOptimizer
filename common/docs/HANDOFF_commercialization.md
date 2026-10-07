@@ -2,7 +2,7 @@
 
 > Companion to `common/docs/commercial/*` — the package itself is committed and on `main`; this doc holds **session decisions & process state**, and points to the canonical numbers instead of duplicating them (so nothing goes stale twice).
 
-**Status:** v0.1 retail package DONE and committed (`2664503`, on `main`). Live P20w running on paper since 2026-09-28 (see `HANDOFF_DailySignal_All3CO.md`/AGENTS.md for the strategy side).
+**Status:** v0.1 retail package DONE and committed (`2664503`, on `main`). Live P20w running on paper since 2026-09-28 (see AGENTS.md for the strategy side).
 
 ## What exists
 

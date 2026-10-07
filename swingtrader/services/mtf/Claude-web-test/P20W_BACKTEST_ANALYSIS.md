@@ -146,7 +146,7 @@ P20w beat A in 9 of 23 years. Its advantage comes from a few large years (2008â€
 ## Related changes made during this review
 
 - **`getCurrentPrice()` uses a live price** (`getCurrentPrice-live-first.patch`). CoreEW order sizing now uses Alpaca's latest IEX trade, with the hourly-table price as fallback and a 15% guard against bad prints. Disabling the 09:10 hourly sampler on 2026-10-02 had left sizing on the previous session's post-close capture. The effect on the backtest was small (+362.8% vs +362.3%), but sizing off a stale price allowed up to about 2% cash overdraw when prices gapped up.
-- **HCO / hourly removal.** No negative effect on live strategies. The CoreEW signal never read hourly data, and the MTF emasma strategy scores on weekly and daily bars only. The deleted hourly buy veto was never part of the backtest the strategy was validated on (its support was 0 wins in 7 paper trades). The readiness-gate change in 42b4fa3 was required, because without it the stock leg would have skipped every day once the hourly timer was disabled.
+- **Hourly removal.** No negative effect on live strategies. The CoreEW signal never read hourly data, and the MTF emasma strategy scores on weekly and daily bars only. The deleted hourly buy veto was never part of the backtest the strategy was validated on (its support was 0 wins in 7 paper trades). The readiness-gate change in 42b4fa3 was required, because without it the stock leg would have skipped every day once the hourly timer was disabled.
 
 ## Reproduce
 

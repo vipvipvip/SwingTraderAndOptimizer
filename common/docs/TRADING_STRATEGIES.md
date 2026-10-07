@@ -197,7 +197,7 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 
 # 2. Technical Scanner
 
-**Service:** `compute_indicators.py` (indicator computation), `capture_hourly.py` (intraday price capture), `populate_tickers.py` (data ingestion)  
+**Service:** `compute_indicators.py` (indicator computation), `capture_hourly.py` (intraday price capture), `populate_tickers.py` (data ingestion — **deleted 2026-10-07**, superseded by `load_prices.py`)  
 **Controller:** `ScannerController` (serves Blade UI at `/scanner`)  
 **Schedule:** Hourly price capture during market hours via `capture_hourly.py`; indicator computation runs on demand.
 
@@ -222,7 +222,7 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 > (`ppo = macd / ema26 * 100`), so on real data the two correlate 0.95, agree on
 > histogram sign for 98% of bars, and produce the *same 19* zero-crosses. One pane
 > covers both readings; PPO is the scale-free one, so it transfers across price
-> levels and across the 1,435-stock universe where a dollar MACD threshold does not.
+> levels and across the ~1,420-stock universe where a dollar MACD threshold does not.
 >
 > Arrows mark **zero-crosses on the PPO line and on the signal line** (TOS
 > convention, discretionary eyeballing only — no strategy consumes them), *not*
@@ -235,8 +235,8 @@ Fixed equal weight: every leg = `equity / 3`. Trimmed proceeds fund the top-ups.
 > weekly zero-cross as the high-conviction read.
 >
 > **Zero-cross exit study (2026-09-30) — RESEARCH ONLY, not a live strategy and not
-> a proposal to change emasma.** `scanner/services/scripts/ppo_zero_cross_study.py`
-> reproduces it. Three results worth keeping:
+> a proposal to change emasma.** The script that produced it (`ppo_zero_cross_study.py`)
+> was deleted 2026-10-07; recover it from git history to reproduce. Three results worth keeping:
 > - **"Either line" is a no-op, universe-wide.** 51,397/51,397 signal-line zero
 >   crosses arrive *after* the PPO line already crossed the same way — the signal is
 >   a 9-EMA of the line, so it can never cross first. The chart's second arrow set is
@@ -355,7 +355,7 @@ The scanner page at `/scanner` shows:
 
 ### Data Pipeline
 
-**`populate_tickers.py`:**
+**`populate_tickers.py`** *(deleted 2026-10-07; historical description)*:
 - Fetches S&P 500 tickers from Alpaca.
 - Gets OHLCV bars since 2015 for weekly/daily, 3 months for 1-hour.
 - Stores in the 3 timeframe tables.
@@ -462,7 +462,7 @@ AGENTS.md)
 
 **Service:** `swingtrader-daily-signal.timer` (systemd, Mon–Fri 5:00 PM ET)  
 **Location:** `swingtrader/services/ema_sma_crossover/daily_signal_service.py`  
-**Universe:** All enabled tickers in `tbl_stock_tickers` — 1,435 VTI stocks + 28 ETFs (same universe as MTF Top-N). *NOT S&P 500; older docs that say "S&P 500" are outdated.*
+**Universe:** All enabled tickers in `tbl_stock_tickers` — 1,422 enabled stocks + 28 ETFs (same universe as MTF Top-N). *NOT S&P 500; older docs that say "S&P 500" are outdated.*
 
 ### Purpose
 Multi-timeframe EMA(10)/SMA(40) scanner that detects fresh 1-hour entry signals within weekly+daily uptrend. **Does not trade** — sends Slack alerts only.

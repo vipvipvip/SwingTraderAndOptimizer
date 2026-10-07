@@ -12,7 +12,7 @@ Three strategies are live. Only two place real orders:
 | **CoreEW P20w** ("LegEMA") | Once/week — Mon–Fri 10:05 ET systemd timer, acts on a **new settled week** only | ✅ Yes (Alpaca) | A leg's own settled **weekly** close is **above** its own EMA(20) → held long and equal-weighted with the other ON legs | That leg's weekly close crosses **below** its own EMA(20) → sold to cash; plus the weekly equal-weight rebalance of the ON legs (over-weights are trimmed, under-weights topped up) |
 | **MTF Top-N — stock leg** | Once/day, 10:25 ET | ✅ Yes (Alpaca, acct `#PA368CPXNS13`) | Ticker enters the top-**10** by weekly score | Drops out of top-10, **or** daily-ATR ratchet stop hit |
 | **MTF Top-N — ETF leg** | Once/day, 10:25 ET (same run) | ✅ Yes (Alpaca, acct `#PA3U8GZ96PEN`) | Ticker enters the top-**3** by weekly score | Drops out of top-3 (no ratchet on this leg) |
-| **Daily Signal** | Once/day, 17:00 ET | ❌ No — Slack alert only | **Both** of weekly + daily EMA(10)>SMA(40) crosses are done (HCO removed 2026-10-02 — see §3) | N/A — never holds a position |
+| **Daily Signal** | Once/day, 17:00 ET | ❌ No — Slack alert only | **Both** of weekly + daily EMA(10)>SMA(40) crosses are done (see §3) | N/A — never holds a position |
 
 ---
 
@@ -133,18 +133,12 @@ in-progress/partial bar.
 ## 3. Daily Signal — alert only, never places an order
 
 **Code:** `swingtrader/services/ema_sma_crossover/daily_signal_service.py`, once/day at
-17:00 ET. Full detail in
-[HANDOFF_DailySignal_All3CO.md](HANDOFF_DailySignal_All3CO.md).
+17:00 ET.
 
 - **Trigger (both required, on settled bars only):**
   1. **WCO** — weekly EMA(10) > SMA(40) on the last settled weekly bar.
   2. **DCO** — daily EMA(10) > SMA(40) on the last settled daily bar.
 
-⛔ **HCO was REMOVED 2026-10-02 — this is a two-CO signal, not three.** The old third
-condition (hourly EMA(10) > SMA(40), quality-gated `vol >= 1000`, up-cross within 1–2
-trading days) was sourced from *last-trade snapshots rather than real bars*, so it was an
-unvalidated gate. Prices, ATR distance and scores now come from the settled daily series.
-Don't read a missing `[DAILY]` post as a data gap — the confluence is just WCO ∧ DCO.
 - When both are true, the ticker is posted to Slack (`[DAILY]`) with its score. There is
   no "sell" side — it's a one-shot alert, not a position.
 
@@ -161,3 +155,4 @@ Don't read a missing `[DAILY]` post as a data gap — the confluence is just WCO
   the EG100 → P20w decision history.
 - `swingtrader/services/mtf/{runner.py,executor.py,config.py}` — MTF Top-N implementation.
 - `swingtrader/services/ema_sma_crossover/daily_signal_service.py` — Daily Signal implementation.
+- `swingtrader/services/mtf/trigger_levels.py` + [SPEC_trigger_levels.md](SPEC_trigger_levels.md) — Slack report (10:00 / 17:05 ET) of the next buy/sell **price** per ticker for CoreEW P20w and MTF-ETF: the weekly-close level at which each flips (CoreEW = last settled weekly EMA20; MTF-ETF = lowest weekly close that puts the ETF in the top 3).

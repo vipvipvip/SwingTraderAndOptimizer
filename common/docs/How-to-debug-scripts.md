@@ -40,8 +40,8 @@ stock-analyzer/.venv/bin/python -m debugpy --listen 5678 --wait-for-client stock
 
 ### Scanner
 ```bash
-# Populate tickers
-scanner/.venv/bin/python -m debugpy --listen 5678 --wait-for-client scanner/services/scripts/populate_tickers.py --timeframe week --workers 1
+# Load prices (populate_tickers.py was deleted 2026-10-07; load_prices.py is the only price writer)
+scanner/.venv/bin/python -m debugpy --listen 5678 --wait-for-client scanner/services/scripts/load_prices.py --resume
 
 # Compute indicators
 scanner/.venv/bin/python -m debugpy --listen 5678 --wait-for-client scanner/services/scripts/compute_indicators.py --timeframe week --workers 1

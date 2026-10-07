@@ -10,7 +10,7 @@
 | # | Account (paper) | Account # | Env file | Variable names |
 |---|-----------------|-----------|----------|----------------|
 | 1 | **CoreEW** (trio, Laravel `ExecuteEWETF`) | `#PA3GKZYLVO68` | `swingtrader/backend/.env` | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` |
-| 2 | **Scanner** (read-only market data: `capture_hourly.py`, `populate_tickers.py`, Explorer) | (reuses CoreEW keys) | `scanner/backend/.env` | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` |
+| 2 | **Scanner** (read-only market data: `load_prices.py`, Explorer) | (reuses CoreEW keys) | `scanner/backend/.env` | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` |
 | 3 | **MTF-Stocks** (emasma top-N stock leg) | `#PA368CPXNS13` | `swingtrader/services/mtf/.env` | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` |
 | 4 | **MTF-ETFs** (emasma ETF leg) | `#PA3U8GZ96PEN` | `swingtrader/services/mtf/.env` (SAME file as #3) | `ALPACA_ETF_API_KEY`, `ALPACA_ETF_SECRET_KEY` |
 
@@ -59,7 +59,7 @@ Expected: `CoreEW == Scanner == #PA3GKZYLVO68`, `MTF stock == #PA368CPXNS13`,
 ## Who loads which file (wiring, so future edits stay honest)
 
 - `scanner/services/config.py:5` loads `scanner/backend/.env` → ALL scanner
-  scripts (`capture_hourly.py`, `populate_tickers.py`, `data_readiness.py`,
+  scripts (`load_prices.py`, `data_readiness.py`,
   `compute_indicators.py` indirect, Explorer backend). Read-only IEX feed.
 - `swingtrader/backend/.env` → Laravel `ExecuteEWETF` (CoreEW trading) + `alpaca_report.py --strategy coreew`.
 - `swingtrader/services/mtf/config.py:4` `load_dotenv()` (WorkingDirectory =

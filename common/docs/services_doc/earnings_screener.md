@@ -13,6 +13,7 @@ Finds stocks with upcoming earnings where the DAILY MACD line just crossed above
 2. **MACD line crossover** — check if the DAILY MACD line crossed above zero (bullish signal)
 3. **Last crossover must be bullish** — skip if last crossover was bearish
 4. **Freshness sort** — show most recent crossovers first
+5. **Window (2026-10-06)** — earnings within the next **7 days** (`--days`) and a MACD cross at most **10 days** old (`--max-fresh`); anything else is dropped
 
 ## Usage
 
@@ -29,8 +30,8 @@ python3 services/earnings_screener.py --slack
 # Show all tickers with bullish MACD (not just fresh)
 python3 services/earnings_screener.py --all
 
-# Custom lookahead
-python3 services/earnings_screener.py --days 7
+# Custom windows (defaults: --days 7 --max-fresh 10)
+python3 services/earnings_screener.py --days 14 --max-fresh 5
 
 # Show stats
 python3 services/earnings_screener.py --stats
@@ -45,7 +46,7 @@ python3 services/earnings_screener.py --stats
 ⛔ `swingtrader-earnings-refresh.{service,timer}` was **REMOVED 2026-10-05**. The cache is
 refreshed **on demand** — see [Cache refresh](#cache-refresh) below.
 
-The scheduled run is `--days 14 --all --slack`. It passes `--all` deliberately:
+The scheduled run is `--days 7 --max-fresh 10 --all --slack`: earnings within the next 7 days and a MACD cross at most 10 days old. It passes `--all` deliberately:
 on hourly data the default fresh-only filter ("cross on the latest bar") fired
 several times a day, but on **daily** data that happens only a handful of times
 a year, so fresh-only would post an empty Slack list nearly every day. `--all`

@@ -65,7 +65,7 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 
 ## Architecture
 
-**Intraday sampler (`swingtrader-scanner-hourly`)** — ⛔ **REMOVED 2026-10-05.** It captured latest-trade prices into the hourly table (open=high=low=close, volume = that one trade's size — degenerate bars, median volume ~100 shares), and no live consumer ever remained: HCO was removed from Daily Signal, and MTF emasma scores on settled weekly+daily only. The 2026-10-02 HOURLY purge dropped the table and deleted `capture_hourly.py`, so the units were uninstalled on 10-05. Its one real casualty is `runner.py --fresh`, which read that table and is now unrunnable.
+**Intraday sampler (`swingtrader-scanner-hourly`)** — ⛔ **REMOVED 2026-10-05.** It captured latest-trade prices into the hourly table (open=high=low=close, volume = that one trade's size — degenerate bars, median volume ~100 shares), and no live consumer ever remained: MTF emasma scores on settled weekly+daily only. The 2026-10-02 HOURLY purge dropped the table and deleted `capture_hourly.py`, so the units were uninstalled on 10-05. Its one real casualty is `runner.py --fresh`, which read that table and is now unrunnable.
 **Executor (`swingtrader-mtf-executor`)** — once/day at 10:25: `--action score` then `--action execute` on the last COMPLETE daily bar (no `--fresh`): emasma stock leg (top-10) + EMA/SMA ETF leg (top-3), with the daily-ATR ratchet exit on the stock leg. Execute has a **freshness guard** (`FRESH_PENDING_MAX_AGE_HOURS = 6`): if the pending row is older than 6 hours it is refused — a failed score step can never leave stale picks to be traded at a 10:25 fill.
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
@@ -213,7 +213,7 @@ rebalance, `--exit rebalance` (default), deterministic score+gap tie-break):
 > current default window (2021-09-21 → 2026-09-25, 0.05% cost) the same config gives +106% / −31.7% DD
 > settled vs +636% / −16.0% with the old lookahead read (`--legacy-weekly`); lookahead-free top-10 is
 > +98% / −19.6% (Sharpe 0.85) vs top-3 Sharpe 0.78, and top-3 without SMH is only +54%. Concentration
-> was not the edge. Re-audit (`audit/mtf_audit_template.py`) before relying on any figure here.
+> was not the edge. Re-run the backtest before relying on any figure here (the audit template was deleted 2026-10-07).
 
 Concentration, not the sector universe, is the edge: applying top-3 to the full
 28-ETF universe strictly dominates the sector-11 top-3 (return AND drawdown).
@@ -361,7 +361,7 @@ sudo journalctl -u swingtrader-mtf-executor.service -f
 
 **Dependency**: `swingtrader-mtf-executor.service` declares `After=network-online.target swingtrader-db.service` (network + DB up before scoring). emasma scoring reads only weekly/daily bars, so it does not depend on the hourly sampler or the `atr_stop` indicators being fresh — the risk is stale **daily** data, handled by the guard below.
 
-**Data completeness guard**: Runner checks all enabled tickers have today's daily bar before scoring. If incomplete, it retries `populate_tickers.py` + `compute_indicators.py` up to 3 times. On failure, sends a red `🚨🔴 DATA INCOMPLETE` Slack alert and aborts. No trades are placed.
+**Data completeness guard**: Runner checks all enabled tickers have today's daily bar before scoring. If incomplete, it retries `load_prices.py --resume` + `compute_indicators.py --timeframe prices-daily` (the canonical-table self-heal, `_backfill_daily`) up to 3 times. On failure, sends a red `🚨🔴 DATA INCOMPLETE` Slack alert and aborts. No trades are placed.
 
 ### Timers
 
@@ -415,12 +415,12 @@ re-running the scorer replaces that mode's pending, and executing marks it consu
 
 ## DB Schema
 
-### Read-only (scanner tables)
-- `tbl_stock_tickers` — Master ticker list (1,435 stocks + 28 ETFs, `is_etf` flag)
+### Read-only (price tables)
+- `tbl_stock_tickers` — Master ticker list (1,422 enabled stocks + 28 ETFs, `is_etf` flag)
 - `tbl_etf_tickers` — ETF display names (company_name)
-- `tbl_scanner_tickers` — Weekly OHLCV + indicators
-- `tbl_scanner_tickers_daily` — Daily OHLCV + indicators
-- `tbl_scanner_tickers_1hour` — 1-hour OHLCV + atr_stop
+- `tbl_prices_weekly` — **Canonical** weekly OHLCV + `atr_stop` (Monday-stamped; loaded once a week, Friday after close)
+- `tbl_prices_daily` — **Canonical** daily OHLCV + `atr_stop`
+- ⛔ `tbl_scanner_tickers` / `tbl_scanner_tickers_daily` — deprecated; renamed `zz_deprecated_scanner_tickers{,_daily}` 2026-10-06, **dropped 2026-10-07**. `tbl_scanner_tickers_1hour` was dropped 2026-10-02.
 
 ### Read-write (mtf_ tables, created by init_db())
 - `mtf_positions` — Real open positions (ticker_id, symbol, quantity, entry_price, entry_at) — source of truth for holdings/MTM

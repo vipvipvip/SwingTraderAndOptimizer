@@ -11,6 +11,9 @@ AGENTS.md and the code over the doc.
 - **[BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md)** — what causes each live strategy
   (CoreEW P20w, MTF Top-N stock+ETF legs, Daily Signal) to actually buy or sell, verified
   against the code. The fastest way to answer "why did/didn't this trade."
+- **[SPEC_trigger_levels.md](SPEC_trigger_levels.md)** — the Trigger Levels Slack report (next
+  buy/sell price per ticker for CoreEW P20w + MTF-ETF), live 10:00 / 17:05 ET; answers "what
+  price flips this ticker."
 - **`AGENTS.md`** (repo root) — architecture, live strategy table, operating rules,
   known invariants. Read this first for anything beyond buy/sell logic.
 
@@ -23,16 +26,14 @@ AGENTS.md and the code over the doc.
 - **[perf_explanations.md](perf_explanations.md)** — dated research log (exit-logic bugs,
   live-vs-backtest gaps, lookahead audits). Each entry is timestamped and later corrections
   are appended inline rather than rewriting history — read it as a log, not a current-state doc.
-- **[HANDOFF_DailySignal_All3CO.md](HANDOFF_DailySignal_All3CO.md)** — ⛔ SUPERSEDED (HCO
-  removed 2026-10-02; signal is now WCO∧DCO). Kept as a historical record of the 2026-09-16
-  work — settled-bar/quality-gate conventions, Slack format, verification steps. For current
-  behaviour read [BUY_SELL_TRIGGERS.md §3](BUY_SELL_TRIGGERS.md).
 - **[HANDOFF_CoreEW_rename.md](HANDOFF_CoreEW_rename.md)** — historical handoff from the
   CHAND→CoreEW rename + intraday drift-gate/gain-rake work. Superseded by CoreEG100 and then
   by P20w; kept for context on how the current driver's predecessors worked.
 - **[mtf-infra-refactor-plan.md](mtf-infra-refactor-plan.md)** — archived infra plan.
 
 ## Operations
+
+- **[TECH_DEBT.md](TECH_DEBT.md)** — open TODO / tech-debt items (data-integrity gaps, stale backtests, live-path follow-ups).
 
 - **[ALPACA_KEYS.md](ALPACA_KEYS.md)** — which `.env` file and account each key pair
   belongs to, and the exact failure mode when they're mixed up. Open this whenever keys rotate.
@@ -120,7 +121,7 @@ $1M/$100K Alpaca paper accounts:
 2. **MTF Top-N** — daily rotation into the top-10 stocks / top-3 ETFs by weekly EMA/SMA gap
    score, once/day at 10:25 ET, with a daily-ATR ratchet exit on the stock leg.
 3. **Daily Signal** — Slack-only alert (no orders) when a ticker completes **both** of the
-   weekly/daily EMA(10)>SMA(40) crosses (⛔ hourly/HCO removed 2026-10-02), once/day at 17:00 ET.
+   weekly/daily EMA(10)>SMA(40) crosses, once/day at 17:00 ET.
 
 See [BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md) for exactly how each one decides, and
 `AGENTS.md` for everything else (operating rules, key routing, known invariants, server
