@@ -16,10 +16,16 @@ Per timeframe (week/day) it checks:
      more than STALE_LAG_DAYS are REPORTED as warnings (halted tickers like
      APGE, new IPOs), but do not block — the frontier/expected + indicator
      coverage gates are what catch a broad outage.
-  4. Indicator coverage      — atr_stop present on each ticker's latest bar
-     (only for tickers with >= MIN_ROWS history, the same bar count
-     compute_indicators.py requires). Catches interrupted compute runs that
-     leave NULL indicators on fresh bars -> silent wrong signals.
+  4. Indicator coverage      — atr_stop present on the latest bar of every ticker
+     that HAS a bar at the frontier (>= MIN_ROWS history, the bar count
+     compute_indicators.py requires). A ticker with no frontier bar (halted, delisted,
+     e.g. QRVO) is untradeable today and is only REPORTED -- it must not block the
+     other ~1,400. Catches interrupted compute runs that leave NULL atr_stop on
+     fresh bars -> silent wrong signals.
+  5. Held positions          — HARD requirement, no exemptions: every ticker in
+     mtf_positions for the mode must have a bar at the frontier AND a non-NULL
+     atr_stop. The ratchet exit derives ATR from atr_stop; a held name without one
+     would ride with no trailing stop.
 
 `ensure_readiness()` chains verify -> repair (calendar-aware backfill of missing
 bars for the failing timeframes via backfill_all_missing, then recompute
@@ -27,8 +33,8 @@ indicators) -> re-verify, returning NOT-ready (exit 2) if still failing, so a
 consumer NEVER generates signals on incomplete data.
 
 Consumers subprocess this script with the scanner venv:
-    python data_readiness.py --check  --tf day,hour --mode stock
-    python data_readiness.py --ensure --tf day,hour --mode stock
+    python data_readiness.py --check  --tf week,day --mode stock
+    python data_readiness.py --ensure --tf week,day --mode stock
 exit 0 = ready | 2 = not ready (after repair, if --ensure).
 """
 
@@ -44,6 +50,7 @@ from config import get_db_conn, ATR_PERIOD
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import backfill_all_missing as bf
+import load_prices as lp
 
 NY = ZoneInfo('America/New_York')
 TABLES = {
@@ -55,9 +62,6 @@ TABLES = {
 # listings are never false-failures.
 MIN_ROWS = ATR_PERIOD + 1
 STALE_LAG_DAYS = 1
-# 'hour' was dropped with the 2026-10-02 HOURLY purge. Leaving the key here made
-# the DEFAULT --tf (day,hour) die with KeyError: 'hour' at TABLES[tf_name] -- the
-# authoritative pre-trade gate crashed on a bare invocation.
 COVERAGE = {'week': 0.90, 'day': 0.90}
 FRONTIER_LOOKBACK_DAYS = 15
 # windows used to count bars per ticker (must comfortably exceed MIN_ROWS bars)
@@ -85,25 +89,17 @@ def _expected_session_date(tf_name, trading_days, now):
         return trading_days[-2] if len(trading_days) >= 2 else last_td
 
     if tf_name == 'week':
-        # Alpaca timestamps every weekly bar at the ISO-week start (Monday),
-        # holiday or not: the current week's bar is stamped this week's Monday
-        # and is NOT re-stamped on later sessions. Expect that Monday — never
-        # "today" — or the week gate would fail on every non-Monday session.
-        return today - timedelta(days=today.weekday())
+        # Weekly bars are loaded once a week, Friday after the close. The newest FINAL
+        # bar is therefore the Monday of the last completed week -- never the forming
+        # week. Delegated to the loader so the two can never disagree.
+        return lp.settled_week_monday(now)
     if tf_name == 'day':
         # daily expects the newest fully-completed session. An intraday run
         # before 16:00 ET expects data through yesterday (today is partial).
         if last_td == today and now.time() < datetime.strptime('16:00', '%H:%M').time():
             return prev_session()
         return last_td
-    # hour: after 10:00 ET on a session day, today's bars are expected (the
-    # 10:10 capture writes the 10:00 bar for every ticker). Before that, or
-    # outside a session, the previous session suffices.
-    if last_td == today:
-        if now.time() >= datetime.strptime('10:00', '%H:%M').time():
-            return today
-        return prev_session()
-    return last_td
+    raise ValueError(f'unsupported timeframe {tf_name!r}')
 
 
 def _enabled_tickers(conn, mode):
@@ -112,6 +108,20 @@ def _enabled_tickers(conn, mode):
             'SELECT id, symbol FROM tbl_stock_tickers WHERE enabled AND is_etf=%s '
             'ORDER BY symbol', (mode == 'etf',))
         return cur.fetchall()
+
+
+def _held_ticker_ids(conn, mode):
+    """ticker_ids of MTF positions currently held in this mode ([] if none/unavailable)."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT p.ticker_id FROM mtf_positions p '
+                'JOIN tbl_stock_tickers t ON t.id = p.ticker_id '
+                'WHERE t.is_etf = %s AND p.quantity > 0', (mode == 'etf',))
+            return [r[0] for r in cur.fetchall()]
+    except Exception:
+        conn.rollback()
+        return []
 
 
 def _coverage_frontier(conn, tf_name, ticker_ids, pct):
@@ -156,10 +166,17 @@ def verify_frame(conn, tf_name, mode, trading_days, now):
     """Verify a single timeframe. Returns a report dict with `ready`."""
     ids = _enabled_tickers(conn, mode)
     tid_list = [tid for tid, _ in ids]
-    symbol_of = lambda tid: dict(ids).get(tid, str(tid))  # noqa: E731
     frontier = _coverage_frontier(conn, tf_name, tid_list, COVERAGE[tf_name])
     expected = _expected_session_date(tf_name, trading_days, now)
-    stats = _ticker_stats(conn, tf_name, tid_list)
+    held = set(_held_ticker_ids(conn, mode))
+    stats = _ticker_stats(conn, tf_name, tid_list + [h for h in held if h not in tid_list])
+    names = dict(ids)
+    for h in held - set(names):
+        with conn.cursor() as cur:
+            cur.execute('SELECT symbol FROM tbl_stock_tickers WHERE id=%s', (h,))
+            r = cur.fetchone()
+            names[h] = r[0] if r else str(h)
+    symbol_of = lambda tid: names.get(tid, str(tid))  # noqa: E731
 
     problems = []
     if frontier is None:
@@ -180,15 +197,31 @@ def verify_frame(conn, tf_name, mode, trading_days, now):
     # block trading). The hard cohort gates are frontier/expected (below) and
     # indicator coverage.
 
+    # Indicator coverage. Only tickers with a bar AT the frontier are tradeable today,
+    # so only they must carry atr_stop; a ticker behind the frontier (halted/delisted)
+    # is already reported as an outlier and must not block the rest of the universe.
     n_ind = 0
     ind_syms = []
+    held_bad = []
     for tid, (n, last_dt, atr) in stats.items():
-        if n >= MIN_ROWS and last_dt is not None and atr is None:
+        at_frontier = frontier is not None and last_dt is not None and last_dt >= frontier
+        if tid in held:
+            # Held positions: no exemptions. Needs a current bar and an atr_stop.
+            if not at_frontier:
+                held_bad.append(f'{symbol_of(tid)}(no bar at {frontier})')
+            elif atr is None:
+                held_bad.append(f'{symbol_of(tid)}(atr_stop NULL)')
+            continue
+        if n >= MIN_ROWS and at_frontier and atr is None:
             n_ind += 1
             if len(ind_syms) < 10:
                 ind_syms.append(symbol_of(tid))
+    for tid in held - set(stats):
+        held_bad.append(f'{symbol_of(tid)}(no {tf_name} bars)')
     if n_ind:
         problems.append(f'{n_ind} tickers missing indicators on latest bar')
+    if held_bad:
+        problems.append('HELD position(s) unsafe: ' + ', '.join(sorted(held_bad)))
 
     ready = (not problems) and bool(tid_list)
     return {
@@ -197,6 +230,7 @@ def verify_frame(conn, tf_name, mode, trading_days, now):
         'tickers': len(tid_list), 'problems': problems,
         'n_outliers': n_outliers, 'outliers': outlier_syms,
         'n_missing_indicators': n_ind, 'missing_indicators': ind_syms,
+        'held': len(held), 'held_unsafe': sorted(held_bad),
     }
 
 
@@ -264,7 +298,7 @@ def main():
     ap.add_argument('--check', dest='ensure', action='store_false')
     ap.set_defaults(ensure=True)
     ap.add_argument('--tf', default='week,day',
-                    help='Comma-separated timeframes (default: day,hour)')
+                    help='Comma-separated timeframes (default: week,day)')
     ap.add_argument('--mode', default='stock', choices=['stock', 'etf', 'all'])
     ap.add_argument('--workers', type=int, default=10)
     ap.add_argument('--json', action='store_true')

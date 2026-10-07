@@ -1,34 +1,14 @@
-"""Compute the ATR stop (the only stored indicator left).
+"""Compute the ATR stop (the only stored indicator) into the canonical price tables.
 
-2026-09-26 cleanup: MACD, PPO, the sma_crossover flags and the dead
-ema10_sma40_* columns were dropped from the weekly and daily tables. They were
-all superseded by the inline EMA10/SMA40 math in the strategies, and several of
-them (sma_crossover = EMA24 vs SMA52, ppo_crossover = 24/52 zero-cross) were
-misnamed legacy artifacts. `atr_stop` is the sole stored indicator because
-both live strategies invert it to recover ATR: ATR = (close - atr_stop)/2.
+`--timeframe week|prices-weekly` -> tbl_prices_weekly, `day|prices-daily` -> tbl_prices_daily.
+Both live strategies invert atr_stop to recover ATR: ATR = (close - atr_stop) / 2.
+load_prices.py NULLs atr_stop on every upsert, so run this after every load; the
+readiness gate (data_readiness.py) refuses to trade while a ticker with a bar at the
+frontier -- or any held position -- has a NULL atr_stop.
 
-macd_*/ppo_* columns were dropped 2026-09-26; atr_stop is the only stored indicator
-— they were intentionally left in place, but this script no longer writes them,
-so they are frozen at their last computed values. That is harmless: nothing reads
-hourly MACD any more (earnings_screener.py was converted to daily MACD on
-2026-09-26).
-
-Hourly `close` + `atr_stop` are no longer maintained for trading. The live MTF
-stock leg used to score and exit off them; that ended with commit 42b4fa3
-(2026-10-02), which removed the hourly bearish-pullback veto and the hourly ATR
-ratchet source. runner.py now loads hourly only when `strategy == 'mtf'`
-(research). The hourly sampler timer was disabled the same day, so these columns
-are frozen and only the research path can still add to them.
-
-Hourly (tbl_scanner_tickers_1hour) was purged 2026-10-02, so no table here is partitioned;
-COPY bulk writes instead of individual UPDATEs. Targets ~5-8 min on 1.5K+ tickers.
-
-Supports weekly, daily (non-partitioned), and 1-hour (hash-partitioned) tables.
-
-Note: run this with at most ~6 workers. The Postgres container has only a 64 MB
-/dev/shm, so heavy client concurrency makes parallel-query workers die with
-"could not resize shared memory segment ... No space left on device" and those
-tickers silently keep a NULL atr_stop.
+Run with at most ~6 workers. The Postgres container has only a 64 MB /dev/shm, so heavy
+client concurrency makes parallel-query workers die with "could not resize shared memory
+segment ... No space left on device" and those tickers silently keep a NULL atr_stop.
 """
 
 import argparse
@@ -37,7 +17,6 @@ import os
 import sys
 import time
 from io import StringIO
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
@@ -49,16 +28,15 @@ from config import (
     get_db_conn,
 )
 
+# week/day and prices-weekly/prices-daily are aliases for the SAME canonical tables.
+# The deprecated tbl_scanner_tickers* tables are no longer a target: nothing live reads
+# them, and atr_stop must never be computed into a table the gate does not check.
 TABLES = {
-    'week': 'tbl_scanner_tickers',
-    'day': 'tbl_scanner_tickers_daily',
-    # Clean blue/green replacements. Not partitioned, so is_hourly stays False
-    # and these take the plain (non-partition-aware) path.
-    'prices-daily': 'tbl_prices_daily',
+    'week': 'tbl_prices_weekly',
+    'day': 'tbl_prices_daily',
     'prices-weekly': 'tbl_prices_weekly',
+    'prices-daily': 'tbl_prices_daily',
 }
-
-PARTITION_COUNT = 16
 
 INDICATOR_COLUMNS = ['atr_stop']
 
@@ -92,9 +70,8 @@ def _bulk_update_from_temp(cur, table, tmp_name):
     ''')
 
 
-def _copy_to_temp(cur, rows, tmp_name, date_type='date'):
-    """COPY rows to a temp table for bulk update. date_type='timestamp' for the
-    hourly table (bars are timestamps; joining on a plain date never matches)."""
+def _copy_to_temp(cur, rows, tmp_name):
+    """COPY rows to a temp table for bulk update."""
     buf = StringIO()
     for row in rows:
         vals = []
@@ -116,7 +93,7 @@ def _copy_to_temp(cur, rows, tmp_name, date_type='date'):
     cur.execute(f'DROP TABLE IF EXISTS {tmp_name}')
     cur.execute(
         f'CREATE TEMP TABLE {tmp_name} ('
-        f'ticker_id bigint, date {date_type}, '
+        'ticker_id bigint, date date, '
         'atr_stop float8'
         ') ON COMMIT DROP'
     )
@@ -127,63 +104,76 @@ def _copy_to_temp(cur, rows, tmp_name, date_type='date'):
     )
 
 
-def load_ticker_data_bulk(conn, ticker_ids, table):
-    """Load data for multiple tickers in a single query."""
+def find_pending(conn, table):
+    """ticker_id -> 1-based row number of its FIRST bar that still needs an atr_stop.
+
+    A bar needs one when atr_stop IS NULL and it is far enough into the history for a
+    14-bar ATR to exist (rn >= ATR_PERIOD; earlier bars are legitimately NULL forever).
+    load_prices.py NULLs atr_stop on every row it upserts, so "NULL beyond warm-up" is
+    exactly "new or restated since the last compute" -- on a normal day that is one bar
+    per ticker, which is what makes this incremental. A plain `--full` pass ignores it.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT ticker_id, MIN(rn) FROM ("
+            f"  SELECT ticker_id, atr_stop, "
+            f"         ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date) AS rn "
+            f"  FROM {table}) t "
+            f"WHERE atr_stop IS NULL AND rn >= %s GROUP BY ticker_id", (ATR_PERIOD,))
+        return {tid: int(rn) for tid, rn in cur.fetchall()}
+
+
+def load_ticker_slices(conn, table, start_rn):
+    """Bars for each ticker from row (start_rn - ATR_PERIOD) onward -- just enough
+    look-back for the first pending bar's 14-bar ATR window (plus the prev close)."""
+    tids = list(start_rn)
     cur = conn.cursor()
     cur.execute(
-        f"SELECT ticker_id, date, open, high, low, close, volume "
-        f"FROM {table} WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date ASC",
-        (ticker_ids,),
-    )
+        f"SELECT ticker_id, rn, date, high, low, close FROM ("
+        f"  SELECT ticker_id, date, high, low, close, "
+        f"         ROW_NUMBER() OVER (PARTITION BY ticker_id ORDER BY date) AS rn "
+        f"  FROM {table} WHERE ticker_id = ANY(%s)) r "
+        f"ORDER BY ticker_id, rn", (tids,))
     rows = cur.fetchall()
     cur.close()
-    if not rows:
-        return {}
-    df = pd.DataFrame(rows, columns=['ticker_id', 'date', 'open', 'high', 'low', 'close', 'volume'])
-    return {tid: group.reset_index(drop=True) for tid, group in df.groupby('ticker_id')}
+    data = {}
+    for tid, rn, d, h, l, c in rows:
+        if rn >= max(1, start_rn[tid] - ATR_PERIOD):
+            data.setdefault(tid, []).append((rn, d, h, l, c))
+    return data
 
 
-def worker_process(worker_id, ticker_ids, table, is_hourly):
-    """Process a batch of tickers in a single DB connection. Returns (count, rows)."""
+def worker_process(worker_id, start_rn, table):
+    """Compute and write atr_stop for one batch of tickers (a {ticker_id: first_rn} dict)."""
     conn = get_db_conn()
     try:
         conn.autocommit = False
-        data_map = load_ticker_data_bulk(conn, ticker_ids, table)
-        min_rows = ATR_PERIOD + 1
-
+        data = load_ticker_slices(conn, table, start_rn)
         all_rows = []
-        total_written = 0
         processed = 0
-
-        for tid in ticker_ids:
-            df = data_map.get(tid)
-            if df is None or len(df) < min_rows:
+        for tid, bars in data.items():
+            first_rn = start_rn[tid]
+            df = pd.DataFrame(bars, columns=['rn', 'date', 'high', 'low', 'close'])
+            df['ticker_id'] = tid
+            # Needs the whole ticker to have enough history, as before.
+            if bars[-1][0] < ATR_PERIOD + 1:
                 continue
-
-            indicators = compute_indicators(df)
-            for _, row in indicators.iterrows():
-                date_val = row['date']
-                if hasattr(date_val, 'to_pydatetime'):
-                    date_val = date_val.to_pydatetime()
-                if not is_hourly and hasattr(date_val, 'date'):
-                    date_val = date_val.date()
-                all_rows.append((
-                    int(row['ticker_id']), date_val,
-                    row['atr_stop'],
-                ))
-            total_written += len(indicators)
+            out = compute_indicators(df)
+            keep = (df['rn'] >= first_rn).to_numpy()
+            for d, v, k in zip(out['date'], out['atr_stop'], keep):
+                if k:
+                    d = d.date() if hasattr(d, 'date') else d
+                    all_rows.append((int(tid), d, v))
             processed += 1
 
-        # Bulk update via COPY + UPDATE FROM
         if all_rows:
             cur = conn.cursor()
             tmp_name = f'_ind_w{worker_id}'
-            _copy_to_temp(cur, all_rows, tmp_name, date_type='timestamp' if is_hourly else 'date')
+            _copy_to_temp(cur, all_rows, tmp_name)
             _bulk_update_from_temp(cur, table, tmp_name)
             conn.commit()
             cur.close()
-
-        return worker_id, processed, total_written, 'ok'
+        return worker_id, processed, len(all_rows), 'ok'
     except Exception as e:
         conn.rollback()
         return worker_id, 0, 0, str(e)
@@ -194,60 +184,48 @@ def worker_process(worker_id, ticker_ids, table, is_hourly):
 def main():
     parser = argparse.ArgumentParser(description='Compute the ATR stop for scanner tickers')
     parser.add_argument('--timeframe', choices=list(TABLES.keys()), default='week',
-                        help='Timeframe table to process (default: week)')
-    parser.add_argument('--workers', type=int, default=16,
-                        help='Number of parallel workers (default: 16 = 1 per hash partition)')
+                        help='Timeframe to process (default: week)')
+    parser.add_argument('--workers', type=int, default=4,
+                        help='Parallel workers (default 4; keep <= 6, see module docstring)')
+    parser.add_argument('--full', action='store_true',
+                        help='recompute every bar of every ticker (repair); default is '
+                             'incremental: only bars whose atr_stop is NULL')
     args = parser.parse_args()
 
     table = TABLES[args.timeframe]
-    is_hourly = args.timeframe == 'hour'
+    t0 = time.time()
 
-    # Load all ticker_ids that have data in this table
     conn = get_db_conn()
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT DISTINCT ticker_id FROM {table} ORDER BY ticker_id"
-            )
-            ticker_ids = [row[0] for row in cur.fetchall()]
+        if args.full:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT DISTINCT ticker_id FROM {table} ORDER BY ticker_id")
+                pending = {row[0]: 1 for row in cur.fetchall()}
+        else:
+            pending = find_pending(conn, table)
     finally:
         conn.close()
 
-    if not ticker_ids:
-        print(f"No tickers found in {table}")
+    if not pending:
+        print(f"{table}: atr_stop already current -- nothing to compute.")
         return
 
-    # Partition tickers into worker groups
+    ticker_ids = sorted(pending)
     num_workers = min(args.workers, len(ticker_ids))
-    if is_hourly:
-        partitions = defaultdict(list)
-        for tid in ticker_ids:
-            partitions[tid % PARTITION_COUNT].append(tid)
-        worker_groups = [[] for _ in range(num_workers)]
-        for part_id, pids in partitions.items():
-            worker_groups[part_id % num_workers].extend(pids)
-    else:
-        worker_groups = [[] for _ in range(num_workers)]
-        for i, tid in enumerate(ticker_ids):
-            worker_groups[i % num_workers].append(tid)
+    groups = [{} for _ in range(num_workers)]
+    for i, tid in enumerate(ticker_ids):
+        groups[i % num_workers][tid] = pending[tid]
 
-    total_tickers = len(ticker_ids)
-    print(f"Computing atr_stop (ATR {ATR_PERIOD} x {ATR_MULT}) for {total_tickers} tickers "
-          f"on {table}, {num_workers} workers...")
+    print(f"Computing atr_stop (ATR {ATR_PERIOD} x {ATR_MULT}) for {len(ticker_ids)} tickers "
+          f"on {table} ({'FULL' if args.full else 'incremental'}), {num_workers} workers...")
 
-    t0 = time.time()
     total_processed = 0
     total_written = 0
     errors = []
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = {}
-        for w_id in range(num_workers):
-            if worker_groups[w_id]:
-                futures[executor.submit(
-                    worker_process, w_id, worker_groups[w_id], table, is_hourly,
-                )] = w_id
-
+        futures = {executor.submit(worker_process, w, groups[w], table): w
+                   for w in range(num_workers) if groups[w]}
         for future in as_completed(futures):
             w_id, count, written, status = future.result()
             total_processed += count
@@ -256,13 +234,13 @@ def main():
                 errors.append(f'Worker {w_id}: {status}')
             print(f"  Worker {w_id}: {count} tickers, {written} rows {'OK' if status == 'ok' else 'ERROR: ' + status}")
 
-    elapsed = time.time() - t0
-    print(f"\nDone in {elapsed:.1f}s. {total_processed}/{total_tickers} tickers processed, "
+    print(f"\nDone in {time.time() - t0:.1f}s. {total_processed}/{len(ticker_ids)} tickers processed, "
           f"{total_written} rows written.")
     if errors:
         print(f"Errors: {len(errors)}")
         for e in errors[:5]:
             print(f"  {e}")
+        sys.exit(1)
 
 
 if __name__ == '__main__':

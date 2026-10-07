@@ -13,8 +13,16 @@ Deliberate properties:
   - feed='sip', adjustment='all' (split + dividend adjusted). SIP is required
     for the full history: IEX on this tier returns only ~1,555 bars from
     2020-07-27 versus SIP's ~2,703 from 2016-01-04.
-  - Resumable. Re-running skips tickers already current, so an interrupted
-    1,453-ticker run continues where it stopped.
+  - INCREMENTAL BY DEFAULT, PER TICKER. Each ticker is fetched from its OWN last
+    stored bar (daily: frontier+1; weekly: the frontier bar itself, so a partial week
+    stamped earlier gets completed), never from 2016. A ticker with no rows at all is
+    the only case that pulls full history. This is what keeps a one-day catch-up at
+    one small request per ticker instead of ~2,650 bars each (the 2026-10-05 run that
+    took six minutes and got the SIP feed throttled). `--full-refresh` is the explicit,
+    opt-in way to re-pull history (needed after a split/dividend, because
+    adjustment='all' re-bases OLD bars and an incremental pull cannot fix those).
+  - Resumable. Re-running with --resume skips tickers already current, so an
+    interrupted full-universe run continues where it stopped.
   - atr_stop is set to NULL on every upsert. A refreshed close invalidates the
     stored ATR, and ATR = (close - atr_stop)/2 is what live MTF trades on, so a
     stale value must never survive. Run compute_indicators.py against the new
@@ -22,10 +30,11 @@ Deliberate properties:
     refuse to trade.
 
 Usage:
+    python load_prices.py --report-only            # what is behind, fetch nothing
     python load_prices.py --dry-run --limit 5
     python load_prices.py --timeframe day --limit 5
-    python load_prices.py --resume
-    python load_prices.py
+    python load_prices.py --resume                 # incremental, skip already-current
+    python load_prices.py --symbols QRVO --full-refresh
 """
 
 import argparse
@@ -40,7 +49,7 @@ from zoneinfo import ZoneInfo
 
 # Without this, a request that never returns blocks its worker thread forever.
 # Observed on MGRC and MHK: both fetched 2,703 bars fine when retried alone,
-# but hung indefinitely inside a 1,453-ticker run and stalled the whole load.
+# but hung indefinitely inside a 1,450-ticker run and stalled the whole load.
 # A socket timeout turns a silent hang into a retryable exception.
 REQUEST_TIMEOUT = 60
 socket.setdefaulttimeout(REQUEST_TIMEOUT)
@@ -74,9 +83,8 @@ def conn():
 def fetch(symbol, tf_name, start_year=START_YEAR, start=None):
     """Paginated SIP fetch. Returns [(date, o, h, l, c, v), ...] or raises.
 
-    `start` (a tz-aware datetime) narrows the window; when omitted this behaves exactly
-    as before and pulls from start_year. backfill_prices_incremental.py passes
-    frontier+1 here so a one-day gap costs one bar per ticker instead of ~2,650.
+    `start` narrows the window to a ticker's own frontier (see start_for); when omitted
+    it pulls from start_year (new tickers and --full-refresh only).
     """
     client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
     request = StockBarsRequest(
@@ -104,6 +112,10 @@ def fetch(symbol, tf_name, start_year=START_YEAR, start=None):
         out.append((ts.date(), float(b.open), float(b.high), float(b.low),
                     float(b.close), int(b.volume)))
     out.sort(key=lambda r: r[0])
+    if tf_name == 'week':
+        # Never persist the still-forming week (see settled_week_monday).
+        final = settled_week_monday()
+        out = [r for r in out if r[0] <= final]
     return out
 
 
@@ -148,6 +160,33 @@ def already_current(cur, table, tid, cutoff):
     return bool(row and row[0] and row[0] >= cutoff)
 
 
+def get_frontiers(table):
+    """ticker_id -> newest stored bar date, in one grouped query."""
+    c = get_db_conn()
+    try:
+        with c.cursor() as cur:
+            cur.execute(f'SELECT ticker_id, max(date) FROM {table} GROUP BY ticker_id')
+            return {r[0]: r[1] for r in cur.fetchall()}
+    finally:
+        c.close()
+
+
+def start_for(tf_name, frontier, full_refresh=False):
+    """Per-ticker fetch start. None = full history from START_YEAR.
+
+    Daily starts the day after the frontier. Weekly starts the Monday after it: the
+    loader only ever stores FINAL weekly bars (see fetch / settled_week_monday), so the
+    frontier bar is complete and is never re-pulled or re-written.
+    """
+    if full_refresh or frontier is None:
+        return None
+    if tf_name == 'week':
+        nxt = frontier + timedelta(days=7)
+        return datetime(nxt.year, nxt.month, nxt.day, tzinfo=NY)
+    nxt = frontier + timedelta(days=1)
+    return datetime(nxt.year, nxt.month, nxt.day, tzinfo=NY)
+
+
 def get_universe():
     c = get_db_conn()
     try:
@@ -159,13 +198,22 @@ def get_universe():
         c.close()
 
 
-def work(item, tf_name, table, dry_run):
+def work(item, tf_name, table, dry_run, frontier, full_refresh, cutoff):
     tid, sym = item
-    rows, err = fetch_with_retry(sym, tf_name)
+    start = start_for(tf_name, frontier, full_refresh)
+    rows, err = fetch_with_retry(sym, tf_name, start)
     if err:
         return sym, 0, err
+    # Write only bars that are new AND settled: never re-write a stored bar (an upsert
+    # NULLs its atr_stop and forces a recompute) and never store today's partial daily
+    # bar if the run happens mid-session. --full-refresh bypasses the frontier check.
+    rows = [r for r in rows if r[0] <= cutoff
+            and (full_refresh or frontier is None or r[0] > frontier)]
     if not rows:
-        return sym, 0, 'no data returned'
+        # A ticker that already has history and simply has nothing newer (halted, or
+        # the bar is not published yet) is not a failure -- but it stays behind, so the
+        # caller reports it. Only a ticker with NO history and no data is an error.
+        return sym, 0, 'no new data' if frontier is not None else 'no data returned'
     if dry_run:
         return sym, len(rows), f'dry-run {rows[0][0]}..{rows[-1][0]}'
     try:
@@ -197,6 +245,24 @@ def _trading_sessions(start, end):
                    if (start + timedelta(days=n)).weekday() < 5})
 
 
+WEEKLY_SETTLE_TIME = '16:05'
+
+
+def settled_week_monday(now=None):
+    """Monday stamp of the newest weekly bar that is FINAL.
+
+    Weekly bars are loaded once a week: Friday after the close (>= 16:05 ET). Alpaca
+    stamps every weekly bar at the ISO-week Monday, so Mon-Thu the newest final bar is
+    LAST week's Monday and the forming week is deliberately not loaded. data_readiness
+    and weekly_takeoff use this same rule; keep them in lockstep.
+    """
+    now = now or datetime.now(NY)
+    monday = now.date() - timedelta(days=now.weekday())
+    settle = datetime.strptime(WEEKLY_SETTLE_TIME, '%H:%M').time()
+    done = now.weekday() > 4 or (now.weekday() == 4 and now.time() >= settle)
+    return monday if done else monday - timedelta(days=7)
+
+
 def resume_cutoff(tf, now=None):
     """Newest date this timeframe must already have for a ticker to count as current.
 
@@ -211,11 +277,7 @@ def resume_cutoff(tf, now=None):
     now = now or datetime.now(NY)
     today = now.date()
     if tf == 'week':
-        # Alpaca timestamps every weekly bar at the ISO-week start (Monday), holiday
-        # or not, and does NOT re-stamp later in the week. So this week's Monday is
-        # the newest row the week gate expects - and it only exists once the week has
-        # traded, which is why the loader must run after Monday's open.
-        return today - timedelta(days=today.weekday())
+        return settled_week_monday(now)
     # day: the newest fully-completed session. Before 16:00 ET today's bar is still
     # partial, so only the previous session is required.
     sessions = _trading_sessions(today - timedelta(days=14), today)
@@ -234,6 +296,11 @@ def main():
     ap.add_argument('--workers', type=int, default=4)
     ap.add_argument('--resume', action='store_true',
                     help='skip tickers already current for this timeframe (see resume_cutoff)')
+    ap.add_argument('--full-refresh', action='store_true',
+                    help='re-pull full history (2016+) for the selected tickers instead of '
+                         'each ticker\'s own frontier; use after a split/dividend')
+    ap.add_argument('--report-only', action='store_true',
+                    help='list tickers behind the settled cutoff and fetch nothing')
     ap.add_argument('--dry-run', action='store_true', help='fetch and report, write nothing')
     args = ap.parse_args()
 
@@ -250,38 +317,47 @@ def main():
           f'workers={args.workers}{"  [DRY-RUN]" if args.dry_run else ""}')
 
     failures = []
+    noref = []
     for tf in tfs:
         table = TABLES[tf]
         cutoff = resume_cutoff(tf)  # per-timeframe: weekly and daily settle differently
-        todo = universe
-        if args.resume:
-            c = get_db_conn()
-            try:
-                with c.cursor() as cur:
-                    todo = [it for it in universe
-                            if not already_current(cur, table, it[0], cutoff)]
-            finally:
-                c.close()
-            print(f'--- {tf}: cutoff {cutoff} -> {len(todo)} to load, '
-                  f'{len(universe) - len(todo)} already current')
-        else:
-            print(f'--- {tf}: cutoff {cutoff} -> {len(todo)} to load')
+        frontiers = get_frontiers(table)
+        behind = [it for it in universe
+                  if not (frontiers.get(it[0]) and frontiers[it[0]] >= cutoff)]
+        todo = behind if args.resume or args.report_only else universe
+        print(f'--- {tf}: settled cutoff {cutoff} -> {len(behind)} behind, '
+              f'{len(universe) - len(behind)} current, {len(todo)} to fetch')
+        if args.report_only:
+            for tid, sym in behind:
+                f = frontiers.get(tid)
+                print(f'  behind: {sym:<8} frontier={f} '
+                      f'{"NO HISTORY" if f is None else f"gap={(cutoff - f).days}d"}')
+            continue
 
         done = 0
         t0 = time.time()
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            futs = {pool.submit(work, it, tf, table, args.dry_run): it
+            futs = {pool.submit(work, it, tf, table, args.dry_run,
+                                frontiers.get(it[0]), args.full_refresh, cutoff): it
                     for it in todo}
             for fut in as_completed(futs):
                 sym, n, status = fut.result()
                 done += 1
-                if status not in ('ok',) and not status.startswith('dry-run'):
+                if status == 'no new data':
+                    noref.append((tf, sym))
+                elif status not in ('ok',) and not status.startswith('dry-run'):
                     failures.append((tf, sym, status))
                     print(f'  [{done}/{len(todo)}] {sym}: {status}', flush=True)
-                elif done % 50 == 0 or done == len(todo):
+                if done % 50 == 0 or done == len(todo):
                     rate = done / max(time.time() - t0, 1e-9)
                     print(f'  [{done}/{len(todo)}] {rate:.1f}/s  last={sym} {status}',
                           flush=True)
+
+    if args.report_only:
+        return
+    if noref:
+        print(f'\n{len(noref)} ticker(s) had no newer bar upstream (halted / not yet '
+              f'published): ' + ', '.join(f'{s}({tf})' for tf, s in noref[:20]))
 
     print('\nLoad complete.')
     if failures:

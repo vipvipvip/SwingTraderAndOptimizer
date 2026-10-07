@@ -6,10 +6,9 @@ Wants=network-online.target swingtrader-db.service
 [Service]
 Type=oneshot
 WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe week --workers 3
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe week --workers 3
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe day --workers 3
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe day --workers 3
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/load_prices.py --timeframe both --resume --workers 4
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe week --workers 4
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe day --workers 4
 
 [Install]
 WantedBy=timers.target

@@ -367,6 +367,13 @@ def _compute_ratchet_stops(conn, held_symbols):
             if atr <= 0:
                 continue
             ratchet = max(ratchet, peak - config.RATCHET_ATR_MULT * atr)
+        # A held name must never reach here with a NULL atr_stop on its newest bar:
+        # data_readiness.py hard-blocks that. If it happens anyway, the ratchet silently
+        # stops advancing, so say so loudly instead of skipping the bar unnoticed.
+        if not d_rows[-1][2] or float(d_rows[-1][2]) <= 0:
+            print(f'[MTF EXECUTOR] ⚠️ HELD {symbol}: newest daily bar {d_rows[-1][0]} has '
+                  f'NULL/invalid atr_stop — ratchet stop is STALE (no trailing-stop update)',
+                  flush=True)
         if peak > 0:
             stops[symbol] = ratchet
     return stops

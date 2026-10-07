@@ -19,12 +19,13 @@ WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
 # so from the next 16:30 the unit aborted on line 1 and the weekly+daily settle
 # above never ran at all. Silent: the timer still "fired", just with Result=exit-code.
 # Anything removed from a service's Exec lines must come out of the unit in the
-# same change. Keep the legacy scanner tables (tbl_scanner_tickers*) alive here:
-# compute_indicators --timeframe week/day still owns their atr_stop.
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe week --workers 3
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe week --workers 3
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/populate_tickers.py --timeframe day --workers 3
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe day --workers 3
+# same change. 2026-10-05: this unit now feeds ONLY the canonical tables
+# (tbl_prices_weekly / tbl_prices_daily) through load_prices.py, which fetches each
+# ticker from its own last bar; compute_indicators week/day are aliases for those same
+# tables. The deprecated tbl_scanner_tickers* tables are no longer written.
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/load_prices.py --timeframe both --resume --workers 4
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe week --workers 4
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python services/scripts/compute_indicators.py --timeframe day --workers 4
 
 [Install]
 WantedBy=timers.target

@@ -23,14 +23,16 @@ WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer
 # Until 2026-10-05 this ran by hand only, so the Monday 10:25 gate failed with
 # "week bars behind (frontier 2026-09-28 < expected 2026-10-05)".
 #
-# Runs AFTER the open on purpose: Alpaca stamps weekly bars at the ISO-week start
-# (Monday) and only emits the current week's bar once that week has traded, so a
-# pre-open or weekend run cannot create it and Monday would still be blocked.
+# Weekly bars are loaded ONCE A WEEK, Friday after the 16:05 ET settle (the 16:30
+# scanner-backfill run does it); load_prices.py never stores the forming week. This
+# 09:05 run is therefore daily-only in practice: with --resume, weekly is "current"
+# Mon-Thu (newest final bar = last Monday's stamp) and is skipped, so it only acts as the
+# catch-up if Friday's run was missed.
 #
 # Deliberately NOT RemainAfterExit=yes and NOT wired into the executor via
 # Requires=: a daily-recurring oneshot that stays "active (exited)" would make
 # systemd refuse to re-trigger it the next day, and Requires= would fire a second
-# full 1,453-ticker load at 10:25. Decoupled instead -- the 09:05->10:25 margin is
+# full 1,450-ticker load at 10:25. Decoupled instead -- the 09:05->10:25 margin is
 # deliberate, and data_readiness.py stays the authoritative gate (it re-checks the
 # frontier and atr_stop, so a failed or overlapping load blocks the run rather than
 # letting it trade on a half-written table).
@@ -49,7 +51,7 @@ StandardError=journal
 Environment=PYTHONUNBUFFERED=1
 TimeoutStopSec=120
 # Type=oneshot defaults TimeoutStartSec to infinity; pin it so a hung API worker
-# cannot occupy the slot forever. Generous: a full 1,453-ticker x 2-timeframe
+# cannot occupy the slot forever. Generous: a full 1,450-ticker x 2-timeframe
 # refresh runs ~10-30 min.
 TimeoutStartSec=2h
 

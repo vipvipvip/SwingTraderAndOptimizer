@@ -339,26 +339,6 @@ def load_hourly(conn, ticker_id):
     raise RuntimeError(_HOURLY_RETIRED)
 
 
-def _load_hourly_removed(conn, ticker_id):
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT date::date AS bar_date, close, atr_stop FROM tbl_scanner_tickers_1hour "
-        "WHERE ticker_id = %s AND date >= %s ORDER BY date ASC",
-        (ticker_id, TS_START))
-    rows = cur.fetchall()
-    cur.close()
-    if len(rows) < 2:
-        return None
-    seen = {}
-    for r in rows:
-        seen[r[0]] = (r[0], float(r[1]) if r[1] else 0.0, float(r[2]) if r[2] else 0.0)
-    sorted_rows = sorted(seen.values(), key=lambda x: x[0])
-    dates = [r[0] for r in sorted_rows]
-    closes = np.array([r[1] for r in sorted_rows], dtype=np.float64)
-    atr_stops = np.array([r[2] for r in sorted_rows], dtype=np.float64)
-    return dict(dates=dates, close=closes, atr_stop=atr_stops)
-
-
 def get_latest_daily_bar_date(conn):
     with conn.cursor() as cur:
         cur.execute(
@@ -456,36 +436,6 @@ def bulk_load_daily(conn, ticker_ids=None):
 
 def bulk_load_hourly(conn, ticker_ids=None):
     raise RuntimeError(_HOURLY_RETIRED)
-
-
-def _bulk_load_hourly_removed(conn, ticker_ids=None):
-    """Load hourly data in one query. If ticker_ids provided, only load those."""
-    cur = conn.cursor()
-    if ticker_ids:
-        cur.execute(
-            "SELECT ticker_id, date::date AS bar_date, close, atr_stop "
-            "FROM tbl_scanner_tickers_1hour WHERE ticker_id = ANY(%s) AND date >= %s ORDER BY ticker_id, date",
-            (list(ticker_ids), TS_START))
-    else:
-        cur.execute(
-            "SELECT ticker_id, date::date AS bar_date, close, atr_stop "
-            "FROM tbl_scanner_tickers_1hour WHERE date >= %s ORDER BY ticker_id, date",
-            (TS_START,))
-    rows = cur.fetchall()
-    cur.close()
-    data = {}
-    seen = {}
-    for tid, dt, close, atr_stop in rows:
-        key = (tid, dt)
-        if key not in seen:
-            seen[key] = (tid, dt, float(close) if close else 0.0, float(atr_stop) if atr_stop else 0.0)
-    for tid, dt, close, atr_stop in seen.values():
-        if tid not in data:
-            data[tid] = {'dates': [], 'close': [], 'atr_stop': []}
-        data[tid]['dates'].append(dt)
-        data[tid]['close'].append(close)
-        data[tid]['atr_stop'].append(atr_stop)
-    return data
 
 
 def ema(values, period):

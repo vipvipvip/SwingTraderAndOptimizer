@@ -9,8 +9,8 @@ Wants=swingtrader-db.service swingtrader-scanner-backfill.service
 Type=oneshot
 User=dikesh
 WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
-ExecStartPre=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python /home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/scripts/populate_tickers.py --timeframe day --workers 10
-ExecStartPre=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python /home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/services/scripts/compute_indicators.py --timeframe day --workers 10
+# No ExecStartPre data refresh (removed 2026-10-06): scanner-backfill already loads and computes at
+# 16:30, and runner.py's readiness gate self-repairs via backfill_all_missing if anything is behind.
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action score --mode all --strategy emasma
 StandardOutput=journal
 StandardError=journal
