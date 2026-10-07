@@ -50,7 +50,7 @@ def resolve_ticker(cur, symbol):
 
 def load_weekly(cur, ticker_id):
     cur.execute(
-        "SELECT date, open, close FROM tbl_scanner_tickers "
+        "SELECT date, open, close FROM tbl_prices_weekly "
         "WHERE ticker_id=%s ORDER BY date",
         (ticker_id,),
     )

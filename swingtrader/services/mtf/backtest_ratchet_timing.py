@@ -36,10 +36,11 @@ MULT = config.RATCHET_ATR_MULT
 COST = config.COST_PER_TRADE
 CAPITAL = config.INITIAL_CAPITAL
 TS_START = '2023-06-30'
-TFS = ('weekly', 'daily', 'hourly')
-TABLE = {'weekly': 'tbl_scanner_tickers',
-         'daily': 'tbl_scanner_tickers_daily',
-         'hourly': 'tbl_scanner_tickers_1hour'}
+# Canonical price tables (repointed 2026-10-07). The hourly timeframe is gone (table dropped 2026-10-02),
+# so this study now runs weekly+daily only.
+TFS = ('weekly', 'daily')
+TABLE = {'weekly': 'tbl_prices_weekly',
+         'daily': 'tbl_prices_daily'}
 
 
 def load(conn, sym, tf):
@@ -105,8 +106,8 @@ def main():
     ap = argparse.ArgumentParser(description='Ratchet-stop timing backtest on core ETFs')
     ap.add_argument('--no-reset', action='store_true',
                     help='pure monotone ratchet: peak/stop never reset on re-entry')
-    ap.add_argument('--tfs', default='weekly,daily,hourly',
-                    help='comma-separated timeframes required (default weekly,daily,hourly)')
+    ap.add_argument('--tfs', default='weekly,daily',
+                    help='comma-separated timeframes required (default weekly,daily)')
     ap.add_argument('--mult', type=float, default=MULT,
                     help=f'ATR multiplier for the ratchet stop (default {MULT})')
     ap.add_argument('--tickers', default=','.join(CORE),

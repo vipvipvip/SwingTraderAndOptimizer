@@ -99,8 +99,9 @@ COST = config.COST_PER_TRADE
 CAPITAL = config.INITIAL_CAPITAL
 TS_START = '2023-06-30'
 WARMUP_DAYS = 520  # ~74 weekly bars (>> EMA10/SMA40 warmup) before TS_START for variant D
-TABLE_W = 'tbl_scanner_tickers'          # weekly
-TABLE_D = 'tbl_scanner_tickers_daily'    # daily
+# Canonical price tables (2026-10-07); the old tbl_scanner_tickers* pair was dropped.
+TABLE_W = 'tbl_prices_weekly'    # weekly
+TABLE_D = 'tbl_prices_daily'     # daily
 
 
 def load_full(conn, sym, table, start):

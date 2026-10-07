@@ -142,6 +142,12 @@ def _settled_weekly_idx(dates, target):
     return i if i >= 0 else None
 
 
+# Price tables (2026-10-07): the branch logic in load_bars() keys on the old LOGICAL names; they are mapped
+# here to the canonical tbl_prices_* tables (split+dividend adjusted, what live trades on). The old
+# tbl_scanner_tickers* pair was dropped, so there is no other basis to select.
+_PHYSICAL = {'tbl_scanner_tickers': 'tbl_prices_weekly', 'tbl_scanner_tickers_daily': 'tbl_prices_daily'}
+
+
 def load_bars(conn, table, date_col, is_etf=False, symbols=None):
     """Load OHLC data from a table for all tickers (or a symbol subset)."""
     with conn.cursor() as cur:
@@ -151,7 +157,7 @@ def load_bars(conn, table, date_col, is_etf=False, symbols=None):
         else:
             cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND is_etf=%s ORDER BY symbol', (is_etf,))
         tickers = cur.fetchall()
-    print(f'  Loading {table} ({len(tickers)} tickers)...')
+    print(f'  Loading {_PHYSICAL.get(table, table)} ({len(tickers)} tickers)...')
 
     data = {}
     for tid, sym in tickers:
@@ -179,7 +185,7 @@ def load_bars(conn, table, date_col, is_etf=False, symbols=None):
             h_smas = np.array([r[4] for r in sorted_rows], dtype=np.float64)
         elif table == 'tbl_scanner_tickers':
             cur.execute(
-                f'SELECT {date_col}, close, atr_stop FROM {table} WHERE ticker_id = %s ORDER BY {date_col} ASC',
+                f'SELECT {date_col}, close, atr_stop FROM {_PHYSICAL.get(table, table)} WHERE ticker_id = %s ORDER BY {date_col} ASC',
                 (tid,))
             rows = cur.fetchall()
             dates = [r[0] for r in rows]
@@ -189,7 +195,7 @@ def load_bars(conn, table, date_col, is_etf=False, symbols=None):
                 for r in rows], dtype=np.float64)
         else:
             cur.execute(
-                f'SELECT {date_col}, open, close, atr_stop FROM {table} WHERE ticker_id = %s ORDER BY {date_col} ASC',
+                f'SELECT {date_col}, open, close, atr_stop FROM {_PHYSICAL.get(table, table)} WHERE ticker_id = %s ORDER BY {date_col} ASC',
                 (tid,))
             rows = cur.fetchall()
             dates = [r[0] for r in rows]
