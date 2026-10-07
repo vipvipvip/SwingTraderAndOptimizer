@@ -87,10 +87,10 @@ STOCK_COUNT=$(PSQL "SELECT COUNT(*) FROM tbl_stock_tickers;")
 ENABLED_STOCKS=$(PSQL "SELECT COUNT(*) FROM tbl_stock_tickers WHERE enabled=true;")
 echo "  Stock tickers: $STOCK_COUNT total, $ENABLED_STOCKS enabled"
 
-SCAN_DAILY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers_daily;")
+SCAN_DAILY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_prices_daily;")
 SCAN_DAILY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_DAILY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
-SCAN_DAILY_ROWS=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_daily;")
-SCAN_DAILY_ROWS_LATEST=$(PSQL "SELECT COUNT(*) FROM tbl_scanner_tickers_daily WHERE date = '$SCAN_DAILY_LATEST';")
+SCAN_DAILY_ROWS=$(PSQL "SELECT COUNT(*) FROM tbl_prices_daily;")
+SCAN_DAILY_ROWS_LATEST=$(PSQL "SELECT COUNT(*) FROM tbl_prices_daily WHERE date = '$SCAN_DAILY_LATEST';")
 if [ -n "$SCAN_DAILY_LATEST" ]; then
     if [ "$SCAN_DAILY_DAYS" -le 2 ] 2>/dev/null; then
         pass "Scanner daily: $SCAN_DAILY_ROWS total rows, latest $SCAN_DAILY_LATEST ($SCAN_DAILY_DAYS days ago, $SCAN_DAILY_ROWS_LATEST tickers)"
@@ -103,7 +103,7 @@ else
     fail "Scanner daily table is empty"
 fi
 
-SCAN_WEEKLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_scanner_tickers;")
+SCAN_WEEKLY_LATEST=$(PSQL "SELECT MAX(date) FROM tbl_prices_weekly;")
 SCAN_WEEKLY_DAYS=$(( ($(date +%s) - $(date -d "$SCAN_WEEKLY_LATEST" +%s 2>/dev/null || echo 0)) / 86400 ))
 if [ -n "$SCAN_WEEKLY_LATEST" ]; then
     if [ "$SCAN_WEEKLY_DAYS" -le 10 ] 2>/dev/null; then

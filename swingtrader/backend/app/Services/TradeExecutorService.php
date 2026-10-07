@@ -2408,14 +2408,16 @@ class TradeExecutorService
     }
 
     /**
-     * Newest stored price: live scanner hourly table (tbl_scanner_tickers_1hour,
-     * keyed by tbl_stock_tickers.id), then the legacy tbl_etf_tickers_1hour for
-     * symbols that only exist there (e.g. BLENDED), else null.
+     * Newest stored price: the latest settled daily close in tbl_prices_daily
+     * (keyed by tbl_stock_tickers.id; the hourly table was dropped 2026-10-02 and
+     * this query used to throw into a debug log, silently disabling the live-price
+     * deviation guard), else null. The legacy tbl_etf_tickers_1hour fallback was
+     * removed and the table dropped 2026-10-07 (frozen since 2026-09-11).
      */
     private function getDbPrice($symbol)
     {
         try {
-            $bar = \DB::table('tbl_scanner_tickers_1hour as h')
+            $bar = \DB::table('tbl_prices_daily as h')
                 ->join('tbl_stock_tickers as t', 'h.ticker_id', '=', 't.id')
                 ->where('t.symbol', $symbol)
                 ->orderBy('h.date', 'desc')
@@ -2426,23 +2428,7 @@ class TradeExecutorService
                 return floatval($bar->close);
             }
         } catch (\Exception $e) {
-            \Log::debug("Could not fetch from tbl_scanner_tickers_1hour for $symbol: " . $e->getMessage());
-        }
-
-        // Legacy fallback (frozen since 09-11 2026 — only for symbols not in tbl_stock_tickers)
-        try {
-            $bar = \DB::table('tbl_etf_tickers_1hour')
-                ->join('tbl_etf_tickers', 'tbl_etf_tickers_1hour.ticker_id', '=', 'tbl_etf_tickers.id')
-                ->where('tbl_etf_tickers.symbol', $symbol)
-                ->orderBy('tbl_etf_tickers_1hour.timestamp', 'desc')
-                ->select('tbl_etf_tickers_1hour.close')
-                ->first();
-
-            if ($bar) {
-                return floatval($bar->close);
-            }
-        } catch (\Exception $e) {
-            \Log::debug("Legacy fallback failed for $symbol: " . $e->getMessage());
+            \Log::debug("Could not fetch from tbl_prices_daily for $symbol: " . $e->getMessage());
         }
 
         return null;

@@ -11,11 +11,25 @@ def get_conn():
     )
 
 
+def settled_week_cutoff(now=None):
+    """Newest Monday-stamped weekly bar whose week has fully closed."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    now = now or datetime.now(ZoneInfo('America/New_York'))
+    monday = now.date() - timedelta(days=now.weekday())
+    friday_done = (now.weekday() > 4 or
+                   (now.weekday() == 4 and now.time() >= datetime.strptime('16:05', '%H:%M').time()))
+    return monday if friday_done else monday - timedelta(days=7)
+
+
 def load_weekly_all(conn):
     """Return a dict ticker_id -> (symbol, df[date, open, high, low, close, volume]).
 
     Only enabled non-ETF equity names with >= MIN_HISTORY_BARS weekly bars.
-    Weekly bars are Monday-anchored, settled (scanner daily feeds this table).
+    Reads the canonical tbl_prices_weekly (the deprecated tbl_scanner_tickers is no
+    longer fed). Weekly bars are Monday-anchored and the loader also stores the
+    CURRENT, still-forming week, so unsettled weeks are excluded here: a bar counts
+    only once its Friday session has closed (>= 16:05 ET) -- see settled_week_cutoff().
     """
     import pandas as pd
     from config import MIN_HISTORY_BARS
@@ -24,11 +38,11 @@ def load_weekly_all(conn):
             SELECT t.id, t.symbol, s.date,
                    s.open::float8, s.high::float8, s.low::float8,
                    s.close::float8, s.volume::float8
-            FROM tbl_scanner_tickers s
+            FROM tbl_prices_weekly s
             JOIN tbl_stock_tickers t ON t.id = s.ticker_id
-            WHERE t.enabled = true AND t.is_etf = false
+            WHERE t.enabled = true AND t.is_etf = false AND s.date <= %s
             ORDER BY t.symbol, s.date
-        ''')
+        ''', (settled_week_cutoff(),))
         rows = cur.fetchall()
     if not rows:
         return {}

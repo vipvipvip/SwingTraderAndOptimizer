@@ -334,10 +334,12 @@ def check_daily_macd(ticker: str) -> dict:
 
 
 
-def run_screener(days_ahead: int = 14, fresh_only: bool = True, send_slack: bool = False):
+def run_screener(days_ahead: int = 7, fresh_only: bool = True, send_slack: bool = False,
+                 max_fresh_days: int = 10):
     """
     Screen for stocks with upcoming earnings AND bullish daily MACD.
-    Sorted by freshness (most recent crossover first).
+    Restricted to earnings within `days_ahead` days and a MACD cross no older than
+    `max_fresh_days` days. Sorted by freshness (most recent crossover first).
     """
     # Step 1: Get tickers with upcoming earnings
     upcoming = get_upcoming_earnings(days_ahead)
@@ -363,6 +365,14 @@ def run_screener(days_ahead: int = 14, fresh_only: bool = True, send_slack: bool
 
         # Apply fresh-only filter
         if fresh_only and not macd_info['just_turned_positive']:
+            continue
+
+        # Freshness cap: ignore crosses older than max_fresh_days
+        if max_fresh_days is not None and macd_info['freshness'] > max_fresh_days:
+            continue
+
+        # Earnings window: upcoming only, within days_ahead
+        if not 0 <= days_until <= days_ahead:
             continue
 
         results.append({
@@ -461,8 +471,10 @@ def main():
     )
     parser.add_argument('--refresh', action='store_true',
                         help='Refresh earnings calendar cache (next 4 weeks)')
-    parser.add_argument('--days', type=int, default=14,
-                        help='Look N days ahead for earnings (default: 14)')
+    parser.add_argument('--days', type=int, default=7,
+                        help='Only earnings within the next N days (default: 7)')
+    parser.add_argument('--max-fresh', type=int, default=10,
+                        help='Only MACD crosses at most N days old (default: 10)')
     parser.add_argument('--fresh-only', action='store_true', default=True,
                         help='Only show tickers where MACD just turned positive (default: on)')
     parser.add_argument('--all', action='store_true',
@@ -481,7 +493,8 @@ def main():
     elif args.stats:
         show_stats()
     else:
-        run_screener(days_ahead=args.days, fresh_only=args.fresh_only and not args.all, send_slack=args.slack)
+        run_screener(days_ahead=args.days, fresh_only=args.fresh_only and not args.all,
+                     send_slack=args.slack, max_fresh_days=args.max_fresh)
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=oneshot
 User=dikesh
 WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python3 services/earnings_screener.py --days 14 --all --slack
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/scanner/.venv/bin/python3 services/earnings_screener.py --days 7 --max-fresh 10 --all --slack
 
 [Install]
 WantedBy=multi-user.target

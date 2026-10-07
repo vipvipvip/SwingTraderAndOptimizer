@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Weekly EMA10/SMA40 take-off scanner.
 
-On settled WEEKLY bars (tbl_scanner_tickers, Monday-anchored), find stock names
+On settled WEEKLY bars (tbl_prices_weekly, Monday-anchored), find stock names
 that had an EMA10>SMA40 bullish crossover within the last MAX_SINCE_CROSS_WEEKS
 weeks and are still above, ranked by the take-off odds score (V-reversal +
 expansion signature). Prints an alphabetized comma-delimited ticker list with

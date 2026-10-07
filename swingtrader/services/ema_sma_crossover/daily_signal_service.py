@@ -5,9 +5,7 @@ Emit tickers where BOTH EM(10)>SM(40) crossovers are done on settled bars:
 1. WCO done — weekly EMA10 > SMA40 (settled weekly bar)
 2. DCO done — daily EMA10 > SMA40 (settled daily bar)
 
-Hourly (HCO) was removed 2026-10-02: it was sourced from last-trade snapshots
-rather than real bars, and its only live use was an unvalidated gate. Prices,
-ATR distance and scores now come from the settled daily series.
+Prices, ATR distance and scores come from the settled daily series.
 
 Sends Slack summary and logs entry signals to CSV.
 """

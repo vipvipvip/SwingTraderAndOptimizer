@@ -541,7 +541,7 @@ class ScannerController
             return response()->json(['error' => 'No data'], 500);
         }
         $wkDate = $latestWeekly->d;
-        $hrDate = $latestHourlyDate->d;
+        $hrDate = $latestDaily->d;
 
         // SMA40/EMA10 come from closeSma40Ema10() (true recursive EMA10).
         // The 5-min file cache means this runs at most once per session.
