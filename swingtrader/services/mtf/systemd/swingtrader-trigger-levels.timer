@@ -1,0 +1,15 @@
+[Unit]
+Description=Trigger Levels Timer (10:00 ET after the warm-up, 17:05 ET after daily-signal; Slack only)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target swingtrader-db.service
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 10:00:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 17:05:00 America/New_York
+# Persistent=false on purpose (it posts a signal-style report): a missed run is SKIPPED, never replayed
+# at the wrong hour. See common/docs/services_doc/README.md for the Persistent split.
+Persistent=false
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target
