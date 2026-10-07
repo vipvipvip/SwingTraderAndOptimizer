@@ -19,7 +19,7 @@ fail until compute_indicators.py has been run against the new tables.
 Usage:
     python validate_prices.py
     python validate_prices.py --skip-repro        # skip the API round-trip
-    python validate_prices.py --old-daily tbl_scanner_tickers_daily
+    python validate_prices.py --old-daily <table> --old-weekly <table>   # optional old-vs-new comparison
 """
 
 import argparse
@@ -36,7 +36,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 NY = ZoneInfo('America/New_York')
 
 NEW = {'day': 'tbl_prices_daily', 'week': 'tbl_prices_weekly'}
-OLD = {'day': 'tbl_scanner_tickers_daily', 'week': 'tbl_scanner_tickers'}
+# The old pair (zz_deprecated_scanner_tickers*) was dropped 2026-10-07. The old-vs-new comparison only runs
+# when --old-daily / --old-weekly name tables that still exist.
+OLD = {'day': None, 'week': None}
 
 gate_failures = []
 notes = []
@@ -114,7 +116,7 @@ def check_atr(cur, table):
 def check_coverage(cur, new_table, old_table):
     print(f'\n--- coverage vs {old_table} ---')
     newc = dict(q(cur, f'SELECT ticker_id, count(*) FROM {new_table} GROUP BY 1'))
-    # Enabled only: the load deliberately covers the 1,453 enabled tickers, so a
+    # Enabled only: the load deliberately covers the ~1,450 enabled tickers, so a
     # disabled ticker present in the old tables is not a hole.
     oldc = dict(q(cur, f'''SELECT x.ticker_id, count(*) FROM {old_table} x
                            JOIN tbl_stock_tickers s ON s.id = x.ticker_id
@@ -247,8 +249,8 @@ def check_repro(cur, limit=3):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--skip-repro', action='store_true')
-    ap.add_argument('--old-daily', default=OLD['day'])
-    ap.add_argument('--old-weekly', default=OLD['week'])
+    ap.add_argument('--old-daily', default=None)
+    ap.add_argument('--old-weekly', default=None)
     args = ap.parse_args()
     OLD['day'], OLD['week'] = args.old_daily, args.old_weekly
 
@@ -266,9 +268,10 @@ def main():
                 n = check_internal(cur, table)
                 print(f'  (rows checked: {n})')
                 check_atr(cur, table)
-                check_coverage(cur, table, OLD[key])
-                check_close_diff(cur, table, OLD[key])
-                check_old_corruption(cur, OLD[key])
+                if OLD[key]:
+                    check_coverage(cur, table, OLD[key])
+                    check_close_diff(cur, table, OLD[key])
+                    check_old_corruption(cur, OLD[key])
             check_weekly_vs_daily(cur)
             if not args.skip_repro:
                 check_repro(cur)
