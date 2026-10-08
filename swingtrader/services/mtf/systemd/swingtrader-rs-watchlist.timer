@@ -1,0 +1,14 @@
+[Unit]
+Description=RS Watchlist Timer (17:20 ET, after the 16:30 backfill, 16:45 scorer, 17:00 daily-signal and 17:05 trigger-levels; Slack only)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target swingtrader-db.service
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 17:20:00 America/New_York
+# Persistent=false on purpose (it posts a signal-style list): a missed run is SKIPPED, never replayed
+# at the wrong hour. See common/docs/services_doc/README.md for the Persistent split.
+Persistent=false
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

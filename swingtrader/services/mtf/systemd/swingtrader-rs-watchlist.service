@@ -1,0 +1,19 @@
+[Unit]
+Description=RS Watchlist (weekly EMA10/SMA40 fresh cross + weak-base breakout, rank>=0.8, daily MACD>0 — Slack only, no orders)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network-online.target swingtrader-db.service
+Wants=network-online.target
+Wants=swingtrader-db.service
+
+[Service]
+Type=oneshot
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/rs_watchlist.py --slack
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
