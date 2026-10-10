@@ -9,6 +9,8 @@ description: Use whenever the user asks to analyze a stock, score a ticker again
 
 **Don't force-fit this framework onto:** mega-caps (>$50B, one product can't move the needle), pre-revenue biotech, or a stock already up 50%+ on the thesis (edge already expired — score it anyway if asked, but say so explicitly).
 
+**Catalyst-timing tell:** if the move already happened on a specific earnings print (a beat-and-raise, a disclosed-KPI inflection) and sell-side has already responded with a wave of price-target hikes (3+ firms within a week), that wave is the market pricing in the thesis after the fact, not an open window — a target hike is a lagging confirmation, not a leading signal. Score it anyway if asked, but say the entry looks closed even if the adoption numbers still look good going forward.
+
 ## How to run this in this repo
 
 1. **Fetch the latest filing text** (10-K or 10-Q, whichever is more recent):
@@ -31,8 +33,11 @@ description: Use whenever the user asks to analyze a stock, score a ticker again
    - `growth_strong` fires if the words "growth"/"increase"/"accelerat" appear *anywhere* in the filing — even if that's one segment growing while total company revenue is falling. **Always manually confirm the actual total-revenue YoY trend** (search the filing for the summary revenue table, e.g. `grep -n "Net revenues were\|Revenue" `) before accepting a high subtotal at face value.
    - Red flags (`revenue_declining`, `goodwill_impairment`, `press_gap`) fire on bare keyword presence too — e.g. routine "we test goodwill for impairment annually, none occurred" boilerplate will trip `goodwill_impairment` even with zero actual impairment. Grep the surrounding context for each triggered red flag before deducting it in your written verdict.
    - `revenue_declining` deserves the most trust of the three — cross-check it against the actual revenue table regardless.
+   - A sub-metric the company discloses **sequentially across 2-3+ quarters** (e.g. "Product X is now 15.1% of ARR, up from 12.6% last quarter, up from 10.8% at FY-end") is stronger, more auditable evidence than keyword hits in one filing — it can satisfy "revenue itemized," "growth >15%," "guidance is product-specific," and "earnings call quantification" all at once. Pull the last 2-3 earnings releases/call transcripts, not just the latest 10-Q, before scoring off a single filing's language.
 
-4. **Cross-check technicals from this repo's own scanner DB** (`tbl_scanner_tickers_daily`, keyed by `ticker_id` from `tbl_stock_tickers`) — price trend, MACD/PPO crossover state, and `atr_stop` — before calling something a "buy" on fundamentals alone. This is a swing-trading project; entry timing matters as much as the adoption score.
+4. **Separate the adoption thesis from non-fundamental tailwinds** before writing the verdict: sector-wide rallies (beta), buybacks, and takeover/M&A speculation can lift a stock independently of the product story. Call these out separately rather than folding them into the adoption score — they inflate price without validating the thesis, and crediting them to the framework overstates confidence in the pick.
+
+5. **Cross-check technicals from this repo's own scanner DB** (`tbl_scanner_tickers_daily`, keyed by `ticker_id` from `tbl_stock_tickers`) — price trend, MACD/PPO crossover state, and `atr_stop` — before calling something a "buy" on fundamentals alone. This is a swing-trading project; entry timing matters as much as the adoption score.
 
 ## 15-point scoring criteria (must match `rnd_adoption_analyzer.py::SCORING_CRITERIA`)
 
@@ -65,6 +70,7 @@ description: Use whenever the user asks to analyze a stock, score a ticker again
 - **BDX** — 6-8/15, CANDIDATE. Pyxis Pro / Incada AI platforms; 75% competitive win rate, CEO quantified adoption.
 - **ZBRA** — 12/15, HIGH-PROBABILITY. Connected Frontline; segment revenue $825M +20.6% YoY, margins stable at 20.5%.
 - **SMTC** — 2-3/15, AVOID. Revenue +15.9% but operating income -28%, $847.9M goodwill impairment — growth claims not supported by the 10-Q.
+- **DOCU** (Oct 2026, pattern illustration only — web-researched, not run through the pipeline/`rnd_adoption_analyzer.py`): textbook sequential-KPI disclosure — IAM product named every quarter, quantified as % of total ARR (10.8% → 12.6% → 15.1% over 3 quarters), guidance pinned to that metric (18-19% target). Would likely score well on itemization/growth/guidance/earnings-call criteria. But the stock had already run ~40% from a July low through the Sept-3 beat-and-raise plus a week of 6+ analyst price-target hikes by the time that pattern was obvious — illustrates the catalyst-timing tell above: the window was closing just as the evidence got clean.
 
 ## Output format
 

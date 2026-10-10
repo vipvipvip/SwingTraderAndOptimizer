@@ -49,6 +49,9 @@ CIK_DATABASE = {
     "JNJ": "0000200406",       # Johnson & Johnson
     "PFE": "0000078003",       # Pfizer Inc
     "BDX": "0000010795",       # Becton Dickinson and Company
+    "GS": "0000886982",        # Goldman Sachs Group Inc
+    "MTB": "0000036270",       # M&T Bank Corp
+    "TRV": "0000086312",       # Travelers Companies Inc
 
     # Entertainment & Media
     "NFLX": "0001564590",      # Netflix Inc
