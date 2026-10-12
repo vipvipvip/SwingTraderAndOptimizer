@@ -1425,79 +1425,95 @@ class TradeExecutorService
         $nActive = count(array_filter($targets));
         $per = $nActive > 0 ? $equity / $nActive : 0.0;
 
-        // SELLS first: full exit of OFF legs, then trim ON legs down to $per.
-        foreach ($symbols as $sym) {
-            $long = !empty($targets[$sym]);
-            $qty = $held[$sym] ?? 0;
-            if ($qty <= 0) {
-                continue;
-            }
-            $targetVal = $long ? $per : 0.0;
-            $excessVal = $heldVal[$sym] - $targetVal;
-            if ($excessVal <= 0) {
-                continue;
-            }
-            $price = $this->getCurrentPrice($sym);
-            if (!$price) {
-                $results['errors'][] = "$sym trim: no price";
-                continue;
-            }
-            $sellQty = $long ? round($excessVal / $price, 4) : $qty;
-            if ($sellQty <= 0 || $sellQty * $price < 1.0) {
-                continue;
-            }
-            $label = $long ? " (trim to 1/$nActive)" : ' (gate exit)';
-            $openTrade = LiveTrade::where('symbol', $sym)->where('status', 'open')->first();
-            if ($long || $openTrade) {
-                if ($this->rebalanceTrim($sym, $sellQty) > 0) {
-                    $results['sells'][] = $sym . $label;
-                } else {
-                    $results['errors'][] = "$sym$label not filled";
-                }
-                continue;
-            }
-            if ($this->dryRun) {
-                $results['sells'][] = "$sym (gate exit DRY-only)";
-                continue;
-            }
-            try {
-                $order = $this->alpacaService->placeOrder($sym, $sellQty, 'sell');
-                $orderId = $order['id'] ?? null;
-                $filled = $orderId ? $this->alpacaService->waitForOrderFill($orderId) : null;
-                if ($filled && strtolower($filled['status'] ?? '') === 'filled') {
-                    $results['sells'][] = "$sym (gate exit)";
-                } else {
-                    $results['errors'][] = "$sym gate exit not filled";
-                }
-            } catch (\Exception $e) {
-                \Log::error("LegEMA gate exit failed for $sym: " . $e->getMessage());
-                $results['errors'][] = "$sym gate exit failed: " . $e->getMessage();
-            }
-        }
-
-        // BUYS: top up ON legs that are below their $per target.
-        if ($nActive > 0) {
+        try {
+            // SELLS first: full exit of OFF legs, then trim ON legs down to $per.
             foreach ($symbols as $sym) {
-                if (empty($targets[$sym])) {
+                $long = !empty($targets[$sym]);
+                $qty = $held[$sym] ?? 0;
+                if ($qty <= 0) {
                     continue;
                 }
-                $needed = $per - $heldVal[$sym];
-                if ($needed <= 0) {
+                $targetVal = $long ? $per : 0.0;
+                $excessVal = ($heldVal[$sym] ?? 0.0) - $targetVal;
+                if ($excessVal <= 0) {
                     continue;
                 }
                 $price = $this->getCurrentPrice($sym);
                 if (!$price) {
-                    $results['errors'][] = "$sym top-up: no price";
+                    $results['errors'][] = "$sym trim: no price";
                     continue;
                 }
-                $buyQty = round($needed / $price, 4);
-                if ($buyQty <= 0 || $buyQty * $price < 1.0) {
+                $sellQty = $long ? round($excessVal / $price, 4) : $qty;
+                if ($sellQty <= 0 || $sellQty * $price < 1.0) {
                     continue;
                 }
-                if ($this->rebalanceTopUp($sym, $buyQty, $price)) {
-                    $results['buys'][] = $sym;
+                $label = $long ? " (trim to 1/$nActive)" : ' (gate exit)';
+                $openTrade = LiveTrade::where('symbol', $sym)->where('status', 'open')->first();
+                if ($long || $openTrade) {
+                    if ($this->rebalanceTrim($sym, $sellQty) > 0) {
+                        $results['sells'][] = $sym . $label;
+                    } else {
+                        $results['errors'][] = "$sym$label not filled";
+                    }
+                    continue;
+                }
+                if ($this->dryRun) {
+                    $results['sells'][] = "$sym (gate exit DRY-only)";
+                    continue;
+                }
+                try {
+                    $order = $this->alpacaService->placeOrder($sym, $sellQty, 'sell');
+                    $orderId = $order['id'] ?? null;
+                    $filled = $orderId ? $this->alpacaService->waitForOrderFill($orderId) : null;
+                    if ($filled && strtolower($filled['status'] ?? '') === 'filled') {
+                        $results['sells'][] = "$sym (gate exit)";
+                    } else {
+                        $results['errors'][] = "$sym gate exit not filled";
+                    }
+                } catch (\Exception $e) {
+                    \Log::error("LegEMA gate exit failed for $sym: " . $e->getMessage());
+                    $results['errors'][] = "$sym gate exit failed: " . $e->getMessage();
                 }
             }
+
+            // BUYS: top up ON legs that are below their $per target. A leg that just
+            // flipped ON holds no position yet, so its $heldVal is absent -> 0.
+            if ($nActive > 0) {
+                foreach ($symbols as $sym) {
+                    if (empty($targets[$sym])) {
+                        continue;
+                    }
+                    $needed = $per - ($heldVal[$sym] ?? 0.0);
+                    if ($needed <= 0) {
+                        continue;
+                    }
+                    $price = $this->getCurrentPrice($sym);
+                    if (!$price) {
+                        $results['errors'][] = "$sym top-up: no price";
+                        continue;
+                    }
+                    $buyQty = round($needed / $price, 4);
+                    if ($buyQty <= 0 || $buyQty * $price < 1.0) {
+                        continue;
+                    }
+                    if ($this->rebalanceTopUp($sym, $buyQty, $price)) {
+                        $results['buys'][] = $sym;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // An uncaught throw must not strand the week's claim: release it so the
+            // next tick re-claims and retries (mirrors the $results['errors'] path).
+            if (!$dryRun && !empty($claimed)) {
+                \DB::table('coreew_runs')
+                    ->where('strategy', 'legema')
+                    ->where('span', $span)
+                    ->where('week', $runId)
+                    ->delete();
+                \Log::warning("LegEMA EMA$span: claim for week $runId released due to uncaught "
+                    . get_class($e) . ': ' . $e->getMessage());
+            }
+            throw $e;
         }
 
         if (!$dryRun && count($results['errors']) === 0) {
