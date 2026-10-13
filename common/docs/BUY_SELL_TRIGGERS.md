@@ -5,13 +5,15 @@ always `AGENTS.md` (repo root) + the code cited below — this doc is a readable
 the same logic, not a separate spec. If it ever disagrees with AGENTS.md or the code, the
 code wins.
 
-Three strategies are live. Only two place real orders:
+Three strategies are live. Two place real orders (CoreEW + MTF) across **three** Alpaca paper
+accounts; the third (Daily Signal) is Slack-only. "Decision cadence" is how often each **acts**;
+the two order-placing rows also rebalance at **equal weight, trim-before-top-up** on every run.
 
 | Strategy | Decision cadence | Places orders? | Buy trigger | Sell trigger |
 |---|---|---|---|---|
-| **CoreEW P20w** ("LegEMA") | Once/week — Mon–Fri 10:05 ET systemd timer, acts on a **new settled week** only | ✅ Yes (Alpaca) | A leg's own settled **weekly** close is **above** its own EMA(20) → held long and equal-weighted with the other ON legs | That leg's weekly close crosses **below** its own EMA(20) → sold to cash; plus the weekly equal-weight rebalance of the ON legs (over-weights are trimmed, under-weights topped up) |
-| **MTF Top-N — stock leg** | Once/day, 10:25 ET | ✅ Yes (Alpaca, acct `#PA368CPXNS13`) | Ticker enters the top-**10** by weekly score | Drops out of top-10, **or** daily-ATR ratchet stop hit |
-| **MTF Top-N — ETF leg** | Once/day, 10:25 ET (same run) | ✅ Yes (Alpaca, acct `#PA3U8GZ96PEN`) | Ticker enters the top-**3** by weekly score | Drops out of top-3 (no ratchet on this leg) |
+| **CoreEW P20w** ("LegEMA") | Once/week — Mon–Fri 10:05 ET timer, acts on a **new settled week** only (midweek runs are a DB-claimed NO-OP) | ✅ Yes (Alpaca `#PA3GKZYLVO68`) | A leg's own settled **weekly** close is **above** its own EMA(20) → held LONG. The ON legs are equal-weighted to `equity ÷ #ON`; underweight ON legs are topped up | That leg's weekly close crosses **below** its EMA(20) → sold to cash; plus the weekly **equal-weight rebalance** of the ON legs (over-weights trimmed). Trim-before-top-up; all three OFF → whole book cash |
+| **MTF Top-N — stock leg** | Once/day, 10:25 ET — **weekly** name signal (settled weekly bars) but **daily** execution: equal-weight rebalance + daily ratchet | ✅ Yes (Alpaca `#PA368CPXNS13`) | **NEW BUY**: a stock enters the top-**10** by weekly score and isn't held. **REBALANCE**: top-up any held in-play name below `equity ÷ N`. Slots freed by ratchet/cool-off/chase-block are backfilled from rank 11+ | **Rotation**: held **and scored today** but drops out of the top-10 → sold. **Ratchet**: last settled **daily** close < `(highest daily close since entry) − 2×daily ATR` (fires any day, even while still top-10). **Rebalance**: held in-play name trimmed to `equity ÷ N`. **Exception**: held but **not scored today** (failed bullish filter or data gap) → **preserved, not sold** (whipsaw guard); the ratchet can still exit it |
+| **MTF Top-N — ETF leg** | Once/day, 10:25 ET (same run) — weekly signal, daily execution | ✅ Yes (Alpaca `#PA3U8GZ96PEN`) | Same as the stock leg: enters the top-**3** by weekly score (**NEW BUY**) or EW top-up (**REBALANCE**); freed slots backfilled from rank 4+ | Same rotation + EW trim as the stock leg, **no ratchet stop** — dropping out of the top-3 is the only signal exit (plus the rebalance trim) |
 | **Daily Signal** | Once/day, 17:00 ET | ❌ No — Slack alert only | **Both** of weekly + daily EMA(10)>SMA(40) crosses are done (see §3) | N/A — never holds a position |
 
 ---
@@ -105,25 +107,34 @@ by `swingtrader-mtf-executor --mode all`, which scores and executes **both legs 
 run** — a stock universe (VTI stocks, top-10) and a separate ETF universe (top-3) — each with
 its own Alpaca paper account, its own holdings, and its own buy/sell trigger. They share the
 same scoring formula but are otherwise fully independent books; being top-N on one leg has no
-effect on the other. Full detail, Slack message formats, and the backtest honesty caveats
-live in [services_doc/mtf_daily_runner.md](services_doc/mtf_daily_runner.md) — this is a
-summary, not a replacement for it.
+effect on the other. The **name signal is weekly** (settled weekly bars), but execution runs
+**daily** and re-sizes the whole book to **equal weight (trim-before-top-up)** each run — so both
+legs usually trade every session even when the top-N is unchanged. Full detail, Slack message
+formats, and the backtest honesty caveats live in
+[services_doc/mtf_daily_runner.md](services_doc/mtf_daily_runner.md) — this is a summary, not a
+replacement for it.
 
 **Shared scoring** (settled weekly bar only): `min(gap_w / 5, 5)`, where `gap_w` is how far
 the weekly close sits above its weekly SMA(40). Long-eligible only while weekly EMA(10) >
 SMA(40); flat otherwise. Ties broken deterministically by `(-score, -gap_w)`.
 
 ### Stock leg (top-10, account `#PA368CPXNS13`)
-- **Buy:** a stock ranks inside the top-10 by score that it didn't hold yesterday.
-- **Sell (rotation):** a held stock drops out of the top-10.
+- **Buy (NEW BUY):** a stock enters the top-10 by weekly score and isn't held.
+- **Buy (REBALANCE):** any held in-play name below `equity ÷ N` is topped up to equal weight.
+  Slots freed by a ratchet stop / same-day cool-off / chase-guard block are backfilled from rank 11+.
+- **Sell (rotation):** a held stock **that is still scored today** drops out of the top-10.
 - **Sell (ratchet):** the last settled **daily** close falls below
-  `(highest daily close since entry) − 2×daily ATR`. This fires independently of ranking —
-  a name can still be top-10 and get stopped out.
+  `(highest daily close since entry) − 2×daily ATR`. Fires independently of ranking — a name
+  can still be top-10 and get stopped out.
+- **Sell (rebalance TRIM):** a held in-play name above `equity ÷ N` is trimmed back to target.
+- **Exception — preserved, not sold:** a held stock **not in today's scored set** (failed the
+  weekly bullish filter or missing data) is kept (whipsaw guard); the ratchet can still exit it.
 
 ### ETF leg (top-3, account `#PA3U8GZ96PEN`)
-- **Buy:** an ETF ranks inside the top-3 by score that it wasn't held yesterday.
-- **Sell:** a held ETF drops out of the top-3. **No ratchet stop on this leg** — rotation out
-  of the top-3 is the only exit.
+- **Buy (NEW BUY / REBALANCE):** same as the stock leg — enters the top-3 by weekly score, and
+  every in-play name is topped up / trimmed to `equity ÷ N`.
+- **Sell:** a held ETF **that is still scored today** drops out of the top-3, or a rebalance
+  trim. **No ratchet stop on this leg** — dropping out of the top-3 is the only signal exit.
 
 Everything on both legs is evaluated on the last **complete** daily/weekly bar — never an
 in-progress/partial bar.
