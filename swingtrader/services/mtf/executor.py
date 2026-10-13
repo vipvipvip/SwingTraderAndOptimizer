@@ -740,9 +740,10 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
                     continue
 
                 action = 'TOP-UP' if held_qty >= 1 else 'BUY'
+                label = 'REBALANCE' if action == 'TOP-UP' else 'NEW BUY'
                 if dry_run:
-                    trade_lines.append(f'  🧪 [DRY-RUN] {action} {buy_qty} {symbol} @ ${price:.2f} (${buy_qty * price:,.2f}) → ${per_position:,.0f}')
-                    print(f'[MTF EXECUTOR] DRY-RUN {action} {buy_qty} {symbol} @ {price}')
+                    trade_lines.append(f'  🧪 [DRY-RUN] {label} {buy_qty} {symbol} @ ${price:.2f} (${buy_qty * price:,.2f}) → ${per_position:,.0f}')
+                    print(f'[MTF EXECUTOR] DRY-RUN {label} {buy_qty} {symbol} @ {price}')
                     continue
                 try:
                     order = _place_order(symbol, buy_qty, 'buy')
@@ -786,7 +787,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
                     db_module.upsert_position(conn, ticker_id, symbol, filled_qty, fill_price, now)
                 db_module.insert_trade(conn, ticker_id, symbol, 'BUY', filled_qty, fill_price, now)
 
-                msg_str = f'BUY {filled_qty} {symbol} @ ${fill_price:.2f} (${spent:.2f})'
+                msg_str = f'{label} {filled_qty} {symbol} @ ${fill_price:.2f} (${spent:.2f})'
                 buys.append(symbol)
                 trade_lines.append(f'  {msg_str}')
                 print(f'[MTF EXECUTOR] {msg_str}')
