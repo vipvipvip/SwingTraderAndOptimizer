@@ -14,6 +14,7 @@ Finds stocks with upcoming earnings where the DAILY MACD line just crossed above
 3. **Last crossover must be bullish** — skip if last crossover was bearish
 4. **Freshness sort** — show most recent crossovers first
 5. **Window (2026-10-06)** — earnings within the next **7 days** (`--days`) and a MACD cross at most **10 days** old (`--max-fresh`); anything else is dropped
+6. **Fundamentals research (2026-10-14)** — each pick is scored **0-8** on revenue/earnings growth + margin trend, minus red-flag deductions, gated by the R&D-adoption **$5-50B scope** and shown in a **Fund** column. A separate **Rate** column shows Yahoo consensus (not CFRA — see below). See [Fundamentals research](#fundamentals-research).
 
 ## Usage
 
@@ -32,6 +33,15 @@ python3 services/earnings_screener.py --all
 
 # Custom windows (defaults: --days 7 --max-fresh 10)
 python3 services/earnings_screener.py --days 14 --max-fresh 5
+
+# Skip the fundamentals research column (faster)
+python3 services/earnings_screener.py --no-research
+
+# Force a fresh fundamentals fetch for every ticker (ignore the cache)
+python3 services/earnings_screener.py --refresh-fundamentals
+
+# Keep only tickers inside the $5-50B R&D-adoption scope
+python3 services/earnings_screener.py --scope-only
 
 # Show stats
 python3 services/earnings_screener.py --stats
@@ -87,12 +97,19 @@ Last refresh: 1,380 rows, horizon `2026-11-02`, done manually 2026-10-05.
 ## Output
 
 ```
-Ticker     Earnings  Days     MACD   Signal     Hist    Close  Fresh
--------- ---------- ----- -------- -------- -------- -------- ------
-AON      2026-07-29     5   0.0034  -0.4649   0.4683 $ 361.54   0d *
-GDDY     2026-07-30     6   0.0867  -0.0616   0.1483 $  93.13   0d *
+Ticker     Earnings  Days     MACD   Signal     Hist    Close  Fresh   Fund   Rate
+-------- ---------- ----- -------- -------- -------- -------- ------ ------ ------
+RLI      2026-10-19     5   0.2143   0.1761   0.0381 $  20.18     9d   8/8*  H 3.4
+CME      2026-10-21     7   0.1373  -0.1154   0.2528 $  88.84     0d *   2/8!  H 2.5
 
-AON,GDDY
+RLI,CME
+
+Fundamentals (Fund = 0-8 growth score; * = max, ! = outside $5-50B scope;
+Rate = Yahoo consensus; MC = margin compression -1, GW = goodwill impairment -2):
+Ticker         MC  RevYoY  RevQoQ EarnYoY EarnQoQ Margin  Rating Scope Flags
+-------- -------- ------- ------- ------- ------- ------ ------- ----- ------
+RLI       $5.3B  +15.2%  +35.8%  +35.1% +206.1%     ok   H 3.4    in
+CME     $102.9B   +0.8%   -9.2%   +1.6%   -9.7%   comp   B 2.5   OUT MC
 ```
 
 | Column | Meaning |
@@ -105,11 +122,70 @@ AON,GDDY
 | Hist | MACD histogram |
 | Close | Current close price |
 | Fresh | Bars since crossover (0 = today) |
+| Fund | Fundamentals score 0-8; `*` = max, `!` = outside $5-50B scope, `-` = no data |
+| Rate | Yahoo analyst consensus (grade + mean, e.g. `SB 1.4`); blank = no coverage |
 
-`*` = MACD line just crossed above 0 (fresh crossover)
+`*` = MACD line just crossed above 0 (fresh crossover), or a perfect 8/8 fundamentals score
+
+## Fundamentals research
+
+The **Fund** column ranks each pick 0-8 on the fundamentals that matter for an
+earnings setup, then gates by the R&D-adoption mid-cap scope and applies two
+red-flag deductions. All data is structured yfinance output — no filing text.
+
+**Subtotal (max 8):**
+
+| Pts | Signal |
+|-----|--------|
+| +2 | Revenue YoY > 15% (framework growth threshold) |
+| +1 | Revenue YoY up (0-15%) |
+| +1 | Revenue up QoQ |
+| +2 | Earnings (net income) up YoY |
+| +1 | Earnings up QoQ |
+| +1 | Operating margin stable/expanding (op income, net-income fallback) |
+
+**Red-flag deductions:** margin compression `-1` (revenue up but margin
+contracting) · goodwill impairment `-2` (balance-sheet goodwill down > 2% of
+market cap). Total is clamped to 0-8.
+
+**Scope gate:** in-scope = market cap **$5B-$50B**. Out-of-scope tickers stay on
+the momentum list but are marked `!` and are not adoption candidates;
+`--scope-only` drops them entirely.
+
+YoY prefers quarter-vs-same-quarter (4 quarters back), falling back to the latest
+two annual figures. Direction is a value comparison (latest > prior), so a
+company improving from a smaller loss still counts. Growth percentages are shown
+in the fundamentals table (`n/a` when a prior-period base is ≤ 0). The table has
+aligned headings: `Ticker · MC · RevYoY · RevQoQ · EarnYoY · EarnQoQ · Margin ·
+Rating · Scope · Flags`.
+
+Implementation: `scanner/services/fundamentals_research.py`. Results are cached in
+`scanner/services/.earnings_fundamentals_cache.json`, keyed by ticker, so the
+30-minute screener **only does the (slow) network fetch for new tickers** — cached
+symbols are reused. Cache entries expire after 30 days (so a ticker is re-scored
+after its next quarterly report); `--refresh-fundamentals` forces a full re-fetch
+and `--no-research` skips the column entirely.
+
+### Rating column (not CFRA)
+
+The **Rate** column is **Yahoo Finance's analyst consensus** (`recommendationMean`
+mapped to SB/B/H/S/SS), with analyst count and mean price target in the detail
+line. It is added at no extra cost — `t.info` is already fetched for market cap.
+
+> **CFRA (STARS) ratings are not available here.** CFRA is a licensed product with
+> no free/public API; it is delivered via subscription/RaaS and enterprise feeds
+> (Bloomberg/FactSet/Refinitiv) and to account-holders on broker platforms such as
+> Schwab. Nothing in this repo or `yfinance` exposes it. Yahoo consensus is the
+> nearest free substitute.
+
+> Uses yfinance income-statement data, not the raw 10-Q, because the question is
+> simply "is revenue/earnings rising". For the SEC-filing R&D adoption framework
+> (0-15), use the `stock-analysis` skill / `rnd_adoption_analyzer.py`.
 
 ## Files
 
 - `scanner/services/earnings_screener.py` — Main CLI
+- `scanner/services/fundamentals_research.py` — 0-8 growth scorer + scope gate + rating (Fund/Rate columns)
+- `scanner/services/.earnings_fundamentals_cache.json` — Per-ticker fundamentals cache (gitignored)
 - `common/docs/services_doc/earnings_screener.md` — This file
 - `tbl_earnings_calendar` — DB table caching earnings dates

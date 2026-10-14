@@ -89,6 +89,7 @@ swingtrader/backend/storage/coreew_gate_last_week.txt
 
 # Runtime state/logs (machine-specific; fresh start on new server)
 scanner/services/.earnings_screener_state.json
+scanner/services/.earnings_fundamentals_cache.json
 scanner/services/.sec_edgar_cache/
 scanner/services/__pycache__/
 swingtrader/services/ema_sma_crossover/.daily_signal_state.json

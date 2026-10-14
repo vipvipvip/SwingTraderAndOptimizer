@@ -34,6 +34,9 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'swingtrader', '
 # Add parent dir for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import DB_CONFIG
+from fundamentals_research import (
+    FundamentalsResearch, format_label, format_detail, format_rating, format_table,
+)
 
 SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
 
@@ -44,9 +47,13 @@ STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.earnings
 
 
 def _state_signature(results):
-    """Stable fingerprint of a result set: sorted (ticker, freshness) pairs.
-    Returned as JSON-native list-of-lists so a JSON round-trip preserves it."""
-    return sorted([r['ticker'], r['freshness'], bool(r['just_turned_positive'])] for r in results)
+    """Stable fingerprint of a result set: sorted (ticker, freshness, fund score)
+    triples. Returned as JSON-native values so a JSON round-trip preserves it."""
+    return sorted(
+        [r['ticker'], r['freshness'], bool(r['just_turned_positive']),
+         (r.get('fundamentals') or {}).get('score')]
+        for r in results
+    )
 
 
 def _load_state():
@@ -89,8 +96,8 @@ def _send_slack_message(results):
     # Build the same table format as terminal output
     lines = ["*Earnings Crossover — Upcoming Earnings + Bullish Daily MACD*\n"]
     lines.append("```")
-    lines.append(f"{'Ticker':<8} {'Earnings':>10} {'Days':>5} {'MACD':>8} {'Signal':>8} {'Hist':>8} {'Close':>8} {'Fresh':>6}")
-    lines.append(f"{'-'*8} {'-'*10} {'-'*5} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*6}")
+    lines.append(f"{'Ticker':<8} {'Earnings':>10} {'Days':>5} {'MACD':>8} {'Signal':>8} {'Hist':>8} {'Close':>8} {'Fresh':>6} {'Fund':>6} {'Rate':>6}")
+    lines.append(f"{'-'*8} {'-'*10} {'-'*5} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*6} {'-'*6} {'-'*6}")
 
     for r in results:
         fresh_str = f"{r['freshness']}d"
@@ -99,7 +106,8 @@ def _send_slack_message(results):
 
         lines.append(f"{r['ticker']:<8} {str(r['earnings_date']):>10} {r['days_until_earnings']:>5} "
                      f"{r['macd']:>8.4f} {r['macd_signal']:>8.4f} {r['macd_hist']:>8.4f} "
-                     f"${r['close']:>7.2f} {fresh_str:>6}")
+                     f"${r['close']:>7.2f} {fresh_str:>6} {format_label(r.get('fundamentals')):>6} "
+                     f"{format_rating(r.get('fundamentals')):>6}")
 
     lines.append("```")
     lines.append(f"*{len(results)} stocks with upcoming earnings + bullish MACD* — sorted by freshness (most recent first)")
@@ -107,6 +115,14 @@ def _send_slack_message(results):
     # Comma-delimited ticker list
     ticker_list = ','.join(r['ticker'] for r in results)
     lines.append(f"\n{ticker_list}")
+
+    # Fundamentals research: revenue + earnings growth per ticker
+    researched = [r for r in results if r.get('fundamentals')]
+    if researched:
+        lines.append("\n*Fundamentals (Fund = 0-8 growth score; `*` = max, `!` = outside $5-50B scope. Rate = Yahoo consensus, not CFRA):*")
+        lines.append("```")
+        lines.extend(format_table([(r['ticker'], r.get('fundamentals')) for r in results]))
+        lines.append("```")
 
     _send_slack("\n".join(lines))
 
@@ -335,11 +351,18 @@ def check_daily_macd(ticker: str) -> dict:
 
 
 def run_screener(days_ahead: int = 7, fresh_only: bool = True, send_slack: bool = False,
-                 max_fresh_days: int = 10):
+                 max_fresh_days: int = 10, research: bool = True,
+                 refresh_fundamentals: bool = False, scope_only: bool = False):
     """
     Screen for stocks with upcoming earnings AND bullish daily MACD.
     Restricted to earnings within `days_ahead` days and a MACD cross no older than
     `max_fresh_days` days. Sorted by freshness (most recent crossover first).
+
+    When `research` is on, each pick is scored 0-8 on fundamentals (revenue and
+    earnings growth, margin trend, minus red-flag deductions) and gated by the
+    $5-50B R&D-adoption scope. Only tickers not already in the fundamentals cache
+    are fetched; `refresh_fundamentals` forces a full re-fetch. `scope_only` drops
+    out-of-scope tickers entirely.
     """
     # Step 1: Get tickers with upcoming earnings
     upcoming = get_upcoming_earnings(days_ahead)
@@ -384,6 +407,16 @@ def run_screener(days_ahead: int = 7, fresh_only: bool = True, send_slack: bool 
     # Sort by freshness (0 = today first, then 1, 2, etc.)
     results.sort(key=lambda x: x['freshness'])
 
+    # Fundamentals research — score each pick on revenue/earnings growth.
+    # Only new tickers hit the network; cached tickers are reused.
+    if research and results:
+        fund = FundamentalsResearch()
+        for r in results:
+            r['fundamentals'] = fund.get(r['ticker'], refresh=refresh_fundamentals)
+        fund.save()
+        if scope_only:
+            results = [r for r in results if (r.get('fundamentals') or {}).get('in_scope') is not False]
+
     # Display results
     if not results:
         print("No stocks match criteria (upcoming earnings + bullish daily MACD).")
@@ -393,8 +426,8 @@ def run_screener(days_ahead: int = 7, fresh_only: bool = True, send_slack: bool 
     print(f"EARNINGS MOMENTUM SCREENER — {len(results)} stocks with upcoming earnings + bullish DAILY MACD")
     print(f"{'='*80}\n")
 
-    print(f"{'Ticker':<8} {'Earnings':>10} {'Days':>5} {'MACD':>8} {'Signal':>8} {'Hist':>8} {'Close':>8} {'Fresh':>6}")
-    print(f"{'-'*8} {'-'*10} {'-'*5} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*6}")
+    print(f"{'Ticker':<8} {'Earnings':>10} {'Days':>5} {'MACD':>8} {'Signal':>8} {'Hist':>8} {'Close':>8} {'Fresh':>6} {'Fund':>6} {'Rate':>6}")
+    print(f"{'-'*8} {'-'*10} {'-'*5} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*6} {'-'*6} {'-'*6}")
 
     for r in results:
         # Color coding
@@ -404,10 +437,17 @@ def run_screener(days_ahead: int = 7, fresh_only: bool = True, send_slack: bool 
 
         print(f"{r['ticker']:<8} {str(r['earnings_date']):>10} {r['days_until_earnings']:>5} "
               f"{r['macd']:>8.4f} {r['macd_signal']:>8.4f} {r['macd_hist']:>8.4f} "
-              f"${r['close']:>7.2f} {fresh_str:>6}")
+              f"${r['close']:>7.2f} {fresh_str:>6} {format_label(r.get('fundamentals')):>6} "
+              f"{format_rating(r.get('fundamentals')):>6}")
 
     print(f"\n* = Just turned positive (fresh crossover)")
     print(f"\nSorted by freshness (most recent crossover first).")
+
+    if research:
+        print(f"\nFundamentals (Fund = 0-8 growth score; * = max, ! = outside $5-50B scope; "
+              f"Rate = Yahoo consensus; MC = margin compression -1, GW = goodwill impairment -2):")
+        for line in format_table([(r['ticker'], r.get('fundamentals')) for r in results]):
+            print(line)
 
     # Comma-delimited ticker list
     ticker_list = ','.join(r['ticker'] for r in results)
@@ -483,6 +523,12 @@ def main():
                         help='Show earnings calendar stats')
     parser.add_argument('--slack', action='store_true',
                         help='Send results to Slack')
+    parser.add_argument('--no-research', dest='research', action='store_false',
+                        help='Skip the fundamentals research column (faster)')
+    parser.add_argument('--refresh-fundamentals', action='store_true',
+                        help='Force re-fetch of fundamentals for every ticker (ignore cache)')
+    parser.add_argument('--scope-only', action='store_true',
+                        help='Drop tickers outside the $5-50B R&D-adoption scope')
 
     args = parser.parse_args()
 
@@ -494,7 +540,9 @@ def main():
         show_stats()
     else:
         run_screener(days_ahead=args.days, fresh_only=args.fresh_only and not args.all,
-                     send_slack=args.slack, max_fresh_days=args.max_fresh)
+                     send_slack=args.slack, max_fresh_days=args.max_fresh,
+                     research=args.research, refresh_fundamentals=args.refresh_fundamentals,
+                     scope_only=args.scope_only)
 
 
 if __name__ == '__main__':
