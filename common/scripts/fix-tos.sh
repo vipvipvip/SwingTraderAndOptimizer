@@ -9,9 +9,9 @@ pkill -f 'thinkorswim' 2>/dev/null && echo "  killed thinkorswim processes" || e
 sleep 1
 
 echo "[2/3] Clearing conflicting browser data dirs..."
-rm -rf ~/.thinkorswim/login-browser-data-v29-0
-rm -rf ~/.thinkorswim/login-browser-data-v29-1
-rm -rf ~/thinkorswim/jxbrowser/v29/tmp/*
+rm -rf ~/.thinkorswim/login-browser-data-v30-0
+rm -rf ~/.thinkorswim/login-browser-data-v30-1
+rm -rf ~/thinkorswim/jxbrowser/v30/tmp/*
 echo "  done"
 
 echo "[3/3] Removing stale error workspace..."
