@@ -61,12 +61,20 @@ def _now():
     return datetime.now(NY)
 
 
-def _run_step(action, dry_run=False, strategy='emasma'):
+def _run_step(action, dry_run=False, strategy='emasma', no_slack=False):
     """Run one runner step. Returns its exit code (0 = the step got everything
-    it needed, non-zero = at least one leg failed or produced nothing)."""
+    it needed, non-zero = at least one leg failed or produced nothing).
+
+    no_slack=True suppresses the step's DIGEST Slack post (alerts still send).
+    The score step runs with it: the execute step reports the single morning
+    message containing both the book AND the resulting trades, so the score
+    digest's stale "No changes since last run" can never contradict the trades
+    (2026-10-15: it said no changes while 9 ratchets + 10 buys went through)."""
     cmd = [sys.executable, RUNNER, '--action', action, '--mode', 'all', '--strategy', strategy]
     if dry_run:
         cmd.append('--dry-run')
+    if no_slack:
+        cmd.append('--no-slack')
     print(f'[MTF-RETRY] $ {" ".join(cmd)}', flush=True)
     return subprocess.run(cmd).returncode
 
@@ -153,8 +161,10 @@ def main():
           f'{args.retry_min:g}m until {stop_at:%H:%M} ET, then execute '
           f'(dry_run={args.dry_run}, no_execute={args.no_execute})', flush=True)
 
+    # Score step is silent on Slack: every retry would otherwise post its own
+    # digest, and the (successful) execute step below posts the one message.
     ok, attempts = retry_score(
-        lambda: _run_step('score', dry_run=args.dry_run, strategy=args.strategy),
+        lambda: _run_step('score', dry_run=args.dry_run, strategy=args.strategy, no_slack=True),
         stop_at=stop_at, retry_min=args.retry_min, max_attempts=args.max_attempts)
 
     if not ok:

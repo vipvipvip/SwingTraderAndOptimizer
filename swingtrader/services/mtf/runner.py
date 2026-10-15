@@ -469,6 +469,37 @@ def _format_regime(pct):
         return f'{pct:.0f}% uptrend \u2705 Risk-on'
 
 
+def _topn_table_lines(is_etf, top_symbols, score_detail, entry_map):
+    """Render the top-N monospace table, in RANK order.
+
+    Shared by the evening score digest and the morning execution digest so the
+    two messages can never disagree. Rank order (not alphabetical): the '#' column
+    is the rank, so sorting by symbol would make it meaningless.
+    """
+    lines = []
+    if is_etf:
+        display = [{
+            'symbol': s,
+            'score': score_detail.get(s, {}).get('score', 0),
+            'gap_w': score_detail.get(s, {}).get('gap_w', 0),
+            'freshness': score_detail.get(s, {}).get('freshness', 999),
+        } for s in top_symbols if s in score_detail]
+        entry_prices = {s: {'price': entry_map.get(s) or 0, 'date': ''} for s in top_symbols}
+        lines.extend(etf_table_lines(display, score_detail, entry_prices))
+    else:
+        lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"Fresh":>7}')
+        lines.append(f'{"-"*3} {"-"*8} {"-"*5} {"-"*7} {"-"*7}')
+        for i, s in enumerate(top_symbols, 1):
+            sd = score_detail.get(s, {})
+            fresh = sd.get('freshness', 999)
+            days_str = f'{fresh}d' if fresh < 999 else 'old'
+            lines.append(
+                f'{i:<3} {s:<8} {sd.get("score", 0):>5.1f} '
+                f'{sd.get("gap_w", 0):>+6.1f}% {days_str:>7}'
+            )
+    return lines
+
+
 def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     """Run evening scoring for one mode. Returns (success, slack_lines, sig_date).
     Analytics only — saves pending picks for the morning executor. No Alpaca calls.
@@ -765,19 +796,7 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     except Exception:
         pass
 
-    display_n = sorted(top_n, key=lambda t: t['symbol'])
-    if is_etf:
-        entry_prices = {sym: {'price': entry_map.get(sym) or 0, 'date': ''} for sym in top_symbols}
-        lines.extend(etf_table_lines(display_n, score_detail, entry_prices))
-    else:
-        lines.append(f'{"#":<3} {"Ticker":<8} {"Score":>5} {"Gap":>7} {"Fresh":>7}')
-        lines.append(f'{"-"*3} {"-"*8} {"-"*5} {"-"*7} {"-"*7}')
-        for i, t in enumerate(display_n, 1):
-            days_str = f'{t["freshness"]}d' if t['freshness'] < 999 else 'old'
-            lines.append(
-                f'{i:<3} {t["symbol"]:<8} {t["score"]:>5.1f} '
-                f'{t["gap_w"]:>+6.1f}% {days_str:>7}'
-            )
+    lines.extend(_topn_table_lines(is_etf, top_symbols, score_detail, entry_map))
 
     if new_entries or dropped or data_gap_held:
         lines.append('')
@@ -841,6 +860,25 @@ def _run_execute_pending(mode, today, dry_run=False):
     ts = pending['created_at']
 
     lines = []
+    # Book snapshot, rendered from the pending picks with the SAME table the
+    # evening digest uses. The morning message is the single Slack post for this
+    # leg (the retry score step runs with --no-slack), so it must show what is
+    # about to change and why — not just the trades. The old score-step digest
+    # said "No changes since last run" while the executor ratcheted 9 names out
+    # and backfilled them, which read as a contradiction (2026-10-15).
+    is_etf = (mode == 'etf')
+    try:
+        entry_map = {sym: pos['entry_price']
+                     for sym, pos in db_module.get_all_positions(conn).items()}
+    except Exception:
+        entry_map = {}
+    book_label = 'EMA/SMA'
+    lines.append(f'*{book_label} Top '
+                 f'{config.ETF_TOP_N if is_etf else config.TOP_N} — {sig_date} ({MODE_LABEL[mode]})*')
+    lines.append('```')
+    lines.extend(_topn_table_lines(is_etf, top_symbols, score_detail, entry_map))
+    lines.append('```')
+    lines.append('')
     lines.append(f'*Executing {MODE_LABEL[mode]} trades (scored {ts})*')
     print(f'[MTF] Executing pending trades for {MODE_LABEL[mode]} (scored {ts})')
 
@@ -1101,13 +1139,18 @@ def _run_market_regime(conn, now, today):
     return lines
 
 
-def run(mode='stock', live=False, strategy='mtf', dry_run=False, fresh=False):
+def run(mode='stock', live=False, strategy='mtf', dry_run=False, fresh=False,
+        send_slack=True):
     """Run evening scoring (action='score') or morning execution (action='execute').
 
     Returns True only when the mode fully succeeded. The process exit code
     mirrors this (see __main__) so a wrapper can tell "the step got all its
     work done" from "it silently did nothing" — the 2026-09-28 zero-candidate
     wipe exited 0 and read as a healthy run.
+
+    send_slack=False suppresses only the DIGEST post (used for the executor's
+    retry score step, whose outcome the execute step reports instead). Crash and
+    data-incomplete ALERTS are sent regardless.
     """
     now = datetime.now(NY)
     today = now.date()
@@ -1117,7 +1160,8 @@ def run(mode='stock', live=False, strategy='mtf', dry_run=False, fresh=False):
             success, lines, sig_date = _run_single_mode(mode, now, today, strategy=strategy, fresh=fresh)
             msg = '\n'.join(lines)
             print(f'\n{msg}\n')
-            _send_slack(msg, mode)
+            if send_slack:
+                _send_slack(msg, mode)
         except Exception:
             _send_crash_alert(sys.exc_info(), mode)
             raise
@@ -1126,7 +1170,7 @@ def run(mode='stock', live=False, strategy='mtf', dry_run=False, fresh=False):
             success, lines, sig_date = _run_execute_pending(mode, today, dry_run=dry_run)
             msg = '\n'.join(lines)
             print(f'\n{msg}\n')
-            if success:
+            if success and send_slack:
                 _send_slack(msg, mode)
         except Exception:
             _send_crash_alert(sys.exc_info(), mode)
@@ -1134,7 +1178,7 @@ def run(mode='stock', live=False, strategy='mtf', dry_run=False, fresh=False):
     return bool(success)
 
 
-def _run_execute_all(today, dry_run=False):
+def _run_execute_all(today, dry_run=False, send_slack=True):
     """Execute pending trades for all modes. Sends ONE combined Slack message.
 
     Returns True only when both modes executed (or had nothing to do)."""
@@ -1161,23 +1205,29 @@ def _run_execute_all(today, dry_run=False):
     header = f'MTF + EMA/SMA Execution — {sig_date} (stocks + ETFs)'
     full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
     print(f'\n{full_msg}\n')
-    _send_slack(full_msg, 'all')
+    if send_slack:
+        _send_slack(full_msg, 'all')
     return all_ok
 
 
-def run_all(live=False, strategy='mtf', dry_run=False, fresh=False):
+def run_all(live=False, strategy='mtf', dry_run=False, fresh=False,
+            send_slack=True):
     """Evening scoring (default) or morning execution (live=True).
 
     Returns True only when EVERY mode succeeded — sector/regime info is
     informational and does not count. The exit code mirrors this so
     executor_retry.py can retry a partial failure instead of ending the day.
+
+    send_slack=False suppresses only the DIGEST post (the executor's retry score
+    step uses this; its execute step posts the single daily message). Alerts are
+    unaffected.
     """
     now = datetime.now(NY)
     today = now.date()
     action = 'execute' if live else 'score'
 
     if action == 'execute':
-        return _run_execute_all(today, dry_run=dry_run)
+        return _run_execute_all(today, dry_run=dry_run, send_slack=send_slack)
 
     all_lines = []
     sig_date = None
@@ -1228,7 +1278,8 @@ def run_all(live=False, strategy='mtf', dry_run=False, fresh=False):
           f'— {sig_date} (stocks + ETFs + sectors + regime)')
     full_msg = '\n'.join([header, '\u2501' * 32] + all_lines)
     print(f'\n{full_msg}\n')
-    _send_slack(full_msg, 'all')
+    if send_slack:
+        _send_slack(full_msg, 'all')
     return all_ok
 
 
@@ -1244,6 +1295,11 @@ if __name__ == '__main__':
                              'was retired 2026-09-26 (it required stored MACD columns).')
     parser.add_argument('--dry-run', action='store_true',
                         help='execute path: report pending buys/sells without placing orders')
+    parser.add_argument('--no-slack', action='store_true',
+                        help='suppress the DIGEST Slack post (crash/data alerts still send). '
+                             'Used by executor_retry for the retry score step: the execute '
+                             'step emits the single morning message instead, so the two can '
+                             'never disagree (2026-10-15 "no changes" vs 10 buys).')
     parser.add_argument('--fresh', action='store_true',
                         help='score/execute path: use TODAY\'s (intraday, partial-day) bars as the '
                              'signal date instead of the last complete date. DEAD since 2026-10-02: '
@@ -1255,7 +1311,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     live = args.live or args.action == 'execute'
     if args.mode == 'all':
-        ok = run_all(live=live, strategy=args.strategy, dry_run=args.dry_run, fresh=args.fresh)
+        ok = run_all(live=live, strategy=args.strategy, dry_run=args.dry_run,
+                     fresh=args.fresh, send_slack=not args.no_slack)
     else:
-        ok = run(mode=args.mode, live=live, strategy=args.strategy, dry_run=args.dry_run, fresh=args.fresh)
+        ok = run(mode=args.mode, live=live, strategy=args.strategy, dry_run=args.dry_run,
+                 fresh=args.fresh, send_slack=not args.no_slack)
     sys.exit(0 if ok else 1)

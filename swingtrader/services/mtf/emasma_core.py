@@ -83,6 +83,18 @@ def compute_emasma_score(weekly, daily_close, wi, sig_date):
         'name': None,
     }
 
+def rank_key(candidate):
+    """Canonical ranking key: score DESC, then weekly gap_w DESC.
+
+    Single definition shared by live ranking (rank_candidates) AND the executor's
+    backfill filler selection, so a filler can never be chosen by a different rule
+    than the top-N itself. (Before 2026-10-15 the executor sorted fillers by
+    score alone, so among the many 5.0-scored names the picks were effectively
+    DB order rather than the true next-best — misleading vs the reported book.)
+    """
+    return (-candidate.get('score', 0), -candidate.get('gap_w', 0))
+
+
 def rank_candidates(candidates, is_etf):
     """Deterministic ranking + top-N cut. Also strategy logic, not presentation.
 
@@ -91,5 +103,5 @@ def rank_candidates(candidates, is_etf):
     requires replicable picks, so this must not diverge between live and
     backtest — it lives here for that reason.
     """
-    ordered = sorted(candidates, key=lambda x: (-x['score'], -x['gap_w']))
+    ordered = sorted(candidates, key=rank_key)
     return ordered[:config.ETF_TOP_N if is_etf else config.TOP_N]

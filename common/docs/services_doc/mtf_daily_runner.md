@@ -230,7 +230,18 @@ final equity unchanged (+557.25%).
 
 ## Slack Messages
 
-**Morning (10:25 ET)** — picks and analytics, tagged `[MTF+EMA-SMA stocks+ETFs]`:
+> **2026-10-15 — one morning message, not two.** The 10:25 run is a retry score step followed by an
+> execute step. The score step now runs with `--no-slack`, and the execute step emits the single
+> morning post: the top-N **book table** (rendered from the pending picks) **+ the actual trades**.
+> Before this, the score digest's "No changes since last run" (a top-N-vs-holdings diff with no
+> knowledge of the ratchet overlay) posted seconds before the executor ratcheted 9 names out and
+> bought 10 fillers — reading as a flat contradiction. The table is now rendered in **rank order**
+> (the `#` column is the true rank; it used to be an index over an alphabetized list). The 16:45
+> scorer is unchanged and still posts the full stocks+ETFs+sectors+regime recap.
+
+**Morning (10:25 ET)** — the execute step emits the single message (book + trades), tagged
+`[MTF+EMA-SMA stocks+ETFs]`. (The sample below predates the 2026-10-15 merge: the top-N block is now
+emitted by the execution step, not a separate score post.)
 ```
 MTF Top 10 + EMA/SMA Top 10 — 2026-07-13 (stocks + ETFs + sectors)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

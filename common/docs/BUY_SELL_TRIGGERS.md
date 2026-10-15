@@ -121,7 +121,9 @@ SMA(40); flat otherwise. Ties broken deterministically by `(-score, -gap_w)`.
 ### Stock leg (top-10, account `#PA368CPXNS13`)
 - **Buy (NEW BUY):** a stock enters the top-10 by weekly score and isn't held.
 - **Buy (REBALANCE):** any held in-play name below `equity ÷ N` is topped up to equal weight.
-  Slots freed by a ratchet stop / same-day cool-off / chase-guard block are backfilled from rank 11+.
+  Slots freed by a ratchet stop / same-day cool-off / chase-guard block are backfilled from the
+  next-best scored names (rank N+1…) using the **same** `(-score, -gap_w)` key as the top-N
+  (`emasma_core.rank_key`), so a filler is the genuine next-best, not an arbitrary tie-break.
 - **Sell (rotation):** a held stock **that is still scored today** drops out of the top-10.
 - **Sell (ratchet):** the last settled **daily** close falls below
   `(highest daily close since entry) − 2×daily ATR`. Fires independently of ranking — a name

@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import config
 import db as db_module
+from emasma_core import rank_key
 
 NY = ZoneInfo('America/New_York')
 
@@ -630,7 +631,10 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         freed_count = len(blocked_buy_ban) + len(pre_blocked)
         fillers = []
         if freed_count:
-            ranked = sorted(score_detail.items(), key=lambda kv: -kv[1].get('score', 0))
+            # Rank the pool with the SAME key as the top-N (score DESC, then
+            # gap_w DESC — emasma_core.rank_key) so a filler is the genuine
+            # next-best, not an arbitrary pick among tie-scored names.
+            ranked = sorted(score_detail.items(), key=lambda kv: rank_key(kv[1]))
             for sym, sd in ranked:
                 if len(fillers) >= freed_count:
                     break
