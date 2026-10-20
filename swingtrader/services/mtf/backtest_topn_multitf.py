@@ -26,6 +26,7 @@ from datetime import datetime, date as dt_date, timedelta
 
 import config
 import db as db_module
+from emasma_core import compute_emasma_score as _compute_emasma_score
 
 
 def _backtest_signature(args):
@@ -622,7 +623,19 @@ def backtest(argv=None):
                         # bullish filter above (we>ws), so gap_w is always > 0.
                         emasma_score = round(max(0.0, 5.0 - gap_w / 5), 2)
                     else:
-                        emasma_score = round(min(gap_w / 5, 5), 2)
+                        # DEFAULT strategy signal — the SAME implementation live
+                        # uses (emasma_core.compute_emasma_score), so backtest and
+                        # live can no longer drift. The shared function re-applies
+                        # the warmup/NaN/we<=ws guards and returns score+gap_w;
+                        # live passes the nearest daily close, so mirror that (di
+                        # may be None on weekly-only days — the field is
+                        # informational and never feeds the score).
+                        _dc = daily[tid]['close'][di] if di is not None else wc
+                        _res = _compute_emasma_score(weekly[tid], _dc, wi, sig_date)
+                        if _res is None:
+                            continue
+                        emasma_score = _res['score']
+                        gap_w = _res['gap_w']
                     candidates.append((tid, emasma_score, gap_w))
                     continue
 
