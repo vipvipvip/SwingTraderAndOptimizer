@@ -90,7 +90,7 @@ def backfill_timeframes(timeframes, symbols=None, workers=4, dry_run=False, reco
               f'{len(universe) - len(pending)} current', flush=True)
         errs, no_new, bars = [], [], 0
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            futs = [ex.submit(lp.work, it, tf, table, dry_run, frontiers.get(it[0]), False)
+            futs = [ex.submit(lp.work, it, tf, table, dry_run, frontiers.get(it[0]), False, cutoff)
                     for it in pending]
             for fut in as_completed(futs):
                 sym, n, status = fut.result()
