@@ -57,3 +57,13 @@ Variant A preferred model/benchmark and beats the gate on return in-sample, but 
 ## Decision 2026-09-28 #2 (variant P, "LegEMA") — go-live
 
 P{span}w = A's weekly-EW machinery + a PER-LEG binary crossover. **P20w is the pick** — full 2016→2026 (560 settled weeks): +364.27%/−19.2% DD vs A +396.17%/−33.2% and EG100 +268.83%/−16.1% (~92% of A's return at ~58% of A's DD; strongest weekly variant in every starts-sweep 2016→2022). Go-live executed 2026-09-28 (~14:07 ET) on #PA3GKZYLVO68: handover run trimmed the EG100-equal book to P20w EW targets in one shot (dedupe recorded week 2026-09-21), EG100 crontab line commented out, `swingtrader-legema.{service,timer}` created in `swingtrader/services/mtf/systemd/` (install into `/etc/systemd/system` needs sudo — single `systemctl enable --now` command). Slack `[CoreEW-LegEMA]`.
+
+## Decision 2026-10-20 (data-readiness gate on the LegEMA path) — go-live
+
+**Context:** a Fri–Mon outage (box off after Fri 10-16 morning, back Mon 17:58) showed that `legema` was the only order-placer with **no** data-readiness gate — MTF (`runner.py::_run_readiness_gate`) and DailySignal (`daily_signal_service.py`) both call `scanner/services/scripts/data_readiness.py`, but the CoreEW driver computed its weekly series and acted unconditionally. On a stale/caught-up-late box it could act on a series whose frontier had not advanced.
+
+**Change:** `ExecuteLegEma::dataReadinessGate()` — inserted after the 30-min warm-up and before `runLegEma`:
+1. **Series freshness (in-process, cheap):** `legEmaState($span)['last_week']` must be ≥ the previous Monday (`strtotime(last_week . ' +14 days') > today`), mirroring the series SQL's `(d.date::date + 7) <= CURRENT_DATE` consumption rule — catches a stale frontier even if Python is unavailable.
+2. **Canonical gate (subprocess):** `scanner/.venv/bin/python3 scanner/services/scripts/data_readiness.py --tf week,day --mode etf --json --workers 6`, `--ensure` live / `--check` on `--dry-run`; parses `modes.*.*.problems`.
+
+**Fail-closed semantics:** failure → console error + exit 1, **no weekly claim, no orders**; red Slack only on the live path (never on `--dry-run`). `--state`/`--json` bypass the gate (read-only). `--override` does **not** bypass it. `DATA_GATE_SCRIPT` env override can only point at another script (tests) — never skip the gate. Effective at the **next** 10:05 ET run (the gate edit landed after today's 2026-10-20 10:05 run had already acted on week 2026-10-12).

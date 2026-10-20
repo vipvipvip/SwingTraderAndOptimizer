@@ -7,6 +7,7 @@ use App\Services\TradeExecutorService;
 use App\Services\EquityService;
 use Illuminate\Console\Command;
 use GuzzleHttp\Client;
+use Symfony\Component\Process\Process;
 
 /**
  * CoreEW variant P{span}w — per-leg weekly EMA crossover (QQQ/VTI/VTV): each ETF
@@ -23,6 +24,11 @@ use GuzzleHttp\Client;
  * Weekly dedupe (storage/coreew_leg_ema_last_week.txt): acts once per NEW settled
  * week, so a 5-min cron cadence costs nothing between Mondays. Same 30-min
  * opening warm-up gate and fill discipline as the other CoreEW drivers.
+ *
+ * A data-readiness gate (dataReadinessGate(), added 2026-10-20) runs after the
+ * warm-up and before runLegEma: it refuses to act (no claim, no orders, red
+ * Slack) when the weekly/daily scanner series are stale, using the SAME
+ * canonical gate as MTF + DailySignal (scanner/services/scripts/data_readiness.py).
  */
 class ExecuteLegEma extends Command
 {
@@ -94,6 +100,19 @@ class ExecuteLegEma extends Command
                         . max(0, 1800 - $secsSinceOpen) . 's remain) - no trades.');
                     return 0;
                 }
+            }
+
+            // Data-readiness gate: never compute/act on a stale weekly series
+            // (same canonical gate as MTF + DailySignal). Live uses --ensure
+            // (verify -> repair -> re-verify); --dry-run checks only, no writes.
+            // Fails closed: no claim, no orders; red Slack on the live path.
+            $gateErr = $this->dataReadinessGate($dryRun);
+            if ($gateErr !== null) {
+                $this->error($gateErr);
+                if (!$dryRun) {
+                    $this->sendSlackReport(null, null, $acctNo, $span, $gateErr);
+                }
+                return 1;
             }
 
             if ($dryRun) {
@@ -183,6 +202,113 @@ class ExecuteLegEma extends Command
         } catch (\Exception $e) {
             \Log::warning('Could not record execution time: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Data-readiness gate. Returns null when the weekly + daily series are safe to
+     * act on, or a human-readable error string when they are not (fail closed).
+     *
+     * Two checks:
+     *  1. Series freshness (cheap, in-process): the newest consumed settled weekly
+     *     bar must not be older than last Monday. Mirrors the series SQL's
+     *     `(d.date::date + 7) <= CURRENT_DATE` consumption rule, so a stale
+     *     frontier is caught even if the Python gate is unavailable.
+     *  2. Canonical gate (subprocess): scanner/services/scripts/data_readiness.py
+     *     --tf week,day --mode etf, the SAME gate MTF (runner.py) and DailySignal
+     *     use — verify -> repair -> re-verify. Its JSON `modes.*.*.problems`
+     *     drives the pass/fail.
+     *
+     * `--dry-run` runs only the read-only `--check` variant so a preview never
+     * mutates data; live uses `--ensure` (repair then re-verify).
+     *
+     * Env override DATA_GATE_SCRIPT points the subprocess at an alternate script
+     * (used by tests); it can only tighten the gate, never bypass it.
+     */
+    private function dataReadinessGate(bool $dryRun): ?string
+    {
+        // --- 1. Series freshness (mirrors the series consumption SQL). ---
+        try {
+            $span = (int) ($this->option('span') !== null ? $this->option('span') : env('COREEW_LEG_EMA_SPAN', 20));
+            $st = app(TradeExecutorService::class)->legEmaState($span);
+            if (!empty($st['error'])) {
+                return 'data gate: series state error: ' . $st['error'];
+            }
+            $lastWeek = $st['last_week'] ?? null;
+            if ($lastWeek) {
+                // Newest settled week must not be older than the previous Monday.
+                $staleAfter = strtotime($lastWeek . ' +14 days');
+                if ($staleAfter !== false && $staleAfter <= strtotime('today')) {
+                    return 'data gate: weekly series stale (last settled week ' . $lastWeek
+                        . '); scanner data did not catch up';
+                }
+            }
+        } catch (\Exception $e) {
+            return 'data gate: freshness check failed: ' . $e->getMessage();
+        }
+
+        // --- 2. Canonical readiness gate (subprocess). ---
+        $root = dirname(base_path(), 2);
+        $script = env('DATA_GATE_SCRIPT', $root . '/scanner/services/scripts/data_readiness.py');
+        $python = $root . '/scanner/.venv/bin/python3';
+        if (!is_file($python)) {
+            return 'data gate: python venv not found at ' . $python;
+        }
+        if (!is_file($script)) {
+            return 'data gate: readiness script not found at ' . $script;
+        }
+
+        $args = [$python, $script];
+        $args[] = $dryRun ? '--check' : '--ensure';
+        $args[] = '--tf';
+        $args[] = 'week,day';
+        $args[] = '--mode';
+        $args[] = 'etf';
+        $args[] = '--json';
+        $args[] = '--workers';
+        $args[] = '6';
+
+        try {
+            $proc = new Process($args);
+            $proc->setTimeout(900);
+            $proc->run();
+        } catch (\Exception $e) {
+            return 'data gate: could not run readiness script: ' . $e->getMessage();
+        }
+
+        $out = $proc->getOutput();
+        $report = null;
+        foreach (array_reverse(preg_split('/\r?\n/', (string) $out)) as $line) {
+            $line = trim($line);
+            if ($line !== '' && $line[0] === '{') {
+                $decoded = json_decode($line, true);
+                if (is_array($decoded)) {
+                    $report = $decoded;
+                    break;
+                }
+            }
+        }
+
+        if ($report === null) {
+            $tail = trim((string) $proc->getErrorOutput());
+            return 'data gate: no readiness report (exit ' . $proc->getExitCode() . ')'
+                . ($tail !== '' ? ': ' . mb_substr($tail, -300) : '');
+        }
+
+        $problems = [];
+        foreach (($report['modes'] ?? []) as $modeReports) {
+            foreach ((array) $modeReports as $tfReport) {
+                foreach (($tfReport['problems'] ?? []) as $p) {
+                    $problems[] = $p;
+                }
+            }
+        }
+
+        if (!empty($report['ready']) && empty($problems)) {
+            return null;
+        }
+
+        $detail = $problems ? implode('; ', array_slice($problems, 0, 4)) : 'readiness not met';
+        return 'data gate: scanner data not ready - ' . $detail;
     }
 
     private function secondsSinceSessionOpen(array $clock): ?float

@@ -28,7 +28,7 @@ edit the component's copy, then re-verify against the OS.
 
 | Driver | Mechanism | Schedule | Status |
 |---|---|---|---|
-| **CoreEW P20w** — "LegEMA" (`trades:execute-leg-ema --span=20`) | systemd `swingtrader-legema.{service,timer}` | Mon–Fri 10:05 ET (+0–60 s `RandomizedDelaySec`) | ✅ enabled/active — per-leg weekly EMA(20) crossover, acts once per new settled week |
+| **CoreEW P20w** — "LegEMA" (`trades:execute-leg-ema --span=20`) | systemd `swingtrader-legema.{service,timer}` | Mon–Fri 10:05 ET (+0–60 s `RandomizedDelaySec`) | ✅ enabled/active — per-leg weekly EMA(20) crossover, acts once per new settled week; **data-readiness gate added 2026-10-20** (`dataReadinessGate()`: series-freshness + `data_readiness.py --tf week,day --mode etf`; live `--ensure`, dry-run `--check`; fails closed → no claim/orders + red Slack) |
 | **MTF Top-N** (`swingtrader-mtf-executor --mode all`) | systemd `swingtrader-mtf-executor.{service,timer}` | Mon–Fri 10:25 ET | ✅ enabled/active — scores **and** executes both legs (stocks #PA368CPXNS13, ETFs #PA3U8GZ96PEN) |
 
 These are the **only** order-placing drivers. The old CoreEG100 crontab line is commented
