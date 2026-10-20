@@ -40,6 +40,18 @@ INITIAL_CAPITAL = 100000.0
 WARMUP_BARS = 60
 TS_START = '2023-06-30'
 
+# MACD cross-proximity entry gate (stock leg only, 2026-10-20).
+# The weekly EMA10>SMA40 cross (CO) usually comes FIRST; the weekly MACD diff
+# line (EMA10-EMA40) then turns +ve within a few bars. Require the two events to
+# be in sync within +/- EMASMA_MACD_PROX weekly bars, else reject the entry.
+# Event-level A/B: in-sync crosses +2.5%/59% win vs not-sync -0.4%/48% (K=5,
+# weekly 8w fwd). PORTFOLIO-level A/B found NO DD/win improvement (DD 43.8->43.1,
+# win 48->49) — this is a forward-test of an unvalidated signal, reversible by
+# flipping EMASMA_MACD_GATE. Applies to the stock leg only; the ETF leg (frozen
+# experiment) is unaffected. Implementation is shared: emasma_core.macd_gate_ok.
+EMASMA_MACD_GATE = True
+EMASMA_MACD_PROX = 5
+
 # Ratchet-ATR exit (matches backtest --exit ratchet-atr --ratchet-atr-src
 # daily): exit a held position when its close < (highest daily close since
 # entry) - RATCHET_ATR_MULT x DAILY ATR, where ATR comes from the daily table

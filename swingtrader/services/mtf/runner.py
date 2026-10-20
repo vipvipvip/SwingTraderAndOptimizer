@@ -670,7 +670,12 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
                   f'(baseline {baseline})')
             continue
         if is_etf or strategy == 'emasma':
-            result = _compute_emasma_score(weekly_data[tid], daily_data[tid]['close'][di], wi, sig_date)
+            # MACD cross-proximity entry gate: stock leg only (never the ETF leg,
+            # which is a frozen experiment). Flag-guarded and reversible via
+            # config.EMASMA_MACD_GATE; implementation shared with the backtest.
+            _macd_gate = (not is_etf) and strategy == 'emasma' and config.EMASMA_MACD_GATE
+            result = _compute_emasma_score(weekly_data[tid], daily_data[tid]['close'][di], wi, sig_date,
+                                           use_macd_gate=_macd_gate)
         else:
             hi = _nearest_date_idx(hourly_idx[tid], hourly_dates_sorted[tid], sig_date)
             if hi is None:
