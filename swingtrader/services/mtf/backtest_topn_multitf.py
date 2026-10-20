@@ -278,6 +278,14 @@ def backtest(argv=None):
                              '(fewest days since the cross = highest score, max 5.0 at 0d, '
                              'decaying to 0 by 300d). Tests the observed pattern that names with '
                              'fresh weekly crosses outperform mature trends, accepting a few whipsaws.')
+    parser.add_argument('--emasma-macd-filter', action='store_true',
+                        help='emasma entry gate: require the weekly MACD diff (EMA10-EMA40) '
+                             'zero-cross to be within +/-K weekly bars of the weekly EMA10>SMA40 '
+                             'up-cross (TOS read: "diff and CO turn in close proximity"). '
+                             'Rejects far-apart crosses, which underperform.')
+    parser.add_argument('--emasma-macd-prox', type=int, default=5,
+                        help='Max bars between the CO cross and MACD diff zero-cross for '
+                             '--emasma-macd-filter (default 5).')
     parser.add_argument('--ppo-filter', action='store_true',
                         help='Hybrid: require TOS WeeklyAndDailyPPO > 0 as an extra entry filter')
     parser.add_argument('--hourly-ema-gate', action='store_true',
@@ -310,6 +318,10 @@ def backtest(argv=None):
                              'the engine-effected COST, keeping them reconcilable.')
     parser.add_argument('--start', default=None,
                         help='Restrict backtest to dates >= YYYY-MM-DD (fair comparison window)')
+    parser.add_argument('--seed-book', default=None,
+                        help='Seed the starting portfolio from a JSON file {"SYM": qty, ...}, '
+                             'marked at cost at the first in-window date. Enables an '
+                             'apples-to-apples replay: same book as live, only management differs.')
     parser.add_argument('--end', default=None,
                         help='Restrict backtest to dates <= YYYY-MM-DD (pin end of the '
                              'comparison window so A/B runs share an identical window)')
@@ -388,6 +400,11 @@ def backtest(argv=None):
             weekly[tid]['ema'] = wc.ewm(span=EMA, adjust=False).mean().to_numpy()
             weekly[tid]['sma'] = wc.rolling(window=SMA).mean().to_numpy()
             weekly[tid]['sma200'] = wc.rolling(window=200).mean().to_numpy()
+            # MACD diff line = EMA10 - EMA40 (same periods as the CO fast leg,
+            # different slow leg: EMA40 vs SMA40). Its zero-cross is the TOS
+            # 'diff turns +/-' event the user reads. ema40 enables the
+            # --emasma-macd-filter entry gate.
+            weekly[tid]['ema40'] = wc.ewm(span=40, adjust=False).mean().to_numpy()
         for tid in daily:
             dc = pd.Series(daily[tid]['close'])
             daily[tid]['ema'] = dc.ewm(span=EMA, adjust=False).mean().to_numpy()
@@ -466,6 +483,39 @@ def backtest(argv=None):
         pos_counts = []
         trade_log = []  # (date, symbol, side, shares, price, ret)
 
+        # Optional seeded book (apples-to-apples replay): start with live's
+        # exact holdings marked at the first in-window date's open, so the only
+        # difference vs live is how the book is MANAGED from here on.
+        if args.seed_book:
+            import json as _json
+            with open(args.seed_book) as _f:
+                seed = _json.load(_f)
+            sym_to_tid = {}
+            for tid in common:
+                s = weekly[tid].get('symbol') or daily[tid].get('symbol')
+                if s:
+                    sym_to_tid[s] = tid
+            seed_date = all_dates[0]
+            for sym, val in seed.items():
+                tid = sym_to_tid.get(sym)
+                if tid is None:
+                    print(f'  [seed] {sym}: no tid in universe — skipped')
+                    continue
+                di = daily_idx[tid].get(seed_date)
+                if di is None:
+                    print(f'  [seed] {sym}: no daily bar at {seed_date} — skipped')
+                    continue
+                # val = qty  OR  {"qty":..,"price":..} (real fill basis)
+                if isinstance(val, dict):
+                    qty = float(val['qty']); px = float(val.get('price') or daily[tid]['open'][di])
+                else:
+                    qty = float(val); px = float(daily[tid]['open'][di])
+                cost = qty * px * (1 + COST)
+                cash -= cost
+                positions[tid] = dict(shares=qty, entry_price=px,
+                                      symbol=sym, peak=px, ratchet=0.0)
+            print(f'  [seed] booked {len(positions)} names at {seed_date}, cash=${cash:,.0f}')
+
         for ri in range(0, len(all_dates), step):
             sig_date = all_dates[ri]
 
@@ -495,6 +545,38 @@ def backtest(argv=None):
                         continue
                     if we <= ws:
                         continue
+                    if args.emasma_macd_filter:
+                        # TOS read: the weekly EMA10>SMA40 CO usually comes FIRST,
+                        # then the weekly MACD diff (EMA10-EMA40) turns +ve within
+                        # +/- K bars. Enter only when BOTH are in sync in that
+                        # window (MACD-only flips while CO is +ve are ignored).
+                        # A far-apart / unconfirmed cross is rejected.
+                        w_ema = weekly[tid]['ema']
+                        w_e40 = weekly[tid]['ema40']
+                        w_sma = weekly[tid]['sma']
+                        # current CO up-cross index at/before wi
+                        co_x = None
+                        for j in range(wi, 0, -1):
+                            if (np.isfinite(w_sma[j]) and np.isfinite(w_sma[j - 1])
+                                    and np.isfinite(w_ema[j]) and np.isfinite(w_ema[j - 1])):
+                                if w_ema[j] > w_sma[j] and w_ema[j - 1] <= w_sma[j - 1]:
+                                    co_x = j
+                                    break
+                        # MACD diff UP-cross (turns +ve) within [co_x, co_x+K]
+                        in_sync = False
+                        if co_x is not None:
+                            lo = max(1, co_x - args.emasma_macd_prox)
+                            hi = min(len(w_e40) - 1, co_x + args.emasma_macd_prox)
+                            for j in range(lo, hi + 1):
+                                if (np.isfinite(w_e40[j]) and np.isfinite(w_e40[j - 1])
+                                        and np.isfinite(w_ema[j]) and np.isfinite(w_ema[j - 1])):
+                                    md_up = (w_ema[j] - w_e40[j]) > 0
+                                    md_prev = (w_ema[j - 1] - w_e40[j - 1]) > 0
+                                    if md_up and not md_prev:
+                                        in_sync = True
+                                        break
+                        if not in_sync:
+                            continue
                     if args.emasma_daily_bull:
                         if di is None or di < 1:
                             continue
