@@ -87,6 +87,11 @@ swingtrader/backend/storage/coreew_equity.json
 swingtrader/backend/storage/coreew_equity.lock
 swingtrader/backend/storage/coreew_gate_last_week.txt
 
+# Local editor/agent permission config (machine-specific; skills are tracked,
+# but settings.json holds per-user allow-lists that must not travel)
+.claude/settings.json
+.claude/settings.local.json
+
 # Runtime state/logs (machine-specific; fresh start on new server)
 scanner/services/.earnings_screener_state.json
 scanner/services/.earnings_fundamentals_cache.json
