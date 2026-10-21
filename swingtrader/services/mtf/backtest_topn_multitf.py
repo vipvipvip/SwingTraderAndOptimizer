@@ -26,7 +26,8 @@ from datetime import datetime, date as dt_date, timedelta
 
 import config
 import db as db_module
-from emasma_core import compute_emasma_score as _compute_emasma_score
+from emasma_core import (compute_emasma_score as _compute_emasma_score,
+                         macd_gate_ok as _macd_gate_ok)
 
 
 def _backtest_signature(args):
@@ -547,36 +548,14 @@ def backtest(argv=None):
                     if we <= ws:
                         continue
                     if args.emasma_macd_filter:
-                        # TOS read: the weekly EMA10>SMA40 CO usually comes FIRST,
-                        # then the weekly MACD diff (EMA10-EMA40) turns +ve within
-                        # +/- K bars. Enter only when BOTH are in sync in that
-                        # window (MACD-only flips while CO is +ve are ignored).
-                        # A far-apart / unconfirmed cross is rejected.
-                        w_ema = weekly[tid]['ema']
-                        w_e40 = weekly[tid]['ema40']
-                        w_sma = weekly[tid]['sma']
-                        # current CO up-cross index at/before wi
-                        co_x = None
-                        for j in range(wi, 0, -1):
-                            if (np.isfinite(w_sma[j]) and np.isfinite(w_sma[j - 1])
-                                    and np.isfinite(w_ema[j]) and np.isfinite(w_ema[j - 1])):
-                                if w_ema[j] > w_sma[j] and w_ema[j - 1] <= w_sma[j - 1]:
-                                    co_x = j
-                                    break
-                        # MACD diff UP-cross (turns +ve) within [co_x, co_x+K]
-                        in_sync = False
-                        if co_x is not None:
-                            lo = max(1, co_x - args.emasma_macd_prox)
-                            hi = min(len(w_e40) - 1, co_x + args.emasma_macd_prox)
-                            for j in range(lo, hi + 1):
-                                if (np.isfinite(w_e40[j]) and np.isfinite(w_e40[j - 1])
-                                        and np.isfinite(w_ema[j]) and np.isfinite(w_ema[j - 1])):
-                                    md_up = (w_ema[j] - w_e40[j]) > 0
-                                    md_prev = (w_ema[j - 1] - w_e40[j - 1]) > 0
-                                    if md_up and not md_prev:
-                                        in_sync = True
-                                        break
-                        if not in_sync:
+                        # MACD cross-proximity gate — the SAME implementation live
+                        # uses (emasma_core.macd_gate_ok; stock leg via
+                        # config.EMASMA_MACD_GATE). Require the weekly EMA10>SMA40
+                        # up-cross to have its weekly MACD diff (EMA10-EMA40)
+                        # zero-cross UP within +/-K weekly bars. Kept as a
+                        # separate backtest flag so the gate can be A/B'd off,
+                        # but the logic is shared, not duplicated.
+                        if not _macd_gate_ok(weekly[tid], wi, args.emasma_macd_prox):
                             continue
                     if args.emasma_daily_bull:
                         if di is None or di < 1:
