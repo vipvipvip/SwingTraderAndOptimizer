@@ -9,7 +9,7 @@ This project contains three distinct trading systems that operate independently:
 | 1 | **CoreEW P20w** ("LegEMA"; formerly CHAND → variant S → CoreEG100) | QQQ/VTI/VTV | Since 2026-09-28: **per-leg weekly EMA(20) crossover** — each ETF is long only while its OWN settled weekly close is above its own EMA(20); ON legs are equal-weighted, OFF legs sit in cash (`trades:execute-leg-ema --span=20`, `swingtrader-legema.timer` Mon–Fri 10:05 ET, atomic weekly claim on `coreew_runs`). Pure crossover, no band. Retired predecessors kept off-cron as rollbacks, in order: CoreEG100 (`trades:execute-EW-gate100`, whole-book index EMA(100) daily gate, retired 09-28), variant S (`trades:execute-EW-gate`, weekly per-leg ATR ratchet, retired 09-27), and the original pure-EW drift-gated driver (`trades:execute-EW-ETF`). See [BUY_SELL_TRIGGERS.md](BUY_SELL_TRIGGERS.md) for the live mechanics, [coreew_family.md](coreew_family.md) for the full narrative + backtests, and the status banner at the top of §1 for what in this section is historical. | ✅ Live (Laravel, paper) |
 | 2 | ~~**EMAC**~~ (stopped) | — | — | ❌ Replaced by MTF |
 | 3 | ~~**MTCS**~~ (stopped) | — | — | ❌ Replaced by MTF |
-| 4 | **MTF Top-N** (emasma rotation) | VTI stocks (top-10) + ETFs (top-3) | `min(gap_w/5, 5)` weekly score, long-eligible only while weekly EMA(10)>SMA(40); stock leg exits on daily-ATR ratchet, ETF leg exits on rotation only | ✅ Live (both legs, once/day 10:25 ET) |
+| 4 | **MTF Top-N** (emasma rotation) | VTI stocks (top-25) + ETFs (top-3) | `min(gap_w/5, 5)` weekly score, long-eligible only while weekly EMA(10)>SMA(40); stock leg also passes the weekly **MACD cross-proximity gate** (±5 weeks, live 2026-10-20) and exits on daily-ATR ratchet; ETF leg exits on rotation only (no MACD gate) | ✅ Live (both legs, once/day 10:25 ET) |
 | 5 | **Daily Signal** (Multi-TF alerts) | All enabled (VTI stocks + ETFs) | 1-hour fresh cross + score | ✅ Slack @ 5:00 PM |
 
 All systems share the same database (`swingtrader`) and Alpaca data source, but their logic, parameters, and objectives are entirely separate.
@@ -424,16 +424,19 @@ and generate BUY/SELL signals at cycle turning points.
 **Service:** `swingtrader-mtf-executor.service` (systemd, once/day 10:25 ET — scores AND
 executes in the same run; the separate evening scorer is disabled)  
 **Location:** `swingtrader/services/mtf/runner.py` + `executor.py`  
-**Universe:** VTI stocks (top-10) + ETFs (top-3) — two independent legs, same run  
+**Universe:** VTI stocks (top-25) + ETFs (top-3) — two independent legs, same run  
 **Account:** Alpaca paper (stocks #PA368CPXNS13 / ETFs #PA3U8GZ96PEN — keys in `mtf/.env`)
 
 ### Strategy
 Daily rotation into the top-N names by weekly EMA/SMA gap score, on settled bars only:
 - **Filter:** long-eligible only while weekly EMA(10) > SMA(40); flat otherwise
+- **Stock-leg entry gate:** the weekly MACD diff (`EMA10 − EMA40`) must zero-cross **up** within
+  ±5 weekly bars of the EMA(10)>SMA(40) up-cross (live 2026-10-20; **stocks only**, ETF leg
+  exempt; gate-failed held names are preserved, never force-sold)
 - **Score:** `min(gap_w / 5, 5)` — how far the weekly close sits above weekly SMA(40),
   capped at 5; ties broken deterministically by `(-score, -gap_w)`
 - **Rebalance:** once/day at 10:25 ET — sell dropped names, buy new entrants
-- **Exit (stock leg):** dropped from top-10, **or** daily-ATR ratchet (last settled daily
+- **Exit (stock leg):** dropped from top-25, **or** daily-ATR ratchet (last settled daily
   close < highest daily close since entry − 2×daily ATR) — fires independently of ranking
 - **Exit (ETF leg):** dropped from top-3 only — no ratchet on this leg
 
@@ -483,12 +486,12 @@ The Daily Signal and MTF Top-N share the **same universe**, the **same hard filt
 
 | | MTF Top-N | Daily Signal |
 |---|---|---|
-| **Trigger** | State-driven: highest current score → top 10 | Event-driven: fresh 1-hour EMA>SMA cross on the **last completed bar** |
+| **Trigger** | State-driven: highest current score → top 25 | Event-driven: fresh 1-hour EMA>SMA cross on the **last completed bar** |
 | **Question** | "Which names are strongest right now?" | "Who just broke out today?" |
 | **Typical score at listing** | ≥ ~5.0 (extended: big `gap_w`/`atr_dist`) | 1.0–3.5 (fresh cross = price near averages) |
 | **Output** | Real Alpaca orders (stocks + ETFs) | Slack alert + CSV only |
 
-**Why they almost never overlap:** a fresh 1-hour cross happens when a name is *near its averages* — `gap_w` and `atr_dist` are small by definition at that moment, so the score is low and it ranks far below the MTF top-10 cutoff. MTF's top-10 is filled with *extended* names (e.g. ZBRA at `gap_w` 52.9%) that crossed weeks/months ago and therefore don't produce "fresh cross today" events.
+**Why they almost never overlap:** a fresh 1-hour cross happens when a name is *near its averages* — `gap_w` and `atr_dist` are small by definition at that moment, so the score is low and it ranks far below the MTF top-25 cutoff. MTF's top-25 is filled with *extended* names (e.g. ZBRA at `gap_w` 52.9%) that crossed weeks/months ago and therefore don't produce "fresh cross today" events.
 
 **The exception proves the rule:** PBF on 2026-08-10 — fresh hourly cross *and* already-extended (`gap_w` 67%) → score 5.1 → listed by the Daily Signal **and** in the MTF top-10, traded live (+2.9%). This only happens when the gap explodes before the hourly cross.
 
@@ -500,7 +503,7 @@ The Daily Signal and MTF Top-N share the **same universe**, the **same hard filt
 |--------|-------|---------|-----------|--------------|
 | **Goal** | Whole-market beta book, trend-gated per leg | Market screening | Rotation trading | Signal alerts |
 | **Strategy** | Per-leg weekly EMA(20) crossover, EW-rebalance among ON legs | 3-way crossover convergence | emasma score top-N (2 legs) | Multi-TF fresh crosses |
-| **Universe** | QQQ/VTI/VTV | S&P 500 | VTI stocks (top-10) + ETFs (top-3) | All enabled (VTI stocks + ETFs) |
+| **Universe** | QQQ/VTI/VTV | S&P 500 | VTI stocks (top-25) + ETFs (top-3) | All enabled (VTI stocks + ETFs) |
 | **Data Frequency** | Settled **weekly** bars, checked Mon–Fri 10:05 ET | Weekly, Daily, 1-Hour | Weekly, Daily | Weekly, Daily, 1-Hour |
 | **Execution** | Live Alpaca orders | Read-only | Live Alpaca orders (both legs) | Slack + CSV only |
 | **Entry** | A leg's weekly close crosses **above** its EMA(20) → ON, topped up to `equity / #ON legs` | 3 aligned crossovers | Enters top-N by score | Fresh 1-hour cross |

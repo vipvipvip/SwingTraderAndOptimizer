@@ -39,6 +39,16 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 ```
 
 - Long only while weekly EMA(10) > SMA(40); flat otherwise.
+- **Stock-leg entry gate (live 2026-10-20): weekly MACD cross-proximity.** The
+  EMA(10)>SMA(40) up-cross must have the weekly MACD diff (`EMA10 − EMA40`)
+  cross zero **up** within **±5 weekly bars** (`config.EMASMA_MACD_GATE`,
+  `EMASMA_MACD_PROX`, `emasma_core.macd_gate_ok`). A name that fails is **not
+  scored** → cannot enter; if already held it is a data-gap-style preserve
+  (whipsaw guard), never a forced sell. **Stocks only** — the ETF leg passes
+  the gate off. Revert = `EMASMA_MACD_GATE = False`. ⚠️ Event-level A/B was
+  favourable (in-sync +2.5%/59% win vs −0.4%/48%, K=5) but **portfolio-level
+  A/B showed no DD/win improvement** (DD 43.8→43.1, win 48→49): forward test,
+  not a proven edge.
 - Stocks rank top-25 (`TOP_N = 25`, raised from 10 on 2026-09-13 with equal-weight sizing), ETFs top-3 (`ETF_TOP_N = 3`).
 - **Deterministic tie-break**: candidate selection sorts by `(-score, -gap_w)`
   (both `runner.py` and `backtest_topn_multitf.py`). Scores cap at `5.0`, so on
@@ -47,10 +57,14 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
   identical picks (the weekly bar is the last completed week in both since 2026-09-25;
   earlier backtests read the decision-day Monday row = a 4-day lookahead). Without it, ties resolved to an arbitrary stable-sort
   (hash-order in the backtest, SQL row order live).
-- **Position sizing**: new entries are sized `notional = equity / top_n`
-  (10% each stocks, ~33% each ETFs); held positions are **not trimmed** to
-  equal weight, so winners drift up as price rises (matches backtest, which
-  also sizes new entries only).
+- **Position sizing**: `EQUAL_WEIGHT = True` — every **in-play** name (held
+  names still in the top-N ∪ new buys ∪ backfill fillers) is resized to
+  `equity / len(book)`, overweights trimmed and underweights topped up
+  (trim-before-top-up). Runs on **both** legs (the ETF leg matched the stocks
+  on 2026-09-17). Preserved data-gap names sit outside the book — never
+  trimmed, never topped up. (Stale note corrected 2026-10-22: the old text
+  said held positions were not trimmed, which stopped being true on
+  2026-09-17.)
 - ⚠️ **Backtest returns are NOT trustworthy as returns — relative signal
   quality only** (see "Backtest honesty" in AGENTS.md): the stock-leg universe
   is survivorship-biased (only today's 1,433 enabled tickers, no delisted/
@@ -66,7 +80,7 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
 ## Architecture
 
 **Intraday sampler (`swingtrader-scanner-hourly`)** — ⛔ **REMOVED 2026-10-05.** It captured latest-trade prices into the hourly table (open=high=low=close, volume = that one trade's size — degenerate bars, median volume ~100 shares), and no live consumer ever remained: MTF emasma scores on settled weekly+daily only. The 2026-10-02 HOURLY purge dropped the table and deleted `capture_hourly.py`, so the units were uninstalled on 10-05. Its one real casualty is `runner.py --fresh`, which read that table and is now unrunnable.
-**Executor (`swingtrader-mtf-executor`)** — once/day at 10:25: `--action score` then `--action execute` on the last COMPLETE daily bar (no `--fresh`): emasma stock leg (top-10) + EMA/SMA ETF leg (top-3), with the daily-ATR ratchet exit on the stock leg. Execute has a **freshness guard** (`FRESH_PENDING_MAX_AGE_HOURS = 6`): if the pending row is older than 6 hours it is refused — a failed score step can never leave stale picks to be traded at a 10:25 fill.
+**Executor (`swingtrader-mtf-executor`)** — once/day at 10:25: `--action score` then `--action execute` on the last COMPLETE daily bar (no `--fresh`): emasma stock leg (top-25) + EMA/SMA ETF leg (top-3), with the daily-ATR ratchet exit on the stock leg. Execute has a **freshness guard** (`FRESH_PENDING_MAX_AGE_HOURS = 6`): if the pending row is older than 6 hours it is refused — a failed score step can never leave stale picks to be traded at a 10:25 fill.
 ```
 ┌──────────┐    ┌──────────────────┐    ┌──────────────────────┐
 │ DB (PSQL)│───▶│  runner.py       │───▶│  Slack alert (picks) │
@@ -191,7 +205,7 @@ The `score ≥ 5` filter was backtested as an alternative strategy:
 
 Backtest confirmed infancy as a hard filter *drags* performance (min-score 5 + infancy: +688% only) — freshness is better as a component of the score (0-2 pts) than a hard cutoff.
 
-**Status: research paper portfolio only — not run in production.** The min-score 5 pipeline, its state files, and CSV variants were removed from `runner.py` (2026-07-31) to keep production lean. The backtest result is retained for reference; revisit only if the default top-10 underperforms live.
+**Status: research paper portfolio only — not run in production.** The min-score 5 pipeline, its state files, and CSV variants were removed from `runner.py` (2026-07-31) to keep production lean. The backtest result is retained for reference; revisit only if the default top-N underperforms live.
 
 Multi-TF score (weekly+daily bullish filter) eliminates weak stocks completely.
 Long scanner's MACD/PPO zero-line crosses are noisy (50% win rate = coin flip).

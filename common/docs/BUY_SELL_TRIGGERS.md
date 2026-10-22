@@ -1,6 +1,7 @@
 # Buy/Sell Triggers — Current Live Strategies
 
-**As of:** 2026-09-28 (CoreEW **P20w** go-live, replacing CoreEG100). Source of truth is
+**As of:** 2026-10-20 (MTF stock leg gains the weekly **MACD cross-proximity entry gate**; CoreEW
+**P20w** live since 2026-09-28, replacing CoreEG100). Source of truth is
 always `AGENTS.md` (repo root) + the code cited below — this doc is a readable explanation of
 the same logic, not a separate spec. If it ever disagrees with AGENTS.md or the code, the
 code wins.
@@ -12,8 +13,8 @@ the two order-placing rows also rebalance at **equal weight, trim-before-top-up*
 | Strategy | Decision cadence | Places orders? | Buy trigger | Sell trigger |
 |---|---|---|---|---|
 | **CoreEW P20w** ("LegEMA") | Once/week — Mon–Fri 10:05 ET timer, acts on a **new settled week** only (midweek runs are a DB-claimed NO-OP) | ✅ Yes (Alpaca `#PA3GKZYLVO68`) | A leg's own settled **weekly** close is **above** its own EMA(20) → held LONG. The ON legs are equal-weighted to `equity ÷ #ON`; underweight ON legs are topped up | That leg's weekly close crosses **below** its EMA(20) → sold to cash; plus the weekly **equal-weight rebalance** of the ON legs (over-weights trimmed). Trim-before-top-up; all three OFF → whole book cash |
-| **MTF Top-N — stock leg** | Once/day, 10:25 ET — **weekly** name signal (settled weekly bars) but **daily** execution: equal-weight rebalance + daily ratchet | ✅ Yes (Alpaca `#PA368CPXNS13`) | **NEW BUY**: a stock enters the top-**10** by weekly score and isn't held. **REBALANCE**: top-up any held in-play name below `equity ÷ N`. Slots freed by ratchet/cool-off/chase-block are backfilled from rank 11+ | **Rotation**: held **and scored today** but drops out of the top-10 → sold. **Ratchet**: last settled **daily** close < `(highest daily close since entry) − 2×daily ATR` (fires any day, even while still top-10). **Rebalance**: held in-play name trimmed to `equity ÷ N`. **Exception**: held but **not scored today** (failed bullish filter or data gap) → **preserved, not sold** (whipsaw guard); the ratchet can still exit it |
-| **MTF Top-N — ETF leg** | Once/day, 10:25 ET (same run) — weekly signal, daily execution | ✅ Yes (Alpaca `#PA3U8GZ96PEN`) | Same as the stock leg: enters the top-**3** by weekly score (**NEW BUY**) or EW top-up (**REBALANCE**); freed slots backfilled from rank 4+ | Same rotation + EW trim as the stock leg, **no ratchet stop** — dropping out of the top-3 is the only signal exit (plus the rebalance trim) |
+| **MTF Top-N — stock leg** | Once/day, 10:25 ET — **weekly** name signal (settled weekly bars) but **daily** execution: equal-weight rebalance + daily ratchet | ✅ Yes (Alpaca `#PA368CPXNS13`) | **NEW BUY**: a stock enters the top-**25** by weekly score, isn't held, and passes the stock-leg **MACD cross-proximity gate**. **REBALANCE**: top-up any held in-play name below `equity ÷ N`. Slots freed by ratchet/cool-off/chase-block are backfilled from rank 26+ | **Rotation**: held **and scored today** but drops out of the top-25 → sold. **Ratchet**: last settled **daily** close < `(highest daily close since entry) − 2×daily ATR` (fires any day, even while still top-25). **Rebalance**: held in-play name trimmed to `equity ÷ N`. **Exception**: held but **not scored today** (failed bullish filter, failed MACD gate, or data gap) → **preserved, not sold** (whipsaw guard); the ratchet can still exit it |
+| **MTF Top-N — ETF leg** | Once/day, 10:25 ET (same run) — weekly signal, daily execution | ✅ Yes (Alpaca `#PA3U8GZ96PEN`) | Same as the stock leg **minus the MACD gate**: enters the top-**3** by weekly score (**NEW BUY**) or EW top-up (**REBALANCE**); freed slots backfilled from rank 4+ | Same rotation + EW trim as the stock leg, **no ratchet stop** — dropping out of the top-3 is the only signal exit (plus the rebalance trim) |
 | **Daily Signal** | Once/day, 17:00 ET | ❌ No — Slack alert only | **Both** of weekly + daily EMA(10)>SMA(40) crosses are done (see §3) | N/A — never holds a position |
 
 ---
@@ -104,7 +105,7 @@ retired driver, not the live one.**
 
 **Code:** `swingtrader/services/mtf/runner.py` + `executor.py`, driven once/day at 10:25 ET
 by `swingtrader-mtf-executor --mode all`, which scores and executes **both legs in the same
-run** — a stock universe (VTI stocks, top-10) and a separate ETF universe (top-3) — each with
+run** — a stock universe (VTI stocks, top-25) and a separate ETF universe (top-3) — each with
 its own Alpaca paper account, its own holdings, and its own buy/sell trigger. They share the
 same scoring formula but are otherwise fully independent books; being top-N on one leg has no
 effect on the other. The **name signal is weekly** (settled weekly bars), but execution runs
@@ -118,23 +119,37 @@ replacement for it.
 the weekly close sits above its weekly SMA(40). Long-eligible only while weekly EMA(10) >
 SMA(40); flat otherwise. Ties broken deterministically by `(-score, -gap_w)`.
 
-### Stock leg (top-10, account `#PA368CPXNS13`)
-- **Buy (NEW BUY):** a stock enters the top-10 by weekly score and isn't held.
+**Stock-leg entry gate — weekly MACD cross-proximity (live 2026-10-20).** The weekly
+EMA(10)>SMA(40) up-cross must have its weekly **MACD diff** (`EMA10 − EMA40`) cross zero **up**
+within **±5 weekly bars** (`config.EMASMA_MACD_GATE = True`, `EMASMA_MACD_PROX = 5`,
+`emasma_core.macd_gate_ok`). The TOS read is "the diff and the CO turn in close proximity";
+far-apart crosses are rejected. A rejected name is **not scored at all**, so it can never enter
+the top-N — and if already held it falls under the whipsaw-guard exception below (preserved).
+**Stock leg only** — the ETF leg never applies this gate. Reversible by flipping one line
+(`EMASMA_MACD_GATE = False`). ⚠️ Event-level A/B: in-sync crosses +2.5% / 59% win vs
+not-in-sync −0.4% / 48% (K=5, 8-week forward). **Portfolio-level A/B showed no
+DD/win improvement** (DD 43.8→43.1, win 48→49) — this is a forward test of an unvalidated
+signal, not a proven edge.
+
+### Stock leg (top-25, account `#PA368CPXNS13`)
+- **Buy (NEW BUY):** a stock enters the top-**25** by weekly score, isn't held, and passes the
+  weekly MACD cross-proximity gate.
 - **Buy (REBALANCE):** any held in-play name below `equity ÷ N` is topped up to equal weight.
   Slots freed by a ratchet stop / same-day cool-off / chase-guard block are backfilled from the
   next-best scored names (rank N+1…) using the **same** `(-score, -gap_w)` key as the top-N
   (`emasma_core.rank_key`), so a filler is the genuine next-best, not an arbitrary tie-break.
-- **Sell (rotation):** a held stock **that is still scored today** drops out of the top-10.
+- **Sell (rotation):** a held stock **that is still scored today** drops out of the top-25.
 - **Sell (ratchet):** the last settled **daily** close falls below
   `(highest daily close since entry) − 2×daily ATR`. Fires independently of ranking — a name
-  can still be top-10 and get stopped out.
+  can still be top-25 and get stopped out.
 - **Sell (rebalance TRIM):** a held in-play name above `equity ÷ N` is trimmed back to target.
 - **Exception — preserved, not sold:** a held stock **not in today's scored set** (failed the
-  weekly bullish filter or missing data) is kept (whipsaw guard); the ratchet can still exit it.
+  weekly bullish filter, **failed the MACD proximity gate**, or missing data) is kept (whipsaw
+  guard); the ratchet can still exit it.
 
 ### ETF leg (top-3, account `#PA3U8GZ96PEN`)
-- **Buy (NEW BUY / REBALANCE):** same as the stock leg — enters the top-3 by weekly score, and
-  every in-play name is topped up / trimmed to `equity ÷ N`.
+- **Buy (NEW BUY / REBALANCE):** same as the stock leg **without the MACD gate** — enters the
+  top-3 by weekly score, and every in-play name is topped up / trimmed to `equity ÷ N`.
 - **Sell:** a held ETF **that is still scored today** drops out of the top-3, or a rebalance
   trim. **No ratchet stop on this leg** — dropping out of the top-3 is the only signal exit.
 

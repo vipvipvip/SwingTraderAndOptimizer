@@ -118,7 +118,7 @@ $1M/$100K Alpaca paper accounts:
 1. **CoreEW P20w ("LegEMA")** — QQQ/VTI/VTV, each leg long only while its own settled weekly
    close is above its own EMA(20); ON legs are equal-weighted, OFF legs sit in cash. Acts once
    per new settled week (systemd timer, Mon–Fri 10:05 ET).
-2. **MTF Top-N** — daily rotation into the top-10 stocks / top-3 ETFs by weekly EMA/SMA gap
+2. **MTF Top-N** — daily rotation into the top-25 stocks / top-3 ETFs by weekly EMA/SMA gap
    score, once/day at 10:25 ET, with a daily-ATR ratchet exit on the stock leg.
 3. **Daily Signal** — Slack-only alert (no orders) when a ticker completes **both** of the
    weekly/daily EMA(10)>SMA(40) crosses, once/day at 17:00 ET.
