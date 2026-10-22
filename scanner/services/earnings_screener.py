@@ -36,7 +36,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import DB_CONFIG
 from fundamentals_research import (
     FundamentalsResearch, format_label, format_detail, format_rating, format_table,
+    slack_table_block as fundamentals_slack_table,
 )
+from table_fmt import numeric_cells, render_table, slack_table_block
 
 SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
 
@@ -75,56 +77,145 @@ def get_db_conn():
     return psycopg2.connect(**DB_CONFIG)
 
 
-def _send_slack(msg):
-    """Send message to Slack."""
+def _send_slack(msg, blocks=None):
+    """Send message to Slack.
+
+    `blocks` renders a native Block Kit layout (real aligned grids). If Slack
+    rejects the block payload — older workspace, unsupported block type — the
+    plain-text version is posted instead so the report is never lost.
+    """
     if not SLACK_WEBHOOK_URL:
         print("[SLACK] No webhook URL configured")
         return
+    payload = {'text': msg}
+    if blocks:
+        payload['blocks'] = blocks
     try:
-        r = requests.post(SLACK_WEBHOOK_URL, json={'text': msg}, timeout=10)
+        r = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
         r.raise_for_status()
         print("[SLACK] Message sent")
     except Exception as e:
+        if blocks:
+            print(f"[SLACK] Block payload rejected ({e}); retrying as plain text")
+            try:
+                r = requests.post(SLACK_WEBHOOK_URL, json={'text': msg}, timeout=10)
+                r.raise_for_status()
+                print("[SLACK] Message sent (plain text)")
+                return
+            except Exception as e2:
+                print(f"[SLACK] Error: {e2}")
+                return
         print(f"[SLACK] Error: {e}")
 
 
+_RESULTS_COLUMNS = (
+    ('Ticker', 'l', 8),
+    ('Earnings', 'r', 10),
+    ('Days', 'r', 5),
+    ('MACD', 'r', 8),
+    ('Signal', 'r', 8),
+    ('Hist', 'r', 8),
+    ('Close', 'r', 8),
+    ('Fresh', 'r', 6),
+    ('Fund', 'r', 6),
+    ('Rate', 'r', 6),
+)
+
+
+def _results_rows(results) -> list:
+    """Cell matrix for the results table — shared by both renderers.
+
+    Numeric columns are rendered at one shared width so their decimals line up
+    vertically instead of ragged per row.
+    """
+    macd = numeric_cells([r['macd'] for r in results], 4)
+    signal = numeric_cells([r['macd_signal'] for r in results], 4)
+    hist = numeric_cells([r['macd_hist'] for r in results], 4)
+    close = numeric_cells([r['close'] for r in results], 2, prefix='$')
+
+    rows = []
+    for idx, r in enumerate(results):
+        fresh = f"{r['freshness']}d".rjust(4)
+        fresh += '*' if r['just_turned_positive'] else ' '
+        rows.append([
+            r['ticker'],
+            str(r['earnings_date']),
+            str(r['days_until_earnings']),
+            macd[idx],
+            signal[idx],
+            hist[idx],
+            close[idx],
+            fresh,
+            format_label(r.get('fundamentals')),
+            format_rating(r.get('fundamentals')),
+        ])
+    return rows
+
+
+def _format_results_table(results) -> list:
+    """Render the results table. Shared by the terminal and the Slack report.
+
+    Column widths come from the rendered cells, so a wide value widens its
+    column for every row instead of shifting the rest of the row out of
+    alignment with the header.
+    """
+    return render_table(_RESULTS_COLUMNS, _results_rows(results))
+
+
 def _send_slack_message(results):
-    """Format and send earnings screener results to Slack using terminal table format."""
+    """Format and send earnings screener results to Slack.
+
+    The tables are posted as native Slack table blocks. A fenced code block is
+    only monospaced inside the message bubble — in notifications, search
+    results and channel previews Slack renders the same text as proportional
+    type, which collapses every column. The plain-text table is kept as the
+    fallback for workspaces that reject the block payload.
+
+    Layout: results table, summary, fundamentals table, then the
+    comma-delimited ticker list at the very bottom.
+    """
     if not results:
         return
 
-    # Build the same table format as terminal output
-    lines = ["*Earnings Crossover — Upcoming Earnings + Bullish Daily MACD*\n"]
-    lines.append("```")
-    lines.append(f"{'Ticker':<8} {'Earnings':>10} {'Days':>5} {'MACD':>8} {'Signal':>8} {'Hist':>8} {'Close':>8} {'Fresh':>6} {'Fund':>6} {'Rate':>6}")
-    lines.append(f"{'-'*8} {'-'*10} {'-'*5} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*6} {'-'*6} {'-'*6}")
-
-    for r in results:
-        fresh_str = f"{r['freshness']}d"
-        if r['just_turned_positive']:
-            fresh_str = f"{r['freshness']}d *"
-
-        lines.append(f"{r['ticker']:<8} {str(r['earnings_date']):>10} {r['days_until_earnings']:>5} "
-                     f"{r['macd']:>8.4f} {r['macd_signal']:>8.4f} {r['macd_hist']:>8.4f} "
-                     f"${r['close']:>7.2f} {fresh_str:>6} {format_label(r.get('fundamentals')):>6} "
-                     f"{format_rating(r.get('fundamentals')):>6}")
-
-    lines.append("```")
-    lines.append(f"*{len(results)} stocks with upcoming earnings + bullish MACD* — sorted by freshness (most recent first)")
-
-    # Comma-delimited ticker list
+    title = "*Earnings Crossover — Upcoming Earnings + Bullish Daily MACD*"
+    summary = (f"*{len(results)} stocks with upcoming earnings + bullish MACD* "
+               "— sorted by freshness (most recent first)")
+    legend = ("_Rate = Yahoo analyst consensus (1=Strong Buy … 5=Strong Sell; "
+              "SB/B/H/S/SS = grade, number = mean). Fund = 0-8 growth score; "
+              "`*` = max, `!` = outside $5-50B scope._")
     ticker_list = ','.join(r['ticker'] for r in results)
-    lines.append(f"\n{ticker_list}")
 
-    # Fundamentals research: revenue + earnings growth per ticker
+    lines = [title, "", "```"]
+    lines.extend(_format_results_table(results))
+    lines.append("```")
+    lines.append(summary)
+    lines.append(legend)
+
     researched = [r for r in results if r.get('fundamentals')]
+    fundamentals_note = ("*Fundamentals (Fund = 0-8 growth score; `*` = max, "
+                         "`!` = outside $5-50B scope. Rate = Yahoo consensus, "
+                         "not CFRA):*")
     if researched:
-        lines.append("\n*Fundamentals (Fund = 0-8 growth score; `*` = max, `!` = outside $5-50B scope. Rate = Yahoo consensus, not CFRA):*")
+        lines.append("")
+        lines.append(fundamentals_note)
         lines.append("```")
         lines.extend(format_table([(r['ticker'], r.get('fundamentals')) for r in results]))
         lines.append("```")
 
-    _send_slack("\n".join(lines))
+    lines.append("")
+    lines.append(ticker_list)
+
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': title}},
+        slack_table_block(_RESULTS_COLUMNS, _results_rows(results)),
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': f"{summary}\n{legend}"}},
+    ]
+    if researched:
+        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': fundamentals_note}})
+        blocks.append(fundamentals_slack_table([(r['ticker'], r.get('fundamentals')) for r in results]))
+    blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': ticker_list}})
+
+    _send_slack("\n".join(lines), blocks)
 
 
 def refresh_earnings_calendar(lookahead_days: int = 28):
@@ -426,21 +517,12 @@ def run_screener(days_ahead: int = 7, fresh_only: bool = True, send_slack: bool 
     print(f"EARNINGS MOMENTUM SCREENER — {len(results)} stocks with upcoming earnings + bullish DAILY MACD")
     print(f"{'='*80}\n")
 
-    print(f"{'Ticker':<8} {'Earnings':>10} {'Days':>5} {'MACD':>8} {'Signal':>8} {'Hist':>8} {'Close':>8} {'Fresh':>6} {'Fund':>6} {'Rate':>6}")
-    print(f"{'-'*8} {'-'*10} {'-'*5} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*6} {'-'*6} {'-'*6}")
-
-    for r in results:
-        # Color coding
-        fresh_str = f"{r['freshness']}d"
-        if r['just_turned_positive']:
-            fresh_str = f"{r['freshness']}d *"
-
-        print(f"{r['ticker']:<8} {str(r['earnings_date']):>10} {r['days_until_earnings']:>5} "
-              f"{r['macd']:>8.4f} {r['macd_signal']:>8.4f} {r['macd_hist']:>8.4f} "
-              f"${r['close']:>7.2f} {fresh_str:>6} {format_label(r.get('fundamentals')):>6} "
-              f"{format_rating(r.get('fundamentals')):>6}")
+    for line in _format_results_table(results):
+        print(line)
 
     print(f"\n* = Just turned positive (fresh crossover)")
+    print(f"Rate = Yahoo analyst consensus (1=Strong Buy … 5=Strong Sell; "
+          f"SB/B/H/S/SS = grade, number = mean).")
     print(f"\nSorted by freshness (most recent crossover first).")
 
     if research:

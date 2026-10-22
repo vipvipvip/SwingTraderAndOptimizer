@@ -99,8 +99,8 @@ Last refresh: 1,380 rows, horizon `2026-11-02`, done manually 2026-10-05.
 ```
 Ticker     Earnings  Days     MACD   Signal     Hist    Close  Fresh   Fund   Rate
 -------- ---------- ----- -------- -------- -------- -------- ------ ------ ------
-RLI      2026-10-19     5   0.2143   0.1761   0.0381 $  20.18     9d   8/8*  H 3.4
-CME      2026-10-21     7   0.1373  -0.1154   0.2528 $  88.84     0d *   2/8!  H 2.5
+RLI      2026-10-19     5   0.2143   0.1761   0.0381 $  20.18     9d    8/8*  H 3.4
+CME      2026-10-21     7   0.1373  -0.1154   0.2528 $  88.84    0d*   2/8!  H 2.5
 
 RLI,CME
 
@@ -121,11 +121,21 @@ CME     $102.9B   +0.8%   -9.2%   +1.6%   -9.7%   comp   B 2.5   OUT MC
 | Signal | MACD signal line |
 | Hist | MACD histogram |
 | Close | Current close price |
-| Fresh | Bars since crossover (0 = today) |
+| Fresh | Bars since crossover (0 = today); `*` marks a crossover on the latest settled bar |
 | Fund | Fundamentals score 0-8; `*` = max, `!` = outside $5-50B scope, `-` = no data |
 | Rate | Yahoo analyst consensus (grade + mean, e.g. `SB 1.4`); blank = no coverage |
 
 `*` = MACD line just crossed above 0 (fresh crossover), or a perfect 8/8 fundamentals score
+
+### Table formatting
+
+Both tables are rendered by `services/table_fmt.py`. Column widths are computed
+from the rendered cells (floored at a per-column minimum), so a value wider than
+the usual width — e.g. `+4659.4%` or a `$123456.78` close — widens that column
+for every row instead of pushing the rest of the row out of alignment with the
+header. Numeric columns are rendered at one shared width so their decimals line
+up, and the `$`/`%`/`n/a` markers stay in a vertical line. A NaN metric renders
+as `n/a` rather than `nan`.
 
 ## Fundamentals research
 
@@ -186,6 +196,7 @@ line. It is added at no extra cost — `t.info` is already fetched for market ca
 
 - `scanner/services/earnings_screener.py` — Main CLI
 - `scanner/services/fundamentals_research.py` — 0-8 growth scorer + scope gate + rating (Fund/Rate columns)
+- `scanner/services/table_fmt.py` — Shared fixed-width table renderer (both report tables)
 - `scanner/services/.earnings_fundamentals_cache.json` — Per-ticker fundamentals cache (gitignored)
 - `common/docs/services_doc/earnings_screener.md` — This file
 - `tbl_earnings_calendar` — DB table caching earnings dates

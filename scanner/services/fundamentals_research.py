@@ -33,11 +33,14 @@ Usage:
 
 import argparse
 import json
+import math
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import yfinance as yf
+
+from table_fmt import is_missing, render_table, slack_table_block as build_slack_table
 
 CACHE_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '.earnings_fundamentals_cache.json'
@@ -64,9 +67,11 @@ def _row(df, label: str, n: int) -> List[Optional[float]]:
     vals: List[Optional[float]] = []
     for v in list(row)[:n]:
         try:
-            vals.append(float(v))
+            value = float(v)
         except (TypeError, ValueError):
             vals.append(None)
+            continue
+        vals.append(None if math.isnan(value) else value)
     return vals
 
 
@@ -217,7 +222,7 @@ def format_label(fr: Optional[Dict]) -> str:
 
 
 def _fmt_pct(v: Optional[float]) -> str:
-    return f"{v:+.1f}%" if v is not None else "n/a"
+    return f"{v:+.1f}%" if not is_missing(v) else "n/a"
 
 
 def _rating_grade(mean: Optional[float]) -> Optional[str]:
@@ -267,14 +272,42 @@ def format_detail(fr: Optional[Dict]) -> str:
     return " · ".join(parts)
 
 
-def _cap_str(cap: Optional[float]) -> str:
-    if not cap:
-        return 'n/a'
+def _cap_parts(cap: Optional[float]) -> Optional[Tuple[float, str, int]]:
+    """Split a market cap into (value, unit suffix, decimals) for column rendering."""
+    if not cap or is_missing(cap):
+        return None
     if cap >= 1e12:
-        return f"${cap/1e12:.1f}T"
+        return cap / 1e12, 'T', 1
     if cap >= 1e9:
-        return f"${cap/1e9:.1f}B"
-    return f"${cap/1e6:.0f}M"
+        return cap / 1e9, 'B', 1
+    return cap / 1e6, 'M', 0
+
+
+def _cap_cells(caps: List[Optional[float]]) -> List[str]:
+    """Market-cap column — the '$' and the unit suffix line up for every row."""
+    parts = [_cap_parts(cap) for cap in caps]
+    width = max((len(f'{part[0]:.{part[2]}f}') for part in parts if part is not None), default=0)
+    cells = []
+    for part in parts:
+        if part is None:
+            cells.append('n/a'.rjust(width + 2))
+            continue
+        value, suffix, decimals = part
+        cells.append(f'${value:>{width}.{decimals}f}{suffix}')
+    return cells
+
+
+def _pct_cells(values: List[Optional[float]]) -> List[str]:
+    """Percent column — sign, digits and '%' line up for every row."""
+    nums = [value for value in values if not is_missing(value)]
+    width = max((len(f'{value:+.1f}') for value in nums), default=0)
+    cells = []
+    for value in values:
+        if is_missing(value):
+            cells.append('n/a'.rjust(width + 1))
+        else:
+            cells.append(f'{value:>+{width}.1f}%')
+    return cells
 
 
 def _scope_str(fr: Dict) -> str:
@@ -292,25 +325,58 @@ def _flag_str(fr: Dict) -> str:
     return ' '.join(flags)
 
 
-def format_table(items) -> List[str]:
-    """Aligned fundamentals table. `items` = list of (ticker, fundamentals-or-None)."""
-    header = (f"{'Ticker':<8} {'MC':>8} {'RevYoY':>7} {'RevQoQ':>7} {'EarnYoY':>7} "
-              f"{'EarnQoQ':>7} {'Margin':>6} {'Rating':>7} {'Scope':>5} {'Flags':<6}")
-    sep = (f"{'-'*8} {'-'*8} {'-'*7} {'-'*7} {'-'*7} {'-'*7} {'-'*6} {'-'*7} {'-'*5} {'-'*6}")
-    lines = [header, sep]
-    for ticker, fr in items:
+_TABLE_COLUMNS = (
+    ('Ticker', 'l', 8),
+    ('MC', 'r', 8),
+    ('RevYoY', 'r', 7),
+    ('RevQoQ', 'r', 7),
+    ('EarnYoY', 'r', 7),
+    ('EarnQoQ', 'r', 7),
+    ('Margin', 'r', 6),
+    ('Rating', 'r', 7),
+    ('Scope', 'r', 5),
+    ('Flags', 'l', 6),
+)
+
+
+def format_table_rows(items) -> List[List[str]]:
+    """Fundamentals cells for every row — shared by both table renderers."""
+    frs = [fr or {} for _ticker, fr in items]
+    mc = _cap_cells([fr.get('market_cap') for fr in frs])
+    rev_yoy = _pct_cells([fr.get('rev_yoy') for fr in frs])
+    rev_qoq = _pct_cells([fr.get('rev_qoq') for fr in frs])
+    earn_yoy = _pct_cells([fr.get('earn_yoy') for fr in frs])
+    earn_qoq = _pct_cells([fr.get('earn_qoq') for fr in frs])
+
+    rows = []
+    for idx, (ticker, fr) in enumerate(items):
         if not fr:
-            lines.append(f"{ticker:<8} {'-':>8} {'-':>7} {'-':>7} {'-':>7} {'-':>7} "
-                         f"{'-':>6} {'-':>7} {'-':>5} {'':<6}")
+            rows.append([ticker, '-', '-', '-', '-', '-', '-', '-', '-', ''])
             continue
         margin = 'ok' if fr.get('margins_ok') is True else ('comp' if fr.get('margins_ok') is False else '-')
-        lines.append(
-            f"{ticker:<8} {_cap_str(fr.get('market_cap')):>8} "
-            f"{_fmt_pct(fr.get('rev_yoy')):>7} {_fmt_pct(fr.get('rev_qoq')):>7} "
-            f"{_fmt_pct(fr.get('earn_yoy')):>7} {_fmt_pct(fr.get('earn_qoq')):>7} "
-            f"{margin:>6} {format_rating(fr):>7} {_scope_str(fr):>5} {_flag_str(fr):<6}"
-        )
-    return lines
+        rows.append([
+            ticker,
+            mc[idx],
+            rev_yoy[idx],
+            rev_qoq[idx],
+            earn_yoy[idx],
+            earn_qoq[idx],
+            margin,
+            format_rating(fr),
+            _scope_str(fr),
+            _flag_str(fr) or '-',
+        ])
+    return rows
+
+
+def format_table(items) -> List[str]:
+    """Aligned fundamentals table. `items` = list of (ticker, fundamentals-or-None)."""
+    return render_table(_TABLE_COLUMNS, format_table_rows(items))
+
+
+def slack_table_block(items) -> dict:
+    """Native Slack table block for the fundamentals. `items` as in `format_table`."""
+    return build_slack_table(_TABLE_COLUMNS, format_table_rows(items))
 
 
 class FundamentalsResearch:
