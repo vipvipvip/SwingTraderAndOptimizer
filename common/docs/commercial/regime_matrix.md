@@ -22,7 +22,7 @@
 
 ## The pattern summary (this is what to quote, it's the honest one)
 
-1. **In strong trends — the majority of 2016–2026 — P20w holds the ride and adds the drawdown insurance ~for free.** Ten years of data: ~92% of buy-and-hold's return at ~59% of the drawdown, while sitting in cash 19% of the time.
+1. **In strong trends — the majority of 2016–2026 — P20w holds the ride and adds the drawdown insurance ~for free.** Ten years of data: ~86% of buy-and-hold's return at ~60% of the drawdown, while sitting in cash ~11% of the time.
 2. **In sharp crashes (2018 Q4, COVID, 2025, 2026-Q1) the exits fire before the damage has fully happened** — the strategy's core value. It rarely catches the exact bottom, by design; it trades the *start* of a breakdown for safety.
 3. **In rough, mean-reverting chop (2022, spring 2023) it whipsaws and pays a churn tax.** That is the known cost of a trend-following design. If the world trades sideways-for-years the strategy will trail buy-and-hold — a real scenario, disclosed, not hidden.
 4. **Responsiveness increases with volatility of the drawdown, not of the daily print** — weekly bars filter out the noise that kills daily-frequency systems (the rejected daily variant churned 30×/yr/leg for ~55% of the return).

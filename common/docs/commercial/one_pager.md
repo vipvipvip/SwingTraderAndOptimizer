@@ -38,7 +38,7 @@ They are broad, deep, liquid instruments — no single-stock or single-sector fr
 The 20-week exponential average is a slow, trend-following filter. Its properties, shown in `performance.md`:
 
 - In a **sustained leg up**, price keeps printing above it and the leg stays long — you stay invested instead of trading in and out.
-- In a **drawdown**, price breaking below it gets you out faster than buy-and-hold, which is why P20w's historical maximum drawdown is roughly **half** of buy-and-hold's over the same decade.
+- In a **drawdown**, price breaking below it gets you out faster than buy-and-hold, which is why P20w's historical maximum drawdown is about **60%** of buy-and-hold's over the same decade.
 
 We did not pick this filter blindly. We tested the whole family — faster spans (5, 10) and slower (50) — plus a daily-close version of the same idea. The daily version **churns**: 30 trades per leg per year, ~55% of the return, almost the same drawdown as buy-and-hold (that's the "research graveyard" in `performance.md`). The weekly version was chosen precisely because it survives the sweep of starting dates and spans robustly — the evidence is in `performance.md`, not suppressed.
 

@@ -1,0 +1,110 @@
+{
+  "_about": "Post-fix baseline (2026-10-22). Supersedes 2026-10-05_post_refresh.json for CoreEW. The old coreew_p20w +696.82% was a lookahead artifact and is permanently retired.",
+  "_caution": "per AGENTS.md these are NOT expected returns. MTF stock-leg return is dominated by survivorship + concentration. Use for signal quality and replicable picks only.",
+  "_harness_fix": "Sim.rebalance now sells leavers -> trims overweights -> tops up underweights (capped at cash). The mtf_emasma_* values below were measured BEFORE this fix and must be re-run before quoting.",
+  "provenance": {
+    "data_tables": ["tbl_prices_daily", "tbl_prices_weekly"],
+    "daily_rows": 3634972,
+    "weekly_rows": 753623,
+    "daily_max_date": "2026-10-21",
+    "weekly_max_date": "2026-10-12",
+    "generated": "2026-10-22",
+    "cost_per_side": 0.0005,
+    "initial_capital": 100000,
+    "fill_convention": "weekly / next-close / rebalance-orders, symmetric 5bp per side",
+    "signal_source": "emasma_core (shared with live runner.py)",
+    "coreew_signal_source": "PHP TradeExecutorService::replayLegEmaSeries (shared with live trades:execute-leg-ema)"
+  },
+  "coreew_p20w": {
+    "window": "2016-01-04 -> 2026-10-20 (563 weekly bars, last decision 2026-10-12)",
+    "total_return_pct": 346.8,
+    "cagr_pct": 14.91,
+    "max_dd_pct": -19.5,
+    "calmar": 0.76,
+    "weeks_up_pct": 55.8,
+    "daily_up_pct": 49.5,
+    "orders": 1475,
+    "avg_invested_pct": 89.0,
+    "note": "Daily-marked equity. Same window to 2026-09-25: +353.09% / -19.5% DD."
+  },
+  "coreew_p20w_recent": {
+    "window": "2023-06-30 -> 2026-10-20 (830 trading days)",
+    "total_return_pct": 76.09,
+    "cagr_pct": 18.66,
+    "max_dd_pct": -9.4,
+    "calmar": 1.98,
+    "weeks_up_pct": 57.2,
+    "orders": 484,
+    "avg_invested_pct": 93.4
+  },
+  "coreew_span_sweep_full": {
+    "5": {"total_return_pct": 219.52, "cagr_pct": 11.36, "max_dd_pct": -19.7, "calmar": 0.58, "orders": 1395},
+    "10": {"total_return_pct": 286.88, "cagr_pct": 13.36, "max_dd_pct": -14.5, "calmar": 0.92, "orders": 1440},
+    "20": {"total_return_pct": 346.8, "cagr_pct": 14.91, "max_dd_pct": -19.5, "calmar": 0.76, "orders": 1475},
+    "50": {"total_return_pct": 241.56, "cagr_pct": 12.05, "max_dd_pct": -28.5, "calmar": 0.42, "orders": 1539}
+  },
+  "benchmark_buy_and_hold_full": {
+    "window": "2016-01-04 -> 2026-10-20",
+    "total_return_pct": 403.44,
+    "cagr_pct": 16.16,
+    "max_dd_pct": -32.6,
+    "calmar": 0.49,
+    "weeks_up_pct": 59.1
+  },
+  "coreew_variant_a_full": {
+    "window": "2016-01-04 -> 2026-10-20",
+    "total_return_pct": 392.35,
+    "cagr_pct": 15.92,
+    "max_dd_pct": -33.2,
+    "calmar": 0.48,
+    "weeks_up_pct": 58.8,
+    "orders": 1743
+  },
+  "coreew_variant_a_recent": {
+    "window": "2023-06-30 -> 2026-10-20",
+    "total_return_pct": 82.83,
+    "cagr_pct": 20.01,
+    "max_dd_pct": -18.7,
+    "calmar": 1.07,
+    "orders": 537
+  },
+  "benchmark_buy_and_hold_recent": {
+    "window": "2023-06-30 -> 2026-10-20",
+    "total_return_pct": 82.15,
+    "cagr_pct": 19.88,
+    "max_dd_pct": -18.8,
+    "calmar": 1.06
+  },
+  "mtf_emasma_etf": {
+    "window": "2023-06-30 -> 2026-10-02",
+    "total_return_pct": 182.68,
+    "cagr_pct": 38.13,
+    "max_dd_pct": -13.2,
+    "calmar": 2.88,
+    "periods_up_pct": 60.7,
+    "orders": 471,
+    "avg_invested_pct": 87.6,
+    "STALE": "Measured before the 2026-10-22 Sim.rebalance fix. Re-run before quoting.",
+    "note": "Window is config.TS_START (2023-06-30), NOT comparable to the old 2021-09-21->2026-09-25 comment (+106%/-31.7%). Re-run on a matched window before quoting either."
+  },
+  "mtf_emasma_stock": {
+    "window": "2023-06-30 -> 2026-10-02",
+    "total_return_pct": 107326.53,
+    "cagr_pct": 775.44,
+    "max_dd_pct": -18.5,
+    "calmar": 41.87,
+    "periods_up_pct": 78.6,
+    "orders": 4899,
+    "avg_invested_pct": 97.0,
+    "STALE": "Measured before the 2026-10-22 Sim.rebalance fix. Re-run before quoting.",
+    "SURVIVORSHIP_ARTIFACT": "Do NOT publish. Equal-weight top-25 over today's enabled survivor list. Matches the pre-existing 'returns are fantasy' warning in config.py."
+  },
+  "retired": {
+    "coreew_p20w_2026_10_05": {
+      "total_return_pct": 696.82,
+      "cagr_pct": 21.38,
+      "max_dd_pct": -10.3,
+      "status": "INVALID - lookahead: filled inside the decision week. Do not use."
+    }
+  }
+}

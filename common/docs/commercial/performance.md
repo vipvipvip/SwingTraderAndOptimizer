@@ -2,38 +2,38 @@
 
 > **HYPOTHETICAL, not a promise.** Live trading started 2026-09-28 on a paper account — there is **no real track record yet**. See `disclosure.md`.
 
-> **ENGINE UNDER CALIBRATION — 2026-10-05.** A shared-code backtest engine was built and validated during the price-table refresh. **The performance figures below are the pre-refresh, reconciled baseline and remain authoritative.** The new engine has *not* been shown to reproduce them, and its own numbers swing by ~165 percentage points depending on a fill convention that is not yet pinned. See "Refresh outcome" before changing anything.
+> **REFRESHED 2026-10-22.** The previous sheet's +364.27% came from a script that charged costs on sells only, and the rebuilt engine briefly printed +696.82% because of a lookahead bug (it filled on the Tuesday *inside* the decision week). Both are fixed. The figures below come from the pinned convention in `swingtrader/services/backtest/FILL_CONVENTION.md`, are marked to market daily, and are enforced by `regression_check.py`. See "Refresh outcome".
 
 **Which strategies are compared:** rounded equal-weight buy & hold of QQQ+VTI+VTV (**"B&H"**), a plain weekly equal-weight re-balance with no signals (**"A"**), and **P20w** (per-leg weekly EMA20 crossover, equal-weight among long legs). A is the benchmark that says "what did the signals actually add?"
 
 ## Headline table
 
-**Full period: 2016-01-04 → 2026-09-25 (560 settled weeks)**
+**Full period: 2016-01-04 → 2026-10-20 (563 settled weeks)**
 
 | Metric | B&H (EW) | A (weekly EW) | **P20w** | P20w vs B&H |
 |---|---|---|---|---|
-| Total return | +410.41% | +396.17% | **+364.27%** | −46pp |
-| CAGR | 16.4% | 16.1% | **15.4%** | −1.0pp |
-| Max drawdown | 32.6% | 33.2% | **19.2%** | **−13.4pp** |
-| Calmar (CAGR ÷ MaxDD) | 0.50 | 0.48 | **0.80** | **+60%** |
-| % of weeks up (settled) | 60.8% | 60.6% | 55.8% | — |
-| Avg % of capital invested | 100% | 100% | **81%** | −19pp |
-| Orders (buys/sells) | — | 860/820 | 747/687 | — |
-| Per-leg flips (total) | — | — | QQQ 45 · VTI 41 · VTV 63 | — |
+| Total return | +403.44% | +392.35% | **+346.80%** | −56.6pp |
+| CAGR | 16.2% | 15.9% | **14.9%** | −1.3pp |
+| Max drawdown | 32.6% | 33.2% | **19.5%** | **−13.1pp** |
+| Calmar (CAGR ÷ MaxDD) | 0.49 | 0.48 | **0.76** | **+55%** |
+| % of weeks up (settled) | 59.1% | 58.8% | 55.8% | — |
+| Avg % of capital invested | 100% | 100% | **89%** | −11pp |
+| Rebalance orders (total) | — | 1,743 | 1,475 | — |
+| Per-leg flips (total, through 2026-10-20) | — | — | QQQ 46 · VTI 41 · VTV 65 | — |
 
-**Recent period: 2023-06-30 → 2026-09-25 (813d)**
+**Recent period: 2023-06-30 → 2026-10-20 (830d)**
 
 | Metric | B&H (EW) | **P20w** |
 |---|---|---|
-| Total return | +83.69% | **+79.26%** |
-| CAGR | 20.7% | **19.9%** |
+| Total return | +82.15% | **+76.09%** |
+| CAGR | 19.9% | **18.7%** |
 | Max drawdown | 18.8% | **9.4%** |
-| Calmar | 1.11 | **2.12** |
-| Avg % capital invested | 100% | 87% |
+| Calmar | 1.06 | **1.98** |
+| Avg % capital invested | 100% | 93% |
 
-**The one-sentence summary that survives scrutiny:** P20w historically delivered **~92% of buy-and-hold's total return at ~59% of buy-and-hold's drawdown**, while being fully in cash ~19% of the time and only making 2–3 small trades per week.
+**The one-sentence summary that survives scrutiny:** P20w historically delivered **~86% of buy-and-hold's total return at ~60% of buy-and-hold's drawdown**, while being in cash ~11% of the time and making ~2–3 small rebalance orders per week.
 
-Definitions: **Max drawdown** = largest peak-to-trough decline of the equity curve. **Calmar** = CAGR divided by Max drawdown (higher = more return per unit of pain). Both are historical hypothetical values — a 9–19% drawdown is *what happened before*, not a guarantee of a maximum.
+Definitions: **Max drawdown** = largest daily peak-to-trough decline of the equity curve. **Calmar** = CAGR divided by Max drawdown (higher = more return per unit of pain). Both are historical hypothetical values — a 9–20% drawdown is *what happened before*, not a guarantee of a maximum.
 
 ## "Was this cherry-picked?" — the sweeps we publish
 
@@ -41,25 +41,23 @@ In-sample selection is the #1 objection, so we print the sweeps that expose it r
 
 **Span sensitivity (that's the "20" in P20w; full period 2016→2026)**
 
-| Span (weekly EMA) | Total return | Max drawdown |
-|---|---|---|
-| P5w | +240.22% | 19.4% |
-| P10w | +305.38% | 14.4% |
-| **P20w** | **+364.27%** | **19.2%** |
-| P50w | +250.22% | 28.4% |
+| Span (weekly EMA) | Total return | Max drawdown | Calmar |
+|---|---|---|---|
+| P5w | +219.52% | 19.7% | 0.58 |
+| P10w | +286.88% | **14.5%** | **0.92** |
+| **P20w (live)** | **+346.80%** | 19.5% | 0.76 |
+| P50w | +241.56% | 28.5% | 0.42 |
 
 **Start-date sensitivity** (P20w vs plain weekly-EW benchmark A, from different launch dates — the family of curves, not one lucky window)
 
 | Start | P20w | A (benchmark) |
 |---|---|---|
-| 2016-01-04 | +364.27% / −19.2% DD | +396.17% / −33.2% DD |
-| 2020-01-01 | +194% / DD ~19% | +176% / DD ~33% |
-| 2021-09-20 | +81.29% / −19.2% DD | +85.37% / −24.8% DD |
-| 2023-06-30 | +79.26% / −9.4% DD | +83.68% / −18.7% DD |
+| 2016-01-04 | +346.80% / −19.5% DD (Calmar 0.76) | +392.35% / −33.2% DD (0.48) |
+| 2020-01-01 | +184.43% / −19.5% DD (0.85) | +173.94% / −33.2% DD (0.48) |
+| 2021-09-20 | +84.01% / −19.5% DD (0.65) | +91.95% / −24.8% DD (0.55) |
+| 2023-06-30 | +76.09% / −9.4% DD (1.98) | +82.83% / −18.7% DD (1.07) |
 
-P20w is the variant with the most consistent return-per-drawdown profile across every start date tested (2016→2022 starts). No other span beat it across the sweep.
-
-> **Span sweep is pre-refresh and unconfirmed.** It has not been reproduced under the new engine. Do not cite individual span returns until the fill convention is pinned — see below. Note in particular that the new engine produced a *different* span ranking, which is almost certainly a convention artifact rather than a real result. Treat the table above as the historical record, not as current measurement.
+P20w has a **lower drawdown and higher Calmar than A at every start date tested**. A has a slightly higher total return at three of four starts (2016, 2021, 2023); P20w wins the 2020 start outright. Among spans, **P10w has the better Calmar over the full period (0.92 vs 0.76) and at the 2020/2021 starts, but gives up 12–60pp of terminal return depending on the start**; P20w wins the recent window. That trade-off, not a claim that 20 dominates every metric, is why the live span is 20 — see the turn-timing argument below.
 
 ## Non-fitted evidence: where the crossovers actually fire
 
@@ -69,9 +67,9 @@ The sweeps above select a parameter and report its result on the same data, so t
 
 | Span | Exit lag after top (median / mean) | Entry lag after bottom (median / mean) | Exits within 3w | Entries within 3w | Flips measured |
 |---|---|---|---|---|---|
-| 5w | 4w / 4.7 | 3w / 4.6 | 49.5% | 59.0% | 93 / 83 |
-| 10w | 4w / 4.7 | 3w / 4.2 | 46.4% | 56.3% | 84 / 71 |
-| **20w (live)** | **5w / 5.5** | **3w / 3.4** | **46.2%** | **54.5%** | **52 / 44** |
+| 5w | 4w / 4.7 | 3w / 4.6 | 47.9% | 59.0% | 96 / 83 |
+| 10w | 4w / 4.8 | 3w / 4.2 | 45.3% | 56.3% | 86 / 71 |
+| **20w (live)** | **5w / 5.5** | **3w / 3.4** | **45.3%** | **54.5%** | **53 / 44** |
 | 30w | 5w / 5.8 | 3w / 3.6 | 34.1% | 55.3% | 44 / 38 |
 | 50w | 6w / 6.4 | 4w / 4.2 | 23.5% | 46.2% | 34 / 26 |
 
@@ -86,59 +84,59 @@ Caveats: the ±8-week extreme window and the "nearest preceding extreme" rule bo
 
 | Fold | In-sample | Span picked | Out-of-sample | OOS result |
 |---|---|---|---|---|
-| 1 | 2016-01 → 2019-12 | 5w | 2020-01 → 2021-12 | +75.92% / −8.5% DD / Calmar 3.88 |
-| 2 | 2016-01 → 2021-12 | 10w | 2022-01 → 2023-12 | +71.50% / −4.7% DD / Calmar 6.66 |
-| 3 | 2016-01 → 2023-12 | 10w | 2024-01 → 2026-09 | +85.46% / −6.1% DD / Calmar 4.19 |
+| 1 | 2016-01 → 2019-12 | 15w | 2020-01 → 2021-12 | +55.79% / −12.8% DD / Calmar 1.98 |
+| 2 | 2016-01 → 2021-12 | 15w | 2022-01 → 2023-12 | −0.68% / −19.3% DD / Calmar −0.02 |
+| 3 | 2016-01 → 2023-12 | 10w | 2024-01 → 2026-09 | +50.73% / −11.2% DD / Calmar 1.45 |
 
-10w was selected in 2 of 3 folds and every out-of-sample window was positive. **But these levels must not be quoted:** they come from the unreconciled harness convention, and out-of-sample Calmar exceeding in-sample Calmar is a sign the convention flatters results rather than an achievement. Directionally reassuring only.
+15w was selected in 2 of 3 folds, 10w in the third; no fold picked 20w. Two of three out-of-sample windows were positive, but the 2022–23 fold lost money and no span avoided it. **These levels must not be quoted as expectations** — they come from a small number of folds, and out-of-sample Calmar above in-sample Calmar is a sign of a short sample, not an achievement. Directionally reassuring only.
 
-**Decision: the live span stays at 20w.** Two out of three folds favouring 10w is not enough to move live trading, and the turn timing does not clearly favour 10w either — 10w exits about a week earlier (4w vs 5w median) but enters worse (4.2w vs 3.4w mean). Mixed, on a small sample.
+**Decision: the live span stays at 20w.** The walk-forward now leans 15w (2/3), not 20w; the turn timing is flat from 5w to 20w and degrades after; and the picked 15w loses money in the 2022–23 fold. There is no evidence strong enough to move live trading, and no live change will be made without sign-off.
 
 > **On the span sweep generally.** Picking the best-performing span from a sweep and reporting it on the same data is in-sample selection, and the reported figure is biased upward by an amount that grows with the number of spans tried. It is not a method for establishing that a shorter span is better, and no span result in this document should be read that way. The turn-timing table above exists precisely because it is not a return sweep.
 
-## Refresh outcome (2026-10-05): what changed and what did not
+## Refresh outcome (2026-10-22): what was wrong, and what changed
 
-**The price tables were rebuilt and validated. Here is what that actually did to this strategy:**
+The rebuild produced two genuine engine bugs and one old-script bug. All three are now understood:
 
 | | Finding |
 |---|---|
-| Signal | **Unchanged.** PHP returns per-leg flips of QQQ 45 · VTI 41 · VTV 63 — identical to the pre-refresh baseline. The corruption fix did not move QQQ/VTI/VTV crossovers (liquid majors, unaffected by the bad rows). |
-| Engine | **New and shared.** Signal logic now lives in one place used by both live and backtest, gated by `parity_check.py`. |
-| Absolute returns | **Not reconciled.** The new engine cannot reproduce the headline −19.2% drawdown above. |
-| Live config | **Unchanged.** Still P20w. No strategy change was made. |
+| **Lookahead in the new driver** | `coreew.py` treated week W as readable on the first trading day after W's Monday, then filled on the next day — i.e. it used that week's Friday close before it was knowable. This is what printed **+696.82%**. Fixed to `action = first date ≥ W+7`, `fill = first date > action`. |
+| **Old script charged buys nothing** | `backtest_trio_ew.py::run_sim` deducted cost on sells but left buy equity unchanged, under-charging the buy side by ~5bp. On current data it prints +359.22%; the symmetric engine prints **+346.80%**. The ~12pp gap is the missing buy cost. The old script is kept as a historical artifact. |
+| **New harness skipped new legs** | Trims and top-ups ran in one pass, so a new leg's buy could be checked before the trims that funded it and silently skipped. Fixed to sell leavers → trim overweights → top up underweights, capped at available cash. |
+| **Signal** | **Unchanged.** Flips through the 2026-09-25 anchor are still QQQ 45 · VTI 41 · VTV 63. Later weeks add QQQ 46 / VTV 65 legitimately; the gate counts through the anchor so new data is not mistaken for drift. |
+| **Live config** | **Unchanged.** Still P20w. No strategy change was made. |
 
-**Why absolute returns are not reconciled, and why that matters more than it sounds.** The new engine produces materially different totals from the *same* signal depending only on how the book is rebalanced:
+**Reconciliation:**
 
-| Fill convention | Total return | CAGR | Max DD | Rebalances |
+| State | Total return | CAGR | Max DD | Notes |
 |---|---|---|---|---|
-| Rebalance only when the lineup changes | +530.76% | 19.7% | −7.7% | 108 |
-| Rebalance to exact equal weight every week | +696.82% | 21.4% | −10.3% | 560 |
-| *Published baseline* | *+364.27%* | *15.4%* | *−19.2%* | *~717* |
+| Published (old script), to 2026-09-25 | +364.27% | 15.4% | −19.2% | sell-only cost accounting |
+| New engine, lookahead bug | +696.82% | 21.4% | −10.3% | invalid; filled inside the decision week |
+| New engine, fixed, same 2026-09-25 window | +353.09% | 15.2% | −19.5% | daily marks, symmetric 5bp/side |
+| **New engine, fixed, to 2026-10-20** | **+346.80%** | **14.9%** | **−19.5%** | current headline |
 
-That is a **165 percentage-point spread from a modelling choice alone**, on an identical signal and identical price data. A figure that moves 165pp when you change an unstated assumption is not a measurement, it is an artifact — and it is exactly why these numbers must not be restated until the convention is pinned and documented.
+On the same window the corrected drawdown (−19.5%) is within 0.3pp of the published −19.2%, and the corrected return is 11pp lower — almost exactly the buy-side cost the old script omitted. The remaining ~6pp to today's headline is three weeks of market drift. **The strategy's shape was not an artifact — the old level was slightly too high.** The +696.82% figure is retired permanently.
 
-**Engine validation that *is* trustworthy:** buy-and-hold through the new harness returns +392.39% / 16.1% CAGR against the published +410.41% / 16.4% — agreement within ~4% on a benchmark with no signal dependence. The execution engine is sound; what is uncalibrated is how it models fills for a rotating book.
-
-**Required before any figure here changes:** pin the fill convention (which price, which rebalance trigger, how orders are counted), re-run all five tables on the validated data, and confirm the result is stable when the convention is deliberately perturbed.
+**Engine validation that is trustworthy:** buy-and-hold through the new harness returns +403.44% / 16.2% CAGR against the published +410.41% / 16.4% — agreement within ~2% on a benchmark with no signal dependence. The execution engine is sound.
 
 ## What we tested and rejected (the research graveyard — disclosed honestly)
 
 | Variant | Idea | Full-period result | Why rejected |
 |---|---|---|---|
-| **P20 (daily closes)** | Same crossover, decided on daily closes instead of settled weekly | +144.46% / −31.2% DD, ~1,124 buys | Churned: 30 flips/leg/yr, ~55% of the return, nearly buy-and-hold's drawdown. **The exact reason the strategy is weekly.** |
-| P10w (weekly, span 10) | Faster trigger | +305.38% / −14.4% DD | Lower return than P20w; no better DD |
-| P50w (weekly, span 50) | Slower trigger | +250.22% / −28.4% DD | Worse DD, misses fast exits |
-| EG100 (a whole-book EMA100 gate, its predecessor) | One switch for all three | +268.83% / −16.1% DD | Retired 2026-09-28 in favor of P20w after comparison |
+| **P20 (daily closes)** | Same crossover, decided on daily closes instead of settled weekly | +144.46% / −31.2% DD, ~1,124 buys *(pre-refresh, not recomputed)* | Churned: 30 flips/leg/yr, ~55% of the return, nearly buy-and-hold's drawdown. **The exact reason the strategy is weekly.** |
+| P10w (weekly, span 10) | Faster trigger | +286.88% / −14.5% DD | Lower return than P20w, though better Calmar |
+| P50w (weekly, span 50) | Slower trigger | +241.56% / −28.5% DD | Worse DD, misses fast exits |
+| EG100 (a whole-book EMA100 gate, its predecessor) | One switch for all three | +268.83% / −16.1% DD *(pre-refresh, not recomputed)* | Retired 2026-09-28 in favor of P20w after comparison |
 | Variant S (weekly ratchet) | Monotone peak-ratchet, no reset | — | Retired 2026-09-27 (see AGENTS.md) |
 
-The pattern across all of them is one and the same: **trend-following on settled weekly bars is robust; daily-frequency variants pay a churn tax.** P20w is the survivor, chosen by the sweeps above, not by a single pretty window.
+The pattern across all of them is one and the same: **trend-following on settled weekly bars is robust; daily-frequency variants pay a churn tax.** P20w is the survivor, chosen for the highest full-period return with a drawdown about 60% of buy-and-hold's, not by a single pretty window.
 
 ## Costs and fill assumptions (where backtest ≠ live)
 
 - Backtest fills at the **next-day close** of the decision; the live system fills during **Monday's session** via real market orders. Queues, stale quotes, and thinner early-Monday liquidity can move live fills a few basis points. The 0.05%/side cost model absorbs the typical case but **not** all of it.
-- **The fill convention is the single largest source of variance in this sheet** and is currently under-specified. See "Refresh outcome".
+- **The fill convention is pinned** in `FILL_CONVENTION.md` and enforced by `regression_check.py` (`weekly` rebalance, `next-close`, `rebalance-orders`, symmetric 5bp/side).
 - Survivorship is near-zero here (QQQ/VTI/VTV are large-cap instruments with full history in the test period) — but the trio's *specific* return pattern is not a guarantee the strategy will behave identically in a different regime.
-- The 9.4% / 19.2% drawdowns are *equity-curve* drawdowns under the backtest's exact fill rules; real-world drawdowns can be larger.
+- The 9.4% / 19.5% drawdowns are *daily equity-curve* drawdowns under the backtest's exact fill rules; real-world drawdowns can be larger.
 - Signal logic is **shared with live trading**, not reimplemented: the series comes from PHP `TradeExecutorService::replayLegEmaSeries()`, the same code path `trades:execute-leg-ema` runs. A parity gate (`swingtrader/services/backtest/parity_check.py`) fails if live and backtest stop binding to the same implementation.
 
 ## Roll forward metric sheet (maintain from the live paper record)
@@ -151,14 +149,13 @@ Once the live **paper** record (started 2026-09-28) builds out, this sheet gets 
 
 | | |
 |---|---|
-| Published figures | Pre-refresh baseline, unchanged, still authoritative |
-| Data refresh | `tbl_prices_daily` (3,636,544 rows) / `tbl_prices_weekly` (754,958 rows), validated |
-| Signal verified unchanged | PHP `replayLegEmaSeries` — flips QQQ 45 · VTI 41 · VTV 63 match baseline exactly |
-| New engine | `swingtrader/services/backtest/coreew.py`, `harness.py`, `parity_check.py` |
+| Published figures | Refreshed 2026-10-22 under the pinned convention |
+| Data refresh | `tbl_prices_daily` (3,634,972 rows, through 2026-10-21) / `tbl_prices_weekly` (753,623 rows, through 2026-10-12), validated |
+| Signal verified | PHP `replayLegEmaSeries` — flips through 2026-09-25 are QQQ 45 · VTI 41 · VTV 63; through 2026-10-20, 46/41/65 |
+| Engine | `swingtrader/services/backtest/coreew.py`, `harness.py`, `parity_check.py` |
 | Turn timing + walk-forward | `swingtrader/services/backtest/walkforward.py` (reads the same PHP series; turn timing is P&L-independent) |
-| Regression gate | `swingtrader/services/backtest/regression_check.py` — pins signal flips exactly + B&H within tolerance |
+| Regression gate | `swingtrader/services/backtest/regression_check.py` — pins signal flips exactly, B&H within tolerance, P20w loosely |
 | Fill convention spec | `swingtrader/services/backtest/FILL_CONVENTION.md` |
-| Engine status | Validated on B&H (~4% agreement); **not** calibrated against the published P20w figures |
-| Refresh date | 2026-10-05 |
+| Refresh date | 2026-10-22 |
 
-**Sibling documents were deliberately not touched** and still carry the pre-refresh figures: `disclosure.md`, `faq.md`, `one_pager.md`, `regime_matrix.md`, `commercial/README.md`. Because the authoritative figures did not change, those documents remain consistent with this sheet.
+**Sibling documents were refreshed with these figures on 2026-10-22:** `disclosure.md`, `faq.md`, `regime_matrix.md`, `coreew_family.md`, `TRADING_STRATEGIES.md`, `OPERATING_RULES.md`, and `HANDOFF_commercialization.md`. Historical experiment tables (the 2026-09-28 half-trim study and the old fill-parity paragraph in `coreew_family.md`) are intentionally left as measured and labeled pre-refresh. `one_pager.md` and `commercial/README.md` carry no headline levels. The direction of the story does not change (P20w ≈ 86% of B&H's return at ~60% of its drawdown); the levels move by ~11pp on return and ~0.3pp on drawdown over the old window.

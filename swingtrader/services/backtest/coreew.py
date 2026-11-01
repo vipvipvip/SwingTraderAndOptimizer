@@ -22,7 +22,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
@@ -72,7 +72,6 @@ def run(span=20, symbols=('QQQ', 'VTI', 'VTV'), start=None, end=None, verbose=Tr
         held_by_week[w] = [s for s, leg in series.items()
                            if any(x['week'] == w and x['long'] for x in leg)]
 
-    sim = harness.Sim()
     conn = db_module.get_conn()
     cur = conn.cursor()
     cur.execute('SELECT id, symbol FROM tbl_stock_tickers WHERE symbol = ANY(%s)',
@@ -98,8 +97,7 @@ def run(span=20, symbols=('QQQ', 'VTI', 'VTV'), start=None, end=None, verbose=Tr
                 return dd['close'][i]
         return None
 
-    sim = harness.Sim(price_fn=price_fn)
-
+    fills = []
     for w in weeks:
         wdate = date.fromisoformat(w[:10])
         if start and wdate < start:
@@ -107,12 +105,42 @@ def run(span=20, symbols=('QQQ', 'VTI', 'VTV'), start=None, end=None, verbose=Tr
         if end and wdate > end:
             continue
         held = [s for s in held_by_week[w] if s in sym2daily]
-        fill = next((d for d in ref['dates'] if d > wdate), None)
+        # Week W is stamped with its Monday but only becomes readable once that
+        # week has fully passed: the first trading day >= W+7 (the action day).
+        # Fills then land on the NEXT trading day (next-close convention), which
+        # is Tuesday's close on a normal week. Filling on the first day after W
+        # (the old bug) used the week's own Friday close as if it were known on
+        # Tuesday — a ~3-day lookahead that inflated P20w by ~2.4x.
+        action = next((d for d in ref['dates'] if d >= wdate + timedelta(days=7)), None)
+        if action is None:
+            continue
+        fill = next((d for d in ref['dates'] if d > action), None)
         if fill is None:
             continue
-        sim.rebalance(fill, held)
+        fills.append((fill, held))
 
-    out = sim.finish()
+    sim = harness.Sim(price_fn=price_fn)
+    curve, invested = [], []
+    for i, (fill, held) in enumerate(fills):
+        sim.rebalance(fill, held)
+        next_fill = fills[i + 1][0] if i + 1 < len(fills) else None
+        # Mark to market on EVERY trading day, not just rebalance dates: the
+        # drawdown the sheet quotes must be the daily peak-to-trough.
+        for d in ref['dates']:
+            if d < fill:
+                continue
+            if next_fill is not None and d >= next_fill:
+                break
+            if end and d > end:
+                break
+            eq = sim.equity(d)
+            curve.append((d, eq))
+            if eq:
+                invested.append((eq - sim.cash) / eq * 100)
+
+    out = harness.metrics(curve)
+    out['orders'] = sim.orders
+    out['avg_invested_pct'] = round(sum(invested) / len(invested), 1) if invested else 0.0
     if verbose:
         print(f"  last decision {weeks[-1]} -> held {held_by_week[weeks[-1]]}")
         for k, v in out.items():

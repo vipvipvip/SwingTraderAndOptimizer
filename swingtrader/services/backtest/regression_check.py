@@ -2,24 +2,26 @@
 rewriting the performance sheet.
 
 Problem this solves: during the 2026-10-05 price refresh, CoreEW P20w appeared to
-jump from +364% to +697%. The cause was NOT the data — it was an unpinned fill
-convention in the new harness. Two anchors are stable enough to gate on:
+jump from +364% to +697%. The cause was NOT the data — it was a lookahead bug in
+the new driver (filled on the Tuesday *inside* the decision week). That was fixed
+on 2026-10-22, and the published figure then reconciled to within the old
+script's sell-only cost bug (~+17pp overstatement). Three anchors are now gated:
 
   1. SIGNAL FLIPS (exact match required)
-     QQQ 45 / VTI 41 / VTV 63 total crossovers from the PHP EMA series. A pure
-     function of the price data, so any drift in the tables moves it. Verified
-     identical to the pre-refresh baseline, which is what makes it trustworthy.
-     Must match EXACTLY — no tolerance.
+     QQQ 45 / VTI 41 / VTV 63 total crossovers, counted through the published
+     anchor date 2026-09-25. A pure function of the price data, so any drift in
+     the tables moves it. Weeks after the anchor can add flips legitimately and
+     are NOT counted — otherwise the gate would fail every week.
 
   2. BUY-AND-HOLD BENCHMARK (tolerance)
      ~+392% / 16.1% CAGR. Has no signal dependence, and the new engine
      reproduces the published +410.41% / 16.4% within ~4%, which is what
      earned it the right to be an anchor.
 
-DELIBERATELY NOT PINNED: P20w absolute figures. The published convention is not
-yet identified (see FILL_CONVENTION.md), so pinning an unreconciled number would
-replace a reconciled figure with a worse one. They are PRINTED for information
-and asserted to be finite/positive only.
+  3. P20w ABSOLUTE RETURN (loose tolerance)
+     Reconciled 2026-10-22: the pinned convention gives +346.8% / -19.5% DD
+     through 2026-10-20. Pinned loosely so a future convention change or engine
+     regression fails loudly instead of silently rewriting the sheet.
 
 Usage:
     python3 regression_check.py           # gate; exit 1 on drift
@@ -42,16 +44,22 @@ SYMS = ['QQQ', 'VTI', 'VTV']
 
 # --- pinned anchors ---------------------------------------------------------
 PINNED_FLIPS = {'QQQ': 45, 'VTI': 41, 'VTV': 63}
+FLIP_ANCHOR = date(2026, 9, 25)          # published-figure anchor; later weeks grow
 PINNED_BH = {'total_return_pct': 392.39, 'cagr_pct': 16.12}
 BH_TOL = {'total_return_pct': 25.0, 'cagr_pct': 1.5}   # ~6% / ~9% of value
-FULL = (date(2016, 1, 4), date(2026, 9, 30))
+PINNED_P20 = {'total_return_pct': 346.8, 'max_dd_pct': -19.5}
+P20_TOL = {'total_return_pct': 20.0, 'max_dd_pct': 2.0}
+FULL = (date(2016, 1, 4), date(2026, 10, 20))
 
 
-def counts_flips(series):
+def counts_flips(series, anchor=FLIP_ANCHOR):
     out = {}
+    cut = anchor.isoformat()
     for sym, leg in series.items():
         prev, n = None, 0
         for w in leg:
+            if w['week'][:10] > cut:
+                continue
             if prev is not None and w['long'] != prev:
                 n += 1
             prev = w['long']
@@ -119,13 +127,17 @@ def main(report_only=False):
         if not ok:
             fails.append(f"B&H {k} moved {want} -> {have} (execution engine changed)")
 
-    # --- informational: P20w, not pinnable yet ---
+    # --- anchor 3: P20w absolute return, loose ---
     p20 = coreew.run(20, SYMS, FULL[0], FULL[1], verbose=False)
-    print(f"  [INFO] P20w (NOT pinned): ret={p20['total_return_pct']} "
-          f"cagr={p20['cagr_pct']} dd={p20['max_dd_pct']} calmar={p20['calmar']}")
-    if not (isinstance(p20['total_return_pct'], (int, float))
-            and p20['total_return_pct'] > 0):
-        fails.append(f"P20w produced a nonsensical figure: {p20}")
+    print(f"  P20w: ret={p20['total_return_pct']} cagr={p20['cagr_pct']} "
+          f"dd={p20['max_dd_pct']} calmar={p20['calmar']}")
+    for k, tol in P20_TOL.items():
+        want, have = PINNED_P20[k], p20[k]
+        ok = abs(want - have) <= tol
+        print(f"  [{'OK' if ok else 'FAIL'}] P20w {k}: pinned ~{want}, got {have} (tol {tol})")
+        if not ok:
+            fails.append(f"P20w {k} moved {want} -> {have} "
+                         f"(convention or execution changed; re-review the sheet)")
 
     if report_only:
         print("\n  (report-only; not gating)")
@@ -135,8 +147,7 @@ def main(report_only=False):
         for f in fails:
             print(f"    - {f}")
         return 1
-    print("\n  REGRESSION OK — signal and benchmark anchors hold")
-    print("  (P20w absolute figures remain unreconciled; see FILL_CONVENTION.md)")
+    print("\n  REGRESSION OK — signal, benchmark, and P20w anchors hold")
     return 0
 
 

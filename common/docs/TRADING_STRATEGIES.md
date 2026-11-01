@@ -32,8 +32,9 @@ All systems share the same database (`swingtrader`) and Alpaca data source, but 
 > and only by pointing the cron at it manually.
 >
 > P20w backtest reference (signal quality, **not** a return — A/B only, and the sim fills a
-> session later than live): 2016→2026 +364.27% / −19.2% DD vs benchmark A +396.17% / −33.2%
-> and EG100 +268.83% / −16.1%; 813d window +79.26% / −9.4%.
+> session later than live): 2016→2026 +346.80% / −19.5% DD vs benchmark A +392.35% / −33.2%
+> and EG100 +268.83% / −16.1% *(EG100 pre-refresh, not recomputed)*; recent window
+> (2023-06-30→2026-10-20) +76.09% / −9.4%.
 
 > **⚠ 2026-09-25 audit — read before trusting any CoreEW gate backtest number.**
 > At the time of this audit live CoreEW was the monotone weekly-ratchet **gate**
@@ -509,8 +510,8 @@ The Daily Signal and MTF Top-N share the **same universe**, the **same hard filt
 | **Entry** | A leg's weekly close crosses **above** its EMA(20) → ON, topped up to `equity / #ON legs` | 3 aligned crossovers | Enters top-N by score | Fresh 1-hour cross |
 | **Exit** | A leg's weekly close crosses **below** its EMA(20) → sold to cash (plus the weekly EW rebalance of the ON legs) | N/A (scanner only) | Drops from top-N, or stock-leg ATR ratchet | N/A |
 | **Parameters** | EMA span in **weeks** (20 live) | Fixed | Fixed | Fixed |
-| **Return (backtest)** | +364.27% 2016+ / +79.26% 813d (signal quality only, not a return) | N/A | +5,469% (signal-quality only, not a return) | N/A |
-| **Max DD** | −19.2% 2016+ / −9.4% 813d (backtest, not live-verified) | N/A | 22.2% (signal-quality only) | N/A |
+| **Return (backtest)** | +346.80% 2016+ / +76.09% recent (signal quality only, not a return) | N/A | +5,469% (signal-quality only, not a return) | N/A |
+| **Max DD** | −19.5% 2016+ / −9.4% recent (backtest, not live-verified) | N/A | 22.2% (signal-quality only) | N/A |
 
 ---
 

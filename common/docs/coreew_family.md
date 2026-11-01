@@ -8,7 +8,9 @@ Deep-dive for the CoreEW trio (QQQ/VTI/VTV) strategies and their evolution. **AG
 
 Settled weeks only (`d.date + 7 <= CURRENT_DATE`), so week-W's Friday close decides and is acted from the following Monday. Scheduled Mon–Fri 10:05 ET after the 30-min warm-up gate.
 
-**Parity with the backtest is exact BY CONSTRUCTION:** `backtest_trio_ew.py --leg-ema N` shells out to `trades:coreew-leg-ema-series` and consumes its per-week state — the signal is never re-implemented (any new variant must be added in PHP where live and backtest share it). P20w parity to the prototype: 813d +79.26%/−9.4%, 2016+ +364.27%/−19.2% vs A +396.17%/−33.2% and EG100 +268.83%/−16.1% — exact to the hundredth (P10w 813d +54.05%/−12.2%; per-leg flips QQQ=45/VTI=41/VTV=63 over 2016+).
+**Parity with the backtest is exact BY CONSTRUCTION:** `backtest_trio_ew.py --leg-ema N` shells out to `trades:coreew-leg-ema-series` and consumes its per-week state — the signal is never re-implemented (any new variant must be added in PHP where live and backtest share it). P20w (refreshed 2026-10-22, pinned harness, daily marks): recent 830d +76.09%/−9.4%, 2016+ +346.80%/−19.5% vs A +392.35%/−33.2% *(EG100 +268.83%/−16.1% is pre-refresh, not recomputed)*; P10w recent +51.75%/−12.3%; per-leg flips through 2026-09-25 QQQ=45/VTI=41/VTV=63 (through 2026-10-20: 46/41/65). The old +364.27%/−19.2% baseline came from a sell-only cost model — see `commercial/performance.md`.
+
+> **Superseded 2026-10-22.** The absolute figures in the paragraph below were measured on the old `run_sim` cost model and are historical. The current engine fills Tuesday's close under the pinned convention; the qualitative point — a one-session offset is noise, not an edge — stands. Refreshed figures: `commercial/performance.md`.
 
 **Signal parity is exact; FILL parity is not — the backtest is a full session later than live.** The sim prices every trade at a *daily close* (no intraday fills exist in the harness), and the P{n}w path calls `run_sim` without `fill_signal_close` (`backtest_trio_ew.py:1298`), so quoted P20w numbers fill at **Tuesday's close** — one session AFTER the live action. Live fills Monday intraday at the timer's 10:05 ET (+0–60 s `RandomizedDelaySec`), i.e. ~6 h before Monday's close and a full day before the backtest's. Measured on identical flags (2026-09-28 vintage): 2016+ +360.01%/−19.2% (Tue, as quoted) vs +341.76%/−22.4% (Mon close); 813d +77.61%/−9.4% vs +75.08%/−10.0%. That ~4 pt terminal gap is the accumulated luck of a one-session offset across 149 leg flips + the weekly drift rebalances — noise, not an edge, and it cuts both ways. Deliberately NOT modelled away: 1-hour bars exist only from 2023-06-30, so a true 10:05 fill could be simmed for the 813d window but never 2016+. **Decision unchanged either way — the pick was re-checked at equal footing (both Monday close, 2016+): P20w +341.76% vs EG100 +265.44%; 813d +75.08% vs +71.89%.** Note the head-to-head was mildly biased in P20w's favour (EG100 was quoted on `run_settled_sim` = Monday close) and it still wins by 76 pts; A-vs-P20w is internally consistent (both Tuesday close). Cost also differs by design: backtest 5 bp/side, live $0 + real spread.
 
@@ -20,7 +22,7 @@ The DAILY-close per-leg CO (P{span}d) is a research dead end (whipsaw vs A) and 
 
 ## Tried and rejected 2026-09-28: "P20w + 10w half trim" (code removed, not parked)
 
-**The idea:** a long leg that dips below its 10W EMA should cost half the position (16.7% instead of 33%) and be topped back up on a 10W recross, with a close below the 20W still exiting fully — a shallow dip shouldn't cost a whole leg. Built PHP-canonically as a pure overlay (settled weekly closes, freed half held in cash, per-leg base target untouched, exit leg read from the live `replayLegEmaSeries()`) and measured over 2016+ (2699d, cost 0.05%, as-of guard clean):
+**The idea:** a long leg that dips below its 10W EMA should cost half the position (16.7% instead of 33%) and be topped back up on a 10W recross, with a close below the 20W still exiting fully — a shallow dip shouldn't cost a whole leg. Built PHP-canonically as a pure overlay (settled weekly closes, freed half held in cash, per-leg base target untouched, exit leg read from the live `replayLegEmaSeries()`) and measured over 2016+ (2699d, cost 0.05%, as-of guard clean). *(Measured under the old `run_sim` sell-only cost model; absolute levels are historical and not comparable to the refreshed sheet. The ordering — trims give up 1.1–1.7 pts of CAGR for a flat MaxDD — is the finding.)*
 
 | Variant | Return | MaxDD | CAGR | avg invested |
 |---|---|---|---|---|
@@ -48,7 +50,7 @@ Cutover dedupe was the newest flip date (`storage/coreew_eg100_last_flip.txt`, d
 
 ## Benchmark: Variant A (plain weekly EW rebalance)
 
-A's machinery — no indicators/crossover — is the engine under P20w and the official benchmark. Backtest A (813-d default window): +83.68%/−18.7% DD; full 2016+ +396.17%/−33.2% DD.
+A's machinery — no indicators/crossover — is the engine under P20w and the official benchmark. Backtest A (recent 830d window): +82.83%/−18.7% DD; full 2016+ +392.35%/−33.2% DD (refreshed 2026-10-22).
 
 ## Decision 2026-09-28 (EW review — historical)
 
@@ -56,7 +58,7 @@ Variant A preferred model/benchmark and beats the gate on return in-sample, but 
 
 ## Decision 2026-09-28 #2 (variant P, "LegEMA") — go-live
 
-P{span}w = A's weekly-EW machinery + a PER-LEG binary crossover. **P20w is the pick** — full 2016→2026 (560 settled weeks): +364.27%/−19.2% DD vs A +396.17%/−33.2% and EG100 +268.83%/−16.1% (~92% of A's return at ~58% of A's DD; strongest weekly variant in every starts-sweep 2016→2022). Go-live executed 2026-09-28 (~14:07 ET) on #PA3GKZYLVO68: handover run trimmed the EG100-equal book to P20w EW targets in one shot (dedupe recorded week 2026-09-21), EG100 crontab line commented out, `swingtrader-legema.{service,timer}` created in `swingtrader/services/mtf/systemd/` (install into `/etc/systemd/system` needs sudo — single `systemctl enable --now` command). Slack `[CoreEW-LegEMA]`.
+P{span}w = A's weekly-EW machinery + a PER-LEG binary crossover. **P20w is the pick** — full 2016→2026 (refreshed 2026-10-22, 563 settled weeks through 2026-10-20): +346.80%/−19.5% DD vs A +392.35%/−33.2% and EG100 +268.83%/−16.1% *(EG100 pre-refresh)* (~88% of A's return at ~59% of A's DD; highest full-period return of the weekly spans — P10w has the better Calmar). Go-live executed 2026-09-28 (~14:07 ET) on #PA3GKZYLVO68: handover run trimmed the EG100-equal book to P20w EW targets in one shot (dedupe recorded week 2026-09-21), EG100 crontab line commented out, `swingtrader-legema.{service,timer}` created in `swingtrader/services/mtf/systemd/` (install into `/etc/systemd/system` needs sudo — single `systemctl enable --now` command). Slack `[CoreEW-LegEMA]`.
 
 ## Decision 2026-10-20 (data-readiness gate on the LegEMA path) — go-live
 

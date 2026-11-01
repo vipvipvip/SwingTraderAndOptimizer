@@ -25,15 +25,15 @@ INITIAL_CAPITAL = config.INITIAL_CAPITAL
 class Convention:
     """The fill convention, named and switchable instead of implicit.
 
-    This is the single largest source of variance in the results. Two choices
-    below move the SAME signal on the SAME data by ~165 percentage points, so
-    they are pinned here, documented in FILL_CONVENTION.md, and exercised by
+    The fill convention is the single largest modelling choice in the results,
+    so it is pinned here, documented in FILL_CONVENTION.md, and exercised by
     regression_check.py.
 
-    PENDING: none of these yet reproduce the published P20w figures
-    (+364.27% / -19.2% DD). The published convention is not yet identified.
-    Until it is, P20w absolute figures are NOT pinnable and are excluded from
-    the regression gate.
+    RESOLVED 2026-10-22: the apparent +165pp convention spread was a lookahead
+    bug in coreew.py (filled inside the decision week), not a legitimate choice.
+    With the lookahead fixed and trim-before-top-up enforced, the convention
+    reproduces the published P20w figures to within the old script's sell-only
+    cost accounting (~+17pp). P20w is now gated loosely.
     """
 
     # when the book is pulled back to equal weight
@@ -138,34 +138,47 @@ class Sim:
         )
 
     def rebalance(self, date, symbols):
-        eq = self.equity(date)
-        targets = equal_weight_targets(eq, symbols)
-
-        # sell first so cash is available to fund buys
+        # 1. exit names no longer in play
         for s in list(self.pos):
-            if s not in targets:
+            if s not in symbols:
                 px = self.price_fn(s, date)
                 if px:
                     self.cash += self.pos.pop(s) * px * (1 - self.cost)
                     self.orders += 1
 
+        # 2. size targets on post-sell equity, so sell costs are funded
+        eq = self.equity(date)
+        targets = equal_weight_targets(eq, symbols)
+
+        # 3. trims BEFORE top-ups: the spec in FILL_CONVENTION.md is
+        # "trim every overweight, top up every underweight". Doing this in one
+        # pass over targets is order-dependent and can silently skip a new leg
+        # when its buy is checked before the trims that would fund it.
+        for s, target in targets.items():
+            px = self.price_fn(s, date)
+            if not px:
+                continue
+            cur = self.pos.get(s, 0) * px
+            if cur > target:
+                sell_sh = (cur - target) / px
+                if sell_sh > 0:
+                    self.pos[s] -= sell_sh
+                    self.cash += sell_sh * px * (1 - self.cost)
+                    self.orders += 1
+
+        # 4. top-ups, capped at available cash (never skip a leg entirely)
         for s, target in targets.items():
             px = self.price_fn(s, date)
             if not px:
                 continue
             cur = self.pos.get(s, 0) * px
             if target > cur:
-                buy_dollars = (target - cur) / (1 + self.cost)
-                if buy_dollars > 0 and buy_dollars <= self.cash:
+                buy_dollars = min((target - cur) / (1 + self.cost),
+                                  self.cash / (1 + self.cost))
+                if buy_dollars > 0:
                     shares = buy_dollars / px
                     self.cash -= buy_dollars * (1 + self.cost)
                     self.pos[s] = self.pos.get(s, 0) + shares
-                    self.orders += 1
-            elif cur > target:
-                sell_sh = (cur - target) / px
-                if sell_sh > 0:
-                    self.pos[s] -= sell_sh
-                    self.cash += sell_sh * px * (1 - self.cost)
                     self.orders += 1
 
         invested = sum(sh * (self.price_fn(s, date) or 0.0) for s, sh in self.pos.items())
