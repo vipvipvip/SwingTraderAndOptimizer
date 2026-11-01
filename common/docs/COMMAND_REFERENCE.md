@@ -848,6 +848,35 @@ python3 .claude/skills/etf-monthly-table/scripts/build_monthly_table.py SPY,IWM 
 
 ---
 
+## 18. CoreEW Growth CSV Report
+
+**Purpose:** Build a per-trading-day growth CSV for the CoreEW paper account `#PA3GKZYLVO68` straight from Alpaca (read-only, never places orders). One row per trading day since inception with grouped headers:
+
+```
+,Allocation,,,Prices,,,,,,Return,,,,,,
+Date,QQQ_alloc_pct,VTI_alloc_pct,VTV_alloc_pct,QQQ_trade_price,...,VTV_close_price,QQQ_return_pct,...,spy_bh_cum_return_pct,cash,portfolio_value,spy_bh_portfolio_value
+```
+
+- **Allocation** — ticker market value / portfolio value at close
+- **Prices** — qty-weighted average fill price of that day's fills (blank if none) + raw SIP close
+- **Return** — per-ticker unrealized return vs average cost, portfolio cumulative % vs $100k, SPY B&H cumulative %
+- `cash` = deposits − net fills − fees; `portfolio_value` = cash + Σ(qty × close); `spy_bh_portfolio_value` = $100k grown in SPY from the inception-date close
+
+```bash
+cd swingtrader/services/scripts
+python3 coreew_growth_csv.py
+
+# Custom output path / tolerance
+python3 coreew_growth_csv.py --out /tmp/coreew_growth.csv
+python3 coreew_growth_csv.py --tolerance-pct 0.25
+```
+
+**Validation:** every run compares the calculated ending portfolio value to Alpaca's official EOD equity and prints the diff; exits non-zero if the gap exceeds `--tolerance-pct` (default `0.1%`). Normal residual is ±$0.02 (fractional-fill rounding). The newest day falls back to the IEX feed when SIP rejects the recent window (403), so an after-close run still works.
+
+**Output:** `swingtrader/services/scripts/coreew_PA3GKZYLVO68_growth.csv`
+
+---
+
 ## Summary
 
 | Category | Command Count | Purpose |
@@ -866,6 +895,7 @@ python3 .claude/skills/etf-monthly-table/scripts/build_monthly_table.py SPY,IWM 
 | Data Integrity | 6 | Market hours filtering and cleanup |
 | Systemd Services | 10 | Persistent daemon management |
 | Application Lifecycle | 12 | Kill/start/restart apps and view logs |
+| Reporting | 3 | CoreEW growth CSV with Alpaca validation |
 
 **Total Commands: ~90+**
 
@@ -897,4 +927,4 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "TRUNCATE table
 
 ---
 
-Last Updated: 2026-05-06 (v7.0 update: 2-of-4 signal logic, systemd services)
+Last Updated: 2026-11-01 (added §18 CoreEW growth CSV report; v7.0 update: 2-of-4 signal logic, systemd services)
