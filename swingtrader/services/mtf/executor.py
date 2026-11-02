@@ -556,6 +556,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         cooled_out = set()
         ratchet_stops = {}
         close_map = {}
+        cooldown_days = int(getattr(config, 'RATCHET_COOLDOWN_TRADING_DAYS', 1))
         if mode == 'stock' and config.RATCHET_EXIT:
             # Multi-day ratchet cool-off (persisted in DB). The stock leg ranks on
             # the last SETTLED weekly bar, so the top-N is static Mon-Fri and the
@@ -563,7 +564,6 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
             # every mid-week ratchet sell was re-bought the next morning. Block
             # re-entry for RATCHET_COOLDOWN_TRADING_DAYS trading days; freed slots
             # are backfilled from rank N+1 so the book still holds ~TOP_N names.
-            cooldown_days = int(getattr(config, 'RATCHET_COOLDOWN_TRADING_DAYS', 1))
             cooldown_cutoff = db_module.ratchet_cooldown_cutoff(conn, cooldown_days, now.date())
             db_module.purge_ratchet_cooldowns(conn, mode, cooldown_cutoff)
             cooled_out |= db_module.get_ratchet_cooldowns(conn, mode, cooldown_cutoff)
@@ -683,7 +683,8 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         blocked_buy_ban = sorted(s for s in target_symbols if s in blocked_buys)
         if blocked_buy_ban:
             msg_ban = ', '.join(blocked_buy_ban)
-            trade_lines.append(f'  🧊 same-day ratchet cool-off (re-buy skipped, slot backfilled): {msg_ban}')
+            trade_lines.append(
+                f'  🧊 ratchet cool-off {cooldown_days}d (re-buy skipped, slot backfilled): {msg_ban}')
             print(f'[MTF EXECUTOR] 🧊 ratchet cool-off blocks re-buy: {msg_ban}')
         freed_count = len(blocked_buy_ban) + len(pre_blocked)
         fillers = []
@@ -827,7 +828,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
                     continue
                 buy_qty = int(needed / price)
                 if buy_qty < 1:
-                    trade_lines.append(f'  ⚠️ BUY {symbol}: {needed:,.0f} < 1 share (${price:.2f}), skipping')
+                    trade_lines.append(f'  ⚠️ BUY {symbol}: ${needed:,.0f} < 1 share (${price:.2f}), skipping')
                     continue
 
                 action = 'TOP-UP' if held_qty >= 1 else 'BUY'
