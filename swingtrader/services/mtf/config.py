@@ -65,6 +65,20 @@ EMASMA_MACD_PROX = 5
 RATCHET_EXIT = True
 RATCHET_ATR_MULT = 2.0
 
+# Fixed stop-loss (stock leg, 2026-11-02): in ADDITION to the ATR ratchet, exit
+# any held name whose last SETTLED daily close is at/below
+# entry_price * (1 - FIXED_STOP_PCT/100). Anchored to the recorded entry fill
+# (not the peak), matching backtest_topn_multitf.py --stop-loss N.
+#
+# DEFAULT OFF: the A/B (top-25 emasma EW, daily-ATR ratchet, cost 0) rejects it.
+#   2021-09-20..2026-09-16: 5% stop +900.4% vs +951.0% baseline; max DD 36.2% both;
+#                           706 stop exits (vs 360 ratchet-only).
+#   2026-08-01..2026-11-02: 5% stop  -7.1% vs  -6.0% baseline; max DD 12.7% both;
+#                           41 stop exits.
+# It cuts names that later recover and the book's drawdowns are correlated
+# gap-downs, so it lowers return without reducing DD. Set to 5.0 to enable.
+FIXED_STOP_PCT = 0.0
+
 # Ratchet re-entry cool-off (stock leg, 2026-11-02). A ratchet sell used to be
 # blocked only for the SAME calendar day, but the executor runs once/day, so
 # that guard was a no-op: the name is still in the weekly top-N (the rank is

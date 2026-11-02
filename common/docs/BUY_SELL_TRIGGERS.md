@@ -149,6 +149,11 @@ signal, not a proven edge.
   (`RATCHET_COOLDOWN_TRADING_DAYS`) because the weekly rank is static Mon–Fri; the old
   same-day-only cool-off was a no-op at once/day cadence and the name was re-bought the next
   morning (95 times in 2026-09/10).
+- **Sell (fixed % stop — implemented, OFF by default):** a second exit at
+  `entry × (1 − FIXED_STOP_PCT/100)` on the same settled daily close, whichever
+  fires first. The 2026-11-02 A/B rejected 5%: full window +900% vs +951%
+  baseline, crash window −7.1% vs −6.0%, max DD unchanged in both (36.2% / 12.7%).
+  `FIXED_STOP_PCT = 0.0`, so the ratchet remains the only live stop.
 - **Sell (rebalance TRIM):** a held in-play name above target is trimmed back to target when the
   excess exceeds **20% of target and $500**; if the leg is on margin (gross > equity) the band
   is suspended for that run and the book is trimmed to exact equal weight.

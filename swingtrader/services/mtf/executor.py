@@ -435,6 +435,42 @@ def _compute_ratchet_stops(conn, held_symbols):
     return stops
 
 
+def _entry_price_map(conn, held_symbols):
+    """Map held symbol -> recorded entry fill price (mtf_positions).
+
+    Same anchor the ratchet seeds its peak from; partial trims/top-ups preserve
+    it (db.adjust_position_qty only changes quantity)."""
+    entries = {}
+    for symbol in held_symbols:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT entry_price FROM mtf_positions '
+                'WHERE symbol = %s ORDER BY updated_at DESC LIMIT 1', (symbol,))
+            r = cur.fetchone()
+        if r and r[0]:
+            entries[symbol] = float(r[0])
+    return entries
+
+
+def _fixed_stop_hits(entries, closes, pct):
+    """Symbols whose settled close is at/below entry * (1 - pct/100).
+
+    Returns {symbol: stop_price}. Pure helper so the threshold logic is unit
+    testable; `pct <= 0` disables the rule. Mirrors backtest_topn_multitf.py
+    --stop-loss (drop >= pct% from the entry fill, next-open execution)."""
+    if not pct or pct <= 0:
+        return {}
+    hits = {}
+    for sym, entry in entries.items():
+        c = closes.get(sym)
+        if not entry or entry <= 0 or c is None:
+            continue
+        stop = entry * (1.0 - pct / 100.0)
+        if c <= stop:
+            hits[sym] = stop
+    return hits
+
+
 def latest_settled_daily_closes(conn, held_symbols):
     """Map held symbol -> last SETTLED daily bar close (ratchet price source).
 
@@ -553,6 +589,9 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         # bar has genuinely closed below the stop — matching the backtest that
         # signals on day D's daily close and fills at day D+1's open.
         ratchet_sold = set()
+        fixed_stop_sold = set()
+        fixed_stop_prices = {}
+        fixed_pct = 0.0
         cooled_out = set()
         ratchet_stops = {}
         close_map = {}
@@ -584,15 +623,30 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
                     trade_lines.append(f'  {msg_t}')
                     print(f'[MTF EXECUTOR] {msg_t}')
 
+            # Fixed % floor, independent of (and in addition to) the ATR ratchet.
+            # Anchored to the recorded entry fill; evaluated on the same settled
+            # daily close so live == backtest --stop-loss. Whichever fires first.
+            fixed_pct = float(getattr(config, 'FIXED_STOP_PCT', 0) or 0)
+            if fixed_pct > 0:
+                entries = _entry_price_map(conn, held_symbols)
+                fixed_stop_prices = _fixed_stop_hits(entries, close_map, fixed_pct)
+                fixed_stop_sold = set(fixed_stop_prices)
+                for sym in sorted(fixed_stop_sold):
+                    msg_f = (f'🛑 {sym} below fixed {fixed_pct:g}% stop '
+                             f'${fixed_stop_prices[sym]:.2f} (close ${close_map[sym]:.2f})')
+                    trade_lines.append(f'  {msg_f}')
+                    print(f'[MTF EXECUTOR] {msg_f}')
+        stop_sold = ratchet_sold | fixed_stop_sold
+
         # Guard: don't sell positions that weren't scored today — they either
         # failed the bullish filter or had missing data. Preserve to avoid
         # whipsaw on a marginal filter flip (e.g. IJH 07-31: daily EMA 1c below SMA40).
-        # Ratchet stops override the guard: crash protection beats whipsaw avoidance.
-        data_gap_held = [s for s in symbols_to_sell if s not in score_detail and s not in ratchet_sold]
+        # Stop exits override the guard: crash protection beats whipsaw avoidance.
+        data_gap_held = [s for s in symbols_to_sell if s not in score_detail and s not in stop_sold]
         for sym in data_gap_held:
             trade_lines.append(f'  ⚠️ {sym} held but not scored today (filter or data gap) — preserving')
             print(f'[MTF EXECUTOR] ⚠️ {sym} held but not scored today (filter or data gap) — preserving position')
-        symbols_to_sell = (symbols_to_sell - set(data_gap_held)) | ratchet_sold
+        symbols_to_sell = (symbols_to_sell - set(data_gap_held)) | stop_sold
 
         # Cancel all open orders first (skipped in dry-run: never touch live orders)
         if not dry_run:
@@ -650,12 +704,14 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
             msg_str = f'SELL {filled_qty} {symbol} @ ${fill_price:.2f}'
             if entry_price:
                 msg_str += f'  (PnL: {pnl_pct:+.2f}%)'
-            if symbol in ratchet_sold:
+            if symbol in stop_sold:
                 if config.RATCHET_EXIT and mode == 'stock':
                     db_module.insert_ratchet_cooldown(conn, mode, symbol, now.date())
                 stop = ratchet_stops.get(symbol)
-                if stop is not None:
+                if symbol in ratchet_sold and stop is not None:
                     msg_str += f'  [ratchet stop @ ${stop:.2f}]'
+                if symbol in fixed_stop_sold:
+                    msg_str += f'  [fixed {fixed_pct:g}% stop @ ${fixed_stop_prices[symbol]:.2f}]'
             sells.append(symbol)
             trade_lines.append(f'  {msg_str}')
             print(f'[MTF EXECUTOR] {msg_str}')
@@ -666,7 +722,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         # freed by ratchet/cool-off OR chase-guard-blocked top-N names are
         # filled from the next-best scored candidates (rank 11+) so the
         # portfolio stays fully invested.
-        blocked_buys = ratchet_sold | cooled_out
+        blocked_buys = stop_sold | cooled_out
         held_after_sell = held_symbols - symbols_to_sell
         buy_targets = [s for s in target_symbols
                        if s not in held_after_sell and s not in blocked_buys]
@@ -956,7 +1012,8 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
                 trade_lines.append(f'  {msg_str}')
                 print(f'[MTF EXECUTOR] {msg_str}')
 
-        msg = f'Rotation: {len(sells)} sells ({len(ratchet_sold)} ratchet), {len(buys)} buys — ${equity:,.0f} equity'
+        msg = (f'Rotation: {len(sells)} sells ({len(ratchet_sold)} ratchet, '
+               f'{len(fixed_stop_sold)} fixed-stop), {len(buys)} buys — ${equity:,.0f} equity')
         trade_lines.append(f'  {msg}')
         print(f'[MTF EXECUTOR] {msg}')
         if buys or sells:

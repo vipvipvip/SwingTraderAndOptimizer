@@ -4,6 +4,7 @@ Covers the pure helpers only (no DB / no Alpaca):
   * multi-day ratchet cool-off cutoff
   * size-by-TOP_N + preserved-holdings gross cap
   * rebalance band + minimum trade notional
+  * fixed % stop-loss (in addition to the ATR ratchet)
 """
 import os
 import sys
@@ -118,6 +119,34 @@ class RebalanceBandTest(unittest.TestCase):
     def test_min_notional_blocks_tiny_orders(self):
         self.assertFalse(executor._should_top_up(100, 4_000, 0.0, 500.0))
         self.assertFalse(executor._should_trim(4_100, 4_000, 0.0, 500.0))
+
+
+class FixedStopTest(unittest.TestCase):
+    def test_exact_threshold_fires(self):
+        # close == entry * 0.95 is a 5.0% drop -> fires (backtest uses >=).
+        hits = executor._fixed_stop_hits({'AAA': 100.0}, {'AAA': 95.0}, 5.0)
+        self.assertEqual(hits, {'AAA': 95.0})
+
+    def test_just_above_threshold_does_not_fire(self):
+        hits = executor._fixed_stop_hits({'AAA': 100.0}, {'AAA': 95.01}, 5.0)
+        self.assertEqual(hits, {})
+
+    def test_below_threshold_fires_with_stop_price(self):
+        hits = executor._fixed_stop_hits({'AAA': 200.0}, {'AAA': 180.0}, 5.0)
+        self.assertEqual(hits, {'AAA': 190.0})
+
+    def test_zero_pct_disables(self):
+        self.assertEqual(
+            executor._fixed_stop_hits({'AAA': 100.0}, {'AAA': 1.0}, 0.0), {})
+
+    def test_missing_entry_or_close_is_skipped(self):
+        self.assertEqual(
+            executor._fixed_stop_hits({'AAA': 0.0, 'BBB': 100.0}, {'BBB': None}, 5.0), {})
+
+    def test_only_hits_are_returned(self):
+        hits = executor._fixed_stop_hits(
+            {'AAA': 100.0, 'BBB': 100.0}, {'AAA': 90.0, 'BBB': 99.0}, 5.0)
+        self.assertEqual(hits, {'AAA': 95.0})
 
 
 class PositionValueTest(unittest.TestCase):

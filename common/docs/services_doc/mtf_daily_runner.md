@@ -23,8 +23,12 @@ after a daily bar genuinely closes below the stop (signal on day D's close →
 fill at day D+1's open). A ratchet sell **blocks re-entry for 5 trading days**
 (`RATCHET_COOLDOWN_TRADING_DAYS`, 2026-11-02): the weekly rank is static Mon–Fri,
 so the old same-day-only cool-off was a no-op at once/day cadence and the name was
-re-bought the next morning (95 sell→re-buy events in 2026-09/10). The standalone
-evening scorer is disabled (score is now inline in the executor).
+re-bought the next morning (95 sell→re-buy events in 2026-09/10). A fixed
+`entry × (1 − FIXED_STOP_PCT/100)` stop was added alongside the ratchet
+(2026-11-02) but is **off by default**: the A/B lost return in both the full
+window (+900% vs +951%) and the Oct-2026 crash window (−7.1% vs −6.0%) with no
+max-DD improvement, so `FIXED_STOP_PCT = 0.0`. The standalone evening scorer is
+disabled (score is now inline in the executor).
 
 **State is DB-backed**: pending picks live in `mtf_pending` (JSONB), run history
 in `mtf_runs`, and real holdings in `mtf_positions`. No state files, no R&D
