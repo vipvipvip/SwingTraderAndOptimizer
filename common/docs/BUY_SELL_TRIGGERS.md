@@ -134,15 +134,24 @@ signal, not a proven edge.
 ### Stock leg (top-25, account `#PA368CPXNS13`)
 - **Buy (NEW BUY):** a stock enters the top-**25** by weekly score, isn't held, and passes the
   weekly MACD cross-proximity gate.
-- **Buy (REBALANCE):** any held in-play name below `equity ÷ N` is topped up to equal weight.
-  Slots freed by a ratchet stop / same-day cool-off / chase-guard block are backfilled from the
-  next-best scored names (rank N+1…) using the **same** `(-score, -gap_w)` key as the top-N
-  (`emasma_core.rank_key`), so a filler is the genuine next-best, not an arbitrary tie-break.
+- **Buy (REBALANCE):** a held in-play name below target is topped up to equal weight. Stock-leg
+  target = `min((equity − preserved holdings) ÷ in-play names, equity ÷ TOP_N)` (2026-11-02), so
+  a thin book never concentrates and gross exposure is capped at 100% (no margin). A top-up only
+  fires when the shortfall exceeds **20% of target and $500** (`REBALANCE_BAND_PCT`,
+  `MIN_TRADE_NOTIONAL`). Slots freed by a ratchet stop / multi-day cool-off / chase-guard block
+  are backfilled from the next-best scored names (rank N+1…) using the **same**
+  `(-score, -gap_w)` key as the top-N (`emasma_core.rank_key`), so a filler is the genuine
+  next-best, not an arbitrary tie-break.
 - **Sell (rotation):** a held stock **that is still scored today** drops out of the top-25.
 - **Sell (ratchet):** the last settled **daily** close falls below
   `(highest daily close since entry) − 2×daily ATR`. Fires independently of ranking — a name
-  can still be top-25 and get stopped out.
-- **Sell (rebalance TRIM):** a held in-play name above `equity ÷ N` is trimmed back to target.
+  can still be top-25 and get stopped out. **Re-entry is blocked for 5 trading days**
+  (`RATCHET_COOLDOWN_TRADING_DAYS`) because the weekly rank is static Mon–Fri; the old
+  same-day-only cool-off was a no-op at once/day cadence and the name was re-bought the next
+  morning (95 times in 2026-09/10).
+- **Sell (rebalance TRIM):** a held in-play name above target is trimmed back to target when the
+  excess exceeds **20% of target and $500**; if the leg is on margin (gross > equity) the band
+  is suspended for that run and the book is trimmed to exact equal weight.
 - **Exception — preserved, not sold:** a held stock **not in today's scored set** (failed the
   weekly bullish filter, **failed the MACD proximity gate**, or missing data) is kept (whipsaw
   guard); the ratchet can still exit it.

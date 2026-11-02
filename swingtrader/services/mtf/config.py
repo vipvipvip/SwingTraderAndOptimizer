@@ -5,8 +5,9 @@ load_dotenv()
 
 # Equal-weight sizing (research impl 2026-09-12, flip along with TOP_N).
 # CoreEW-style: trim every overweight held position and top up/re-buy every
-# underweight in-play name to equity/len(in_play) each cycle, instead of sizing
-# only NEW entries at cash/len(to_buy). Held winners stop drifting untrimmed.
+# underweight in-play name each cycle, instead of sizing only NEW entries at
+# cash/len(to_buy). Held winners stop drifting untrimmed. The stock leg now
+# targets equity/TOP_N with a gross-exposure cap — see SIZE_BY_TOP_N below.
 # Backtest top-25 EW (--exit ratchet-atr --ratchet-atr-src daily --equal-weight
 # --cost 0): +2,114,701% / -20.3% DD / 86% win vs new-entry-only top-25
 # +1,153,856% / -20.1% DD. Returns are fantasy (survivorship), but 25 equal
@@ -63,6 +64,33 @@ EMASMA_MACD_PROX = 5
 # Applies to the stock leg only; the ETF leg is a weekly EMA/SMA rotation.
 RATCHET_EXIT = True
 RATCHET_ATR_MULT = 2.0
+
+# Ratchet re-entry cool-off (stock leg, 2026-11-02). A ratchet sell used to be
+# blocked only for the SAME calendar day, but the executor runs once/day, so
+# that guard was a no-op: the name is still in the weekly top-N (the rank is
+# static Mon-Fri because the score reads the last SETTLED weekly bar), so it was
+# re-bought the very next morning. Live evidence: 95 sell->re-buy events within
+# 5 days in 2026-09-09..11-02. Block re-entry for N TRADING days instead
+# (default 5 = the rest of the weekly cycle + margin). Set to 0 to restore the
+# old same-day-only behaviour.
+RATCHET_COOLDOWN_TRADING_DAYS = 5
+
+# Equal-weight sizing + churn controls (stock leg, 2026-11-02).
+# SIZE_BY_TOP_N: size each in-play name at equity/TOP_N instead of
+# equity/len(in_play). A thin book (few qualifying picks) used to concentrate
+# the whole account (2026-09-10: 3 picks -> ~$31K each on $100K), so a single
+# name could cost 0.8% of the account. This also removes the need for a
+# separate ramp: a new name is always capped at 1/TOP_N.
+# Preserved names (held but out of the top-N; whipsaw guard) still consume
+# capital, so their market value is subtracted from the investable equity and
+# gross exposure is capped at 100% (no margin / negative cash).
+# REBALANCE_BAND_PCT: only trim/top-up when a position drifts more than this
+# % of its target. MIN_TRADE_NOTIONAL: skip rebalance deltas below this dollar
+# amount (2026-09/10 live: 201 of 535 fills were <$500, mostly 1-share noise).
+# Revert with SIZE_BY_TOP_N=False, REBALANCE_BAND_PCT=0, MIN_TRADE_NOTIONAL=0.
+SIZE_BY_TOP_N = True
+REBALANCE_BAND_PCT = 20.0
+MIN_TRADE_NOTIONAL = 500.0
 
 # Chase-guard: block re-entry when a symbol's price rises more than a
 # toleranced % above the last SELL (fine-grained against buying back a name

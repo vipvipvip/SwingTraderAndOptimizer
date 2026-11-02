@@ -20,8 +20,11 @@ settled daily close < (highest daily close since entry − 2×daily ATR from the
 daily table's atr_stop column). Live == backtest: both the ATR and the
 comparison close come from settled daily bars only, so the ratchet fires only
 after a daily bar genuinely closes below the stop (signal on day D's close →
-fill at day D+1's open). The standalone evening scorer is disabled (score is now
-inline in the executor).
+fill at day D+1's open). A ratchet sell **blocks re-entry for 5 trading days**
+(`RATCHET_COOLDOWN_TRADING_DAYS`, 2026-11-02): the weekly rank is static Mon–Fri,
+so the old same-day-only cool-off was a no-op at once/day cadence and the name was
+re-bought the next morning (95 sell→re-buy events in 2026-09/10). The standalone
+evening scorer is disabled (score is now inline in the executor).
 
 **State is DB-backed**: pending picks live in `mtf_pending` (JSONB), run history
 in `mtf_runs`, and real holdings in `mtf_positions`. No state files, no R&D
@@ -58,13 +61,27 @@ Score = min(gap_w / 5, 5)   (weekly close vs SMA(40) gap, points)
   earlier backtests read the decision-day Monday row = a 4-day lookahead). Without it, ties resolved to an arbitrary stable-sort
   (hash-order in the backtest, SQL row order live).
 - **Position sizing**: `EQUAL_WEIGHT = True` — every **in-play** name (held
-  names still in the top-N ∪ new buys ∪ backfill fillers) is resized to
-  `equity / len(book)`, overweights trimmed and underweights topped up
-  (trim-before-top-up). Runs on **both** legs (the ETF leg matched the stocks
-  on 2026-09-17). Preserved data-gap names sit outside the book — never
-  trimmed, never topped up. (Stale note corrected 2026-10-22: the old text
-  said held positions were not trimmed, which stopped being true on
-  2026-09-17.)
+  names still in the top-N ∪ new buys ∪ backfill fillers) is resized, overweights
+  trimmed and underweights topped up (trim-before-top-up).
+  **Stock leg (2026-11-02):** target = `min((equity − preserved holdings) ÷
+  in-play names, equity ÷ TOP_N)`. This caps each name at one TOP_N slot (a thin
+  book can no longer concentrate — 2026-09-10 put ~$31K into each of 3 names),
+  subtracts preserved holdings (held but out of the top-N) from investable equity,
+  and keeps gross exposure at **≤ 100% of equity (no margin)**. If the leg is
+  already on margin, the drift band is suspended for that run and the book is
+  trimmed to exact equal weight. **Churn controls:** trim/top-up only when the
+  drift exceeds `REBALANCE_BAND_PCT = 20` of target and `MIN_TRADE_NOTIONAL =
+  $500`; trims round up to the next share so rounding cannot leave the book in
+  margin. **ETF leg** keeps the legacy `equity / len(book)` sizing (frozen
+  experiment). Preserved data-gap names sit outside the book — never trimmed,
+  never topped up. (Stale note corrected 2026-10-22: the old text said held
+  positions were not trimmed, which stopped being true on 2026-09-17.)
+  ⚠️ **Live-only risk overlay (2026-11-02):** `backtest_topn_multitf.py
+  --equal-weight` still sizes at `equity / len(book)` with a same-cycle ratchet
+  cool-off, so A/B output does **not** yet include the TOP_N cap, 100% gross
+  cap, ±20% band, $500 minimum trade, or 5-day cool-off. Treat these as live
+  operational risks (margin/churn), not validated alpha, until the backtest is
+  brought to parity.
 - ⚠️ **Backtest returns are NOT trustworthy as returns — relative signal
   quality only** (see "Backtest honesty" in AGENTS.md): the stock-leg universe
   is survivorship-biased (only today's 1,433 enabled tickers, no delisted/

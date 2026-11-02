@@ -84,22 +84,44 @@ def init_db():
         conn.close()
 
 
-def purge_ratchet_cooldowns(conn, mode, d):
-    """Delete ratchet cool-off rows older than date d (session = trading day)."""
+def ratchet_cooldown_cutoff(conn, trading_days, today):
+    """Oldest trading date still inside an N-trading-day ratchet cool-off.
+
+    Returns the date of the Nth most recent settled session strictly before
+    `today` (from tbl_prices_daily). A sell on that date or later is still
+    blocked; anything older is expired. `trading_days <= 0` returns `today`,
+    which reproduces the old same-day-only cool-off.
+    """
+    if trading_days <= 0:
+        return today
     with conn.cursor() as cur:
-        cur.execute('DELETE FROM mtf_ratchet_cooldown WHERE mode = %s AND cooldown_date < %s', (mode, d))
+        cur.execute(
+            'SELECT DISTINCT date::date FROM tbl_prices_daily '
+            'WHERE date::date < %s ORDER BY date::date DESC LIMIT %s',
+            (today, trading_days))
+        rows = cur.fetchall()
+    if not rows:
+        return today
+    return rows[-1][0]
+
+
+def purge_ratchet_cooldowns(conn, mode, cutoff):
+    """Delete ratchet cool-off rows older than `cutoff` (inclusive-window start)."""
+    with conn.cursor() as cur:
+        cur.execute('DELETE FROM mtf_ratchet_cooldown WHERE mode = %s AND cooldown_date < %s', (mode, cutoff))
     conn.commit()
 
 
-def get_ratchet_cooldowns(conn, mode, d):
-    """Return the set of symbols under same-day ratchet cool-off for mode on date d."""
+def get_ratchet_cooldowns(conn, mode, cutoff):
+    """Return symbols under ratchet cool-off on/after `cutoff` (still blocked)."""
     with conn.cursor() as cur:
-        cur.execute('SELECT symbol FROM mtf_ratchet_cooldown WHERE mode = %s AND cooldown_date = %s', (mode, d))
+        cur.execute('SELECT symbol FROM mtf_ratchet_cooldown WHERE mode = %s AND cooldown_date >= %s',
+                    (mode, cutoff))
         return {r[0] for r in cur.fetchall()}
 
 
 def insert_ratchet_cooldown(conn, mode, symbol, d):
-    """Persist a same-day ratchet cool-off (idempotent)."""
+    """Persist a ratchet cool-off row for the sell date d (idempotent)."""
     with conn.cursor() as cur:
         cur.execute(
             'INSERT INTO mtf_ratchet_cooldown (mode, symbol, cooldown_date) VALUES (%s, %s, %s) '

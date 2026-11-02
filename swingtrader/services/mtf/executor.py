@@ -1,3 +1,4 @@
+import math
 import time
 import requests
 from requests.adapters import HTTPAdapter
@@ -301,6 +302,60 @@ def _latest_trade_price(symbol):
     return None
 
 
+def _position_value(pos):
+    """Market value of an Alpaca position (market_value, else qty x price)."""
+    if not pos:
+        return 0.0
+    try:
+        mv = pos.get('market_value')
+        if mv is not None:
+            return abs(float(mv))
+    except (TypeError, ValueError):
+        pass
+    try:
+        qty = abs(float(pos.get('qty', 0) or 0))
+        price = abs(float(pos.get('current_price', 0) or 0))
+        return qty * price
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _risk_per_position(equity, investable_equity, n_in_play, top_n, size_by_top_n):
+    """Target dollar size for each in-play name (stock leg risk sizing).
+
+    SIZE_BY_TOP_N caps every name at equity/TOP_N so a thin book cannot
+    concentrate the account, and subtracts preserved (out-of-book) holdings so
+    gross exposure never exceeds equity. Falls back to the legacy
+    equity/len(in_play) when disabled, and when preserved holdings already
+    consume the whole account (never liquidate the book to zero on a data gap).
+    """
+    n = max(1, n_in_play)
+    if not size_by_top_n:
+        return equity / n
+    if investable_equity <= 0:
+        return equity / n
+    return max(0.0, min(investable_equity / n, equity / max(1, top_n)))
+
+
+def _should_trim(value, target, band_pct, min_notional):
+    """Trim only when the excess clears both the drift band and min notional."""
+    excess = value - target
+    if excess <= 0:
+        return False
+    if excess < target * (band_pct / 100.0):
+        return False
+    return excess >= min_notional
+
+
+def _should_top_up(needed, target, band_pct, min_notional):
+    """Top up only when the shortfall clears both the drift band and min notional."""
+    if needed <= 0:
+        return False
+    if needed < target * (band_pct / 100.0):
+        return False
+    return needed >= min_notional
+
+
 def _compute_ratchet_stops(conn, held_symbols):
     """Compute the ratchet-ATR stop for each held symbol (stateless).
 
@@ -502,14 +557,16 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         ratchet_stops = {}
         close_map = {}
         if mode == 'stock' and config.RATCHET_EXIT:
-            # Same-day ratchet cool-off (persisted in DB): a symbol ratchet-sold
-            # earlier today cannot be re-bought until the next trading day.
-            # Fixes the CNXN/HOOD/MU/SFST same-day sell+re-buy whipsaw — a close
-            # dips below the peak-anchored stop and the same run re-buys it.
-            # Stale rows purge on date rollover; blocked slots
-            # are backfilled from rank 11+ so the book still holds ~TOP_N names.
-            db_module.purge_ratchet_cooldowns(conn, mode, now.date())
-            cooled_out |= db_module.get_ratchet_cooldowns(conn, mode, now.date())
+            # Multi-day ratchet cool-off (persisted in DB). The stock leg ranks on
+            # the last SETTLED weekly bar, so the top-N is static Mon-Fri and the
+            # old same-day guard was a no-op once the executor moved to once/day:
+            # every mid-week ratchet sell was re-bought the next morning. Block
+            # re-entry for RATCHET_COOLDOWN_TRADING_DAYS trading days; freed slots
+            # are backfilled from rank N+1 so the book still holds ~TOP_N names.
+            cooldown_days = int(getattr(config, 'RATCHET_COOLDOWN_TRADING_DAYS', 1))
+            cooldown_cutoff = db_module.ratchet_cooldown_cutoff(conn, cooldown_days, now.date())
+            db_module.purge_ratchet_cooldowns(conn, mode, cooldown_cutoff)
+            cooled_out |= db_module.get_ratchet_cooldowns(conn, mode, cooldown_cutoff)
             ratchet_stops = _compute_ratchet_stops(conn, held_symbols)
             close_map = latest_settled_daily_closes(conn, held_symbols)
             for sym in held_symbols:
@@ -651,13 +708,18 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         in_play_names = [s for s in in_play_names if s not in blocked_buys]
 
         if config.EQUAL_WEIGHT and in_play_names:
-            # ── CoreEW-style equal-weight sizing (mirrors backtest --equal-weight) ──
+            # ── CoreEW-style equal-weight sizing (backtest --equal-weight + live risk caps) ──
             # Both legs (stocks TOP_N, ETFs ETF_TOP_N): trims overweights to target
-            # and tops up/rebuilds every underweight or new in-play name to
-            # equity/len(book). Before 2026-09-17 this ran stock-only, so the ETF
-            # leg sized only NEW entries at equity/top_n — held names (e.g. XLE/XLK
-            # carried from the top-10 era) were never re-sized, leaving ~49% of the
-            # account on the sidelines. ETF book now matches the backtest sizing.
+            # and tops up/rebuilds every underweight or new in-play name.
+            # Stock leg (2026-11-02): preserved names are held but sit OUTSIDE the
+            # rotation book, so their market value is subtracted from the investable
+            # equity and each name is capped at equity/TOP_N — no concentration on a
+            # thin book and no margin (gross <= 100% equity). ETF leg keeps the
+            # legacy equity/len(book) sizing (frozen experiment).
+            risk_sizing = (mode == 'stock' and config.SIZE_BY_TOP_N)
+            band_pct = config.REBALANCE_BAND_PCT if mode == 'stock' else 0.0
+            min_notional = config.MIN_TRADE_NOTIONAL if mode == 'stock' else 0.0
+            top_n_cap = config.TOP_N if mode == 'stock' else config.ETF_TOP_N
             fresh_pos = _get_alpaca_positions()
             try:
                 fresh_acct = _get_account()
@@ -665,7 +727,25 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
             except Exception:
                 pass
             in_play = sorted(in_play_names)
-            per_position = equity / max(1, len(in_play))
+            # Any still-held name outside the top-N is preserved (whipsaw guard,
+            # failed sell, or data gap). Read from live positions, not the
+            # intended sell list, so a failed sell is still counted as capital.
+            preserved = [s for s in fresh_pos if s not in target_symbols]
+            preserved_value = sum(_position_value(fresh_pos.get(s)) for s in preserved)
+            investable_equity = max(0.0, equity - preserved_value)
+            per_position = _risk_per_position(equity, investable_equity, len(in_play),
+                                              top_n_cap, risk_sizing)
+            gross_now = sum(_position_value(p) for p in fresh_pos.values())
+            # A negative-cash leg must be de-levered first: exact equal weight
+            # (band/min-notional off for this run) so gross lands at <= equity.
+            # The drift band resumes on the next run once the margin is gone.
+            deleveraging = bool(risk_sizing and gross_now > equity)
+            if deleveraging:
+                band_pct = 0.0
+                min_notional = 0.0
+                trade_lines.append(
+                    f'  ⚖️ gross ${gross_now:,.0f} > equity ${equity:,.0f} — '
+                    f'exact EW de-lever (no margin)')
             qty_map = {s: abs(int(float(p.get('qty', 0))))
                        for s, p in fresh_pos.items() if p}
 
@@ -681,12 +761,16 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
                 if not price or price <= 0:
                     continue
                 value = qty_now * price
-                if value <= per_position:
+                if not _should_trim(value, per_position, band_pct, min_notional):
                     continue
-                sell_qty = int((value - per_position) / price)
+                # ceil, not floor: never leave the position above target after
+                # share rounding (floor is what lets gross drift into margin).
+                sell_qty = math.ceil((value - per_position) / price)
                 if sell_qty < 1:
                     continue
                 sell_qty = min(sell_qty, qty_now - 1)  # never fully close a target name
+                if sell_qty * price < min_notional:
+                    continue
                 if dry_run:
                     trade_lines.append(f'  🧪 [DRY-RUN] TRIM {sell_qty} {symbol} @ ${price:.2f} → ${per_position:,.0f}')
                     print(f'[MTF EXECUTOR] DRY-RUN TRIM {sell_qty} {symbol} @ {price}')
@@ -736,7 +820,10 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
 
                 held_qty = qty_map.get(symbol, 0)
                 needed = per_position - held_qty * price
-                if needed <= 0:
+                if held_qty >= 1:
+                    if not _should_top_up(needed, per_position, band_pct, min_notional):
+                        continue
+                elif needed <= 0:
                     continue
                 buy_qty = int(needed / price)
                 if buy_qty < 1:
