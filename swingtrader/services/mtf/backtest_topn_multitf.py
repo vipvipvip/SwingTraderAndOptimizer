@@ -28,11 +28,15 @@ import config
 import db as db_module
 from emasma_core import (compute_emasma_score as _compute_emasma_score,
                          macd_gate_ok as _macd_gate_ok)
+# The CoreEW P20w state is PHP-canonical (safety rail): consume the artisan
+# series, never re-implement the crossover in Python.
+from backtest_trio_ew import (fetch_live_leg_ema_series as _fetch_leg_series,
+                              flags_from_live_leg_ema_series as _leg_series_flags)
 
 
 def _backtest_signature(args):
     """Stable signature of the backtest configuration (determines the baseline cache key)."""
-    return json.dumps({
+    d = {
         'etf': args.etf,
         'top_n': args.top_n,
         'rebalance': args.rebalance,
@@ -52,7 +56,18 @@ def _backtest_signature(args):
         'stop_loss': args.stop_loss,
         'start': args.start,
         'end': args.end,
-    }, sort_keys=True, default=str)
+    }
+    # Conditional keys keep the historical vanilla cache entries valid while
+    # ensuring a gated run can never overwrite/borrow a vanilla result.
+    if getattr(args, 'emasma_macd_filter', False):
+        d['emasma_macd_filter'] = True
+        d['emasma_macd_prox'] = args.emasma_macd_prox
+    if getattr(args, 'market_gate', 'none') != 'none':
+        d['market_gate'] = args.market_gate
+        d['market_gate_mode'] = args.market_gate_mode
+        d['market_gate_span'] = args.market_gate_span
+        d['market_gate_freq'] = args.market_gate_freq
+    return json.dumps(d, sort_keys=True, default=str)
 
 
 _BASELINE_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backtest_baseline_cache.json')
@@ -229,6 +244,34 @@ def load_bars(conn, table, date_col, is_etf=False, symbols=None):
     return tickers, data
 
 
+def _load_daily_gate_flags(conn, symbols, span, all_dates):
+    """Daily close > daily EMA(span) for each gate leg, aligned to all_dates.
+
+    Unlike the weekly CoreEW series this is a generic daily market filter; the
+    stock signal itself is also read on the same daily close, so using the
+    signal-day close is consistent with the rest of the backtest.
+    """
+    _, data = load_bars(conn, 'tbl_scanner_tickers_daily', 'date', True, symbols)
+    flags = {}
+    for _tid, d in data.items():
+        sym = d['symbol']
+        close = np.asarray(d['close'], dtype=np.float64)
+        ema = pd.Series(close).ewm(span=span, adjust=False).mean().to_numpy()
+        dates = d['dates']
+        arr = np.zeros(len(all_dates), dtype=bool)
+        j = -1
+        for i, day in enumerate(all_dates):
+            while j + 1 < len(dates) and dates[j + 1] <= day:
+                j += 1
+            if j >= 0:
+                arr[i] = close[j] > ema[j]
+        flags[sym] = arr
+    missing = [s for s in symbols if s not in flags]
+    if missing:
+        raise SystemExit(f'--market-gate daily: missing daily bars for {missing}')
+    return flags
+
+
 def backtest(argv=None):
     """Run the backtest and return structured results (CLI prints also happen).
 
@@ -314,6 +357,21 @@ def backtest(argv=None):
                              'winners drift untrimmed. Ratchet-sold names are excluded from '
                              'in_play for the cycle (same-day cool-off), their slots '
                              'backfilled from the rank-N+ tier.')
+    parser.add_argument('--market-gate', choices=['none', 'any', 'majority', 'all', 'qqq'],
+                        default='none',
+                        help='Stock-leg market gate: hold only while enough of QQQ/VTI/VTV are '
+                             'above their own weekly EMA(span) — the live CoreEW P20w state, '
+                             'consumed from the PHP-canonical artisan series. '
+                             'any=1 leg, majority=2, all=3, qqq=QQQ only.')
+    parser.add_argument('--market-gate-span', type=int, default=20,
+                        help='EMA span for --market-gate (default 20; weekly = CoreEW P20w, '
+                             'daily = daily EMA20).')
+    parser.add_argument('--market-gate-freq', choices=['weekly', 'daily'], default='weekly',
+                        help='Gate timeframe: weekly consumes the PHP-canonical CoreEW P20w '
+                             'series; daily computes close > EMA(span) from daily bars.')
+    parser.add_argument('--market-gate-mode', choices=['flat', 'entry'], default='flat',
+                        help='flat = sell the whole book when the gate is OFF (CoreEW-like); '
+                             'entry = block new buys only (normal exits still run).')
     parser.add_argument('--cost', type=float, default=None,
                         help='Per-side cost fraction (override config.COST_PER_TRADE; '
                              'e.g. 0 = no commissions). The audit + ledger rebuild use '
@@ -473,6 +531,37 @@ def backtest(argv=None):
             all_dates = [d for d in all_dates if d <= _end]
         print(f'  Universe: {len(common)} tickers, warmup from {all_dates[0]}')
 
+        # Optional CoreEW-style market regime gate (stock leg only). The leg
+        # states come from the live PHP series, aligned to the stock decision
+        # dates with the same settled-week rule the backtest already uses.
+        market_gate_on = None
+        if args.market_gate != 'none':
+            if is_etf:
+                raise SystemExit('--market-gate is stock-leg only (the ETF leg IS the trio)')
+            gate_syms = ['QQQ', 'VTI', 'VTV']
+            if args.market_gate_freq == 'weekly':
+                print(f'  Market gate: fetching P{args.market_gate_span}w CoreEW leg state '
+                      f'(PHP-canonical)...')
+                gate_payload = _fetch_leg_series(args.market_gate_span, gate_syms)
+                gate_flags = _leg_series_flags(all_dates, gate_payload)
+            else:
+                print(f'  Market gate: daily EMA{args.market_gate_span} on '
+                      f'{"/".join(gate_syms)}...')
+                gate_flags = _load_daily_gate_flags(conn, gate_syms,
+                                                    args.market_gate_span, all_dates)
+            gate_counts = np.array([gate_flags[s].astype(int) for s in gate_syms]).sum(axis=0)
+            if args.market_gate == 'any':
+                market_gate_on = gate_counts >= 1
+            elif args.market_gate == 'majority':
+                market_gate_on = gate_counts >= 2
+            elif args.market_gate == 'all':
+                market_gate_on = gate_counts >= 3
+            else:  # qqq
+                market_gate_on = gate_flags['QQQ'].astype(bool)
+            print(f'  Market gate: {args.market_gate} ({args.market_gate_mode}) -> '
+                  f'{100 * market_gate_on.mean():.0f}% of days ON, '
+                  f'{int((~market_gate_on).sum())} OFF')
+
         step = 5 if args.rebalance == 'weekly' else 1
         period_label = f'{args.rebalance} (every {step} trading day{"s" if step > 1 else ""})'
         print(f'  Running: top {args.top_n}, rebalance {period_label}...\n')
@@ -484,6 +573,26 @@ def backtest(argv=None):
         equity_dates = []
         pos_counts = []
         trade_log = []  # (date, symbol, side, shares, price, ret)
+
+        def _sell_all(exec_date, reason):
+            """Liquidate the whole book at exec_date's open (market-gate flat)."""
+            nonlocal cash
+            for tid in list(positions):
+                d = daily.get(tid)
+                if d is None:
+                    continue
+                xi = _last_idx_before(daily_idx[tid], d['dates'], exec_date)
+                if xi is None or xi >= len(d['open']):
+                    continue
+                sp = float(d['open'][xi])
+                pos = positions[tid]
+                proceeds = pos['shares'] * sp * (1 - COST)
+                ret = (sp - pos['entry_price']) / pos['entry_price'] - COST
+                cash += proceeds
+                trade_log.append((exec_date, pos['symbol'], reason, pos['shares'], sp, ret))
+                if args.detail:
+                    print(f'  {exec_date} {reason} {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f}')
+                del positions[tid]
 
         # Optional seeded book (apples-to-apples replay): start with live's
         # exact holdings marked at the first in-window date's open, so the only
@@ -520,6 +629,7 @@ def backtest(argv=None):
 
         for ri in range(0, len(all_dates), step):
             sig_date = all_dates[ri]
+            market_off = bool(market_gate_on is not None and not market_gate_on[ri])
 
             # Compute Multi-TF scores for all tickers
             candidates = []
@@ -744,6 +854,9 @@ def backtest(argv=None):
                 # Using sig_date's close here labels tomorrow's date with
                 # today's value: an off-by-one that understated the final
                 # equity point (surfaced by the audit template reconciliation).
+                if (market_off and args.market_gate_mode == 'flat' and positions
+                        and ri + 1 < len(all_dates)):
+                    _sell_all(all_dates[ri + 1], 'SELL-GATE')
                 pf_val = cash
                 label_date = all_dates[min(ri + 1, len(all_dates) - 1)]
                 for tid in list(positions):
@@ -789,6 +902,11 @@ def backtest(argv=None):
                         if args.detail:
                             print(f'  {exec_date} STOP  {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f} ({drop_pct:.1f}% drop)')
                         del positions[tid]
+
+            # Market gate OFF + flat mode: liquidate the whole book before the
+            # normal per-name exits (CoreEW goes to cash when the regime is off).
+            if market_off and args.market_gate_mode == 'flat' and positions:
+                _sell_all(exec_date, 'SELL-GATE')
 
             # SELL: liquidate positions not in selected, or hourly-EMA / ratchet-ATR exit
             ratchet_sold_cycle = set()
@@ -866,7 +984,7 @@ def backtest(argv=None):
             # BUY / SIZING: equal-weight the whole book (CoreEW-style) or add new
             # selected positions (legacy new-entry-only sizing).
             to_buy = [tid for tid in selected if tid not in positions]
-            if args.equal_weight:
+            if args.equal_weight and not market_off:
                 # in-play = selected names minus same-day ratchet-sold (cool-off);
                 # vacated slots backfilled from the rank-N+ tier.
                 in_play = [tid for tid in selected if tid not in ratchet_sold_cycle]
@@ -936,7 +1054,7 @@ def backtest(argv=None):
                             trade_log.append((exec_date, sym, 'BUY', buy_sh, bp, None))
                             if args.detail:
                                 print(f'  {exec_date} BUY  {sym} {buy_sh:.2f} @ ${bp:.2f}')
-            elif to_buy:
+            elif to_buy and not market_off:
                 per_stock = cash / len(to_buy)
                 for tid in to_buy:
                     d = daily.get(tid)
@@ -999,11 +1117,12 @@ def backtest(argv=None):
                               None, len(eq_arr) - peak_i))
         drawdowns.sort(key=lambda x: x[0])
 
-        all_sells = [t for t in trade_log if t[2] in ('SELL', 'SELL-STOP', 'SELL-H-EMA', 'SELL-RATC', 'SELL-D-EMA')]
+        all_sells = [t for t in trade_log if t[2] in ('SELL', 'SELL-STOP', 'SELL-H-EMA', 'SELL-RATC', 'SELL-D-EMA', 'SELL-GATE')]
         stop_sells = [t for t in trade_log if t[2] == 'SELL-STOP']
         hem_sells = [t for t in trade_log if t[2] == 'SELL-H-EMA']
         ratc_sells = [t for t in trade_log if t[2] == 'SELL-RATC']
         dem_sells = [t for t in trade_log if t[2] == 'SELL-D-EMA']
+        gate_sells = [t for t in trade_log if t[2] == 'SELL-GATE']
         all_buys = [t for t in trade_log if t[2] == 'BUY']
         winners = [t for t in all_sells if t[5] is not None and t[5] > 0]
         losers = [t for t in all_sells if t[5] is not None and t[5] <= 0]
@@ -1039,13 +1158,16 @@ def backtest(argv=None):
         print(f'  Exit:   {args.exit}' + (' (sell when hourly EMA10<SMA40)' if args.exit == 'hourly-ema' else ' (sell when close < highest-close - 2xATR)' if args.exit == 'ratchet-atr' else ' (sell when daily EMA10<SMA40)' if args.exit == 'daily-ema' else ''))
         if args.exit == 'ratchet-atr':
             print(f'  Exit:   ratchet ATR source: {args.ratchet_atr_src}')
+        if args.market_gate != 'none':
+            print(f'  Market:  {args.market_gate_freq} EMA{args.market_gate_span} '
+                  f'{args.market_gate} ({args.market_gate_mode})')
         print(f'  Period: {all_dates[0]} to {all_dates[-1]}')
         print(f'{"="*80}')
         print(f'  Initial: ${CAPITAL:,.0f}')
         print(f'  Final:   ${equity_curve[-1]:,.0f}')
         print(f'  Return:  {total_ret*100:+.2f}%')
         print(f'  Max DD:  {dd*100:.1f}%')
-        exit_desc = f'{len(stop_sells)} stop-loss, {len(hem_sells)} hourly-ema, {len(ratc_sells)} ratchet-atr, {len(dem_sells)} daily-ema'
+        exit_desc = f'{len(stop_sells)} stop-loss, {len(hem_sells)} hourly-ema, {len(ratc_sells)} ratchet-atr, {len(dem_sells)} daily-ema, {len(gate_sells)} gate'
         print(f'  Trades:  {sells} sells ({exit_desc}) / {buys} buys')
         print(f'  Win:     {len(winners)} ({wr:.0f}%)  avg +{avg_win:+.2f}%')
         print(f'  Loss:    {len(losers)} ({lr:.0f}%)  avg {avg_loss:+.2f}%')
@@ -1205,5 +1327,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
     main()

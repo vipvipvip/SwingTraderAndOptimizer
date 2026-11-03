@@ -30,6 +30,20 @@ window (+900% vs +951%) and the Oct-2026 crash window (−7.1% vs −6.0%) with 
 max-DD improvement, so `FIXED_STOP_PCT = 0.0`. The standalone evening scorer is
 disabled (score is now inline in the executor).
 
+**CoreEW P20w market gate (stock leg, live 2026-11-03).** Before the rotation,
+the stock leg reads the live PHP-canonical `trades:coreew-leg-ema-series` state
+for QQQ/VTI/VTV (settled weekly bars only). With `MARKET_GATE_MODE = 'any'`, at
+least one leg must be above its own weekly **EMA20**; when **all three** are
+below, the executor switches to `flat`: it **sells the whole stock book and
+places no buys**, then re-enters the normal top-25 once the gate turns back ON.
+The ETF leg is unaffected. Lookahead-free A/B (top-25 emasma EW, daily-ATR
+ratchet, MACD gate, cost 0): 2021-09→2026-09 no-gate +729.4% / DD 32.6% / win
+46% vs gate +618.6% / DD 26.0% / win 47%; 2017-02→2026-10 +4,892.5% / DD 35.4%
+vs +4,068.1% / DD 26.0% / win 47%. Daily-EMA variants did not beat weekly
+(daily20: 44% win, 1,050 whipsaws). Revert with `MARKET_GATE_ENABLED = False`.
+If the PHP state is unavailable the gate **fails open** (normal rotation + Slack
+alert) rather than liquidating the book on bad data.
+
 **State is DB-backed**: pending picks live in `mtf_pending` (JSONB), run history
 in `mtf_runs`, and real holdings in `mtf_positions`. No state files, no R&D
 paper-portfolio accounting — the live Alpaca positions are the source of truth.
@@ -180,7 +194,8 @@ All files live under `swingtrader/services/mtf/`:
 | `executor_retry.py` | What the 10:25 unit actually runs: retry the score step every 30m until it succeeds for BOTH legs or 16:00 ET, then execute once and exit. Give-up posts a red Slack alert with the last `mtf_runs` status per leg |
 | `config.py` | DB creds, scoring params (TOP_N=25, ETF_TOP_N=3, EMA/SMA periods, cost, capital) |
 | `db.py` | Scanner DB access + `mtf_pending`/`mtf_runs`/`mtf_positions`/`mtf_trades` state |
-| `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA368CPXNS13, etf #PA3U8GZ96PEN — from `mtf/.env`); `reconcile_trades()` rebuilds `mtf_trades` from Alpaca fills |
+| `executor.py` | Alpaca order executor (mode-dependent keys: stock #PA368CPXNS13, etf #PA3U8GZ96PEN — from `mtf/.env`); `reconcile_trades()` rebuilds `mtf_trades` from Alpaca fills; `market_gate_off=True` liquidates the stock book and skips buys |
+| `coreew_gate.py` | Reads the live PHP-canonical `trades:coreew-leg-ema-series` P20w state for QQQ/VTI/VTV, maps `any`/`majority`/`all`/`qqq` to a flat/entry gate, and fails open on transport/parse errors |
 | `reconcile_trades.py` | CLI wrapper: `--mode all\|stock\|etf` — idempotent fill-log rebuild from Alpaca's authoritative order history |
 | `format_etf.py` | Shared ETF P&L table formatting (Slack + show_picks) |
 | `health_check.py` | DB-backed health checks (mtf_runs staleness, pending status, data freshness) |

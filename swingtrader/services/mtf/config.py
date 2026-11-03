@@ -53,6 +53,30 @@ TS_START = '2023-06-30'
 EMASMA_MACD_GATE = True
 EMASMA_MACD_PROX = 5
 
+# CoreEW P20w market gate (stock leg only, 2026-11-03).
+# Borrows CoreEW's cash discipline as a risk-on/risk-off switch: QQQ/VTI/VTV
+# must have enough legs above their own weekly EMA20 for the stock book to be
+# invested. The state is read from the live PHP-canonical
+# `trades:coreew-leg-ema-series` command, never re-implemented in Python.
+#   any      = at least 1 leg ON (loosest; off only when all 3 are below)
+#   majority = at least 2 legs ON
+#   all      = 3/3 legs ON
+#   qqq      = QQQ's leg only
+# flat mode: when OFF, sell the whole stock book at the next run and hold cash
+# until the gate turns back ON. ETF leg unaffected (frozen experiment).
+# Lookahead-free A/B (top-25 emasma EW, daily-ATR ratchet, MACD gate, cost 0):
+#   2021-09-20..2026-09-16: no gate +729.4% / DD 32.6% / win 46%;
+#     weekly P20 any flat +618.6% / DD 26.0% / win 47%;
+#     weekly P20 qqq flat +461.6% / DD 24.6% / win 46%.
+#   2017-02-27..2026-10-07: no gate +4,892.5% / DD 35.4% / win 46%;
+#     weekly P20 any flat +4,068.1% / DD 26.0% / win 47%.
+# Daily EMA variants did not beat weekly (daily20: 44% win, 1,050 whipsaws).
+# Set MARKET_GATE_ENABLED=False to revert to the prior always-invested book.
+MARKET_GATE_ENABLED = True
+MARKET_GATE_MODE = 'any'
+MARKET_GATE_SPAN = 20
+MARKET_GATE_LEGS = ('QQQ', 'VTI', 'VTV')
+
 # Ratchet-ATR exit (matches backtest --exit ratchet-atr --ratchet-atr-src
 # daily): exit a held position when its close < (highest daily close since
 # entry) - RATCHET_ATR_MULT x DAILY ATR, where ATR comes from the daily table

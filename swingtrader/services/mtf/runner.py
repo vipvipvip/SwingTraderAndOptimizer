@@ -25,6 +25,7 @@ from emasma_core import (settled_weekly_idx as _settled_weekly_idx,
                              rank_candidates as _rank_candidates)
 import db as db_module
 import executor
+import coreew_gate
 
 NY = ZoneInfo('America/New_York')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -830,16 +831,79 @@ def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
     return True, lines, sig_date
 
 
+def _market_gate_state(mode, today):
+    """Return (gate_off, detail) for the stock leg's CoreEW P20w overlay.
+
+    Fails OPEN on a data/transport error (normal rotation, with a Slack alert)
+    so a transient PHP/DB failure can never force a liquidation on bad data.
+    The ETF leg is deliberately unaffected.
+    """
+    if mode != 'stock' or not getattr(config, 'MARKET_GATE_ENABLED', False):
+        return False, ''
+    span = int(getattr(config, 'MARKET_GATE_SPAN', 20))
+    gate_mode = getattr(config, 'MARKET_GATE_MODE', 'any')
+    legs = tuple(getattr(config, 'MARKET_GATE_LEGS', ('QQQ', 'VTI', 'VTV')))
+    try:
+        states, week = coreew_gate.fetch_leg_states(span=span, symbols=legs)
+        off = coreew_gate.gate_off(states, gate_mode, legs)
+        detail = coreew_gate.describe(states, gate_mode, span, week, legs)
+        print(f'[MTF] Market gate: {detail}')
+        return off, detail
+    except Exception as exc:  # noqa: BLE001 - fail open on any gate error
+        msg = f'⚠️ Market gate unavailable ({exc}) — failing OPEN, normal rotation'
+        print(f'[MTF] {msg}')
+        traceback.print_exc()
+        try:
+            _send_slack_alert(msg, mode)
+        except Exception:
+            pass
+        return False, msg
+
+
 def _run_execute_pending(mode, today, dry_run=False):
     """Execute pending picks saved by the inline score step (same 10:25 run).
     Returns (success, lines, sig_date)."""
     conn = _get_db_conn()
+
+    # Gate first: a risk-off liquidation must not depend on a fresh pending row
+    # (score may have produced zero candidates, or the pending may be stale).
+    gate_off = False
+    gate_detail = ''
+    if mode == 'stock':
+        gate_off, gate_detail = _market_gate_state(mode, today)
+
+    if gate_off:
+        lines = [f'*Market gate:* {gate_detail}', '',
+                 f'*Executing {MODE_LABEL[mode]} market-gate liquidation*']
+        print(f'[MTF] Market gate OFF — liquidating {MODE_LABEL[mode]}')
+        failed = False
+        try:
+            lines.extend(executor.execute_rotation(
+                [], {}, mode, dry_run=dry_run, market_gate_off=True))
+            if not dry_run:
+                pending = db_module.get_pending(conn, mode)
+                if pending:
+                    db_module.clear_pending(conn, mode, pending['sig_date'])
+                db_module.log_run(conn, mode, str(today), 'execute', 'ok',
+                                  'market gate OFF — liquidated to cash')
+        except Exception as e:
+            failed = True
+            if not dry_run:
+                db_module.log_run(conn, mode, str(today), 'execute', 'error', str(e))
+            lines.append('')
+            lines.append(f'⚠️ Market-gate execution failed: {e}')
+            traceback.print_exc()
+        finally:
+            conn.close()
+        return (not failed), lines, str(today)
+
     pending = db_module.get_pending(conn, mode)
     if not pending:
         msg = f'No pending trades for {MODE_LABEL[mode]}'
+        lines = ([f'*Market gate:* {gate_detail}', ''] if gate_detail else []) + [msg]
         print(f'[MTF] {msg}')
         conn.close()
-        return False, [msg], None
+        return False, lines, None
 
     # Freshness guard (decoupled-score failures): ONLY trade pending written by
     # this morning's inline score ExecStart. Anything older is residue of a
@@ -856,8 +920,9 @@ def _run_execute_pending(mode, today, dry_run=False):
         print(f'[MTF] {msg}')
         db_module.log_run(conn, mode, pending['sig_date'], 'execute', 'skipped',
                           'stale pending (score step did not refresh)')
+        lines = ([f'*Market gate:* {gate_detail}', ''] if gate_detail else []) + [msg]
         conn.close()
-        return False, [msg], None
+        return False, lines, None
 
     top_symbols = pending['top_symbols']
     score_detail = pending['score_detail']
@@ -865,6 +930,9 @@ def _run_execute_pending(mode, today, dry_run=False):
     ts = pending['created_at']
 
     lines = []
+    if gate_detail:
+        lines.append(f'*Market gate:* {gate_detail}')
+        lines.append('')
     # Book snapshot, rendered from the pending picks with the SAME table the
     # evening digest uses. The morning message is the single Slack post for this
     # leg (the retry score step runs with --no-slack), so it must show what is
@@ -891,21 +959,27 @@ def _run_execute_pending(mode, today, dry_run=False):
         if dry_run:
             # Full rotation preview (equal-weight sizing, no orders / no DB writes).
             try:
-                dry_lines = executor.execute_rotation(top_symbols, score_detail, mode, dry_run=True)
+                dry_lines = executor.execute_rotation(
+                    top_symbols, score_detail, mode, dry_run=True,
+                    market_gate_off=gate_off)
             except Exception:
                 # Fall back to the simple set-diff preview if the full path fails
                 # (e.g. network issue) so the dry-run still reports skew.
                 executor._set_alpaca_keys(mode)
                 held = set(executor._get_alpaca_positions().keys())
                 t = set(top_symbols)
-                dry_lines = ['  ⚠️ full rotation preview failed — set-diff only:'
-                             f' would buy: {", ".join(sorted(t - held)) or "none"}'
-                             f' | would sell: {", ".join(sorted(held - t)) or "none"}']
+                if gate_off:
+                    dry_lines = ['  🛑 Market gate OFF — would sell all held, no buys']
+                else:
+                    dry_lines = ['  ⚠️ full rotation preview failed — set-diff only:'
+                                 f' would buy: {", ".join(sorted(t - held)) or "none"}'
+                                 f' | would sell: {", ".join(sorted(held - t)) or "none"}']
                 print(f'[MTF] DRY-RUN {mode}: would buy {sorted(t-held)} / sell {sorted(held-t)}')
             lines.append('🧪 DRY-RUN — no orders placed, DB untouched.')
             lines.extend(dry_lines)
         else:
-            live_lines = executor.execute_rotation(top_symbols, score_detail, mode)
+            live_lines = executor.execute_rotation(
+                top_symbols, score_detail, mode, market_gate_off=gate_off)
             if live_lines:
                 lines.extend(live_lines)
             db_module.clear_pending(conn, mode, sig_date)

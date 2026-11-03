@@ -131,9 +131,20 @@ not-in-sync −0.4% / 48% (K=5, 8-week forward). **Portfolio-level A/B showed no
 DD/win improvement** (DD 43.8→43.1, win 48→49) — this is a forward test of an unvalidated
 signal, not a proven edge.
 
+**Stock-leg market gate — CoreEW P20w (live 2026-11-03).** At each 10:25 run the stock leg
+reads QQQ/VTI/VTV's weekly **EMA20** state from the PHP-canonical
+`trades:coreew-leg-ema-series` command (`coreew_gate.py`). `MARKET_GATE_MODE = 'any'` = at least
+one leg ON; if **all three are OFF**, the book goes **flat**: sell every holding and place no
+buys, then re-enter the normal top-25 once the gate turns ON. The ETF leg is unaffected.
+Lookahead-free A/B (top-25 emasma EW, daily-ATR ratchet, MACD gate, cost 0): 2021-09→2026-09
+no-gate +729.4% / DD 32.6% / win 46% vs gate +618.6% / DD 26.0% / win 47%; 2017-02→2026-10
++4,892.5% / DD 35.4% vs +4,068.1% / DD 26.0% / win 47%. Reversible with
+`MARKET_GATE_ENABLED = False`. If the state cannot be read, the gate **fails open** (normal
+rotation + Slack alert) rather than liquidating on bad data.
+
 ### Stock leg (top-25, account `#PA368CPXNS13`)
-- **Buy (NEW BUY):** a stock enters the top-**25** by weekly score, isn't held, and passes the
-  weekly MACD cross-proximity gate.
+- **Buy (NEW BUY):** a stock enters the top-**25** by weekly score, isn't held, passes the
+  weekly MACD cross-proximity gate, and the market gate is **ON**.
 - **Buy (REBALANCE):** a held in-play name below target is topped up to equal weight. Stock-leg
   target = `min((equity − preserved holdings) ÷ in-play names, equity ÷ TOP_N)` (2026-11-02), so
   a thin book never concentrates and gross exposure is capped at 100% (no margin). A top-up only
@@ -143,6 +154,8 @@ signal, not a proven edge.
   `(-score, -gap_w)` key as the top-N (`emasma_core.rank_key`), so a filler is the genuine
   next-best, not an arbitrary tie-break.
 - **Sell (rotation):** a held stock **that is still scored today** drops out of the top-25.
+- **Sell (market gate):** the P20w `any` gate is OFF (QQQ/VTI/VTV all below their weekly
+  EMA20) — sell **every** held stock and place no buys that run; re-enter when the gate is ON.
 - **Sell (ratchet):** the last settled **daily** close falls below
   `(highest daily close since entry) − 2×daily ATR`. Fires independently of ranking — a name
   can still be top-25 and get stopped out. **Re-entry is blocked for 5 trading days**
@@ -159,7 +172,8 @@ signal, not a proven edge.
   is suspended for that run and the book is trimmed to exact equal weight.
 - **Exception — preserved, not sold:** a held stock **not in today's scored set** (failed the
   weekly bullish filter, **failed the MACD proximity gate**, or missing data) is kept (whipsaw
-  guard); the ratchet can still exit it.
+  guard); the ratchet can still exit it. Exception to the exception: when the **market gate is
+  OFF**, preservation is bypassed and the whole book is sold.
 
 ### ETF leg (top-3, account `#PA3U8GZ96PEN`)
 - **Buy (NEW BUY / REBALANCE):** same as the stock leg **without the MACD gate** — enters the

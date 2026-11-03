@@ -164,6 +164,28 @@ def _cancel_orders_for_symbol(symbol):
             print(f'[MTF EXECUTOR] Cancelled stale order {oid} for {symbol}')
 
 
+def _cancel_all_open_orders():
+    """Cancel every open order on the active account (market-gate liquidation)."""
+    url = f'{config.ALPACA_BASE_URL}/v2/orders'
+    params = {'status': 'open', 'limit': 500}
+    try:
+        resp = _session.get(url, headers=_alpaca_headers(), params=params,
+                            timeout=_ALPACA_TIMEOUT)
+    except Exception:
+        return
+    if resp.status_code >= 400:
+        return
+    for order in resp.json():
+        oid = order.get('id')
+        if oid:
+            try:
+                _session.delete(f'{config.ALPACA_BASE_URL}/v2/orders/{oid}',
+                                headers=_alpaca_headers(), timeout=_ALPACA_TIMEOUT)
+                print(f'[MTF EXECUTOR] Cancelled open order {oid} for {order.get("symbol", "?")}')
+            except Exception:
+                pass
+
+
 def _place_order(symbol, qty, side):
     url = f'{config.ALPACA_BASE_URL}/v2/orders'
     payload = {
@@ -543,7 +565,8 @@ def _wait_for_network(timeout_sec=30, check_hosts=['8.8.8.8', 'paper-api.alpaca.
     return False
 
 
-def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
+def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
+                     market_gate_off=False):
     """Execute MTF rotation: sell dropped positions, buy new entries.
 
     Args:
@@ -552,6 +575,8 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         mode: 'stock' or 'etf'
         dry_run: preview planned trims/top-ups/sells/buys WITHOUT placing any
             orders or touching the DB (no cancels, no fills, no state writes)
+        market_gate_off: stock leg only. When True, liquidate every held name
+            and place no buys (CoreEW P20w flat gate); the ETF leg ignores it.
 
     Returns:
         list of human-readable trade summary lines
@@ -578,6 +603,15 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
 
         symbols_to_sell = held_symbols - target_symbols
 
+        # CoreEW P20w flat gate: when the market regime is OFF, the stock book
+        # goes to cash (sell everything, no buys). ETF leg unaffected.
+        gate_off = bool(market_gate_off and mode == 'stock')
+        if gate_off:
+            msg_gate = '🛑 Market gate OFF — liquidating the stock book, no buys'
+            trade_lines.append(f'  {msg_gate}')
+            print(f'[MTF EXECUTOR] {msg_gate}')
+            symbols_to_sell = set(held_symbols)
+
         # ── Ratchet-ATR crash protection (stock leg only) ──
         # Exit any held position whose close < (highest daily close since entry)
         # - RATCHET_ATR_MULT x DAILY ATR. Peak-anchored, so it never floats
@@ -596,7 +630,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         ratchet_stops = {}
         close_map = {}
         cooldown_days = int(getattr(config, 'RATCHET_COOLDOWN_TRADING_DAYS', 1))
-        if mode == 'stock' and config.RATCHET_EXIT:
+        if mode == 'stock' and config.RATCHET_EXIT and not gate_off:
             # Multi-day ratchet cool-off (persisted in DB). The stock leg ranks on
             # the last SETTLED weekly bar, so the top-N is static Mon-Fri and the
             # old same-day guard was a no-op once the executor moved to once/day:
@@ -642,16 +676,24 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
         # failed the bullish filter or had missing data. Preserve to avoid
         # whipsaw on a marginal filter flip (e.g. IJH 07-31: daily EMA 1c below SMA40).
         # Stop exits override the guard: crash protection beats whipsaw avoidance.
-        data_gap_held = [s for s in symbols_to_sell if s not in score_detail and s not in stop_sold]
-        for sym in data_gap_held:
-            trade_lines.append(f'  ⚠️ {sym} held but not scored today (filter or data gap) — preserving')
-            print(f'[MTF EXECUTOR] ⚠️ {sym} held but not scored today (filter or data gap) — preserving position')
+        if gate_off:
+            data_gap_held = []
+        else:
+            data_gap_held = [s for s in symbols_to_sell if s not in score_detail and s not in stop_sold]
+            for sym in data_gap_held:
+                trade_lines.append(f'  ⚠️ {sym} held but not scored today (filter or data gap) — preserving')
+                print(f'[MTF EXECUTOR] ⚠️ {sym} held but not scored today (filter or data gap) — preserving position')
         symbols_to_sell = (symbols_to_sell - set(data_gap_held)) | stop_sold
 
-        # Cancel all open orders first (skipped in dry-run: never touch live orders)
+        # Cancel all open orders first (skipped in dry-run: never touch live orders).
+        # The gate liquidation must also cancel any stray buy orders for names
+        # that are not currently held, not just orders on held symbols.
         if not dry_run:
-            for symbol in held_symbols | target_symbols:
-                _cancel_orders_for_symbol(symbol)
+            if gate_off:
+                _cancel_all_open_orders()
+            else:
+                for symbol in held_symbols | target_symbols:
+                    _cancel_orders_for_symbol(symbol)
 
         # ── Sell dropped positions ──
         for symbol in sorted(symbols_to_sell):
@@ -704,7 +746,9 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
             msg_str = f'SELL {filled_qty} {symbol} @ ${fill_price:.2f}'
             if entry_price:
                 msg_str += f'  (PnL: {pnl_pct:+.2f}%)'
-            if symbol in stop_sold:
+            if gate_off:
+                msg_str += '  [market gate OFF]'
+            elif symbol in stop_sold:
                 if config.RATCHET_EXIT and mode == 'stock':
                     db_module.insert_ratchet_cooldown(conn, mode, symbol, now.date())
                 stop = ratchet_stops.get(symbol)
@@ -715,6 +759,17 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False):
             sells.append(symbol)
             trade_lines.append(f'  {msg_str}')
             print(f'[MTF EXECUTOR] {msg_str}')
+
+        if gate_off:
+            n_sold = len(sells) if not dry_run else len(symbols_to_sell)
+            msg = (f'Market gate OFF: {n_sold} sells, 0 buys — '
+                   f'${equity:,.0f} equity (cash)')
+            trade_lines.append(f'  {msg}')
+            print(f'[MTF EXECUTOR] {msg}')
+            if not dry_run and sells:
+                _send_slack(f'🛑 Market gate OFF (P20w {config.MARKET_GATE_MODE}): '
+                            f'sold {len(sells)} names, holding cash.')
+            return trade_lines
 
         # ── Buy new entries ──
         # New top-N names not already held, minus ratchet-sold AND same-day
