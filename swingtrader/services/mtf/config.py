@@ -30,6 +30,44 @@ TOP_N = 25
 # 0.83. So concentration was NOT the edge. Kept at 3 for the paper pilot by owner
 # decision (2026-09-25). Stocks stay at TOP_N. Set ETF_TOP_N equal to TOP_N to revert.
 ETF_TOP_N = 3
+
+# Portfolio HWM stop + profit sweep (ETF live 2026-11-05; stock paper
+# forward test 2026-11-04).
+# Policy lives in portfolio_guard.py; the executor adapter is wired. Flip
+# GUARD_ENABLED to activate. The first live run seeds HWM at that day's
+# settled-close mark (no historical account peak is imported).
+# A/B (ETF-28 top-3 emasma, 2021-09-21..2026-09-25,
+# daily marks, 0.05% cost, --equal-weight to match the live ETF leg):
+#   baseline EW                      +187.7% / 20.2% DD / 91% invested
+#   25% sweep at weekly rebalance    +162.0% / 18.2% DD / reserve $40.8k
+#   (legacy equity/N baseline        +176.5% / 21.3% DD)
+#   HWM stop weekly close, 20%       no trigger (sweep already caps DD < 20%)
+#   HWM stop weekly close, 15%       +124.9% / 21.4% DD (one stop) -- rejected
+#   HWM stop weekly close, 6%         +82.5% / 23.6% DD (ten stops) -- rejected
+# So: 25% sweep, weekly-close HWM stop at 20% as a disaster stop only.
+# The reserve is never re-invested; the live adapter sizes the active book
+# from equity - reserve and persists the actual swept amount after fills.
+GUARD_ENABLED = True
+# ETF: 25% sweep + 20% weekly-close disaster stop (live 2026-11-05).
+# Stock: 15% weekly-close HWM stop only, no sweep (live paper forward test
+# 2026-11-04). In-sample A/B: +346.9% / 19.1% DD vs +335.5% / 29.2% baseline.
+# Post-A/B window (2026-09-26..2026-11-04): -5.72% both, no stop triggered.
+# Review after the first live stop or 2026-12-31, whichever comes first.
+GUARD_MODES = ('etf', 'stock')
+GUARD_HWM_STOP_PCT = 20.0
+GUARD_PROFIT_SWEEP_PCT = 25.0
+GUARD_SWEEP_ON_REBALANCE = True
+GUARD_STOP_CHECK = 'weekly'
+GUARD_COOLDOWN_SESSIONS = 5
+GUARD_MIN_SWEEP = 0.0
+# Per-mode overrides (stock shares the ETF defaults only if an override is absent).
+GUARD_STOCK_HWM_STOP_PCT = 15.0
+GUARD_STOCK_PROFIT_SWEEP_PCT = 0.0
+GUARD_STOCK_SWEEP_ON_REBALANCE = True
+GUARD_STOCK_STOP_CHECK = 'weekly'
+GUARD_STOCK_COOLDOWN_SESSIONS = 5
+GUARD_STOCK_MIN_SWEEP = 0.0
+
 # The v2 freshest-crossover strategy (V2_FRESH_BARS, V2_HIST_PEAK_LOOKBACK,
 # V2_HIST_PEAK_FLOOR) was retired 2026-09-26 — it required stored MACD columns,
 # which are dropped. Use --strategy mtf or emasma.

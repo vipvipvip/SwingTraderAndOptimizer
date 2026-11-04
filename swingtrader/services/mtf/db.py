@@ -66,7 +66,104 @@ CREATE TABLE IF NOT EXISTS mtf_ratchet_cooldown (
 );
 CREATE INDEX IF NOT EXISTS idx_mtf_ratchet_cooldown_date
     ON mtf_ratchet_cooldown(mode, cooldown_date);
+
+CREATE TABLE IF NOT EXISTS mtf_guard_state (
+    mode VARCHAR(10) PRIMARY KEY,
+    hwm NUMERIC(18,4) NOT NULL,
+    reserve NUMERIC(18,4) NOT NULL DEFAULT 0,
+    pause_sessions INTEGER NOT NULL DEFAULT 0,
+    last_session VARCHAR(20),
+    last_action VARCHAR(20) NOT NULL DEFAULT '',
+    swept_total NUMERIC(18,4) NOT NULL DEFAULT 0,
+    stop_count INTEGER NOT NULL DEFAULT 0,
+    sweep_hwm NUMERIC(18,4) NOT NULL DEFAULT 0,
+    last_sweep_week VARCHAR(10) NOT NULL DEFAULT '',
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
 """
+
+
+def ensure_guard_table(conn):
+    """Create the guard-state table on first use (idempotent)."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS mtf_guard_state (
+                mode VARCHAR(10) PRIMARY KEY,
+                hwm NUMERIC(18,4) NOT NULL,
+                reserve NUMERIC(18,4) NOT NULL DEFAULT 0,
+                pause_sessions INTEGER NOT NULL DEFAULT 0,
+                last_session VARCHAR(20),
+                last_action VARCHAR(20) NOT NULL DEFAULT '',
+                swept_total NUMERIC(18,4) NOT NULL DEFAULT 0,
+                stop_count INTEGER NOT NULL DEFAULT 0,
+                sweep_hwm NUMERIC(18,4) NOT NULL DEFAULT 0,
+                last_sweep_week VARCHAR(10) NOT NULL DEFAULT '',
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """)
+    conn.commit()
+
+
+def get_guard_state(conn, mode, ensure=True):
+    """Return (state_dict, last_sweep_week) for a mode, or (None, '').
+
+    ``ensure=False`` is for dry-runs: read an existing table without creating
+    one, and treat a missing table as an empty state.
+    """
+    if ensure:
+        ensure_guard_table(conn)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT hwm, reserve, pause_sessions, last_session, last_action, '
+                'swept_total, stop_count, sweep_hwm, last_sweep_week '
+                'FROM mtf_guard_state WHERE mode = %s', (mode,))
+            row = cur.fetchone()
+    except psycopg2.errors.UndefinedTable:
+        conn.rollback()
+        return None, ''
+    if not row:
+        return None, ''
+    keys = ('hwm', 'reserve', 'pause_sessions', 'last_session', 'last_action',
+            'swept_total', 'stop_count', 'sweep_hwm')
+    state = {}
+    for k, v in zip(keys, row[:8]):
+        if k in ('pause_sessions', 'stop_count'):
+            state[k] = int(v or 0)
+        elif k in ('last_session', 'last_action'):
+            state[k] = v
+        else:
+            state[k] = float(v or 0)
+    return state, row[8] or ''
+
+
+def save_guard_state(conn, mode, state, last_sweep_week=''):
+    """Upsert the guard state for a mode."""
+    ensure_guard_table(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO mtf_guard_state
+                (mode, hwm, reserve, pause_sessions, last_session, last_action,
+                 swept_total, stop_count, sweep_hwm, last_sweep_week, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+            ON CONFLICT (mode) DO UPDATE SET
+                hwm = EXCLUDED.hwm,
+                reserve = EXCLUDED.reserve,
+                pause_sessions = EXCLUDED.pause_sessions,
+                last_session = EXCLUDED.last_session,
+                last_action = EXCLUDED.last_action,
+                swept_total = EXCLUDED.swept_total,
+                stop_count = EXCLUDED.stop_count,
+                sweep_hwm = EXCLUDED.sweep_hwm,
+                last_sweep_week = EXCLUDED.last_sweep_week,
+                updated_at = NOW()
+            """,
+            (mode, state['hwm'], state['reserve'], state['pause_sessions'],
+             state.get('last_session'), state.get('last_action', ''),
+             state.get('swept_total', 0), state.get('stop_count', 0),
+             state.get('sweep_hwm', 0), last_sweep_week))
+    conn.commit()
 
 
 def get_conn():

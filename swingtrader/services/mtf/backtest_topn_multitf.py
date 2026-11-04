@@ -32,6 +32,7 @@ from emasma_core import (compute_emasma_score as _compute_emasma_score,
 # series, never re-implement the crossover in Python.
 from backtest_trio_ew import (fetch_live_leg_ema_series as _fetch_leg_series,
                               flags_from_live_leg_ema_series as _leg_series_flags)
+from portfolio_guard import GuardConfig, GuardState, step as guard_step
 
 
 def _backtest_signature(args):
@@ -67,6 +68,21 @@ def _backtest_signature(args):
         d['market_gate_mode'] = args.market_gate_mode
         d['market_gate_span'] = args.market_gate_span
         d['market_gate_freq'] = args.market_gate_freq
+    if getattr(args, 'daily_mark', False):
+        d['daily_mark'] = True
+    if getattr(args, 'stock_live_parity', False):
+        d['stock_live_parity'] = True
+    if getattr(args, 'sweep_at_rebalance', False):
+        d['sweep_at_rebalance'] = True
+    if getattr(args, 'guard_hold_peak', False):
+        d['guard_hold_peak'] = True
+    if getattr(args, 'guard_weekly_stop', False):
+        d['guard_weekly_stop'] = True
+    if getattr(args, 'hwm_stop', 0.0) > 0 or getattr(args, 'profit_sweep', 0.0) > 0:
+        d['hwm_stop'] = args.hwm_stop
+        d['profit_sweep'] = args.profit_sweep
+        d['guard_cooldown'] = args.guard_cooldown
+        d['guard_min_sweep'] = args.guard_min_sweep
     return json.dumps(d, sort_keys=True, default=str)
 
 
@@ -97,9 +113,13 @@ def _print_baseline(args, sig, window):
     """
     cache = _load_baseline_cache()
     ref = json.loads(sig)
-    for k in ('emasma_daily_bull', 'emasma_gap_reverse', 'emasma_close_200', 'emasma_fresh',
-              'start', 'end'):
-        ref[k] = False if k.startswith('emasma_') else None
+    for k in ('emasma_daily_bull', 'emasma_gap_reverse', 'emasma_close_200', 'emasma_fresh'):
+        ref[k] = False
+    # A guard experiment should compare against the same strategy without the
+    # overlay; don't let the guard keys hide the vanilla baseline.
+    for k in ('hwm_stop', 'profit_sweep', 'guard_cooldown', 'guard_min_sweep',
+              'sweep_at_rebalance', 'guard_hold_peak', 'guard_weekly_stop'):
+        ref.pop(k, None)
     ref_sig = json.dumps(ref, sort_keys=True, default=str)
     entry = cache.get(ref_sig)
     if entry is None:
@@ -357,6 +377,13 @@ def backtest(argv=None):
                              'winners drift untrimmed. Ratchet-sold names are excluded from '
                              'in_play for the cycle (same-day cool-off), their slots '
                              'backfilled from the rank-N+ tier.')
+    parser.add_argument('--stock-live-parity', action='store_true',
+                        help='Stock leg only: mirror live executor sizing — cap each name at '
+                             'equity/TOP_N (SIZE_BY_TOP_N), apply REBALANCE_BAND_PCT and '
+                             'MIN_TRADE_NOTIONAL to trims/top-ups, and block ratchet re-entry '
+                             'for RATCHET_COOLDOWN_TRADING_DAYS trading days (backfilled from '
+                             'the next-ranked candidate). Live data-gap preserves are not '
+                             'modeled. ETF leg ignores this flag.')
     parser.add_argument('--market-gate', choices=['none', 'any', 'majority', 'all', 'qqq'],
                         default='none',
                         help='Stock-leg market gate: hold only while enough of QQQ/VTI/VTV are '
@@ -372,6 +399,32 @@ def backtest(argv=None):
     parser.add_argument('--market-gate-mode', choices=['flat', 'entry'], default='flat',
                         help='flat = sell the whole book when the gate is OFF (CoreEW-like); '
                              'entry = block new buys only (normal exits still run).')
+    parser.add_argument('--hwm-stop', type=float, default=0.0,
+                        help='Portfolio HWM stop in percent (e.g. 6 = liquidate the '
+                             'whole book when total equity is 6%% below its peak). '
+                             '0 disables the stop.')
+    parser.add_argument('--profit-sweep', type=float, default=0.0,
+                        help='Sweep this percent of each new-high gain into a permanent '
+                             'cash reserve (e.g. 50). 0 disables sweeps. The reserve is '
+                             'never re-invested and is excluded from position sizing.')
+    parser.add_argument('--guard-cooldown', type=int, default=5,
+                        help='Sessions to block buys after an HWM stop (default 5).')
+    parser.add_argument('--guard-min-sweep', type=float, default=0.0,
+                        help='Skip sweeps smaller than this dollar amount (default 0).')
+    parser.add_argument('--daily-mark', action='store_true',
+                        help='Mark equity every trading day even without a guard flag. '
+                             'Use for apples-to-apples HWM/sweep A/B runs; the default '
+                             'keeps the historical step-frequency equity curve.')
+    parser.add_argument('--sweep-at-rebalance', action='store_true',
+                        help='Only sweep on rebalance execution days (default: sweep on '
+                             'every new high). HWM stops still run daily.')
+    parser.add_argument('--guard-hold-peak', action='store_true',
+                        help='After an HWM stop, keep the old peak instead of resetting '
+                             'the HWM. The guard then stays in cash until equity recovers '
+                             'above the original stop line.')
+    parser.add_argument('--guard-weekly-stop', action='store_true',
+                        help='Check the HWM stop only on rebalance/signal sessions '
+                             '(weekly close); the HWM still tracks every daily mark.')
     parser.add_argument('--cost', type=float, default=None,
                         help='Per-side cost fraction (override config.COST_PER_TRADE; '
                              'e.g. 0 = no commissions). The audit + ledger rebuild use '
@@ -396,6 +449,23 @@ def backtest(argv=None):
     args = parser.parse_args(argv)
     if args.cost is not None:
         COST = args.cost
+    if args.hwm_stop < 0 or args.hwm_stop >= 100:
+        raise SystemExit('--hwm-stop must be >= 0 and < 100')
+    if args.profit_sweep < 0 or args.profit_sweep > 100:
+        raise SystemExit('--profit-sweep must be between 0 and 100')
+    if args.guard_cooldown < 0:
+        raise SystemExit('--guard-cooldown must be >= 0')
+    guard_enabled = args.hwm_stop > 0 or args.profit_sweep > 0
+    guard_cfg = None
+    if guard_enabled:
+        guard_cfg = GuardConfig(
+            hwm_stop_pct=args.hwm_stop / 100.0,
+            sweep_pct=args.profit_sweep / 100.0,
+            cooldown_sessions=args.guard_cooldown,
+            min_sweep=args.guard_min_sweep,
+            reset_hwm_on_stop=not args.guard_hold_peak,
+        )
+    daily_marks = guard_enabled or args.daily_mark
 
     sig = _backtest_signature(args)
 
@@ -569,6 +639,15 @@ def backtest(argv=None):
         # Portfolio state
         positions = {}
         cash = CAPITAL
+        reserve = 0.0
+        guard_state = GuardState(hwm=0.0) if guard_enabled else None
+        guard_events = []
+        live_parity = bool(args.stock_live_parity and not args.etf)
+        parity_band = float(getattr(config, 'REBALANCE_BAND_PCT', 0.0)) if live_parity else 0.0
+        parity_min = float(getattr(config, 'MIN_TRADE_NOTIONAL', 0.0)) if live_parity else 0.0
+        parity_cap_top_n = bool(getattr(config, 'SIZE_BY_TOP_N', True)) if live_parity else False
+        parity_cooldown = int(getattr(config, 'RATCHET_COOLDOWN_TRADING_DAYS', 0)) if live_parity else 0
+        ratchet_cooldown_until = {}
         equity_curve = []
         equity_dates = []
         pos_counts = []
@@ -593,6 +672,122 @@ def backtest(argv=None):
                 if args.detail:
                     print(f'  {exec_date} {reason} {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f}')
                 del positions[tid]
+
+        def _mark_value(mark_date):
+            """Total equity (active + reserve) marked at mark_date close."""
+            val = cash
+            for tid, pos in positions.items():
+                d = daily.get(tid)
+                if d is None:
+                    continue
+                xi = _last_idx_before(daily_idx[tid], d['dates'], mark_date)
+                if xi is not None:
+                    val += pos['shares'] * float(d['close'][xi])
+            return val
+
+        def _sell_all_close(mark_date, reason):
+            """Liquidate the whole book at mark_date's close (HWM stop)."""
+            nonlocal cash
+            for tid in list(positions):
+                d = daily.get(tid)
+                if d is None:
+                    continue
+                xi = _last_idx_before(daily_idx[tid], d['dates'], mark_date)
+                if xi is None or xi >= len(d['close']):
+                    continue
+                sp = float(d['close'][xi])
+                pos = positions[tid]
+                proceeds = pos['shares'] * sp * (1 - COST)
+                ret = (sp - pos['entry_price']) / pos['entry_price'] - COST
+                cash += proceeds
+                trade_log.append((mark_date, pos['symbol'], reason, pos['shares'], sp, ret))
+                if args.detail:
+                    print(f'  {mark_date} {reason} {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f}')
+                del positions[tid]
+
+        def _sweep_at_close(mark_date, amount):
+            """Move `amount` from active capital to the permanent reserve.
+
+            Uses idle active cash first, then sells the book pro-rata. Returns
+            the amount actually moved (net of any sale cost).
+            """
+            nonlocal cash, reserve
+            if amount <= 0:
+                return 0.0
+            available = cash - reserve
+            if available >= amount:
+                reserve += amount
+                return amount
+
+            px_by_tid = {}
+            pos_val = 0.0
+            for tid, pos in positions.items():
+                d = daily.get(tid)
+                if d is None:
+                    continue
+                xi = _last_idx_before(daily_idx[tid], d['dates'], mark_date)
+                if xi is None:
+                    continue
+                px = float(d['close'][xi])
+                px_by_tid[tid] = px
+                pos_val += pos['shares'] * px
+            if pos_val <= 0:
+                realized = max(0.0, available)
+                reserve += realized
+                return realized
+
+            shortfall = amount - available
+            gross = min(shortfall / (1.0 - COST), pos_val)
+            if gross <= 0:
+                reserve += max(0.0, available)
+                return max(0.0, available)
+
+            ratio = gross / pos_val
+            for tid, pos in list(positions.items()):
+                px = px_by_tid.get(tid)
+                if px is None or px <= 0:
+                    continue
+                sell_sh = pos['shares'] * ratio
+                proceeds = sell_sh * px * (1 - COST)
+                cash += proceeds
+                pos['shares'] -= sell_sh
+                trade_log.append((mark_date, pos['symbol'], 'SELL-SWEEP', sell_sh, px, None))
+                if args.detail:
+                    print(f'  {mark_date} SWEEP {pos["symbol"]} {sell_sh:.2f} @ ${px:.2f}')
+                if pos['shares'] <= 1e-9:
+                    del positions[tid]
+
+            realized = available + gross * (1 - COST)
+            reserve += realized
+            return realized
+
+        def _mark_and_guard(mark_date, is_rebalance_day=False):
+            """Append one daily equity point, then apply the guard at that close."""
+            nonlocal cash, reserve, guard_state
+            if equity_dates and equity_dates[-1] == mark_date:
+                return
+            equity = _mark_value(mark_date)
+            if guard_enabled:
+                allow_sweep = (not args.sweep_at_rebalance) or is_rebalance_day
+                allow_stop = (not args.guard_weekly_stop) or is_rebalance_day
+                guard_state, gd = guard_step(
+                    guard_state, guard_cfg, equity=equity, session=str(mark_date),
+                    allow_sweep=allow_sweep, allow_stop=allow_stop)
+                if gd.liquidate:
+                    _sell_all_close(mark_date, 'SELL-GUARD')
+                    guard_events.append((mark_date, 'HWM_STOP', equity, reserve, 0.0))
+                    if args.detail:
+                        print(f'  {mark_date} GUARD HWM STOP at ${equity:,.2f}')
+                elif gd.sweep_amount > 0:
+                    realized = _sweep_at_close(mark_date, gd.sweep_amount)
+                    guard_state.record_sweep(realized)
+                    guard_events.append((mark_date, 'SWEEP', equity, reserve, realized))
+                    if args.detail:
+                        print(f'  {mark_date} GUARD SWEEP ${realized:,.2f} -> reserve ${reserve:,.2f}')
+                equity = _mark_value(mark_date)
+            equity_curve.append(equity)
+            equity_dates.append(mark_date)
+            pos_counts.append(len(positions))
 
         # Optional seeded book (apples-to-apples replay): start with live's
         # exact holdings marked at the first in-window date's open, so the only
@@ -630,6 +825,14 @@ def backtest(argv=None):
         for ri in range(0, len(all_dates), step):
             sig_date = all_dates[ri]
             market_off = bool(market_gate_on is not None and not market_gate_on[ri])
+
+            # Mark the signal-date close and run the guard BEFORE the next-open
+            # rebalance. A stop or sweep therefore changes the book that the
+            # rebalance sees, instead of buying at the open and then liquidating
+            # at the same day's close.
+            if daily_marks:
+                _mark_and_guard(sig_date, is_rebalance_day=True)
+            guard_paused = bool(guard_state is not None and guard_state.pause_sessions > 0)
 
             # Compute Multi-TF scores for all tickers
             candidates = []
@@ -857,16 +1060,29 @@ def backtest(argv=None):
                 if (market_off and args.market_gate_mode == 'flat' and positions
                         and ri + 1 < len(all_dates)):
                     _sell_all(all_dates[ri + 1], 'SELL-GATE')
-                pf_val = cash
-                label_date = all_dates[min(ri + 1, len(all_dates) - 1)]
-                for tid in list(positions):
-                    p = _last_idx_before(daily_idx[tid], daily[tid]['dates'], label_date)
-                    if p is not None:
-                        pf_val += positions[tid]['shares'] * float(daily[tid]['close'][p])
-                equity_curve.append(pf_val)
-                equity_dates.append(label_date)
-                pos_counts.append(len(positions))
+                if daily_marks:
+                    # Mark through the session before the next signal date.
+                    # The next iteration marks that signal date itself, with
+                    # the guard allowed to sweep before its rebalance.
+                    for gj in range(ri + 1, min(ri + step, len(all_dates))):
+                        _mark_and_guard(all_dates[gj])
+                else:
+                    pf_val = cash
+                    label_date = all_dates[min(ri + 1, len(all_dates) - 1)]
+                    for tid in list(positions):
+                        p = _last_idx_before(daily_idx[tid], daily[tid]['dates'], label_date)
+                        if p is not None:
+                            pf_val += positions[tid]['shares'] * float(daily[tid]['close'][p])
+                    equity_curve.append(pf_val)
+                    equity_dates.append(label_date)
+                    pos_counts.append(len(positions))
                 continue
+
+            # Live parity: a ratchet sell blocks re-entry for N trading days;
+            # exclude it from the candidate pool so the slot backfills from N+1.
+            if live_parity and ratchet_cooldown_until:
+                candidates = [c for c in candidates
+                              if ratchet_cooldown_until.get(c[0], -1) <= ri]
 
             # Sort by score DESC, then by weekly gap DESC for a deterministic,
             # replicable selection when many tickers tie at the score cap.
@@ -979,12 +1195,14 @@ def backtest(argv=None):
                     print(f'  {exec_date} {reason} {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f}')
                 if reason == 'SELL-RATC':
                     ratchet_sold_cycle.add(tid)
+                    if parity_cooldown > 0:
+                        ratchet_cooldown_until[tid] = exec_idx + parity_cooldown
                 del positions[tid]
 
             # BUY / SIZING: equal-weight the whole book (CoreEW-style) or add new
             # selected positions (legacy new-entry-only sizing).
             to_buy = [tid for tid in selected if tid not in positions]
-            if args.equal_weight and not market_off:
+            if args.equal_weight and not market_off and not guard_paused:
                 # in-play = selected names minus same-day ratchet-sold (cool-off);
                 # vacated slots backfilled from the rank-N+ tier.
                 in_play = [tid for tid in selected if tid not in ratchet_sold_cycle]
@@ -994,8 +1212,10 @@ def backtest(argv=None):
                             break
                         if c[0] not in in_play and c[0] not in ratchet_sold_cycle:
                             in_play.append(c[0])
-                # mark the book at exec-date open (same price we transact at)
-                eq_open = cash
+                # mark the book at exec-date open (same price we transact at).
+                # Size on ACTIVE equity only: the permanent reserve is not
+                # buying power and must never be re-invested.
+                eq_open = cash - reserve
                 open_px = {}
                 for tid, pos in positions.items():
                     d = daily.get(tid)
@@ -1009,6 +1229,8 @@ def backtest(argv=None):
                     eq_open += pos['shares'] * op
                 if in_play:
                     per_position = eq_open / len(in_play)
+                    if parity_cap_top_n:
+                        per_position = min(per_position, eq_open / max(1, args.top_n))
                     # 1) TRIM overweight held positions down to the target.
                     for tid in list(positions):
                         if tid not in in_play:
@@ -1020,6 +1242,11 @@ def backtest(argv=None):
                         excess = pos['shares'] * op - per_position
                         if excess <= 0:
                             continue
+                        if live_parity:
+                            if excess < per_position * (parity_band / 100.0):
+                                continue
+                            if excess < parity_min:
+                                continue
                         sell_sh = excess / op
                         proceeds = sell_sh * op * (1 - COST)
                         cash += proceeds
@@ -1040,6 +1267,14 @@ def backtest(argv=None):
                         needed = per_position - cur_val
                         if needed <= 0:
                             continue
+                        if live_parity and tid in positions:
+                            if needed < per_position * (parity_band / 100.0):
+                                continue
+                            if needed < parity_min:
+                                continue
+                        needed = min(needed, max(0.0, cash - reserve))
+                        if needed <= 0:
+                            continue
                         buy_sh = (needed / bp) * (1 - COST)
                         cost = buy_sh * bp
                         cash -= cost
@@ -1054,8 +1289,8 @@ def backtest(argv=None):
                             trade_log.append((exec_date, sym, 'BUY', buy_sh, bp, None))
                             if args.detail:
                                 print(f'  {exec_date} BUY  {sym} {buy_sh:.2f} @ ${bp:.2f}')
-            elif to_buy and not market_off:
-                per_stock = cash / len(to_buy)
+            elif to_buy and not market_off and not guard_paused:
+                per_stock = max(0.0, cash - reserve) / len(to_buy)
                 for tid in to_buy:
                     d = daily.get(tid)
                     if d is None:
@@ -1073,18 +1308,28 @@ def backtest(argv=None):
                     if args.detail:
                         print(f'  {exec_date} BUY  {sym} {shares:.2f} @ ${bp:.2f}')
 
-            # MTM at exec_date close — fall back to last available close
-            pf_val = cash
-            for tid, pos in positions.items():
-                d = daily.get(tid)
-                if d is None:
-                    continue
-                xi = _last_idx_before(daily_idx[tid], daily[tid]['dates'], exec_date)
-                if xi is not None:
-                    pf_val += pos['shares'] * float(d['close'][xi])
-            equity_curve.append(pf_val)
-            equity_dates.append(exec_date)
-            pos_counts.append(len(positions))
+            # MTM at exec_date close — fall back to last available close.
+            # Guard-enabled runs (and explicit --daily-mark) also mark every
+            # trading day between rebalances so a path-based stop can fire
+            # intraweek; without either flag the historical step-frequency
+            # equity curve is preserved exactly.
+            if daily_marks:
+                # exec_date through the session before the next signal date;
+                # the next iteration marks that signal date with the guard.
+                for gj in range(ri + 1, min(ri + step, len(all_dates))):
+                    _mark_and_guard(all_dates[gj])
+            else:
+                pf_val = cash
+                for tid, pos in positions.items():
+                    d = daily.get(tid)
+                    if d is None:
+                        continue
+                    xi = _last_idx_before(daily_idx[tid], daily[tid]['dates'], exec_date)
+                    if xi is not None:
+                        pf_val += pos['shares'] * float(d['close'][xi])
+                equity_curve.append(pf_val)
+                equity_dates.append(exec_date)
+                pos_counts.append(len(positions))
 
         # --- Results ---
         if not equity_curve:
@@ -1117,12 +1362,14 @@ def backtest(argv=None):
                               None, len(eq_arr) - peak_i))
         drawdowns.sort(key=lambda x: x[0])
 
-        all_sells = [t for t in trade_log if t[2] in ('SELL', 'SELL-STOP', 'SELL-H-EMA', 'SELL-RATC', 'SELL-D-EMA', 'SELL-GATE')]
+        all_sells = [t for t in trade_log if t[2] in ('SELL', 'SELL-STOP', 'SELL-H-EMA', 'SELL-RATC', 'SELL-D-EMA', 'SELL-GATE', 'SELL-GUARD')]
         stop_sells = [t for t in trade_log if t[2] == 'SELL-STOP']
         hem_sells = [t for t in trade_log if t[2] == 'SELL-H-EMA']
         ratc_sells = [t for t in trade_log if t[2] == 'SELL-RATC']
         dem_sells = [t for t in trade_log if t[2] == 'SELL-D-EMA']
         gate_sells = [t for t in trade_log if t[2] == 'SELL-GATE']
+        guard_sells = [t for t in trade_log if t[2] == 'SELL-GUARD']
+        sweep_sells = [t for t in trade_log if t[2] == 'SELL-SWEEP']
         all_buys = [t for t in trade_log if t[2] == 'BUY']
         winners = [t for t in all_sells if t[5] is not None and t[5] > 0]
         losers = [t for t in all_sells if t[5] is not None and t[5] <= 0]
@@ -1161,13 +1408,28 @@ def backtest(argv=None):
         if args.market_gate != 'none':
             print(f'  Market:  {args.market_gate_freq} EMA{args.market_gate_span} '
                   f'{args.market_gate} ({args.market_gate_mode})')
+        if guard_enabled:
+            sweep_when = 'rebalance' if args.sweep_at_rebalance else 'every new high'
+            reentry = 'hold peak' if args.guard_hold_peak else 'reset HWM'
+            stop_when = 'weekly close' if args.guard_weekly_stop else 'daily close'
+            print(f'  Guard:   HWM stop {args.hwm_stop:g}% ({stop_when}) / '
+                  f'sweep {args.profit_sweep:g}% ({sweep_when}) / '
+                  f'cooldown {args.guard_cooldown} sessions / {reentry}')
         print(f'  Period: {all_dates[0]} to {all_dates[-1]}')
         print(f'{"="*80}')
         print(f'  Initial: ${CAPITAL:,.0f}')
         print(f'  Final:   ${equity_curve[-1]:,.0f}')
         print(f'  Return:  {total_ret*100:+.2f}%')
         print(f'  Max DD:  {dd*100:.1f}%')
-        exit_desc = f'{len(stop_sells)} stop-loss, {len(hem_sells)} hourly-ema, {len(ratc_sells)} ratchet-atr, {len(dem_sells)} daily-ema, {len(gate_sells)} gate'
+        if guard_state is not None:
+            print(f'  Reserve: ${reserve:,.0f}  (swept ${guard_state.swept_total:,.0f}, '
+                  f'{len([e for e in guard_events if e[1] == "SWEEP"])} sweeps, '
+                  f'{guard_state.stop_count} stops)')
+            print(f'  Active:  ${equity_curve[-1] - reserve:,.0f}')
+        exit_desc = (f'{len(stop_sells)} stop-loss, {len(hem_sells)} hourly-ema, '
+                     f'{len(ratc_sells)} ratchet-atr, {len(dem_sells)} daily-ema, '
+                     f'{len(gate_sells)} gate, {len(guard_sells)} guard, '
+                     f'{len(sweep_sells)} sweep')
         print(f'  Trades:  {sells} sells ({exit_desc}) / {buys} buys')
         print(f'  Win:     {len(winners)} ({wr:.0f}%)  avg +{avg_win:+.2f}%')
         print(f'  Loss:    {len(losers)} ({lr:.0f}%)  avg {avg_loss:+.2f}%')
@@ -1195,8 +1457,11 @@ def backtest(argv=None):
         for i, v in enumerate(equity_curve):
             if i == 0:
                 continue
-            di = min(i * step if i * step < len(all_dates) else len(all_dates) - 1, len(all_dates) - 1)
-            d = all_dates[di]
+            if daily_marks:
+                d = equity_dates[i]
+            else:
+                di = min(i * step if i * step < len(all_dates) else len(all_dates) - 1, len(all_dates) - 1)
+                d = all_dates[di]
             mk = f'{d.year}-{d.month:02d}'
             monthly.setdefault(mk, []).append(v)
 
@@ -1316,6 +1581,9 @@ def backtest(argv=None):
             'args': args,
             'CAPITAL': CAPITAL,
             'COST': COST,
+            'reserve': reserve,
+            'guard_state': guard_state,
+            'guard_events': guard_events,
         }
 
     finally:

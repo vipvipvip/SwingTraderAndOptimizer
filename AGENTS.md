@@ -31,6 +31,6 @@ Concerns are decoupled; each area owns its detail in `common/docs/`. **Start a t
 
 ## Critical context
 - Laravel on port 9000; Explorer `http://localhost:9000/scanner/explorer` (data `/scanner/explorer-data?mode=stock|etf`); clear `swingtrader/backend/storage/framework/{cache,views}/` after blade changes (NOT `scanner/backend/`).
-- **Live:** P20w `trades:execute-leg-ema --span=20` (systemd Mon–Fri 10:05 ET, Slack `[CoreEW-LegEMA]`); MTF top-N 10:25 (stocks+ETFs, Slack; **stock leg gated by P20w `any` flat since 2026-11-03**); Daily Signal 5 PM (Slack only, no orders); Trigger Levels report 10:00 + 17:05 (Slack only, `trigger_levels.py`). **Retired:** EG100 (09-28), variant S (09-27), EMAC/MTCS, PPO.
+- **Live:** P20w `trades:execute-leg-ema --span=20` (systemd Mon–Fri 10:05 ET, Slack `[CoreEW-LegEMA]`); MTF top-N 10:25 (stocks+ETFs, Slack; **stock leg gated by P20w `any` flat since 2026-11-03** and has a 15% weekly-close HWM stop paper forward test since 2026-11-04; **ETF leg has 25% profit sweep + 20% weekly-close HWM stop since 2026-11-05**); Daily Signal 5 PM (Slack only, no orders); Trigger Levels report 10:00 + 17:05 (Slack only, `trigger_levels.py`). **Retired:** EG100 (09-28), variant S (09-27), EMAC/MTCS, PPO.
 - **Accounts (all Alpaca paper):** CoreEW #PA3GKZYLVO68; MTF stocks #PA368CPXNS13; MTF ETFs #PA3U8GZ96PEN; live Slack = acts on each weekly action / daily recap.
 - Engines, indexes, keys, fill details, known edges: → `OPERATING_RULES.md`.

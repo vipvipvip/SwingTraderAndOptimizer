@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import config
 import db as db_module
 from emasma_core import rank_key
+from portfolio_guard import GuardConfig, GuardState, step as guard_step
 
 NY = ZoneInfo('America/New_York')
 
@@ -310,6 +311,44 @@ def _block_rebuy(symbol, price, conn):
     return False, ''
 
 
+def _guard_enabled(mode):
+    """True only for modes explicitly opted in (ETF first; stocks later)."""
+    return bool(getattr(config, 'GUARD_ENABLED', False)) and mode in tuple(
+        getattr(config, 'GUARD_MODES', ('etf',)))
+
+
+def _guard_setting(mode, name, default):
+    """Mode override first, then the shared GUARD_* default."""
+    return getattr(config, f'GUARD_{mode.upper()}_{name}',
+                   getattr(config, f'GUARD_{name}', default))
+
+
+def _guard_config(mode):
+    return GuardConfig(
+        hwm_stop_pct=float(_guard_setting(mode, 'HWM_STOP_PCT', 0.0)) / 100.0,
+        sweep_pct=float(_guard_setting(mode, 'PROFIT_SWEEP_PCT', 0.0)) / 100.0,
+        cooldown_sessions=int(_guard_setting(mode, 'COOLDOWN_SESSIONS', 5)),
+        min_sweep=float(_guard_setting(mode, 'MIN_SWEEP', 0.0)),
+    )
+
+
+def _guard_week_key(d):
+    iso = d.isocalendar()
+    return f'{iso.year}-W{iso.week:02d}'
+
+
+def _guard_mark_equity(positions, cash, close_map):
+    """Total equity at the last settled close: cash + positions * settled close."""
+    total = float(cash or 0.0)
+    for sym, pos in (positions or {}).items():
+        px = close_map.get(sym)
+        if px:
+            total += abs(float(pos.get('qty', 0) or 0)) * float(px)
+        else:
+            total += _position_value(pos)
+    return total
+
+
 def _latest_trade_price(symbol):
     url = 'https://data.alpaca.markets/v2/stocks/trades/latest'
     try:
@@ -603,6 +642,60 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
 
         symbols_to_sell = held_symbols - target_symbols
 
+        # ── Portfolio guard (ETF first, opt-in per mode) ──
+        # Marks total equity at the last SETTLED close and applies the pure
+        # portfolio_guard policy. Sweep and weekly-close stop run on the first
+        # execution of each ISO week, matching the weekly rebalance; the HWM is
+        # still updated on every run. The reserve is cash: sizing subtracts it
+        # from active equity and the normal equal-weight trim creates it.
+        guard_state = None
+        guard_last_week = ''
+        guard_paused = False
+        guard_liquidate = False
+        guard_sweep_requested = 0.0
+        guard_reserve = 0.0
+        if _guard_enabled(mode):
+            guard_close_map = latest_settled_daily_closes(conn, held_symbols)
+            mark_equity = _guard_mark_equity(
+                alpaca_positions, account.get('cash', 0), guard_close_map)
+            raw_guard, guard_last_week = db_module.get_guard_state(
+                conn, mode, ensure=not dry_run)
+            guard_state = (GuardState.from_dict(raw_guard) if raw_guard
+                           else GuardState(hwm=mark_equity))
+            if guard_state.hwm <= 0:
+                guard_state.hwm = mark_equity
+                guard_state.sweep_hwm = mark_equity
+            week = _guard_week_key(now.date())
+            first_of_week = guard_last_week != week
+            allow_sweep = (True if not _guard_setting(mode, 'SWEEP_ON_REBALANCE', True)
+                           else first_of_week)
+            allow_stop = (True if _guard_setting(mode, 'STOP_CHECK', 'weekly') != 'weekly'
+                          else first_of_week)
+            guard_state, gd = guard_step(
+                guard_state, _guard_config(mode), equity=mark_equity,
+                session=str(now.date()), allow_sweep=allow_sweep,
+                allow_stop=allow_stop)
+            if first_of_week:
+                guard_last_week = week
+            guard_paused = bool(gd.paused)
+            guard_liquidate = bool(gd.liquidate)
+            guard_sweep_requested = max(0.0, float(gd.sweep_amount))
+            guard_reserve = guard_state.reserve + guard_sweep_requested
+            if guard_liquidate:
+                trade_lines.append(
+                    f'  🛑 Guard HWM stop — liquidating {mode.upper()} book, no buys')
+                print(f'[MTF EXECUTOR] Guard HWM stop — liquidating {mode.upper()} book')
+            elif guard_paused and held_symbols:
+                guard_liquidate = True
+                trade_lines.append(
+                    '  🛑 Guard cooldown with positions still held — retrying liquidation')
+                print('[MTF EXECUTOR] Guard cooldown with positions — retrying liquidation')
+            if guard_sweep_requested > 0:
+                trade_lines.append(
+                    f'  💰 Guard sweep ${guard_sweep_requested:,.2f} '
+                    f'(reserve target ${guard_reserve:,.2f})')
+                print(f'[MTF EXECUTOR] Guard sweep ${guard_sweep_requested:,.2f}')
+
         # CoreEW P20w flat gate: when the market regime is OFF, the stock book
         # goes to cash (sell everything, no buys). ETF leg unaffected.
         gate_off = bool(market_gate_off and mode == 'stock')
@@ -610,6 +703,8 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
             msg_gate = '🛑 Market gate OFF — liquidating the stock book, no buys'
             trade_lines.append(f'  {msg_gate}')
             print(f'[MTF EXECUTOR] {msg_gate}')
+            symbols_to_sell = set(held_symbols)
+        if guard_liquidate:
             symbols_to_sell = set(held_symbols)
 
         # ── Ratchet-ATR crash protection (stock leg only) ──
@@ -630,7 +725,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
         ratchet_stops = {}
         close_map = {}
         cooldown_days = int(getattr(config, 'RATCHET_COOLDOWN_TRADING_DAYS', 1))
-        if mode == 'stock' and config.RATCHET_EXIT and not gate_off:
+        if mode == 'stock' and config.RATCHET_EXIT and not gate_off and not guard_liquidate:
             # Multi-day ratchet cool-off (persisted in DB). The stock leg ranks on
             # the last SETTLED weekly bar, so the top-N is static Mon-Fri and the
             # old same-day guard was a no-op once the executor moved to once/day:
@@ -676,7 +771,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
         # failed the bullish filter or had missing data. Preserve to avoid
         # whipsaw on a marginal filter flip (e.g. IJH 07-31: daily EMA 1c below SMA40).
         # Stop exits override the guard: crash protection beats whipsaw avoidance.
-        if gate_off:
+        if gate_off or guard_liquidate:
             data_gap_held = []
         else:
             data_gap_held = [s for s in symbols_to_sell if s not in score_detail and s not in stop_sold]
@@ -689,7 +784,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
         # The gate liquidation must also cancel any stray buy orders for names
         # that are not currently held, not just orders on held symbols.
         if not dry_run:
-            if gate_off:
+            if gate_off or guard_liquidate:
                 _cancel_all_open_orders()
             else:
                 for symbol in held_symbols | target_symbols:
@@ -748,6 +843,8 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
                 msg_str += f'  (PnL: {pnl_pct:+.2f}%)'
             if gate_off:
                 msg_str += '  [market gate OFF]'
+            elif guard_liquidate:
+                msg_str += '  [guard HWM stop]'
             elif symbol in stop_sold:
                 if config.RATCHET_EXIT and mode == 'stock':
                     db_module.insert_ratchet_cooldown(conn, mode, symbol, now.date())
@@ -759,6 +856,19 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
             sells.append(symbol)
             trade_lines.append(f'  {msg_str}')
             print(f'[MTF EXECUTOR] {msg_str}')
+
+        if guard_liquidate:
+            n_sold = len(sells) if not dry_run else len(symbols_to_sell)
+            msg = (f'Guard HWM stop: {n_sold} sells, 0 buys — '
+                   f'${equity:,.0f} equity (cash)')
+            trade_lines.append(f'  {msg}')
+            print(f'[MTF EXECUTOR] {msg}')
+            if not dry_run:
+                db_module.save_guard_state(
+                    conn, mode, guard_state.to_dict(), guard_last_week)
+                _send_slack(f'🛑 Guard HWM stop ({mode.upper()}): sold {len(sells)} names, '
+                            f'holding cash. Reserve ${guard_state.reserve:,.2f}.')
+            return trade_lines
 
         if gate_off:
             n_sold = len(sells) if not dry_run else len(symbols_to_sell)
@@ -818,6 +928,11 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
         # part of the rotation book, so they neither get trimmed nor topped up.
         in_play_names = [s for s in held_after_sell if s in target_symbols] + symbols_to_buy
         in_play_names = [s for s in in_play_names if s not in blocked_buys]
+        if guard_paused:
+            trade_lines.append('  ⏸️ Guard cooldown — no buys or rebalances this run')
+            print('[MTF EXECUTOR] Guard cooldown — holding cash')
+            symbols_to_buy = []
+            in_play_names = []
 
         if config.EQUAL_WEIGHT and in_play_names:
             # ── CoreEW-style equal-weight sizing (backtest --equal-weight + live risk caps) ──
@@ -844,14 +959,20 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
             # intended sell list, so a failed sell is still counted as capital.
             preserved = [s for s in fresh_pos if s not in target_symbols]
             preserved_value = sum(_position_value(fresh_pos.get(s)) for s in preserved)
-            investable_equity = max(0.0, equity - preserved_value)
-            per_position = _risk_per_position(equity, investable_equity, len(in_play),
+            # Guard reserve is permanent cash: size only the active book.
+            reserved = guard_reserve
+            active_equity = max(0.0, equity - reserved)
+            investable_equity = max(0.0, active_equity - preserved_value)
+            per_position = _risk_per_position(active_equity, investable_equity, len(in_play),
                                               top_n_cap, risk_sizing)
             gross_now = sum(_position_value(p) for p in fresh_pos.values())
             # A negative-cash leg must be de-levered first: exact equal weight
-            # (band/min-notional off for this run) so gross lands at <= equity.
-            # The drift band resumes on the next run once the margin is gone.
-            deleveraging = bool(risk_sizing and gross_now > equity)
+            # (band/min-notional off for this run) so gross lands at <= active
+            # equity. The drift band resumes on the next run once margin is gone.
+            deleveraging = bool(risk_sizing and gross_now > active_equity)
+            if reserved > 0:
+                trade_lines.append(
+                    f'  🔒 Guard reserve ${reserved:,.2f}; active equity ${active_equity:,.2f}')
             if deleveraging:
                 band_pct = 0.0
                 min_notional = 0.0
@@ -997,7 +1118,7 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
 
         elif symbols_to_buy:
             total_picks = len(top_symbols)
-            per_position = equity / total_picks
+            per_position = max(0.0, equity - guard_reserve) / total_picks
 
             for symbol in sorted(symbols_to_buy):
                 sd = score_detail.get(symbol, {})
@@ -1073,6 +1194,30 @@ def execute_rotation(top_symbols, score_detail, mode='stock', dry_run=False,
         print(f'[MTF EXECUTOR] {msg}')
         if buys or sells:
             _send_slack(f'Rotation complete: {len(sells)} sold, {len(buys)} bought')
+
+        if guard_state is not None and not dry_run:
+            if guard_sweep_requested > 0:
+                try:
+                    fresh_acct = _get_account()
+                    cash_now = float(fresh_acct.get('cash', 0) or 0)
+                    actual_sweep = max(0.0, min(guard_sweep_requested,
+                                               cash_now - guard_state.reserve))
+                except Exception:
+                    actual_sweep = 0.0
+                if actual_sweep > 0:
+                    guard_state.record_sweep(actual_sweep)
+                    msg_sweep = (f'Guard sweep: ${actual_sweep:,.2f} to reserve '
+                                 f'(total ${guard_state.reserve:,.2f})')
+                    trade_lines.append(f'  {msg_sweep}')
+                    print(f'[MTF EXECUTOR] {msg_sweep}')
+                    _send_slack(f'💰 Guard sweep ({mode.upper()}): '
+                                f'${actual_sweep:,.2f} moved to reserve '
+                                f'(total ${guard_state.reserve:,.2f}).')
+                else:
+                    trade_lines.append(
+                        '  ⚠️ Guard sweep deferred: no active cash above reserve')
+            db_module.save_guard_state(
+                conn, mode, guard_state.to_dict(), guard_last_week)
 
     except Exception as e:
         _send_slack_error(f'execute_rotation crashed: {e}')

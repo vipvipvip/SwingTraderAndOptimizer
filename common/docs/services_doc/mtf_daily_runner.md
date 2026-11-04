@@ -44,9 +44,50 @@ vs +4,068.1% / DD 26.0% / win 47%. Daily-EMA variants did not beat weekly
 If the PHP state is unavailable the gate **fails open** (normal rotation + Slack
 alert) rather than liquidating the book on bad data.
 
+**Portfolio guard (ETF live 2026-11-05; stock live paper forward test
+2026-11-04).** `portfolio_guard.py` adds portfolio-level rules on top of the
+weekly rotation. Each mode reads its own overrides, falling back to the shared
+`GUARD_*` defaults:
+
+- **Profit sweep:** on the first execution of each ISO week, move **25%**
+  (`GUARD_PROFIT_SWEEP_PCT`) of any new total-equity high into a **permanent cash
+  reserve**. The reserve is never re-invested: position sizing uses
+  `equity − reserve`, and the normal equal-weight trim creates the cash.
+- **HWM stop:** if total equity at the last settled daily close is **≤ 80% of
+  the high-water mark** (`GUARD_HWM_STOP_PCT = 20`), sell the whole ETF book,
+  place no buys, and pause new buys for 5 sessions (`GUARD_COOLDOWN_SESSIONS`).
+  The stop is checked on the **first execution of each ISO week** (weekly close);
+  the HWM tracks every execution. If a stop sell does not fully fill, the next
+  run retries the liquidation while the cooldown is active.
+
+State lives in `mtf_guard_state` (one row per mode): HWM, reserve, cooldown,
+last sweep week, sweep totals. The first live run seeds the HWM at that day's
+settled-close mark — no historical account peak is imported. Dry-runs never
+create the table or persist state. A/B (ETF-28 top-3 emasma, equal-weight,
+2021-09-21→2026-09-25, daily marks, 0.05% cost): baseline **+187.7% / 20.2% DD**
+vs 25% sweep **+162.0% / 18.2% DD / $40.8k reserve**; the 20% weekly stop did
+not trigger in that window, so it is a disaster stop only. Revert with
+`GUARD_ENABLED = False` (or remove `'etf'` from `GUARD_MODES`).
+
+**Stock-leg guard (live paper forward test 2026-11-04).** `GUARD_MODES` is now
+`('etf', 'stock')`. The stock leg uses `GUARD_STOCK_HWM_STOP_PCT = 15` and
+`GUARD_STOCK_PROFIT_SWEEP_PCT = 0` — a 15% weekly-close HWM stop only, no sweep,
+5-session cooldown. It does not reserve cash or change stock sizing. On a stop
+it liquidates the stock book and blocks buys; the P20w gate and ratchet are
+skipped for that run. A/B (2021-09-21→2026-09-25, 0.05% cost, daily marks):
+baseline **+335.5% / 29.2% DD** vs 15% weekly stop **+346.9% / 19.1% DD** (3
+stops). Post-A/B forward window (2026-09-26→2026-11-04): **−5.72% both**, no
+stop triggered, so the stop did not hurt but is not yet proven. Review after
+the first live stop or **2026-12-31**. To reproduce, run the stock emasma
+backtest with `--equal-weight --stock-live-parity` (TOP_N cap, ±20% band, $500
+min trade, 5-day ratchet cooldown), the P20w gate, and `--hwm-stop 15
+--guard-weekly-stop --guard-cooldown 5`. Revert the stock overlay by removing
+`'stock'` from `GUARD_MODES` (ETF unaffected).
+
 **State is DB-backed**: pending picks live in `mtf_pending` (JSONB), run history
-in `mtf_runs`, and real holdings in `mtf_positions`. No state files, no R&D
-paper-portfolio accounting — the live Alpaca positions are the source of truth.
+in `mtf_runs`, and real holdings in `mtf_positions`; the portfolio guard state
+is in `mtf_guard_state` (one row per mode). No state files, no R&D paper-portfolio accounting — the live
+Alpaca positions are the source of truth.
 
 ## Scoring Formula
 

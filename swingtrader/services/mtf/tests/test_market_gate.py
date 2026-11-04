@@ -112,6 +112,7 @@ class TestExecutorGate(unittest.TestCase):
         }
         with patch.object(executor, '_wait_for_network'), \
              patch.object(executor, '_set_alpaca_keys'), \
+             patch.object(executor.config, 'GUARD_ENABLED', False), \
              patch.object(executor.db_module, 'get_conn', return_value=_FakeConn()), \
              patch.object(executor, '_get_alpaca_positions', return_value=positions), \
              patch.object(executor, '_get_account',
@@ -129,6 +130,7 @@ class TestExecutorGate(unittest.TestCase):
         positions = {'AAA': {'qty': '10', 'market_value': '1000'}}
         with patch.object(executor, '_wait_for_network'), \
              patch.object(executor, '_set_alpaca_keys'), \
+             patch.object(executor.config, 'GUARD_ENABLED', False), \
              patch.object(executor.db_module, 'get_conn', return_value=_FakeConn()), \
              patch.object(executor, '_get_alpaca_positions', return_value=positions), \
              patch.object(executor, '_get_account',
