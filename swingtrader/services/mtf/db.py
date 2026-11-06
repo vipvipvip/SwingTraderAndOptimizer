@@ -5,8 +5,9 @@ import json
 from datetime import date, datetime
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS, EMA_PERIOD, SMA_PERIOD, WARMUP_BARS, TS_START, SECTOR_ETFS
 
-# Broad-market gate ETFs whose weekly EMA10>SMA40 state indicates market regime.
+# Broad-market gate ETFs whose weekly EMA10>SMA20 state indicates market regime.
 MARKET_GATE_ETFS = ['VTI', 'SPY', 'QQQ', 'VTV']
+MARKET_GATE_SMA_PERIOD = 20
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS mtf_positions (
@@ -411,24 +412,30 @@ def get_etf_name(conn, ticker_id):
         return row[0] if row else None
 
 
-def load_weekly(conn, ticker_id):
+def load_weekly(conn, ticker_id, sma_period=SMA_PERIOD, monday_only=False):
     cur = conn.cursor()
     cur.execute(
         'SELECT date, close FROM tbl_prices_weekly WHERE ticker_id = %s ORDER BY date ASC',
         (ticker_id,))
     rows = cur.fetchall()
     cur.close()
+    if monday_only:
+        # One bar per ISO week — the Monday-stamped (full-week) one. The yfinance
+        # fallback in populate_tickers.py can stamp the in-progress week with the
+        # capture date instead of Monday, which would otherwise leak a duplicate
+        # week into the EMA/SMA series.
+        rows = [r for r in rows if r[0].weekday() == 0]
     if len(rows) < WARMUP_BARS:
         return None
     dates = [r[0] for r in rows]
     closes = np.array([float(r[1]) for r in rows], dtype=np.float64)
     s = pd.Series(closes)
     ema = s.ewm(span=EMA_PERIOD, adjust=False).mean().to_numpy()
-    sma = s.rolling(window=SMA_PERIOD).mean().to_numpy()
+    sma = s.rolling(window=sma_period).mean().to_numpy()
     return dict(dates=dates, close=closes, ema=ema, sma=sma)
 
 
-def load_daily(conn, ticker_id):
+def load_daily(conn, ticker_id, sma_period=SMA_PERIOD):
     cur = conn.cursor()
     cur.execute(
         'SELECT date, open, close FROM tbl_prices_daily WHERE ticker_id = %s ORDER BY date ASC',
@@ -442,7 +449,7 @@ def load_daily(conn, ticker_id):
     closes = np.array([float(r[2]) for r in rows], dtype=np.float64)
     s = pd.Series(closes)
     ema = s.ewm(span=EMA_PERIOD, adjust=False).mean().to_numpy()
-    sma = s.rolling(window=SMA_PERIOD).mean().to_numpy()
+    sma = s.rolling(window=sma_period).mean().to_numpy()
     return dict(dates=dates, open=opens, close=closes, ema=ema, sma=sma)
 
 

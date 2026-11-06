@@ -1122,66 +1122,26 @@ def _run_sector_info(conn, now, today):
     return lines
 
 
-def _run_market_regime(conn, now, today):
-    """Weekly EMA10>SMA40 gate state for VTI/SPY/QQQ/VTV (info-only Slack section).
-    Shows the last 4 weekly bars with BULL/bear per gate ETF plus agreement count."""
-    print('[MTF] Scoring market regime (VTI/SPY/QQQ/VTV weekly)...')
+def _settled_slice(data, cutoff):
+    """Restrict a loaded series to bars on/before cutoff (settled only)."""
+    idx = [i for i, d in enumerate(data['dates']) if d <= cutoff]
+    return {k: [data[k][i] for i in idx] for k in ('dates', 'close', 'ema', 'sma')}
 
-    tickers = db_module.get_market_gate_tickers(conn)
-    if not tickers:
-        return ['  No market gate ETFs found']
 
-    tid_by_sym = {sym: tid for tid, sym in tickers}
-    sym_order = db_module.MARKET_GATE_ETFS
-
-    weekly_data = {}
-    for sym in sym_order:
-        tid = tid_by_sym.get(sym)
-        if tid is None:
-            continue
-        w = db_module.load_weekly(conn, tid)
-        if w and len(w['dates']) >= 40:
-            # Keep exactly one bar per ISO week: the Monday-stamped (full-week)
-            # one. The yfinance fallback in populate_tickers.py can stamp the
-            # in-progress week with the capture date instead of Monday (e.g.
-            # QQQ recorded a bar dated 2026-09-08 for the 09-07 week after a
-            # 09-08 IEX miss), which otherwise shows as a '-' row and a bogus
-            # 1/4 agreement in the regime table.
-            keep = [i for i, d in enumerate(w['dates']) if d.weekday() == 0]
-            if len(keep) >= 40:
-                weekly_data[sym] = {k: [w[k][i] for i in keep] for k in ('dates', 'close', 'ema', 'sma')}
-
-    if not weekly_data:
-        return ['  No market gate weekly data']
-
-    # Latest SETTLED weekly date available for the gate ETFs. Alpaca stamps weekly
-    # bars at the ISO-week start (Monday) and does NOT re-stamp later in the week,
-    # so the newest row is the current week's running aggregate. Scoring the regime
-    # on it repaints the gate state intraweek — same settled-bar rule as
-    # emasma_core.settled_weekly_idx (bar_date + 7 <= today) and as the sector
-    # table, which anchors on sig_date. Only became reachable once load_prices.py
-    # began writing current-week rows (2026-10-05).
-    all_dates = sorted(set().union(*[set(w['dates']) for w in weekly_data.values()]))
+def _regime_block(ticker_data, sym_order, label, date_header):
+    """Render one regime table: last 4 settled bars, BULL/bear per gate ETF + agreement."""
+    all_dates = sorted(set().union(*[set(w['dates']) for w in ticker_data.values()]))
     if not all_dates:
-        return ['  No market gate weekly data']
-    settled_cutoff = today - timedelta(days=7)
-    all_dates = [d for d in all_dates if d <= settled_cutoff]
-    if not all_dates:
-        return ['  No settled market gate weekly data']
+        return [f'  No {label.lower()} regime data']
     last_date = all_dates[-1]
-
-    # Last 4 distinct settled weekly dates
     last4 = all_dates[-4:]
 
-    lines = []
-    lines.append(f'*Market Regime — {last_date}*')
-    lines.append('```')
-    hdr = f'{"Week":<12}' + ''.join(f'{sym:<7}' for sym in sym_order) + 'Agree'
-    lines.append(hdr)
-    lines.append('-' * len(hdr))
+    lines = [f'*{label} Regime — {last_date}*', '```']
+    hdr = f'{date_header:<12}' + ''.join(f'{sym:<7}' for sym in sym_order) + 'Agree'
+    lines += [hdr, '-' * len(hdr)]
 
     def _state_at(sym, d):
-        w = weekly_data.get(sym)
+        w = ticker_data.get(sym)
         if w is None:
             return '-'
         try:
@@ -1192,7 +1152,7 @@ def _run_market_regime(conn, now, today):
         sma = w['sma'][i]
         if ema is None or sma is None or ema != ema or sma != sma:  # NaN-safe
             return '-'
-        return 'BULL' if ema > sma else 'bear'
+        return 'BULL' if ema > sma else 'BEAR'
 
     for d in last4:
         agree = 0
@@ -1208,13 +1168,53 @@ def _run_market_regime(conn, now, today):
     # Context hint, only when gates agree
     agree_now = sum(1 for sym in sym_order if _state_at(sym, last_date) == 'BULL')
     if agree_now == 4:
-        lines.append('')
-        lines.append('Risk-on (4/4)')
+        lines += ['', 'Risk-on (4/4)']
     elif agree_now == 0:
-        lines.append('')
-        lines.append('⚠️ Risk-off (0/4)')
+        lines += ['', '⚠️ Risk-off (0/4)']
     lines.append('```')
+    return lines
 
+
+def _run_market_regime(conn, now, today):
+    """Weekly + daily EMA10>SMA20 gate state for VTI/SPY/QQQ/VTV (info-only Slack).
+
+    Weekly bars are Monday-stamped full weeks; daily bars are session dates. Both
+    use settled bars only: a weekly bar counts once bar_date + 7 <= today, and the
+    daily table includes today's bar only after the close (the scorer runs 16:45 ET)."""
+    print('[MTF] Scoring market regime (VTI/SPY/QQQ/VTV weekly + daily)...')
+
+    tickers = db_module.get_market_gate_tickers(conn)
+    if not tickers:
+        return ['  No market gate ETFs found']
+
+    tid_by_sym = {sym: tid for tid, sym in tickers}
+    sym_order = db_module.MARKET_GATE_ETFS
+    sma_period = db_module.MARKET_GATE_SMA_PERIOD
+
+    weekly_data = {}
+    daily_data = {}
+    weekly_cutoff = today - timedelta(days=7)
+    daily_cutoff = today if now.hour >= 16 else today - timedelta(days=1)
+    for sym in sym_order:
+        tid = tid_by_sym.get(sym)
+        if tid is None:
+            continue
+        # Weekly: one bar per ISO week (Monday-stamped full week), then settled.
+        w = db_module.load_weekly(conn, tid, sma_period=sma_period, monday_only=True)
+        if w:
+            w = _settled_slice(w, weekly_cutoff)
+            if len(w['dates']) >= max(4, sma_period):
+                weekly_data[sym] = w
+        # Daily: session bars, settled through today once the close has passed.
+        d = db_module.load_daily(conn, tid, sma_period=sma_period)
+        if d:
+            d = _settled_slice(d, daily_cutoff)
+            if len(d['dates']) >= max(4, sma_period):
+                daily_data[sym] = d
+
+    lines = _regime_block(weekly_data, sym_order, 'Weekly', 'Week')
+    lines.append('')
+    lines += _regime_block(daily_data, sym_order, 'Daily', 'Date')
     return lines
 
 
