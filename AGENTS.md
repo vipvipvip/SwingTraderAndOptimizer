@@ -1,6 +1,6 @@
 # Landing — SwingTraderAndOptimizer
 
-> **Resume current work:** Daily Signal spec `common/docs/BUY_SELL_TRIGGERS.md` §3 (WCO∧DCO) and **CoreEW LegEMA P20w go-live** 2026-09-28 (P20w LIVE on #PA3GKZYLVO68, replacing EG100). **Commercialization (retail): `common/docs/HANDOFF_commercialization.md` + `common/docs/commercial/`.** Prior: `common/docs/HANDOFF_CoreEW_rename.md`.
+> **Resume current work:** Daily Signal spec `common/docs/BUY_SELL_TRIGGERS.md` §3 (WCO∧DCO) and **CoreEW LegEMA P20w go-live** 2026-09-28 (P20w LIVE on #PA3GKZYLVO68, replacing EG100). **Commercialization (retail): `common/docs/HANDOFF_commercialization.md` + `common/docs/commercial/`.** **Explosion/jerk research (2026-11-07): `common/docs/EXPLOSION_SIGNAL.md`** — researched tool only, not live. Prior: `common/docs/HANDOFF_CoreEW_rename.md`.
 
 ## Objective
 Find/trade the best entry across all strategies via systematic backtesting, scanner UI, and live automated execution. Explorer Dashboard unifies signals from all strategies (CoreEW/MTF/Daily) with an Early breakout column.
@@ -16,6 +16,7 @@ Concerns are decoupled; each area owns its detail in `common/docs/`. **Start a t
 | Scanner / Explorer / dashboard | `OPERATING_RULES.md` Scanner files + `scanner/` code |
 | Daily Signal | `OPERATING_RULES.md` Daily-Signal bullets + `BUY_SELL_TRIGGERS.md` §3 |
 | Commercialization | `HANDOFF_commercialization.md` + `commercial/` |
+| Explosion/jerk signal research (MRNA/QQQ/AGO; weekly+daily) | `EXPLOSION_SIGNAL.md` + `common/scripts/imminent_probability.py` |
 | Strategy history/decisions | `TRADING_STRATEGIES.md`, `coreew_family.md`, `perf_explanations.md`, git log |
 | Key routing / accounts | `OPERATING_RULES.md` Critical Context + `ALPACA_KEYS.md` |
 

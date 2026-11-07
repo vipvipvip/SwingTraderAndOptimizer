@@ -54,4 +54,5 @@ Source of truth for the rules AGENTS.md summarizes. **Read the section relevant 
 - `scanner/services/scripts/{compute_indicators.py, get_vti_universe.py}` — incremental `atr_stop` worker (canonical tables; `--full` to rewrite), VTI universe fetcher. (`populate_tickers.py`, the legacy bar ingester, was **deleted 2026-10-07**; `load_prices.py` is the only price writer.)
 - ~~`ppo_zero_cross_study.py`~~ **deleted 2026-10-07** (PPO retired; recoverable from git history). Its findings are kept in `TRADING_STRATEGIES.md` (zero-cross exit study, research only, not a strategy).
 - `common/docs/mtf-infra-refactor-plan.md` — archived infra plan
+- `common/scripts/imminent_probability.py` + `common/docs/EXPLOSION_SIGNAL.md` — explosion/jerk research tool (weekly+daily by-date report, calibrated P(up/down/expl)); **research only, not live** (model `common/scripts/models/imminent_probability.joblib`)
 ## Relevant Files (index)
