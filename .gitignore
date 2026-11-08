@@ -101,6 +101,7 @@ swingtrader/services/ema_sma_crossover/.daily_signal_state.json
 swingtrader/services/ema_sma_crossover/data/daily_signals.csv
 swingtrader/services/optimizer/logs/nightly.log
 portfolio-backtest/portfolio_backtest_*.csv
+common/scripts/jerk/shadow_ledger.json
 
 # Docker Postgres data mount — never tracked, but its host-side permissions
 # (owned by the container's internal uid) block plain `readdir`, which makes

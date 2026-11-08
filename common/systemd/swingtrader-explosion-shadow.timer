@@ -1,0 +1,18 @@
+[Unit]
+Description=Explosion/jerk paper shadow timer (weekly Tue 10:35 ET — signal-only, no orders)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target swingtrader-db.service
+
+# Weekly paper shadow for the cross-sectional explosion scanner.
+# Tuesday 10:35 ET so Monday's daily bar is already loaded by the 16:30
+# scanner-backfill; the signal uses the prior Monday's settled weekly bar and
+# enters at this Monday's open. Signal-only: no orders, no live account.
+# Persistent=false is DELIBERATE — a missed signal run must be SKIPPED, not
+# replayed at the wrong hour (same rule as the other signal/trade timers).
+
+[Timer]
+OnCalendar=Tue *-*-* 10:35:00 America/New_York
+Persistent=false
+
+[Install]
+WantedBy=timers.target

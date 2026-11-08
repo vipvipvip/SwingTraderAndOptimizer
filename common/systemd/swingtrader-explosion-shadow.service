@@ -1,0 +1,19 @@
+[Unit]
+Description=Explosion/jerk paper shadow leg (signal-only, no orders)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network-online.target swingtrader-db.service
+Wants=network-online.target
+Wants=swingtrader-db.service
+
+[Service]
+Type=oneshot
+User=dikesh
+WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/common/scripts
+ExecStart=/usr/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/common/scripts/explosion_shadow.py --top 10 --min-dvol 50000000
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+TimeoutStopSec=600
+
+[Install]
+WantedBy=multi-user.target
