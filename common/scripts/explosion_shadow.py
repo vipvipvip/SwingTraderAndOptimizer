@@ -5,7 +5,7 @@ NO ORDERS. This script:
   1. builds the weekly feature panel (same code as scan/backtest),
   2. calls `imminent_probability.select()` at the last settled week,
   3. records picks and hypothetical fills/exits in a JSON ledger,
-  4. optionally posts a Slack summary.
+  4. posts a Slack signal-state snapshot plus the three signal variations.
 
 Run weekly after the settled weekly bar is available (Monday after the close).
 The selection path is identical to `--scan` and `--backtest`; only the
@@ -26,6 +26,24 @@ LEDGER = Path(__file__).resolve().parent / 'jerk' / 'shadow_ledger.json'
 TARGET = 0.30
 HORIZON_WEEKS = 13
 STOP = 0.0
+
+STATE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tbl_explosion_signal_state (
+    run_date DATE NOT NULL,
+    ticker_id BIGINT NOT NULL REFERENCES tbl_stock_tickers(id),
+    symbol VARCHAR(20) NOT NULL,
+    weekly_on BOOLEAN NOT NULL,
+    daily_on BOOLEAN NOT NULL,
+    weekly_date DATE,
+    daily_date DATE,
+    weekly_state VARCHAR(8),
+    daily_state VARCHAR(8),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (run_date, ticker_id)
+);
+CREATE INDEX IF NOT EXISTS idx_expl_state_run
+    ON tbl_explosion_signal_state(run_date);
+"""
 
 
 def load_ledger():
@@ -184,24 +202,206 @@ def summary(ledger, asof, added, events, picks, regime=None):
     return '\n'.join(lines)
 
 
-def send_slack(msg):
-    url = os.getenv('SLACK_WEBHOOK_URL')
-    if not url:
+def _env_value(key, default=None):
+    val = os.getenv(key)
+    if not val:
         env = Path(__file__).resolve().parents[2] / 'swingtrader/services/mtf/.env'
         if env.exists():
             for line in env.read_text().splitlines():
-                if line.startswith('SLACK_WEBHOOK_URL='):
-                    url = line.split('=', 1)[1].strip().strip('"').strip("'")
+                if line.startswith(key + '='):
+                    val = line.split('=', 1)[1].strip().strip('"').strip("'")
+    return val or default
+
+
+def _webhook_url():
+    return _env_value('SLACK_WEBHOOK_URL')
+
+
+def send_slack(msg, limit=3500):
+    """Post to Slack, chunking at `limit` chars per webhook call."""
+    url = _webhook_url()
     if not url:
         print('[slack] no webhook configured')
         return
-    body = json.dumps({'text': f'[EXPL-SHADOW] {msg}'}).encode()
-    req = urllib.request.Request(url, data=body,
-                                 headers={'Content-Type': 'application/json'})
+    chunks, cur = [], ''
+    for line in msg.split('\n'):
+        while len(line) > limit:
+            cut = line.rfind(' ', 0, limit)
+            cut = cut if cut > 0 else limit
+            chunks.append(line[:cut])
+            line = line[cut:].lstrip()
+        if cur and len(cur) + 1 + len(line) > limit:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur = line if not cur else cur + '\n' + line
+    if cur:
+        chunks.append(cur)
+    for ch in chunks:
+        body = json.dumps({'text': f'[EXPL-SHADOW] {ch}'}).encode()
+        req = urllib.request.Request(
+            url, data=body, headers={'Content-Type': 'application/json'})
+        try:
+            urllib.request.urlopen(req, timeout=30)
+        except Exception as exc:
+            print(f'[slack] error: {exc}')
+
+
+def ensure_state_table():
+    conn = ip.connect()
     try:
-        urllib.request.urlopen(req, timeout=30)
-    except Exception as exc:
-        print(f'[slack] error: {exc}')
+        cur = conn.cursor()
+        cur.execute(STATE_SCHEMA)
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+
+
+def ticker_id_map():
+    conn = ip.connect()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, symbol FROM tbl_stock_tickers WHERE enabled")
+        return {sym: tid for tid, sym in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+def build_states(panel, asof, daily_asof, min_dvol):
+    """Weekly + daily ON/OFF for the liquid universe at `asof`."""
+    wk = ip.weekly_signal_states(panel, asof)
+    wk = wk[wk['dvol13'].fillna(0) >= min_dvol]
+    dy = ip.daily_signal_states(asof=daily_asof)
+    cur = wk.rename(columns={'date': 'weekly_date', 'state': 'weekly_state',
+                             'on': 'weekly_on'})[
+        ['symbol', 'weekly_date', 'weekly_state', 'weekly_on']]
+    cur = cur.merge(
+        dy.rename(columns={'date': 'daily_date', 'state': 'daily_state',
+                           'on': 'daily_on'})[
+            ['symbol', 'daily_date', 'daily_state', 'daily_on']],
+        on='symbol', how='left')
+    cur['daily_on'] = cur['daily_on'].fillna(False).astype(bool)
+    return cur.reset_index(drop=True)
+
+
+def previous_states(run_date):
+    conn = ip.connect()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT symbol, weekly_on, daily_on
+            FROM tbl_explosion_signal_state
+            WHERE run_date = (
+                SELECT max(run_date) FROM tbl_explosion_signal_state
+                WHERE run_date < %s)
+        """, (pd.Timestamp(run_date).date(),))
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        conn.close()
+    return pd.DataFrame(rows, columns=['symbol', 'weekly_on', 'daily_on'])
+
+
+def store_states(run_date, states, ids):
+    from psycopg2.extras import execute_values
+    rows = []
+    for _, r in states.iterrows():
+        tid = ids.get(r['symbol'])
+        if tid is None:
+            continue
+        wd, dd = r['weekly_date'], r['daily_date']
+        rows.append((
+            pd.Timestamp(run_date).date(), int(tid), r['symbol'],
+            bool(r['weekly_on']), bool(r['daily_on']),
+            None if pd.isna(wd) else pd.Timestamp(wd).date(),
+            None if pd.isna(dd) else pd.Timestamp(dd).date(),
+            r.get('weekly_state'), r.get('daily_state'),
+        ))
+    if not rows:
+        return 0
+    conn = ip.connect()
+    try:
+        cur = conn.cursor()
+        execute_values(cur, """
+            INSERT INTO tbl_explosion_signal_state
+                (run_date, ticker_id, symbol, weekly_on, daily_on,
+                 weekly_date, daily_date, weekly_state, daily_state)
+            VALUES %s
+            ON CONFLICT (run_date, ticker_id) DO UPDATE SET
+                symbol = EXCLUDED.symbol,
+                weekly_on = EXCLUDED.weekly_on,
+                daily_on = EXCLUDED.daily_on,
+                weekly_date = EXCLUDED.weekly_date,
+                daily_date = EXCLUDED.daily_date,
+                weekly_state = EXCLUDED.weekly_state,
+                daily_state = EXCLUDED.daily_state
+        """, rows)
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+    return len(rows)
+
+
+def state_message(asof, states, prev, regime=None):
+    def names(mask):
+        return sorted(states.loc[mask, 'symbol'].tolist())
+
+    w_on = names(states['weekly_on'])
+    d_on = names(states['daily_on'])
+    both = names(states['weekly_on'] & states['daily_on'])
+    lines = [f"asof {pd.Timestamp(asof).date()} | "
+             f"weekly ON {len(w_on)} | daily ON {len(d_on)} | "
+             f"both ON {len(both)}"]
+    if regime is not None:
+        lines.append(f"regime: daily={'ON' if regime['daily'] else 'OFF'} "
+                     f"weekly={'ON' if regime['weekly'] else 'OFF'}")
+    lines.append(f"WEEKLY ON({len(w_on)}): " + (', '.join(w_on) or '-'))
+    lines.append(f"DAILY ON({len(d_on)}): " + (', '.join(d_on) or '-'))
+    lines.append(f"BOTH ON({len(both)}): " + (', '.join(both) or '-'))
+    if prev is None or prev.empty:
+        lines.append("OFF: first run (no prior snapshot)")
+        return '\n'.join(lines)
+    m = states[['symbol', 'weekly_on', 'daily_on']].merge(
+        prev, on='symbol', how='outer', suffixes=('', '_prev'))
+    for c in ['weekly_on', 'daily_on', 'weekly_on_prev', 'daily_on_prev']:
+        if c not in m.columns:
+            m[c] = False
+        m[c] = m[c].fillna(False).astype(bool)
+    w_off = sorted(m.loc[m['weekly_on_prev'] & ~m['weekly_on'], 'symbol'])
+    d_off = sorted(m.loc[m['daily_on_prev'] & ~m['daily_on'], 'symbol'])
+    lines.append(f"WEEKLY OFF({len(w_off)}): " + (', '.join(w_off) or '-'))
+    lines.append(f"DAILY OFF({len(d_off)}): " + (', '.join(d_off) or '-'))
+    return '\n'.join(lines)
+
+
+def variations_message(asof, states, regime=None):
+    """Signal variations, comma-delimited, for Slack."""
+    def lst(mask):
+        return ', '.join(sorted(states.loc[mask, 'symbol'].tolist())) or '-'
+
+    w_fire = states['weekly_state'] == 'FIRE'
+    d_fire = states['daily_state'] == 'FIRE'
+    both = states['weekly_on'] & states['daily_on']
+    wd = pd.to_datetime(states['weekly_date']).max()
+    dd = pd.to_datetime(states['daily_date']).max()
+
+    head = [f"asof {pd.Timestamp(asof).date()} | universe {len(states)}",
+            f"weekly bar {wd.date() if pd.notna(wd) else '-'} | "
+            f"daily bar {dd.date() if pd.notna(dd) else '-'}"]
+    if regime is not None:
+        head.append(f"regime: daily={'ON' if regime['daily'] else 'OFF'} "
+                    f"weekly={'ON' if regime['weekly'] else 'OFF'}")
+    blocks = [
+        (f"FIRE ONLY - weekly ({int(w_fire.sum())})", lst(w_fire)),
+        (f"FIRE ONLY - daily ({int(d_fire.sum())})", lst(d_fire)),
+        (f"WEEKLY AND DAILY ON ({int(both.sum())})", lst(both)),
+    ]
+    out = head + ['']
+    for title, body in blocks:
+        out += [title, body, '']
+    return '\n'.join(out).rstrip() + '\n'
 
 
 def main():
@@ -211,6 +411,8 @@ def main():
     ap.add_argument('--min-dvol', type=float, default=50e6,
                     help='min trailing 13w dollar volume in $/week')
     ap.add_argument('--no-slack', action='store_true')
+    ap.add_argument('--print-variations', action='store_true',
+                    help='print the variations block to stdout')
     ap.add_argument('--no-regime', action='store_true')
     ap.add_argument('--dry-run', action='store_true')
     args = ap.parse_args()
@@ -224,19 +426,35 @@ def main():
                       min_dvol=args.min_dvol)
     reg = None if args.no_regime else ip.regime_at(ip.regime_series(), asof)
 
+    states = build_states(panel, asof, args.asof, args.min_dvol)
+    prev = None
+    stored = 0
+    if not args.dry_run:
+        ensure_state_table()
+        prev = previous_states(asof)
+        stored = store_states(asof, states, ticker_id_map())
+    msg_states = state_message(asof, states, prev, reg)
+    msg_variations = variations_message(asof, states, reg)
+
     ledger = load_ledger()
     added = add_picks(ledger, picks, asof) if (reg is None or reg['ok']) else []
     events = update_positions(ledger, today=pd.Timestamp.today())
     ledger['updated_at'] = pd.Timestamp.now().isoformat()
-    msg = summary(ledger, asof, added, events, picks, reg)
+    msg_ledger = summary(ledger, asof, added, events, picks, reg)
 
-    print(msg)
+    print(msg_states)
+    print(msg_ledger)
+    if args.print_variations:
+        print('[variations]')
+        print(msg_variations)
     if args.dry_run:
-        print(f'[dry-run] ledger not saved ({len(ledger["positions"])} positions)')
+        print(f'[dry-run] state/ledger not saved '
+              f'({len(states)} states, {len(ledger["positions"])} positions)')
         return
     save_ledger(ledger)
+    print(f'[state] stored {stored} rows for run_date {pd.Timestamp(asof).date()}')
     if not args.no_slack:
-        send_slack(msg)
+        send_slack(msg_states + '\n\n' + msg_variations)
 
 
 if __name__ == '__main__':

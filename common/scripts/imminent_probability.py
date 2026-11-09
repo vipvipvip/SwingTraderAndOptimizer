@@ -36,6 +36,7 @@ ATR_WINDOW = 14
 GAP_ATR = 2.0
 EXT_ATR = 4.0
 STOP_ATR = 2.5
+ON_ABOVE_EMA20 = True
 START = '2017-01-01'
 SPLIT = '2024-01-01'
 MODEL_PATH = Path(__file__).resolve().parent / 'models' / 'imminent_probability.joblib'
@@ -64,7 +65,7 @@ def load_weekly(symbol=None):
     try:
         base = """
             SELECT w.ticker_id, s.symbol, s.is_etf, w.date,
-                   w.close, w.high, w.low, w.volume
+                   w.open, w.close, w.high, w.low, w.volume
             FROM tbl_prices_weekly w
             JOIN tbl_stock_tickers s ON s.id = w.ticker_id
             WHERE w.date >= %s
@@ -81,9 +82,9 @@ def load_weekly(symbol=None):
     finally:
         conn.close()
     df = pd.DataFrame(rows, columns=['ticker_id', 'symbol', 'is_etf', 'date',
-                                     'close', 'high', 'low', 'volume'])
+                                     'open', 'close', 'high', 'low', 'volume'])
     df['date'] = pd.to_datetime(df['date'])
-    for c in ['close', 'high', 'low', 'volume']:
+    for c in ['open', 'close', 'high', 'low', 'volume']:
         df[c] = df[c].astype(float)
     df['is_etf'] = df['is_etf'].astype(bool)
     return df
@@ -93,7 +94,7 @@ def load_daily(symbol):
     conn = connect()
     try:
         q = """
-            SELECT s.symbol, d.date, d.close, d.high, d.low, d.volume
+            SELECT s.symbol, d.date, d.open, d.close, d.high, d.low, d.volume
             FROM tbl_prices_daily d
             JOIN tbl_stock_tickers s ON s.id = d.ticker_id
             WHERE s.symbol = %s AND d.date >= %s
@@ -105,9 +106,9 @@ def load_daily(symbol):
         cur.close()
     finally:
         conn.close()
-    df = pd.DataFrame(rows, columns=['symbol', 'date', 'close', 'high', 'low', 'volume'])
+    df = pd.DataFrame(rows, columns=['symbol', 'date', 'open', 'close', 'high', 'low', 'volume'])
     df['date'] = pd.to_datetime(df['date'])
-    for c in ['close', 'high', 'low', 'volume']:
+    for c in ['open', 'close', 'high', 'low', 'volume']:
         df[c] = df[c].astype(float)
     return df
 
@@ -372,7 +373,10 @@ def signal_frame(df, vspan, smooth, a_min, j_min, v_hi, obv_smooth, obv_span):
     l = df.set_index('date')['low']
     jf = jerk_frame(c, vspan, smooth, a_min, j_min, v_hi)
     ob = obv_frame(c, v, smooth=obv_smooth, span=obv_span)
-    out = pd.DataFrame({'close': c}).join(jf).join(ob)
+    base = {'close': c}
+    if 'open' in df.columns:
+        base['open'] = df.set_index('date')['open']
+    out = pd.DataFrame(base).join(jf).join(ob)
     out['state'] = np.where(out['imminent'], 'IMM',
                             np.where(out['firing'], 'FIRE', '-'))
     out['obv'] = [obv_state(s, u) for s, u in zip(out['obv_slope'], out['uvr'])]
@@ -384,7 +388,14 @@ def signal_frame(df, vspan, smooth, a_min, j_min, v_hi, obv_smooth, obv_span):
 
 
 def translate_trades(o, max_wait, gap_atr=GAP_ATR, ext_atr=EXT_ATR,
-                     stop_atr=STOP_ATR):
+                     stop_atr=STOP_ATR, fill='close'):
+    def fill_at(i):
+        if fill == 'next_open' and 'open' in o.columns and i + 1 < len(o):
+            px = o['open'].iloc[i + 1]
+            if pd.notna(px):
+                return i + 1, o.index[i + 1], float(px)
+        return i, o.index[i], float(o['close'].iloc[i])
+
     pos = entry_i = entry_px = entry_atr = None
     fired = False
     trades = []
@@ -397,7 +408,7 @@ def translate_trades(o, max_wait, gap_atr=GAP_ATR, ext_atr=EXT_ATR,
             if ok and pd.notna(r['ext_atr']) and r['ext_atr'] > ext_atr:
                 ok = False
             if ok:
-                pos, entry_i, entry_px = dt, i, px
+                entry_i, pos, entry_px = fill_at(i)
                 entry_atr, fired = r['atr'], st == 'FIRE'
         else:
             if st == 'FIRE':
@@ -410,7 +421,8 @@ def translate_trades(o, max_wait, gap_atr=GAP_ATR, ext_atr=EXT_ATR,
             elif not fired and i - entry_i >= max_wait:
                 reason = 'hook-fail'
             if reason:
-                trades.append((pos, entry_px, dt, px, reason))
+                _, xdt, xpx = fill_at(i)
+                trades.append((pos, entry_px, xdt, xpx, reason))
                 pos, fired = None, False
     if pos is not None:
         trades.append((pos, entry_px, o.index[-1], o['close'].iloc[-1], 'open'))
@@ -418,7 +430,8 @@ def translate_trades(o, max_wait, gap_atr=GAP_ATR, ext_atr=EXT_ATR,
 
 
 def trade_log(symbol, timeframe='daily', asof=None, start='2023-01-01',
-              gap_atr=GAP_ATR, ext_atr=EXT_ATR, stop_atr=STOP_ATR):
+              gap_atr=GAP_ATR, ext_atr=EXT_ATR, stop_atr=STOP_ATR,
+              fill='close'):
     if timeframe == 'weekly':
         raw = load_weekly(symbol)
         if raw.empty:
@@ -440,25 +453,47 @@ def trade_log(symbol, timeframe='daily', asof=None, start='2023-01-01',
     if o.empty:
         print(f'{symbol.upper()}: no settled bars in range')
         return
-    trades = translate_trades(o, max_wait, gap_atr, ext_atr, stop_atr)
+    by_fill = {
+        'close': translate_trades(o, max_wait, gap_atr, ext_atr, stop_atr, 'close'),
+        'next_open': translate_trades(o, max_wait, gap_atr, ext_atr, stop_atr, 'next_open'),
+    }
+    trades = by_fill.get(fill, by_fill['close'])
     print(f'*{symbol.upper()} {timeframe.title()} trades — '
-          f'ATR{gap_atr:g} gap / {ext_atr:g} ext / {stop_atr:g} stop*')
+          f'ATR{gap_atr:g} gap / {ext_atr:g} ext / {stop_atr:g} stop / '
+          f'fill={fill}*')
     print(f"{'Buy':<12}{'@':>8}  {'Sell':<12}{'@':>8}  {'Move':>8}  Reason")
     print('-' * 62)
-    eq, wins, losses = 1.0, 0, 0
     for b, ep, s, sp, why in trades:
         r = sp / ep - 1.0
-        eq *= 1.0 + r
-        if r > 0:
-            wins += 1
-        else:
-            losses += 1
         print(f"{str(pd.Timestamp(b).date()):<12}{ep:>8.2f}  "
               f"{str(pd.Timestamp(s).date()):<12}{sp:>8.2f}  "
               f"{r * 100:>+7.1f}%  {why}")
     print('-' * 62)
-    print(f'Total {((eq - 1) * 100):+.1f}%  n={len(trades)}  '
-          f'W/L={wins}/{losses}')
+
+    def _tot(tr):
+        eq, w, l = 1.0, 0, 0
+        for _, ep, _, sp, _ in tr:
+            r = sp / ep - 1.0
+            eq *= 1.0 + r
+            if r > 0:
+                w += 1
+            else:
+                l += 1
+        return (eq - 1.0) * 100, w, l
+
+    for label, key in (('close', 'close'), ('next open', 'next_open')):
+        tot, w, l = _tot(by_fill[key])
+        print(f'Total ({label:<9}) {tot:>+8.1f}%  n={len(by_fill[key])}  '
+              f'W/L={w}/{l}')
+
+    first, last = o.index[0], o.index[-1]
+    ticker_bh = o['close'].iloc[-1] / o['close'].iloc[0] - 1.0
+    spy_raw = load_weekly('SPY') if timeframe == 'weekly' else load_daily('SPY')
+    spy = spy_raw.set_index('date')['close']
+    spy = spy[(spy.index >= first) & (spy.index <= last)]
+    spy_bh = (spy.iloc[-1] / spy.iloc[0] - 1.0) if len(spy) >= 2 else float('nan')
+    print(f'B&H {symbol.upper()} {ticker_bh * 100:+.1f}%   '
+          f'B&H SPY {spy_bh * 100:+.1f}%   ({first.date()} -> {last.date()})')
 
 
 def report(symbol, asof=None, n_weekly=4, n_daily=5):
@@ -609,6 +644,70 @@ def select(panel, asof, bundle=None, top_n=20, min_dvol=0.0, min_p_expl=0.0,
     cols = ['symbol', 'date', 'close', 'p_expl', 'p_up', 'p_dn',
             'dvol13', 'jerk_state']
     return p[cols].reset_index(drop=True)
+
+
+def weekly_signal_states(panel, asof, max_age_days=14):
+    """Per-symbol weekly ON/OFF at `asof` (IMM or FIRE = ON).
+
+    ON also requires close > EMA20 when `ON_ABOVE_EMA20` (cuts counter-trend
+    bounces below the 20-week mean). `state` stays raw IMM/FIRE/-.
+    """
+    asof = pd.Timestamp(asof)
+    p = panel[(panel['date'] <= asof) &
+              (panel['date'] >= asof - pd.Timedelta(days=max_age_days))]
+    p = p.dropna(subset=['jerk_state'])
+    if p.empty:
+        return pd.DataFrame(columns=['symbol', 'date', 'state', 'on', 'dvol13'])
+    p = p.sort_values(['symbol', 'date']).groupby('symbol', as_index=False).tail(1)
+    p = p.copy()
+    p['state'] = p['jerk_state']
+    p['above20'] = p['ema20_dist'] > 0
+    p['on'] = p['state'].isin(['IMM', 'FIRE'])
+    if ON_ABOVE_EMA20:
+        p['on'] = p['on'] & p['above20']
+    return p[['symbol', 'date', 'state', 'on', 'above20',
+              'dvol13']].reset_index(drop=True)
+
+
+def daily_signal_states(asof=None, lookback_days=400):
+    """Per-symbol daily ON/OFF at the latest settled daily bar.
+
+    `asof=None` uses today; otherwise bars strictly before `asof`+1 day are used.
+    Only `close` is needed for the jerk state, so the query stays light.
+    """
+    end = pd.Timestamp.today().normalize() if asof is None else pd.Timestamp(asof)
+    start = end - pd.Timedelta(days=lookback_days)
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT s.symbol, d.date, d.close
+            FROM tbl_prices_daily d
+            JOIN tbl_stock_tickers s ON s.id = d.ticker_id
+            WHERE s.enabled AND d.date >= %s AND d.date < %s
+            ORDER BY s.symbol, d.date
+        """, (start.date(), (end + pd.Timedelta(days=1)).date()))
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        conn.close()
+    df = pd.DataFrame(rows, columns=['symbol', 'date', 'close'])
+    if df.empty:
+        return pd.DataFrame(columns=['symbol', 'date', 'state', 'on'])
+    df['date'] = pd.to_datetime(df['date'])
+    df['close'] = df['close'].astype(float)
+    out = []
+    for sym, g in df.groupby('symbol', sort=False):
+        c = g.set_index('date')['close']
+        if len(c) < 20:
+            continue
+        jf = jerk_frame(c, 5, 3, 2e-4, 2e-4, 0.02)
+        st = ('IMM' if bool(jf['imminent'].iloc[-1])
+              else 'FIRE' if bool(jf['firing'].iloc[-1]) else '-')
+        above20 = bool(c.iloc[-1] > c.ewm(span=20, adjust=False).mean().iloc[-1])
+        on = st in ('IMM', 'FIRE') and (above20 or not ON_ABOVE_EMA20)
+        out.append((sym, c.index[-1], st, on, above20))
+    return pd.DataFrame(out, columns=['symbol', 'date', 'state', 'on', 'above20'])
 
 
 def scan(asof=None, top_n=20, min_dvol=0.0, min_p_expl=0.0, panel=None,
@@ -789,6 +888,9 @@ def main():
                     help=f'skip BUY if close > N ATR above EMA20 (default {EXT_ATR:g})')
     ap.add_argument('--stop-atr', type=float, default=STOP_ATR,
                     help=f'stop at entry - N ATR (default {STOP_ATR:g}; 0 disables)')
+    ap.add_argument('--fill', choices=['close', 'next_open'], default='close',
+                    help='fill assumption for --trades: signal-bar close or next '
+                         'bar open (default close; both totals always printed)')
     args = ap.parse_args()
     if args.train:
         train()
@@ -812,7 +914,8 @@ def main():
             tfs = ['weekly', 'daily'] if args.tf == 'both' else [args.tf]
             for tf in tfs:
                 trade_log(t, tf, args.asof, args.start,
-                          args.gap_atr, args.ext_atr, args.stop_atr)
+                          args.gap_atr, args.ext_atr, args.stop_atr,
+                          args.fill)
                 print()
         elif args.score:
             r = score(t, args.asof)
