@@ -1,5 +1,5 @@
 [Unit]
-Description=MTF Top-N Daily Scorer (Multi-TF rotation — evening analytics)
+Description=MTF ETF Daily Scorer (stock leg retired — evening analytics)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network-online.target swingtrader-db.service swingtrader-scanner-backfill.service
 Wants=network-online.target
@@ -11,7 +11,7 @@ User=dikesh
 WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
 # No ExecStartPre data refresh (removed 2026-10-06): scanner-backfill already loads and computes at
 # 16:30, and runner.py's readiness gate self-repairs via backfill_all_missing if anything is behind.
-ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action score --mode all --strategy emasma
+ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/runner.py --action score --mode etf --strategy emasma
 StandardOutput=journal
 StandardError=journal
 Environment=PYTHONUNBUFFERED=1

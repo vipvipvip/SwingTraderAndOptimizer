@@ -12,7 +12,8 @@ Concerns are decoupled; each area owns its detail in `common/docs/`. **Start a t
 |---|---|
 | Any code / live-service change | `OPERATING_RULES.md` (all rules) + `services_doc/README.md` (live timers/services) |
 | CoreEW code/backtests (P20w live) | `coreew_family.md` (full narrative/history/decisions) + `OPERATING_RULES.md` CoreEW bullets |
-| MTF stocks/ETFs (emasma top-N) | `OPERATING_RULES.md` MTF bullets |
+| MTF ETFs (emasma top-N) / retired MTF stocks | `OPERATING_RULES.md` MTF bullets |
+| Daily CMO bounce40 stock paper | `CMO_STRATEGY.md` §5j/§5k + `OPERATING_RULES.md` CMO bullets |
 | Scanner / Explorer / dashboard | `OPERATING_RULES.md` Scanner files + `scanner/` code |
 | Daily Signal | `OPERATING_RULES.md` Daily-Signal bullets + `BUY_SELL_TRIGGERS.md` §3 |
 | Commercialization | `HANDOFF_commercialization.md` + `commercial/` |
@@ -27,11 +28,12 @@ Concerns are decoupled; each area owns its detail in `common/docs/`. **Start a t
 4. **Dedupe/data integrity:** `save_pending` deletes all unconsumed for the mode before INSERT (never restore same-sig_date DELETE); CoreEW week claim on `coreew_runs` via `insertOrIgnore` (dry-run never claims; `--override` releases).
 5. **Settled bars only:** validate DCO flips on `date < today`, never live/partial. MTF is weekly-only by design.
 6. **`php artisan migrate` FAILS in this repo** — apply new migrations with `--path=...` (stale migrations table vs raw-SQL tables).
-7. **Uptime:** no box-enforced power window; mornings fragile (scanner-update fires on boot ~09:32; boot after 10:25 = **no MTF that day**, since `mtf-executor` is `Persistent=false` on purpose). Not all timers are `Persistent` — see the split table in `common/docs/services_doc/README.md`. Do not design schedules around 17:10.
+7. **Uptime:** no box-enforced power window; mornings fragile (scanner-update fires on boot ~09:32; boot after 10:25 = **no MTF/CMO that day**, since `mtf-executor` and `cmo-bounce` are `Persistent=false` on purpose). Not all timers are `Persistent` — see the split table in `common/docs/services_doc/README.md`. Do not design schedules around 17:10.
 8. **Engine constants:** EMA=10, SMA=40, COST=0.0005, CAPITAL=100000. Universe = 1,422 stocks + 28 ETFs (1,450 enabled; count is dynamic: `tbl_stock_tickers WHERE enabled`).
 
 ## Critical context
 - Laravel on port 9000; Explorer `http://localhost:9000/scanner/explorer` (data `/scanner/explorer-data?mode=stock|etf`); clear `swingtrader/backend/storage/framework/{cache,views}/` after blade changes (NOT `scanner/backend/`).
-- **Live:** P20w `trades:execute-leg-ema --span=20` (systemd Mon–Fri 10:05 ET, Slack `[CoreEW-LegEMA]`); MTF top-N 10:25 (stocks+ETFs, Slack; **stock leg gated by P20w `any` flat since 2026-11-03** and has a 15% weekly-close HWM stop paper forward test since 2026-11-04; **ETF leg has 25% profit sweep + 20% weekly-close HWM stop since 2026-11-05**); Daily Signal 5 PM (Slack only, no orders); Trigger Levels report 10:00 + 17:05 (Slack only, `trigger_levels.py`). **Retired:** EG100 (09-28), variant S (09-27), EMAC/MTCS, PPO.
-- **Accounts (all Alpaca paper):** CoreEW #PA3GKZYLVO68; MTF stocks #PA368CPXNS13; MTF ETFs #PA3U8GZ96PEN; live Slack = acts on each weekly action / daily recap.
+- **Live:** P20w `trades:execute-leg-ema --span=20` (systemd Mon–Fri 10:05 ET, Slack `[CoreEW-LegEMA]`); MTF ETFs 10:25 (Slack; 25% profit sweep + 20% weekly-close HWM stop since 2026-11-05); Daily CMO bounce40 stock paper 10:25 (installed/enabled 2026-11-18; scheduled handover canceled — owner submitted manual liquidation orders after close, expected filled at 11-19 09:30 ET open; same #PA368CPXNS13, Slack `[CMO-Bounce40]`);
+ Daily Signal 5 PM (Slack only, no orders); Trigger Levels report 10:00 + 17:05 (Slack only, `trigger_levels.py`). **Retired:** MTF-stock emasma (replaced 2026-11-18), EG100 (09-28), variant S (09-27), EMAC/MTCS, PPO.
+- **Accounts (all Alpaca paper):** CoreEW #PA3GKZYLVO68; CMO stocks (formerly MTF stocks) #PA368CPXNS13; MTF ETFs #PA3U8GZ96PEN; live Slack = acts on each weekly action / daily recap.
 - Engines, indexes, keys, fill details, known edges: → `OPERATING_RULES.md`.

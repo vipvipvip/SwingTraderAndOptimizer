@@ -384,6 +384,10 @@ def backtest(argv=None):
                              'for RATCHET_COOLDOWN_TRADING_DAYS trading days (backfilled from '
                              'the next-ranked candidate). Live data-gap preserves are not '
                              'modeled. ETF leg ignores this flag.')
+    parser.add_argument('--live-parity-daily-exit', action='store_true',
+                        help='With --rebalance weekly, check ratchet stops and backfill freed '
+                             'slots every trading day while keeping weekly rescoring. Requires '
+                             '--stock-live-parity --daily-mark --exit ratchet-atr.')
     parser.add_argument('--market-gate', choices=['none', 'any', 'majority', 'all', 'qqq'],
                         default='none',
                         help='Stock-leg market gate: hold only while enough of QQQ/VTI/VTV are '
@@ -647,6 +651,10 @@ def backtest(argv=None):
         parity_min = float(getattr(config, 'MIN_TRADE_NOTIONAL', 0.0)) if live_parity else 0.0
         parity_cap_top_n = bool(getattr(config, 'SIZE_BY_TOP_N', True)) if live_parity else False
         parity_cooldown = int(getattr(config, 'RATCHET_COOLDOWN_TRADING_DAYS', 0)) if live_parity else 0
+        parity_daily = bool(args.live_parity_daily_exit and live_parity
+                            and args.rebalance == 'weekly' and args.exit == 'ratchet-atr')
+        if parity_daily:
+            period_label = 'weekly signals + daily exits'
         ratchet_cooldown_until = {}
         equity_curve = []
         equity_dates = []
@@ -788,6 +796,103 @@ def backtest(argv=None):
             equity_curve.append(equity)
             equity_dates.append(mark_date)
             pos_counts.append(len(positions))
+
+        def _daily_exit_backfill(signal_ri, candidates_snapshot, selected_snapshot):
+            nonlocal cash
+            if not (parity_daily and live_parity and args.exit == 'ratchet-atr'):
+                for gj in range(signal_ri + 1, min(signal_ri + step, len(all_dates))):
+                    _mark_and_guard(all_dates[gj])
+                return
+            for gj in range(signal_ri + 1, min(signal_ri + step, len(all_dates))):
+                day = all_dates[gj]
+                _mark_and_guard(day)
+                exec_idx = gj + 1
+                if exec_idx >= len(all_dates):
+                    continue
+                exec_day = all_dates[exec_idx]
+                to_sell = []
+                for tid in list(positions):
+                    d = daily.get(tid)
+                    if d is None:
+                        continue
+                    si = _last_idx_before(daily_idx[tid], d['dates'], day)
+                    if si is None:
+                        continue
+                    close_t = float(d['close'][si])
+                    atr = 0.0
+                    if np.isfinite(d['d_atr_stop'][si]) and d['d_atr_stop'][si] > 0:
+                        atr = (close_t - float(d['d_atr_stop'][si])) / 2.0
+                    if atr <= 0:
+                        continue
+                    pos = positions[tid]
+                    pos['peak'] = max(pos.get('peak', pos['entry_price']), close_t)
+                    pos['ratchet'] = max(pos.get('ratchet', 0.0), pos['peak'] - 2.0 * atr)
+                    if close_t < pos['ratchet']:
+                        to_sell.append(tid)
+                for tid in to_sell:
+                    d = daily.get(tid)
+                    xi = _last_idx_before(daily_idx[tid], d['dates'], exec_day)
+                    if xi is None or xi >= len(d['open']):
+                        continue
+                    sp = float(d['open'][xi])
+                    pos = positions[tid]
+                    proceeds = pos['shares'] * sp * (1 - COST)
+                    ret = (sp - pos['entry_price']) / pos['entry_price'] - COST
+                    cash += proceeds
+                    trade_log.append((exec_day, pos['symbol'], 'SELL-RATC', pos['shares'], sp, ret))
+                    if args.detail:
+                        print(f'  {exec_day} SELL-RATC {pos["symbol"]} {pos["shares"]:.2f} @ ${sp:.2f}')
+                    ratchet_cooldown_until[tid] = exec_idx + parity_cooldown
+                    del positions[tid]
+                if not to_sell:
+                    continue
+                blocked = {tid for tid, until in ratchet_cooldown_until.items() if until > exec_idx}
+                in_play = [tid for tid in (selected_snapshot or ())
+                           if tid not in blocked and tid not in to_sell]
+                seen = set(in_play)
+                for c in (candidates_snapshot or ()):
+                    if len(in_play) >= args.top_n:
+                        break
+                    if c[0] not in seen and c[0] not in blocked and c[0] not in to_sell:
+                        in_play.append(c[0])
+                        seen.add(c[0])
+                if not in_play:
+                    continue
+                eq_open = cash - reserve
+                open_px = {}
+                for tid, pos in positions.items():
+                    d = daily.get(tid)
+                    if d is None:
+                        continue
+                    xi = _last_idx_before(daily_idx[tid], d['dates'], exec_day)
+                    if xi is None or xi >= len(d['open']):
+                        continue
+                    op = float(d['open'][xi])
+                    open_px[tid] = op
+                    eq_open += pos['shares'] * op
+                per_position = eq_open / len(in_play)
+                if parity_cap_top_n:
+                    per_position = min(per_position, eq_open / max(1, args.top_n))
+                for tid in in_play:
+                    if tid in positions:
+                        continue
+                    d = daily.get(tid)
+                    if d is None:
+                        continue
+                    xi = _last_idx_before(daily_idx[tid], d['dates'], exec_day)
+                    if xi is None or xi >= len(d['open']):
+                        continue
+                    bp = float(d['open'][xi])
+                    needed = min(per_position, max(0.0, cash - reserve))
+                    if needed <= 0:
+                        continue
+                    buy_sh = (needed / bp) * (1 - COST)
+                    cash -= buy_sh * bp
+                    positions[tid] = dict(shares=buy_sh, entry_price=bp,
+                                          symbol=daily[tid]['symbol'], peak=bp, ratchet=0.0)
+                    trade_log.append((exec_day, daily[tid]['symbol'], 'BUY', buy_sh, bp, None))
+                    if args.detail:
+                        print(f'  {exec_day} BUY  {daily[tid]["symbol"]} {buy_sh:.2f} @ ${bp:.2f}')
 
         # Optional seeded book (apples-to-apples replay): start with live's
         # exact holdings marked at the first in-window date's open, so the only
@@ -1314,10 +1419,7 @@ def backtest(argv=None):
             # intraweek; without either flag the historical step-frequency
             # equity curve is preserved exactly.
             if daily_marks:
-                # exec_date through the session before the next signal date;
-                # the next iteration marks that signal date with the guard.
-                for gj in range(ri + 1, min(ri + step, len(all_dates))):
-                    _mark_and_guard(all_dates[gj])
+                _daily_exit_backfill(ri, candidates, selected)
             else:
                 pf_val = cash
                 for tid, pos in positions.items():

@@ -516,17 +516,18 @@ def bulk_load_weekly(conn, ticker_ids=None):
     import pandas as pd
     cur = conn.cursor()
     if ticker_ids:
-        cur.execute('SELECT ticker_id, date, close FROM tbl_prices_weekly WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date',
+        cur.execute('SELECT ticker_id, date, open, close FROM tbl_prices_weekly WHERE ticker_id = ANY(%s) ORDER BY ticker_id, date',
                     (list(ticker_ids),))
     else:
-        cur.execute('SELECT ticker_id, date, close FROM tbl_prices_weekly ORDER BY ticker_id, date')
+        cur.execute('SELECT ticker_id, date, open, close FROM tbl_prices_weekly ORDER BY ticker_id, date')
     rows = cur.fetchall()
     cur.close()
     data = {}
-    for tid, dt, close in rows:
+    for tid, dt, opn, close in rows:
         if tid not in data:
-            data[tid] = {'dates': [], 'close': []}
+            data[tid] = {'dates': [], 'open': [], 'close': []}
         data[tid]['dates'].append(dt)
+        data[tid]['open'].append(float(opn) if opn else 0)
         data[tid]['close'].append(float(close))
     for tid in data:
         s = pd.Series(data[tid]['close'])

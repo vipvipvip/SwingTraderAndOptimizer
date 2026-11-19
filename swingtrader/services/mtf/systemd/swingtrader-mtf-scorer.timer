@@ -1,11 +1,11 @@
 [Unit]
-Description=MTF v2 Scorer Timer (evening recap — score+slack only, posts the combined MTFS/MTFE/sector/regime message at 16:45 ET; no orders)
+Description=MTF ETF Scorer Timer (evening recap — score+slack only, posts the ETF/sector/regime message at 16:45 ET; no orders)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network.target swingtrader-db.service
 
 # Evening analytics recap: scores TODAY's settled close (after the 15:30
 # EVENING_CUTOFF in runner.py) and posts the same combined message the 10:25
-# executor produces in the morning. Purely informational — save_pending is
+# ETF executor produces in the morning. Purely informational — save_pending is
 # overwritten by the next morning's inline score, so no double execution.
 
 [Timer]

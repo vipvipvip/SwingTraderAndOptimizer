@@ -29,7 +29,9 @@ edit the component's copy, then re-verify against the OS.
 | Driver | Mechanism | Schedule | Status |
 |---|---|---|---|
 | **CoreEW P20w** — "LegEMA" (`trades:execute-leg-ema --span=20`) | systemd `swingtrader-legema.{service,timer}` | Mon–Fri 10:05 ET (+0–60 s `RandomizedDelaySec`) | ✅ enabled/active — per-leg weekly EMA(20) crossover, acts once per new settled week; **data-readiness gate added 2026-10-20** (`dataReadinessGate()`: series-freshness + `data_readiness.py --tf week,day --mode etf`; live `--ensure`, dry-run `--check`; fails closed → no claim/orders + red Slack) |
-| **MTF Top-N** (`swingtrader-mtf-executor --mode all`) | systemd `swingtrader-mtf-executor.{service,timer}` | Mon–Fri 10:25 ET | ✅ enabled/active — scores **and** executes both legs (stocks #PA368CPXNS13, ETFs #PA3U8GZ96PEN); stock leg has the CoreEW P20w `any` flat market gate (2026-11-03) and a 15% weekly-close HWM stop paper forward test (2026-11-04); ETF leg has the 25% profit sweep + 20% weekly-close HWM stop (2026-11-05) |
+| **Daily CMO Bounce40 stock paper** (`cmo_live.py`) | systemd `swingtrader-cmo-bounce.{service,timer}` | Mon–Fri 10:25 ET | ✅ installed/enabled 2026-11-18 — replaces MTF-stock on #PA368CPXNS13; scheduled handover canceled, owner submitted 25 manual sell orders after close (expected filled 11-19 09:30 ET open); Slack `[CMO-Bounce40]`; P20w `majority` book gate
+ |
+| **MTF Top-N ETFs** (`swingtrader-mtf-executor --mode etf`) | systemd `swingtrader-mtf-executor.{service,timer}` | Mon–Fri 10:25 ET | ✅ enabled/active; reinstalled 2026-11-18 as ETF-only — #PA3U8GZ96PEN, 25% profit sweep + 20% weekly-close HWM stop (2026-11-05); MTF-stock leg retired |
 
 These are the **only** order-placing drivers. The old CoreEG100 crontab line is commented
 out (`trades:execute-EW-gate100`, retired 2026-09-28); uncommenting it is the rollback
@@ -93,20 +95,23 @@ before `prices-load` had loaded a bar**, and hit Alpaca with ~10 concurrent unit
 
 | `Persistent=true` — a missed run must still happen | `Persistent=false` — a missed run must be **skipped** |
 |---|---|
-| `prices-load` (09:05), `scanner-update` (09:00), `scanner-backfill` (16:30), `backup` (16:15) | `legema` (10:05), `mtf-executor` (10:25), `mtf-scorer` (16:45), `daily-signal` (17:00), `trigger-levels` (10:00, 17:05), `rs-watchlist` (17:20), `weekly-takeoff` (Fri 17:15), `earnings-screener` (09:30–15:30), `explosion-shadow` (Tue 10:35) |
+| `prices-load` (09:05), `scanner-update` (09:00), `scanner-backfill` (16:30), `backup` (16:15) | `legema` (10:05), `cmo-bounce` (10:25),
+ `mtf-executor` (10:25), `mtf-scorer` (16:45), `daily-signal` (17:00), `trigger-levels` (10:00, 17:05), `rs-watchlist` (17:20), `weekly-takeoff` (Fri 17:15), `earnings-screener` (09:30–15:30), `explosion-shadow` (Tue 10:35) |
 
 The rule: **data refresh and backup catch up; anything that trades or posts a signal does
-not.** A boot after 10:25 therefore skips the day's MTF run instead of replaying it at the
-wrong time — the readiness gate is the backstop, not the schedule. This is what makes a
+not.** A boot after 10:25 therefore skips the day's MTF/CMO runs instead of replaying them at
+the wrong time — the readiness gate is the backstop, not the schedule. This is what makes a
 future nightly power-off safe. Both sides of the split are commented in the unit files so
 the asymmetry does not get "corrected" away.
 
-## Live strategies / signal services (Slack only; not order-placers)
+## Live strategies / signal services (order-placers + Slack-only reporters)
 
 | Unit | Schedule (ET) | Status | Purpose |
 |---|---|---|---|
-| `swingtrader-mtf-executor.timer` | Mon–Fri 10:25 | ✅ enabled/active | MTF emasma score **+ execute**. Runs `executor_retry.py` (2026-09-28): score retried every 30m until it has all tickers' data **or 16:00 ET**, then execute runs once and the unit exits. No attempt starts at/after the close, so the 16:45 recap and tomorrow's 10:25 trigger are never blocked; `TimeoutStartSec=6h` is the backstop. Give-up posts a red Slack alert with the last `mtf_runs` status. |
-| `swingtrader-mtf-scorer.timer` | Mon–Fri 16:45 | ✅ enabled/active | MTF evening recap — re-scores today's settled close, posts the **same** Slack summary as 10:25. **No orders**; `save_pending` is overwritten by tomorrow's inline score, so it cannot double-execute. | **No data-refresh pre-steps** (removed 2026-10-06): the 16:30 backfill already loaded + computed, and the runner's gate runs `--ensure`, which self-repairs.
+| `swingtrader-cmo-bounce.timer` | Mon–Fri 10:25 | ✅ enabled/active (installed 2026-11-18) | Daily CMO Bounce40 stock paper executor on #PA368CPXNS13. Reads the combined PIT universe, settled daily bars, P20w majority gate (<2/3 benchmarks above weekly EMA20 liquidates the book), 0.99×BB-mid entry filter, 15% last-settled-bar-of-week HWM + 5-session cooldown; no orders during 09:30–10:00 ET. |
+| ~~`swingtrader-cmo-handover.timer`~~ | ~~one-shot 2026-11-19 10:10 ET~~ | ⛔ **canceled 2026-11-18** | Owner submitted the 25 liquidation sells manually after close; expected filled at the 11-19 09:30 ET open, so the 10:25 CMO run should be clean. No `cmo_live.py --handover` will run. |
+| `swingtrader-mtf-executor.timer` | Mon–Fri 10:25 | ✅ enabled/active; ETF-only since 2026-11-18 | MTF emasma ETF score **+ execute**. Runs `executor_retry.py --mode etf`: score retried every 30m until it has all tickers' data **or 16:00 ET**, then execute runs once and the unit exits. No attempt starts at/after the close, so the 16:45 recap and tomorrow's 10:25 trigger are never blocked; `TimeoutStartSec=6h` is the backstop. Give-up posts a red Slack alert with the last `mtf_runs` status. |
+| `swingtrader-mtf-scorer.timer` | Mon–Fri 16:45 | ✅ enabled/active; ETF-only since 2026-11-18 | MTF ETF evening recap — re-scores today's settled close, posts the **same** Slack summary as 10:25. **No orders**; `save_pending` is overwritten by tomorrow's inline score, so it cannot double-execute. **No data-refresh pre-steps** (removed 2026-10-06): the 16:30 backfill already loaded + computed, and the runner's gate runs `--ensure`, which self-repairs. |
 | `swingtrader-daily-signal.timer` | Mon–Fri 17:00 | ✅ enabled/active | Daily Signal two-CO (WCO∧DCO) Slack emit. **No orders.** |
 | `swingtrader-trigger-levels.timer` | Mon–Fri 10:00 + 17:05 | ✅ enabled/active (installed 2026-10-07) | **Trigger Levels** Slack report: next buy/sell price per ticker for CoreEW P20w (QQQ/VTI/VTV) and MTF-ETF (top 3 + next 3). **No orders, no DB writes.** Runs `swingtrader/services/mtf/trigger_levels.py` (MTF-ETF Alpaca keys for live prices; CoreEW levels from the PHP series). `Persistent=false`. `--dry-run` prints, `--no-explainer` drops the HOW TO READ block. Spec: [../SPEC_trigger_levels.md](../SPEC_trigger_levels.md). |
 | `swingtrader-rs-watchlist.timer` | Mon–Fri 17:20 | ✅ enabled/active (installed 2026-10-07) | **RS Watchlist** Slack post (`swingtrader/services/mtf/rs_watchlist.py --slack`): weekly EMA10/SMA40 fresh cross + weak-base breakout, rank ≥ 0.8, daily MACD(10/40/400) hist > 0, on the last settled weekly bar. **Research/watchlist only — no proven edge vs volatility-matched peers in backtests; no orders; never wire to orders without user sign-off.** `Persistent=false`. |
@@ -130,6 +135,7 @@ the asymmetry does not get "corrected" away.
 |---|---|---|
 | `swingtrader-scanner-hourly.{service,timer}` | ⛔ **REMOVED 2026-10-05** | Hourly latest-trade capture. HOURLY was purged 2026-10-02: `tbl_scanner_tickers_1hour` dropped, `capture_hourly.py` + `backfill_hourly.py` deleted. Units were still installed and disabled. Also killed `runner.py --fresh`, which read that table — now unrunnable, not merely disabled. |
 | `swingtrader-optimizer.{service,timer}` | ⛔ **REMOVED 2026-10-05** | Legacy CHAND nightly param-grid search, disabled since CoreEW went pure equal-weight (2026-09-12). Its `ExecStart` script `swingtrader/services/optimizer/run_nightly.sh` **no longer exists**, so the unit could only ever fail. `README.md`, `COMMAND_REFERENCE.md`, `UBUNTU_SETUP.md` and `OPERATING_RULES.md` still reference it — stale, not yet swept. |
+| MTF-stock emasma leg | ⛔ **retired 2026-11-18** | Replaced on #PA368CPXNS13 by `swingtrader-cmo-bounce`; existing book must be liquidated once with `cmo_live.py --handover` before the first new-strategy run. ETF emasma leg is unchanged. |
 | `swingtrader-mtf-preview.{service,timer}` | ⚠️ **not installed** | Dry-run alternative to `swingtrader-mtf-scorer` (17:05 ET, `--dry-run` execute). Code exists in `swingtrader/services/mtf/systemd/` but was never enabled. Confirm whether it's superseded-by or meant-to-replace the live scorer before installing — running both posts the evening Slack summary twice. |
 | `sec-research.{service,timer}` | ⚠️ **never installed** — wrapper files now **removed** from the repo | They only ever documented what a systemd wrapper *would* look like around `scanner/services/sec_research.py`, which does work (and has a DB cache table) — it just was never scheduled. `sec_research_guide.md` documents running it manually and no longer claims a timer exists. |
 

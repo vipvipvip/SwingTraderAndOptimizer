@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily CMO Bounce40 Stock Executor Timer (10:25 ET)
+Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
+After=network.target swingtrader-db.service swingtrader-scanner-backfill.timer
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 10:25:00 America/New_York
+Persistent=false
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

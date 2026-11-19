@@ -4,7 +4,8 @@
 Why this exists
 ---------------
 The 10:25 ET timer runs the emasma score step on settled daily bars and then
-executes whatever the score step saved to `mtf_pending`. Both steps depend on
+executes whatever the score step saved to `mtf_pending`. Since 2026-11-18 the
+service passes `--mode etf` (the stock leg was retired); both steps still depend on
 the scanner backfills being complete for the universe, and this box's mornings
 are fragile: the 09:00 scanner-update timer usually fires on boot (~09:32) and
 `Persistent=true` only just beats the executor, so a single attempt can face a
@@ -19,7 +20,7 @@ noticed by hand.
 Contract
 --------
 1. Retry the score step until it has all the tickers' data (a successful score
-   for BOTH legs -> exit 0) or until market close (16:00 ET).
+   for the selected mode -> exit 0) or until market close (16:00 ET).
 2. Then run the execute step once, and exit.
 3. Never run past the close. systemd will not start a second instance of a
    still-active oneshot, so a runaway loop would silently skip the next
@@ -61,7 +62,7 @@ def _now():
     return datetime.now(NY)
 
 
-def _run_step(action, dry_run=False, strategy='emasma', no_slack=False):
+def _run_step(action, dry_run=False, strategy='emasma', no_slack=False, mode='all'):
     """Run one runner step. Returns its exit code (0 = the step got everything
     it needed, non-zero = at least one leg failed or produced nothing).
 
@@ -70,7 +71,7 @@ def _run_step(action, dry_run=False, strategy='emasma', no_slack=False):
     message containing both the book AND the resulting trades, so the score
     digest's stale "No changes since last run" can never contradict the trades
     (2026-10-15: it said no changes while 9 ratchets + 10 buys went through)."""
-    cmd = [sys.executable, RUNNER, '--action', action, '--mode', 'all', '--strategy', strategy]
+    cmd = [sys.executable, RUNNER, '--action', action, '--mode', mode, '--strategy', strategy]
     if dry_run:
         cmd.append('--dry-run')
     if no_slack:
@@ -113,19 +114,20 @@ def retry_score(step, stop_at=MARKET_CLOSE_ET, retry_min=DEFAULT_RETRY_MIN,
         sleep_fn(nap)
 
 
-def _last_score_runs():
+def _last_score_runs(mode='all'):
     """Last score-run status per mode, for the give-up alert body."""
+    modes = ('stock', 'etf') if mode == 'all' else (mode,)
     out = []
     try:
         conn = runner._get_db_conn()
         try:
-            for mode in ('stock', 'etf'):
-                run_row = db_module.get_last_run(conn, mode, 'score')
+            for m in modes:
+                run_row = db_module.get_last_run(conn, m, 'score')
                 if run_row:
-                    out.append(f"{runner.MODE_LABEL[mode]}: {run_row['status']} "
+                    out.append(f"{runner.MODE_LABEL[m]}: {run_row['status']} "
                                f"(sig {run_row['sig_date']}) {run_row['detail'] or ''}".strip())
                 else:
-                    out.append(f"{runner.MODE_LABEL[mode]}: no run recorded")
+                    out.append(f"{runner.MODE_LABEL[m]}: no run recorded")
         finally:
             conn.close()
     except Exception as exc:  # never let alerting itself mask the failure
@@ -133,12 +135,12 @@ def _last_score_runs():
     return '\n'.join(f'  • {line}' for line in out)
 
 
-def _alert_giveup(attempts, now=None):
+def _alert_giveup(attempts, mode='all', now=None):
     now = now or _now()
     runner._send_slack_alert(
         f'GAVE UP at {now:%H:%M} ET after {attempts} score attempt(s) — the score step '
         f'never got all the tickers\' data, so NO MTF orders were placed today. '
-        f'Tomorrow\'s 10:25 run retries from scratch.\n{_last_score_runs()}', 'all')
+        f'Tomorrow\'s 10:25 run retries from scratch.\n{_last_score_runs(mode)}', mode)
 
 
 def main():
@@ -154,32 +156,35 @@ def main():
     p.add_argument('--max-attempts', type=int, default=MAX_ATTEMPTS,
                    help=f'attempt cap (default {MAX_ATTEMPTS})')
     p.add_argument('--strategy', default='emasma', help='runner strategy (default emasma)')
+    p.add_argument('--mode', choices=('all', 'stock', 'etf'), default='all',
+                   help='runner mode (default all)')
     args = p.parse_args()
 
     stop_at = dt_time(*(int(x) for x in args.stop_at.split(':')))
     print(f'[MTF-RETRY] {datetime.now(NY):%Y-%m-%d %H:%M} ET — score retries every '
           f'{args.retry_min:g}m until {stop_at:%H:%M} ET, then execute '
-          f'(dry_run={args.dry_run}, no_execute={args.no_execute})', flush=True)
+          f'(mode={args.mode}, dry_run={args.dry_run}, no_execute={args.no_execute})', flush=True)
 
     # Score step is silent on Slack: every retry would otherwise post its own
     # digest, and the (successful) execute step below posts the one message.
     ok, attempts = retry_score(
-        lambda: _run_step('score', dry_run=args.dry_run, strategy=args.strategy, no_slack=True),
+        lambda: _run_step('score', dry_run=args.dry_run, strategy=args.strategy,
+                          no_slack=True, mode=args.mode),
         stop_at=stop_at, retry_min=args.retry_min, max_attempts=args.max_attempts)
 
     if not ok:
-        _alert_giveup(attempts)
+        _alert_giveup(attempts, mode=args.mode)
         return 1
 
     if args.no_execute:
         print('[MTF-RETRY] --no-execute: score only, no orders placed', flush=True)
         return 0
 
-    rc = _run_step('execute', dry_run=args.dry_run, strategy=args.strategy)
+    rc = _run_step('execute', dry_run=args.dry_run, strategy=args.strategy, mode=args.mode)
     if rc != 0:
         runner._send_slack_alert(
             f'execute step exited {rc} after a successful score — check '
-            f'`journalctl -u swingtrader-mtf-executor` and mtf_runs for the leg.', 'all')
+            f'`journalctl -u swingtrader-mtf-executor` and mtf_runs for the leg.', args.mode)
         return rc
     return 0
 
