@@ -114,6 +114,7 @@ MARKET_GATE_ENABLED = True
 MARKET_GATE_MODE = 'any'
 MARKET_GATE_SPAN = 20
 MARKET_GATE_LEGS = ('QQQ', 'VTI', 'VTV')
+CUSTOM_REGIME_TICKERS = ['AGO', 'DHR', 'MDT', 'MSFT']
 
 # Ratchet-ATR exit (matches backtest --exit ratchet-atr --ratchet-atr-src
 # daily): exit a held position when its close < (highest daily close since

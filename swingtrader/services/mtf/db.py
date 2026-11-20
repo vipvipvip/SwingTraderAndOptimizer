@@ -394,10 +394,15 @@ def get_sector_tickers(conn):
 
 def get_market_gate_tickers(conn):
     """Ticker IDs+symbols for the 4 broad-market gate ETFs (VTI/SPY/QQQ/VTV)."""
+    return get_tickers_by_symbols(conn, MARKET_GATE_ETFS)
+
+
+def get_tickers_by_symbols(conn, symbols):
+    """Ticker IDs+symbols for the given enabled symbols, sorted by symbol."""
     with conn.cursor() as cur:
         cur.execute(
             'SELECT id, symbol FROM tbl_stock_tickers WHERE enabled=true AND symbol = ANY(%s) ORDER BY symbol',
-            (MARKET_GATE_ETFS,))
+            (list(symbols),))
         return cur.fetchall()
 
 

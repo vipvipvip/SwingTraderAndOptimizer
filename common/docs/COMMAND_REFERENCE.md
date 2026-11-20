@@ -877,6 +877,36 @@ python3 coreew_growth_csv.py --tolerance-pct 0.25
 
 ---
 
+## 19. Application Commands
+
+On-demand app commands that post to Slack or run app-side scripts. Run from the repo root unless noted.
+
+### Slack report triggers
+
+```bash
+# Weekly + daily regime for arbitrary tickers (EMA10>SMA20, settled prices); no orders
+python3 swingtrader/services/mtf/runner.py --action custom-regime --tickers QQQ,VTI,VTV
+
+# Live CoreEW P20w leg gate (QQQ/VTI/VTV, PHP-canonical weekly EMA20); no orders
+python3 swingtrader/services/mtf/runner.py --action coreew-gate
+```
+
+`--no-slack` prints instead of posting. `--tickers` is optional; without it the regime block uses `CUSTOM_REGIME_TICKERS` in `swingtrader/services/mtf/config.py`. Both commands are read-only (no trades, no DB writes).
+
+### Other app commands collected from this reference
+
+| Command | Purpose | Details |
+|---|---|---|
+| `php artisan trades:execute-EW-ETF` | Legacy EW ETF executor (rollback only; not on cron) | §3 |
+| `php artisan schedule:run` / `schedule:list` / `schedule:test` | Laravel scheduler (legacy) | §3 |
+| `python3 optimizer/nightly_optimizer.py` | Nightly optimizer (removed 2026-10-06; historical) | §4 |
+| `php artisan serve --host=0.0.0.0 --port=9000`, `npm run dev` | Backend/frontend dev startup | §15 |
+| `python3 .claude/skills/etf-monthly-prices/scripts/build_monthly_prices.py ...` | Monthly adjusted-close price CSVs | §16 |
+| `python3 .claude/skills/etf-monthly-table/scripts/build_monthly_table.py ...` | Monthly return tables | §17 |
+| `cd swingtrader/services/scripts && python3 coreew_growth_csv.py` | CoreEW growth CSV (read-only) | §18 |
+
+---
+
 ## Summary
 
 | Category | Command Count | Purpose |
@@ -896,6 +926,7 @@ python3 coreew_growth_csv.py --tolerance-pct 0.25
 | Systemd Services | 10 | Persistent daemon management |
 | Application Lifecycle | 12 | Kill/start/restart apps and view logs |
 | Reporting | 3 | CoreEW growth CSV with Alpaca validation |
+| Application Commands | 2 | Slack report triggers (custom regime, CoreEW gate) |
 
 **Total Commands: ~90+**
 
@@ -927,4 +958,4 @@ docker exec swingtrader-db psql -U swingtrader -d swingtrader -c "TRUNCATE table
 
 ---
 
-Last Updated: 2026-11-01 (added §18 CoreEW growth CSV report; v7.0 update: 2-of-4 signal logic, systemd services)
+Last Updated: 2026-11-20 (added §19 Application Commands with Slack report triggers; collected scattered app commands)

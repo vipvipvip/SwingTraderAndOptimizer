@@ -56,12 +56,12 @@ COVERAGE_TRADE_FLOOR = 0.99
 # refused so stale picks never fill at a 10:25 market order.
 FRESH_PENDING_MAX_AGE_HOURS = 6
 
-MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs', 'all': 'stocks+ETFs'}
+MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs', 'all': 'stocks+ETFs', 'gate': 'P20w'}
 CSV_SUFFIX = {'stock': '_stock', 'etf': '_etf'}
 # ETF leg runs the weekly EMA10>SMA40 rotation (EMASMA), not Multi-TF.
 # Stock-leg --strategy emasma also uses the same weekly EMA/SMA rotation
 # (validated to replace the v2 freshest-crossover strategy).
-STRATEGY_TAG = {'stock': 'MTF-TopN', 'etf': 'EMA-SMA', 'all': 'MTF+EMA-SMA'}
+STRATEGY_TAG = {'stock': 'MTF-TopN', 'etf': 'EMA-SMA', 'all': 'MTF+EMA-SMA', 'gate': 'CoreEW'}
 STRATEGY_NAME = {'stock': 'Multi-TF', 'etf': 'EMA/SMA'}
 
 
@@ -153,7 +153,7 @@ def _sessions_since(conn, latest):
         return int(cur.fetchone()[0] or 0)
 
 
-def _check_data_freshness(conn, mode='stock', fresh=False, strategy='mtf'):
+def _check_data_freshness(conn, mode='stock', fresh=False, strategy='emasma'):
     """Verify the scanner data the chosen strategy reads is fresh enough to signal.
 
     Timeframes are strategy-dependent: emasma reads settled weekly + daily only,
@@ -212,7 +212,7 @@ def _check_data_freshness(conn, mode='stock', fresh=False, strategy='mtf'):
     # backfill + recompute) and re-verifies. `fresh` is intentionally no longer
     # consulted here: the gate already tolerates a partial current-day bar via
     # its coverage-based rules.
-    return _run_readiness_gate(mode, strategy)
+    return _run_readiness_gate(mode)
 
 
 def _backfill_daily(conn, mode='stock'):
@@ -246,7 +246,7 @@ def _backfill_daily(conn, mode='stock'):
         print(f'[MTF] Prices heal script timed out')
 
 
-def _run_readiness_gate(mode='stock', strategy='mtf'):
+def _run_readiness_gate(mode='stock'):
     """Invoke the scanner Data Readiness Gate (data_readiness.py) for the mode.
 
     Gate = verify -> repair (calendar-aware backfill of missing bars, + indicator
@@ -254,13 +254,10 @@ def _run_readiness_gate(mode='stock', strategy='mtf'):
     (see below).
     Subspawns the scanner venv (this process runs under the optimizer venv).
     Returns True only if ALL checked timeframes are READY (exit 0)."""
-    # emasma scores on settled weekly + daily bars only (its ratchet ATR source
-    # is daily, see --ratchet-atr-src daily), so no timeframe here needs hourly.
-    # --strategy mtf still scores on hourly, so it keeps the stock leg's hour.
-    if strategy == 'emasma':
-        tfs = 'day,week'
-    else:
-        tfs = {'stock': 'day,hour', 'etf': 'day,week'}.get(mode, 'day,hour')
+    # Hourly was purged 2026-10-02; data_readiness.py has no 'hour' coverage
+    # entry and no surviving path reads it. All live scoring uses settled daily
+    # + weekly bars, so every mode/strategy checks the same two timeframes.
+    tfs = 'day,week'
     cmd = [SCANNER_VENV_PYTHON, DATA_GATE_SCRIPT, '--ensure', '--tf', tfs,
            '--mode', mode]
     print(f'[MTF] Running data-readiness gate for {mode} (tfs: {tfs})...', flush=True)
@@ -501,7 +498,7 @@ def _topn_table_lines(is_etf, top_symbols, score_detail, entry_map):
     return lines
 
 
-def _run_single_mode(mode, now, today, strategy='mtf', fresh=False):
+def _run_single_mode(mode, now, today, strategy='emasma', fresh=False):
     """Run evening scoring for one mode. Returns (success, slack_lines, sig_date).
     Analytics only — saves pending picks for the morning executor. No Alpaca calls.
     Does NOT send Slack. Does NOT catch exceptions (caller must handle)."""
@@ -1128,73 +1125,77 @@ def _settled_slice(data, cutoff):
     return {k: [data[k][i] for i in idx] for k in ('dates', 'close', 'ema', 'sma')}
 
 
-def _regime_block(ticker_data, sym_order, label, date_header):
-    """Render one regime table: last 4 settled bars, BULL/bear per gate ETF + agreement."""
-    all_dates = sorted(set().union(*[set(w['dates']) for w in ticker_data.values()]))
+def _regime_block(ticker_data, sym_order, label, date_header, wrap=True, since=None,
+                  show_agree=True):
+    """Render one regime table: BULL/bear + settled price per symbol.
+
+    Defaults to the last 4 bars; `since` keeps every bar from that date onward.
+    `show_agree` adds the Agree column and risk-on/off hint (market gates only)."""
+    all_dates = sorted(set().union(*[set(w['dates']) for w in ticker_data.values()])) if ticker_data else []
     if not all_dates:
         return [f'  No {label.lower()} regime data']
     last_date = all_dates[-1]
-    last4 = all_dates[-4:]
+    rows = [d for d in all_dates if d >= since] if since is not None else all_dates[-4:]
+    if not rows:
+        rows = all_dates[-4:]
 
-    lines = [f'*{label} Regime — {last_date}*', '```']
-    hdr = f'{date_header:<12}' + ''.join(f'{sym:<7}' for sym in sym_order) + 'Agree'
-    lines += [hdr, '-' * len(hdr)]
+    lines = [f'*{label} Regime — {last_date}*', '```'] if wrap else []
+    hdr = (f'{date_header:<12}' + ''.join(f'{sym:<16}' for sym in sym_order)
+           + ('Agree' if show_agree else ''))
+    lines += [hdr.rstrip(), '-' * len(hdr.rstrip())]
 
     def _state_at(sym, d):
         w = ticker_data.get(sym)
         if w is None:
-            return '-'
+            return '-', '-'
         try:
             i = w['dates'].index(d)
         except ValueError:
-            return '-'
+            return '-', '-'
         ema = w['ema'][i]
         sma = w['sma'][i]
         if ema is None or sma is None or ema != ema or sma != sma:  # NaN-safe
-            return '-'
-        return 'BULL' if ema > sma else 'BEAR'
+            return '-', '-'
+        close = w['close'][i]
+        price = f'${close:,.2f}' if close is not None and close == close else '-'
+        return ('BULL' if ema > sma else 'BEAR'), price
 
-    for d in last4:
+    for d in rows:
         agree = 0
         row = f'{str(d):<12}'
         for sym in sym_order:
-            st = _state_at(sym, d)
-            row += f'{st:<7}'
+            st, price = _state_at(sym, d)
+            row += f'{(st + " " + price):<16}'
             if st == 'BULL':
                 agree += 1
-        row += f'{agree}/4'
-        lines.append(row)
+        if show_agree:
+            row += f'{agree}/{len(sym_order)}'
+        lines.append(row.rstrip())
 
-    # Context hint, only when gates agree
-    agree_now = sum(1 for sym in sym_order if _state_at(sym, last_date) == 'BULL')
-    if agree_now == 4:
-        lines += ['', 'Risk-on (4/4)']
-    elif agree_now == 0:
-        lines += ['', '⚠️ Risk-off (0/4)']
-    lines.append('```')
+    if show_agree:
+        agree_now = sum(1 for sym in sym_order if _state_at(sym, last_date)[0] == 'BULL')
+        if sym_order and agree_now == len(sym_order):
+            lines += ['', f'Risk-on ({agree_now}/{len(sym_order)})']
+        elif sym_order and agree_now == 0:
+            lines += ['', f'⚠️ Risk-off (0/{len(sym_order)})']
+    if wrap:
+        lines.append('```')
     return lines
 
 
-def _run_market_regime(conn, now, today):
-    """Weekly + daily EMA10>SMA20 gate state for VTI/SPY/QQQ/VTV (info-only Slack).
+def _last_regime_date(data):
+    all_dates = sorted(set().union(*[set(w['dates']) for w in data.values()])) if data else []
+    return all_dates[-1] if all_dates else None
 
-    Weekly bars are Monday-stamped full weeks; daily bars are session dates. Both
-    use settled bars only: a weekly bar counts once bar_date + 7 <= today, and the
-    daily table includes today's bar only after the close (the scorer runs 16:45 ET)."""
-    print('[MTF] Scoring market regime (VTI/SPY/QQQ/VTV weekly + daily)...')
 
-    tickers = db_module.get_market_gate_tickers(conn)
-    if not tickers:
-        return ['  No market gate ETFs found']
-
-    tid_by_sym = {sym: tid for tid, sym in tickers}
-    sym_order = db_module.MARKET_GATE_ETFS
+def _load_regime_data(conn, sym_order, now, today):
+    """Settled weekly/daily EMA/SMA series for the given symbols."""
+    tid_by_sym = {sym: tid for tid, sym in db_module.get_tickers_by_symbols(conn, sym_order)}
     sma_period = db_module.MARKET_GATE_SMA_PERIOD
-
-    weekly_data = {}
-    daily_data = {}
     weekly_cutoff = today - timedelta(days=7)
     daily_cutoff = today if now.hour >= 16 else today - timedelta(days=1)
+    weekly_data = {}
+    daily_data = {}
     for sym in sym_order:
         tid = tid_by_sym.get(sym)
         if tid is None:
@@ -1211,14 +1212,96 @@ def _run_market_regime(conn, now, today):
             d = _settled_slice(d, daily_cutoff)
             if len(d['dates']) >= max(4, sma_period):
                 daily_data[sym] = d
+    return weekly_data, daily_data
 
+
+def _run_market_regime(conn, now, today):
+    """Weekly + daily EMA10>SMA20 gate state for VTI/SPY/QQQ/VTV (info-only Slack).
+
+    Weekly bars are Monday-stamped full weeks; daily bars are session dates. Both
+    use settled bars only: a weekly bar counts once bar_date + 7 <= today, and the
+    daily table includes today's bar only after the close (the scorer runs 16:45 ET)."""
+    print('[MTF] Scoring market regime (VTI/SPY/QQQ/VTV weekly + daily)...')
+
+    sym_order = db_module.MARKET_GATE_ETFS
+    weekly_data, daily_data = _load_regime_data(conn, sym_order, now, today)
+    if not weekly_data and not daily_data:
+        return ['  No market gate ETFs found']
+
+    weekly_last = _last_regime_date(weekly_data)
     lines = _regime_block(weekly_data, sym_order, 'Weekly', 'Week')
     lines.append('')
-    lines += _regime_block(daily_data, sym_order, 'Daily', 'Date')
+    lines += _regime_block(daily_data, sym_order, 'Daily', 'Date', since=weekly_last)
     return lines
 
 
-def run(mode='stock', live=False, strategy='mtf', dry_run=False, fresh=False,
+def _run_custom_regime(conn, now, today, symbols):
+    """One Weekly+Daily regime block for config.CUSTOM_REGIME_TICKERS."""
+    sym_order = list(dict.fromkeys(s.strip().upper() for s in symbols if str(s).strip()))
+    if not sym_order:
+        return []
+    weekly_data, daily_data = _load_regime_data(conn, sym_order, now, today)
+    found = set(weekly_data) | set(daily_data)
+    series = list(weekly_data.values()) + list(daily_data.values())
+    all_dates = sorted(set().union(*[set(w['dates']) for w in series])) if series else []
+    last_date = all_dates[-1] if all_dates else today
+    lines = [f'*Custom Regime — {last_date}*', '```']
+    lines.append('Weekly:')
+    lines += _regime_block(weekly_data, sym_order, 'Weekly', 'Week', wrap=False,
+                           show_agree=False)
+    lines.append('')
+    lines.append('Daily:')
+    lines += _regime_block(daily_data, sym_order, 'Daily', 'Date', wrap=False,
+                           since=_last_regime_date(weekly_data), show_agree=False)
+    missing = [sym for sym in sym_order if sym not in found]
+    if missing:
+        lines += ['', 'No data: ' + ', '.join(missing)]
+    lines.append('```')
+    return lines
+
+
+def run_custom_regime(send_slack=True, symbols=None):
+    """Post only the custom-ticker regime block — no scoring, no orders."""
+    now = datetime.now(NY)
+    symbols = config.CUSTOM_REGIME_TICKERS if symbols is None else symbols
+    if not symbols:
+        print('[MTF] CUSTOM_REGIME_TICKERS is empty — nothing to post')
+        return False
+    conn = _get_db_conn()
+    try:
+        lines = _run_custom_regime(conn, now, now.date(), symbols)
+    finally:
+        conn.close()
+    msg = '\n'.join([f'Custom Regime — {now.date()}', '━' * 32] + lines)
+    print(f'\n{msg}\n')
+    if send_slack and lines:
+        _send_slack(msg, 'all')
+    return bool(lines)
+
+
+def run_coreew_gate_report(send_slack=True):
+    """Post the live CoreEW P20w leg gate from the PHP-canonical series."""
+    try:
+        states, week = coreew_gate.fetch_leg_states(
+            span=config.MARKET_GATE_SPAN, symbols=config.MARKET_GATE_LEGS)
+    except Exception as exc:
+        print(f'[MTF] CoreEW gate series failed: {exc}')
+        return False
+    lines = [f'*CoreEW P20w Gate — settled week {week}*', '```']
+    for sym in config.MARKET_GATE_LEGS:
+        state = 'ON' if states.get(sym) else 'OFF'
+        lines.append(f'{sym:<6} {state}')
+    lines += ['', coreew_gate.describe(states, config.MARKET_GATE_MODE,
+                                       config.MARKET_GATE_SPAN, week,
+                                       config.MARKET_GATE_LEGS), '```']
+    msg = '\n'.join(lines)
+    print(f'\n{msg}\n')
+    if send_slack:
+        _send_slack(msg, 'gate')
+    return True
+
+
+def run(mode='stock', live=False, strategy='emasma', dry_run=False, fresh=False,
         send_slack=True):
     """Run evening scoring (action='score') or morning execution (action='execute').
 
@@ -1289,7 +1372,7 @@ def _run_execute_all(today, dry_run=False, send_slack=True):
     return all_ok
 
 
-def run_all(live=False, strategy='mtf', dry_run=False, fresh=False,
+def run_all(live=False, strategy='emasma', dry_run=False, fresh=False,
             send_slack=True):
     """Evening scoring (default) or morning execution (live=True).
 
@@ -1345,6 +1428,9 @@ def run_all(live=False, strategy='mtf', dry_run=False, fresh=False,
         conn = _get_db_conn()
         regime_lines = _run_market_regime(conn, now, today)
         all_lines.extend(regime_lines)
+        if config.CUSTOM_REGIME_TICKERS:
+            all_lines.append('')
+            all_lines += _run_custom_regime(conn, now, today, config.CUSTOM_REGIME_TICKERS)
         conn.close()
     except Exception as exc:
         all_lines.append(f'❌ market regime crashed: {exc}')
@@ -1364,14 +1450,19 @@ def run_all(live=False, strategy='mtf', dry_run=False, fresh=False,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MTF Top-N Daily Runner')
-    parser.add_argument('--action', choices=['score', 'execute'], default='score',
-                        help='score (evening analytics) or execute (morning trades)')
+    parser.add_argument('--action', choices=['score', 'execute', 'custom-regime', 'coreew-gate'],
+                        default='score',
+                        help='score (evening analytics), execute (morning trades), '
+                             'custom-regime (post only the regime block for --tickers / '
+                             'CUSTOM_REGIME_TICKERS), or coreew-gate (post the live P20w leg state)')
     parser.add_argument('--mode', choices=['stock', 'etf', 'all'], default='stock',
                         help='Ticker universe (default: stock, use "all" for stocks+ETFs)')
-    parser.add_argument('--strategy', choices=['mtf', 'emasma'], default='mtf',
-                        help='stock-leg scoring: mtf (default) or emasma (weekly EMA10>SMA40 '
-                             'rotation, same as ETF leg). The v2 freshest-crossover strategy '
-                             'was retired 2026-09-26 (it required stored MACD columns).')
+    parser.add_argument('--strategy', choices=['emasma', 'mtf'], default='emasma',
+                        help='stock-leg scoring: emasma (default; weekly EMA10>SMA40, same as '
+                             'ETF leg) or mtf (retired — needs the purged hourly table).')
+    parser.add_argument('--tickers',
+                        help='comma-separated symbols for --action custom-regime '
+                             '(default: config.CUSTOM_REGIME_TICKERS)')
     parser.add_argument('--dry-run', action='store_true',
                         help='execute path: report pending buys/sells without placing orders')
     parser.add_argument('--no-slack', action='store_true',
@@ -1389,7 +1480,13 @@ if __name__ == '__main__':
                         help='Deprecated: use --action execute instead')
     args = parser.parse_args()
     live = args.live or args.action == 'execute'
-    if args.mode == 'all':
+    if args.action == 'custom-regime':
+        tickers = ([t.strip() for t in args.tickers.split(',') if t.strip()]
+                   if args.tickers else None)
+        ok = run_custom_regime(send_slack=not args.no_slack, symbols=tickers)
+    elif args.action == 'coreew-gate':
+        ok = run_coreew_gate_report(send_slack=not args.no_slack)
+    elif args.mode == 'all':
         ok = run_all(live=live, strategy=args.strategy, dry_run=args.dry_run,
                      fresh=args.fresh, send_slack=not args.no_slack)
     else:

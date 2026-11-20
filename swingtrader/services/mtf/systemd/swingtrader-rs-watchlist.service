@@ -1,5 +1,5 @@
 [Unit]
-Description=RS Watchlist (weekly EMA10/SMA40 fresh cross + weak-base breakout, rank>=0.8, daily MACD>0 — Slack only, no orders)
+Description=RS Watchlist (weekly EMA10/EMA20 fresh cross + weak-base breakout, rank>=0.8, daily MACD(10/20/40) hist>0 — Slack only, no orders)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network-online.target swingtrader-db.service
 Wants=network-online.target

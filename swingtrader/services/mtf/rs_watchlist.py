@@ -7,7 +7,7 @@ average but NO edge versus volatility-matched peers, so this narrows ~1,400 name
 chart inspection; it does not predict. Never wire it to orders without user sign-off.
 
 Flags: BASE = fresh cross to rank>=0.8 after a weak base (mean rank over t-13..t-2 < 0.5);
-       FRESH = weekly EMA10 crossed above SMA40 within the last 8 weeks.
+       FRESH = weekly EMA10 crossed above EMA20 within the last 8 weeks.
 
 Usage: python3 rs_watchlist.py [--all] [--min-rank 0.8] [--csv out.csv]
 Default shows only names with BOTH flags (PANW-style), freshest cross first; --all lists every name at rank >= min-rank.
@@ -23,6 +23,10 @@ import pandas as pd
 import psycopg2
 
 import config
+
+WEEKLY_EMA_SLOW = 20
+MACD_FAST, MACD_SLOW, MACD_SIGNAL = 10, 20, 40
+MACD_MIN_BARS = 3 * MACD_SIGNAL
 
 
 def load():
@@ -41,8 +45,8 @@ def load():
 
 
 def daily_macd_hist(symbols):
-    """Daily MACD(10/40/400) histogram on the last SETTLED daily bar (date < today), per symbol.
-    hist = (EMA10-EMA40) - EMA400(EMA10-EMA40). Needs >= 440 daily bars to be seeded; else NaN."""
+    """Daily MACD(10/20/40) histogram on the last SETTLED daily bar (date < today), per symbol.
+    hist = (EMA10-EMA20) - EMA40(EMA10-EMA20). Needs >= 120 daily bars; else NaN."""
     c = psycopg2.connect(host=config.DB_HOST, port=config.DB_PORT, dbname=config.DB_NAME,
                          user=config.DB_USER, password=config.DB_PASS)
     q = ("select k.symbol sym, p.date, p.close from tbl_prices_daily p join tbl_stock_tickers k on k.id=p.ticker_id "
@@ -54,11 +58,12 @@ def daily_macd_hist(symbols):
     d['close'] = d.close.astype(float)
     out = {}
     for sym, g in d.groupby('sym'):
-        if len(g) < 440:
+        if len(g) < MACD_MIN_BARS:
             out[sym] = np.nan
             continue
-        m = g.close.ewm(span=10, adjust=False).mean() - g.close.ewm(span=40, adjust=False).mean()
-        out[sym] = (m - m.ewm(span=400, adjust=False).mean()).iloc[-1]
+        m = (g.close.ewm(span=MACD_FAST, adjust=False).mean()
+             - g.close.ewm(span=MACD_SLOW, adjust=False).mean())
+        out[sym] = (m - m.ewm(span=MACD_SIGNAL, adjust=False).mean()).iloc[-1]
     return pd.Series(out)
 
 
@@ -73,9 +78,9 @@ def build(w):
     base = rank.shift(2).rolling(12).mean()
     base_ev = (rank >= .8) & (rank.shift(1) < .8) & (base < .5)
     ema = px.apply(lambda s: s.dropna().ewm(span=config.EMA_PERIOD, adjust=False).mean()).reindex(px.index)
-    sma = px.rolling(config.SMA_PERIOD).mean()
-    up = (ema > sma) & sma.notna()
-    cross = up & ~up.shift(1, fill_value=False) & sma.shift(1).notna()
+    ema_slow = px.apply(lambda s: s.dropna().ewm(span=WEEKLY_EMA_SLOW, adjust=False).mean()).reindex(px.index)
+    up = (ema > ema_slow) & ema_slow.notna()
+    cross = up & ~up.shift(1, fill_value=False) & ema_slow.shift(1).notna()
     pos = pd.DataFrame(np.where(cross, np.arange(len(px))[:, None], np.nan), index=px.index, columns=px.columns).ffill()
     age = pd.DataFrame(np.arange(len(px))[:, None] - pos.values, index=px.index, columns=px.columns).where(up)
     base_age = pd.DataFrame(np.where(base_ev, np.arange(len(px))[:, None], np.nan), index=px.index, columns=px.columns).ffill()
@@ -99,7 +104,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--min-rank', type=float, default=0.8)
     ap.add_argument('--csv')
-    ap.add_argument('--no-daily-macd', action='store_true', help='do not require daily MACD(10/40/400) histogram > 0')
+    ap.add_argument('--no-daily-macd', action='store_true', help='do not require daily MACD(10/20/40) histogram > 0')
     ap.add_argument('--slack', action='store_true', help='post the BOTH-flags list to the Slack webhook (config.SLACK_WEBHOOK_URL)')
     ap.add_argument('--all', action='store_true', help='list every name at rank>=min-rank, not just FRESH & BASE')
     a = ap.parse_args()
@@ -118,7 +123,7 @@ if __name__ == '__main__':
         d['dMACD'] = dm.reindex(d.index)
         dropped = [t for t in d.index[d.FRESH & d.BASE] if not d.at[t, 'dMACD'] > 0]
         d = d.drop(index=dropped)
-        print(f'daily MACD(10/40/400) hist > 0 required: kept {len(d)}, removed {len(dropped)}: ' + (', '.join(dropped) or 'none'))
+        print(f'daily MACD(10/20/40) hist > 0 required: kept {len(d)}, removed {len(dropped)}: ' + (', '.join(dropped) or 'none'))
     d['held'] = d.index.isin(held)
     d['name'] = [str(names.get(s) or '')[:24] for s in d.index]
     pd.set_option('display.width', 250)
@@ -135,7 +140,7 @@ if __name__ == '__main__':
         if a.slack:
             grp = lambda lo_, hi_: ', '.join(f"{t}{'*' if t in held else ''}" for t in d.index[(d.wks_since_cross >= lo_) & (d.wks_since_cross <= hi_)])
             txt = (f"*[RS-Watchlist]* settled week {last.date()} — _watchlist only; no proven edge vs volatility-matched peers; not a trade signal_\n"
-                   f"Fresh weekly EMA10/SMA40 cross + weak-base breakout, rank ≥ {a.min_rank}, daily MACD(10/40/400) hist > 0: *{len(d)}* names  (* = held in MTF)\n"
+                   f"Fresh weekly EMA10/EMA20 cross + weak-base breakout, rank ≥ {a.min_rank}, daily MACD(10/20/40) hist > 0: *{len(d)}* names  (* = held in MTF)\n"
                    f"• 0–3 wks: {grp(0, 3)}\n• 4–6 wks: {grp(4, 6)}\n• 7–8 wks: {grp(7, 8)}\n"
                    f"*NEW since {_.date()} ({len(new)}):* {', '.join(new) or 'none'}\n"
                    f"`{','.join(d.index)}`")
