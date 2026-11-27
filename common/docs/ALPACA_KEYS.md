@@ -11,8 +11,8 @@
 |---|-----------------|-----------|----------|----------------|
 | 1 | **CoreEW** (trio, Laravel `ExecuteEWETF`) | `#PA3GKZYLVO68` | `swingtrader/backend/.env` | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` |
 | 2 | **Scanner** (read-only market data: `load_prices.py`, Explorer) | (reuses CoreEW keys) | `scanner/backend/.env` | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` |
-| 3 | **MTF-Stocks** (emasma top-N stock leg) | `#PA368CPXNS13` | `swingtrader/services/mtf/.env` | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` |
-| 4 | **MTF-ETFs** (emasma ETF leg) | `#PA3U8GZ96PEN` | `swingtrader/services/mtf/.env` (SAME file as #3) | `ALPACA_ETF_API_KEY`, `ALPACA_ETF_SECRET_KEY` |
+| 3 | **S1 stocks** (formerly MTF/CMO stocks; `cmo_live.py` → `s1_live.py --mode stock`) | `#PA368CPXNS13` | `swingtrader/services/mtf/.env` | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` |
+| 4 | **S1 ETFs** (formerly emasma ETF leg; `executor_retry.py` → `s1_live.py --mode etf`) | `#PA3U8GZ96PEN` | `swingtrader/services/mtf/.env` (SAME file as #3) | `ALPACA_ETF_API_KEY`, `ALPACA_ETF_SECRET_KEY` |
 
 ## The critical gotcha (broke ETF bars 2026-09-14→15)
 
@@ -48,13 +48,13 @@ def acct(env_path, key, sec):
     return r.json().get('account_number', r.status_code)
 print('CoreEW     (swingtrader/backend/.env   ALPACA)      ->', acct('swingtrader/backend/.env','ALPACA_API_KEY','ALPACA_SECRET_KEY'))
 print('Scanner    (scanner/backend/.env       ALPACA)      ->', acct('scanner/backend/.env','ALPACA_API_KEY','ALPACA_SECRET_KEY'))
-print('MTF stock  (mtf/.env                   ALPACA)      ->', acct('swingtrader/services/mtf/.env','ALPACA_API_KEY','ALPACA_SECRET_KEY'))
-print('MTF ETF    (mtf/.env                   ALPACA_ETF)  ->', acct('swingtrader/services/mtf/.env','ALPACA_ETF_API_KEY','ALPACA_ETF_SECRET_KEY'))
+print('S1 stock   (mtf/.env                   ALPACA)      ->', acct('swingtrader/services/mtf/.env','ALPACA_API_KEY','ALPACA_SECRET_KEY'))
+print('S1 ETF     (mtf/.env                   ALPACA_ETF)  ->', acct('swingtrader/services/mtf/.env','ALPACA_ETF_API_KEY','ALPACA_ETF_SECRET_KEY'))
 PY
 ```
 
-Expected: `CoreEW == Scanner == #PA3GKZYLVO68`, `MTF stock == #PA368CPXNS13`,
-`MTF ETF == #PA3U8GZ96PEN`. A 401 anywhere = that key still not applied/rotated.
+Expected: `CoreEW == Scanner == #PA3GKZYLVO68`, `S1 stock == #PA368CPXNS13`,
+`S1 ETF == #PA3U8GZ96PEN`. A 401 anywhere = that key still not applied/rotated.
 
 ## Who loads which file (wiring, so future edits stay honest)
 

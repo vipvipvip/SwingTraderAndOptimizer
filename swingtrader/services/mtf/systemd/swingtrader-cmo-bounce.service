@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily CMO Bounce40 Stock Executor (paper #PA368CPXNS13)
+Description=S1 Stock Daily Executor (paper #PA368CPXNS13; 10:25 timer entrypoint)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network-online.target swingtrader-db.service swingtrader-scanner-backfill.service
 Wants=network-online.target swingtrader-db.service

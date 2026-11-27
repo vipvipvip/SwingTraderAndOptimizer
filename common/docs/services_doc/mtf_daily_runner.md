@@ -1,9 +1,10 @@
 # MTF Top-N Daily Runner — emasma Rotation Strategy
 
-> **Status 2026-11-18:** the MTF-stock leg on `#PA368CPXNS13` is **retired** and replaced by
-> `cmo_live.py` / `swingtrader-cmo-bounce.timer` (see `../CMO_STRATEGY.md` §5k). The executor
-> now passes `--mode etf`; stock-specific sections below are historical/rollback reference.
-> The evening scorer was also reinstalled as ETF-only on 2026-11-18.
+> **Status 2026-11-20:** the whole emasma MTF path is **retired** by owner-directed S1 full
+> replace. `swingtrader-mtf-executor.timer` still calls `executor_retry.py --mode etf`, but that
+> entrypoint now dispatches to `s1_live.py --mode etf`; `swingtrader-mtf-scorer.timer` still calls
+> `runner.py --action score --mode etf --strategy emasma`, which now calls
+> `s1_live._recap('etf')` and exits. Everything below is historical/rollback reference.
 
 ## Overview
 

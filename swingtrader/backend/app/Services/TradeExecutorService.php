@@ -1269,6 +1269,230 @@ class TradeExecutorService
         return $this->legEmaTrail($span, $symbols);
     }
 
+    public function legEmaStagedTrail(?array $symbols = null, string $profile = 'ema'): array
+    {
+        $symbols = $symbols ?? Ticker::whereEnabled(1)
+            ->whereIn('symbol', ['QQQ', 'VTI', 'VTV'])
+            ->pluck('symbol')
+            ->values()
+            ->toArray();
+        $symbols = array_values(array_intersect($symbols, ['QQQ', 'VTI', 'VTV']));
+        return $this->replayLegEmaStagedSeries($symbols, $profile);
+    }
+
+    private function replayLegEmaStagedSeries(array $symbols, string $profile): array
+    {
+        $spans = [5, 10, 20];
+        $empty = ['error' => 'no data', 'profile' => $profile, 'spans' => $spans,
+                  'symbols' => $symbols, 'state' => [], 'last_week' => null, 'series' => null];
+        if (!in_array($profile, ['ema', 'close-ema5', 'close-ema20'], true)) {
+            $empty['error'] = "unknown staged profile $profile";
+            return $empty;
+        }
+        if (count($symbols) === 0) {
+            $empty['error'] = 'no symbols';
+            return $empty;
+        }
+        $weekly = [];
+        $datesRef = null;
+        foreach ($symbols as $sym) {
+            try {
+                $rows = \DB::table('tbl_prices_weekly as d')
+                    ->join('tbl_stock_tickers as t', 'd.ticker_id', '=', 't.id')
+                    ->where('t.symbol', $sym)
+                    ->where('t.is_etf', true)
+                    ->whereRaw('(d.date::date + 7) <= CURRENT_DATE')
+                    ->orderBy('d.date')
+                    ->get(['d.date', 'd.close']);
+            } catch (\Exception $e) {
+                $empty['error'] = "load failed for $sym: " . $e->getMessage();
+                return $empty;
+            }
+            if (count($rows) === 0) {
+                $empty['error'] = "no settled weekly bars for $sym";
+                return $empty;
+            }
+            $map = [];
+            foreach ($rows as $r) {
+                $map[substr($r->date, 0, 10)] = floatval($r->close);
+            }
+            $weekly[$sym] = $map;
+            $datesRef = $datesRef === null ? array_keys($map) : $datesRef;
+        }
+        $dates = array_values(array_filter($datesRef, function ($d) use ($weekly) {
+            foreach ($weekly as $map) {
+                if (!isset($map[$d])) {
+                    return false;
+                }
+            }
+            return true;
+        }));
+        $bars = count($dates);
+        if ($bars < 21) {
+            $empty['error'] = "only $bars aligned settled weeks (need > span 20)";
+            return $empty;
+        }
+        $emas = [];
+        foreach ($spans as $span) {
+            $alpha = 2.0 / ($span + 1.0);
+            foreach ($symbols as $sym) {
+                $c = [];
+                foreach ($dates as $d) {
+                    $c[] = $weekly[$sym][$d];
+                }
+                $ema = [$c[0]];
+                for ($i = 1; $i < $bars; $i++) {
+                    $ema[] = $alpha * $c[$i] + (1.0 - $alpha) * $ema[$i - 1];
+                }
+                $emas[$span][$sym] = $ema;
+            }
+        }
+        $series = [];
+        $lastState = [];
+        foreach ($symbols as $sym) {
+            $pts = [];
+            for ($i = 0; $i < $bars; $i++) {
+                $close = $weekly[$sym][$dates[$i]];
+                $ema5 = $emas[5][$sym][$i];
+                $ema10 = $emas[10][$sym][$i];
+                $ema20 = $emas[20][$sym][$i];
+                if ($close <= $ema20) {
+                    $weight = 0.0;
+                } elseif ($profile === 'ema') {
+                    if ($ema10 > $ema20) {
+                        $weight = 1.0;
+                    } elseif ($ema5 > $ema20) {
+                        $weight = 0.5;
+                    } else {
+                        $weight = 0.0;
+                    }
+                } elseif ($profile === 'close-ema5') {
+                    if ($ema5 > $ema20) {
+                        $weight = 1.0;
+                    } elseif ($close > $ema5) {
+                        $weight = 0.5;
+                    } else {
+                        $weight = 0.0;
+                    }
+                } elseif ($ema5 > $ema20) {
+                    $weight = 1.0;
+                } elseif ($close > $ema20) {
+                    $weight = 0.5;
+                } else {
+                    $weight = 0.0;
+                }
+                $pts[] = [
+                    'week' => $dates[$i],
+                    'close' => round($close, 6),
+                    'ema5' => round($ema5, 6),
+                    'ema10' => round($ema10, 6),
+                    'ema20' => round($ema20, 6),
+                    'weight' => round($weight, 6),
+                    'long' => $weight > 0.0,
+                ];
+            }
+            $series[$sym] = $pts;
+            $lastState[$sym] = (float) $pts[$bars - 1]['weight'];
+        }
+        return [
+            'profile' => $profile,
+            'spans' => $spans,
+            'symbols' => $symbols,
+            'bars' => $bars,
+            'last_week' => $dates[$bars - 1],
+            'state' => $lastState,
+            'warm' => true,
+            'series' => $series,
+        ];
+    }
+
+    public function legEmaAsOfTrail(?array $symbols = null, int $span = 20): array
+    {
+        $symbols = $symbols ?: ['QQQ', 'VTI', 'VTV'];
+        $empty = [
+            'span' => $span,
+            'symbols' => $symbols,
+            'bars' => 0,
+            'last_date' => null,
+            'state' => [],
+            'series' => [],
+        ];
+        $weekly = $this->replayLegEmaSeries($symbols, $span);
+        if (!empty($weekly['error'])) {
+            $empty['error'] = $weekly['error'];
+            return $empty;
+        }
+
+        $closes = [];
+        $datesRef = null;
+        foreach ($symbols as $sym) {
+            try {
+                $rows = \DB::table('tbl_prices_daily as d')
+                    ->join('tbl_stock_tickers as t', 'd.ticker_id', '=', 't.id')
+                    ->where('t.symbol', $sym)
+                    ->where('t.is_etf', true)
+                    ->whereRaw('d.date::date < CURRENT_DATE')
+                    ->orderBy('d.date', 'asc')
+                    ->get(['d.date', 'd.close']);
+            } catch (\Exception $e) {
+                $empty['error'] = "failed to load daily bars for $sym: " . $e->getMessage();
+                return $empty;
+            }
+            if (count($rows) === 0) {
+                $empty['error'] = "no settled daily bars for $sym";
+                return $empty;
+            }
+            $map = [];
+            foreach ($rows as $r) {
+                $map[substr($r->date, 0, 10)] = floatval($r->close);
+            }
+            $closes[$sym] = $map;
+            $datesRef = $datesRef === null ? array_keys($map) : array_values(array_intersect($datesRef, array_keys($map)));
+        }
+        $dates = $datesRef ?: [];
+        if (count($dates) < 2) {
+            $empty['error'] = 'need >= 2 aligned settled daily bars';
+            return $empty;
+        }
+
+        $series = [];
+        $lastState = [];
+        foreach ($symbols as $sym) {
+            $wpts = $weekly['series'][$sym] ?? [];
+            $j = -1;
+            $prevLong = false;
+            $pts = [];
+            foreach ($dates as $d) {
+                while ($j + 1 < count($wpts) && strtotime($wpts[$j + 1]['week'] . ' +7 days') <= strtotime($d)) {
+                    $j++;
+                }
+                $level = $j >= 0 ? (float) $wpts[$j]['ema'] : null;
+                $close = $closes[$sym][$d];
+                $long = $level !== null && $close > $level;
+                $pts[] = [
+                    'date' => $d,
+                    'close' => round($close, 6),
+                    'ema' => $level === null ? null : round($level, 6),
+                    'long' => $long,
+                    'cross_up' => $long && !$prevLong,
+                    'cross_down' => !$long && $prevLong,
+                ];
+                $prevLong = $long;
+            }
+            $series[$sym] = $pts;
+            $lastState[$sym] = (bool) $pts[count($pts) - 1]['long'];
+        }
+
+        return [
+            'span' => $span,
+            'symbols' => $symbols,
+            'bars' => count($dates),
+            'last_date' => $dates[count($dates) - 1],
+            'state' => $lastState,
+            'series' => $series,
+        ];
+    }
+
     /**
      * Live variant P{span}w (per-leg weekly EMA{span} crossover, QQQ/VTI/VTV):
      * each ETF long while its own settled weekly close > its EMA(span), flat to

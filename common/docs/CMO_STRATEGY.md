@@ -1,9 +1,12 @@
 # CMO Daily Strategy — research spec + live wiring
 
-**Status:** research complete 2026-11-16; owner-approved replacement of the **retired MTF stock leg**
-on `#PA368CPXNS13` (2026-11-18). Live code is `swingtrader/services/mtf/cmo_live.py` with a
-separate `swingtrader-cmo-bounce` timer; the ETF `emasma` leg is now `--mode etf`, and CoreEW /
-Daily Signal are unchanged. See §5k for install status, handover and dry-run commands.
+**Status:** research complete 2026-11-16; was live 2026-11-18/19 on `#PA368CPXNS13`.
+**Retired 2026-11-20:** owner-directed S1 full replace. `swingtrader-cmo-bounce.timer` and its
+`cmo_live.py` entrypoint are unchanged, but `cmo_live.py` now dispatches to
+`s1_live.py --mode stock`; `cmo_core.py` / `backtest_cmo.py` / the CMO Bounce40 rules below are
+historical reference only. `cmo_universe.py` remains live as the S1 stock pool source. ETF
+`emasma` was also replaced by S1; CoreEW / Daily Signal are unchanged. See §5k for the retired
+install/handover history.
 
 Source of truth is the code (`swingtrader/services/mtf/cmo_core.py`,
 `backtest_cmo.py`). This doc explains the same logic. Scratch files under

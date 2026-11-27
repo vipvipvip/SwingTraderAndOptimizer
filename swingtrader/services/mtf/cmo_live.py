@@ -588,15 +588,29 @@ def _run(args):
 
 
 def main():
-    p = argparse.ArgumentParser(description='Daily CMO bounce40 stock executor')
+    p = argparse.ArgumentParser(description='S1 stock daily executor (10:25 timer entrypoint)')
     p.add_argument('--dry-run', action='store_true')
     p.add_argument('--no-slack', action='store_true')
-    p.add_argument('--handover', action='store_true',
-                   help='liquidate the existing MTF-stock book and seed fresh state')
-    p.add_argument('--assume-flat', action='store_true',
-                   help='dry-run only: ignore current stock positions')
+    p.add_argument('--handover', action='store_true')
+    p.add_argument('--assume-flat', action='store_true')
+    p.add_argument('--skip-gate', action='store_true')
     p.add_argument('--sig-date', help='override settled signal date (YYYY-MM-DD)')
-    return _run(p.parse_args())
+    args = p.parse_args()
+
+    import s1_live
+
+    argv = ['--mode', 'stock']
+    if args.dry_run:
+        argv.append('--dry-run')
+    if args.no_slack:
+        argv.append('--no-slack')
+    if args.handover:
+        argv.append('--handover')
+    if args.skip_gate:
+        argv.append('--skip-gate')
+    if args.sig_date:
+        argv.extend(['--sig-date', args.sig_date])
+    return s1_live.main(argv)
 
 
 if __name__ == '__main__':

@@ -12,8 +12,9 @@ AGENTS.md and the code over the doc.
   (CoreEW P20w, MTF Top-N stock+ETF legs, Daily Signal) to actually buy or sell, verified
   against the code. The fastest way to answer "why did/didn't this trade."
 - **[SPEC_trigger_levels.md](SPEC_trigger_levels.md)** — the Trigger Levels Slack report (next
-  buy/sell price per ticker for CoreEW P20w + MTF-ETF), live 10:00 / 17:05 ET; answers "what
-  price flips this ticker."
+  buy/sell price per ticker for CoreEW P20w only), live 10:00 / 17:05 ET; answers "what
+  price flips this ticker." MTF-ETF sections removed 2026-11-25; the spec below retains their
+  original design as history.
 - **`AGENTS.md`** (repo root) — architecture, live strategy table, operating rules,
   known invariants. Read this first for anything beyond buy/sell logic.
 

@@ -245,14 +245,15 @@ def weekly_state_daily_reentry(daily_dates, d_close, w_dates, w_close, w_atr, wp
 
 
 def run_sim(daily_dates, closes, passers, reb, cost, entry_daily=False,
-            fill_signal_close=False):
+            fill_signal_close=False, weights=None):
     """Daily sim. passers[i] = symbols long that day (signal i, filled i+1);
     reb[i] = rebalance back to equal weight among passers on that signal day.
     entry_daily: buy a newly-signalled passer the day after the signal (mid-week
     re-entries), independent of the weekly rebalance cadence.
     fill_signal_close: fill at the signal day's OWN close instead of the next
     day's close — matches the live gate, which decides Monday from the settled
-    Friday bar and trades at Monday's price."""
+    Friday bar and trades at Monday's price. weights[s][i] scales that leg's
+    equal-weight slot by a fraction (None keeps the binary path bit-identical)."""
     positions = {}
     cash = CAPITAL
     eq = []
@@ -266,29 +267,33 @@ def run_sim(daily_dates, closes, passers, reb, cost, entry_daily=False,
             exec_date = daily_dates[i + 1]
             px = {s: closes[s][i + 1] for s in closes}
         sig_pass = {s for s in passers if passers[s][i]}
+        sig_active = (sig_pass if weights is None
+                      else {s for s in sig_pass if weights[s][i] > 0})
 
         for sym in list(positions):
-            if sym not in sig_pass:
+            if sym not in sig_active:
                 cash += positions[sym] * px[sym] * (1 - cost)
                 sells += 1
                 del positions[sym]
 
-        if entry_daily and sig_pass:
-            total_now = cash + sum(positions.get(s, 0.0) * px[s] for s in sig_pass)
-            per = total_now / len(sig_pass)
-            for sym in sig_pass:
-                if sym not in positions and per > 0:
-                    sh = per / px[sym] * (1 - cost)
+        if entry_daily and sig_active:
+            total_now = cash + sum(positions.get(s, 0.0) * px[s] for s in sig_active)
+            per = total_now / len(sig_active)
+            for sym in sig_active:
+                target = per if weights is None else per * weights[sym][i]
+                if sym not in positions and target > 0:
+                    sh = target / px[sym] * (1 - cost)
                     cash -= sh * px[sym]
                     positions[sym] = sh
                     buys += 1
 
-        if reb[i] and sig_pass:
-            total = cash + sum(positions.get(s, 0.0) * px[s] for s in sig_pass)
-            per = total / len(sig_pass)
-            for sym in sig_pass:
+        if reb[i] and sig_active:
+            total = cash + sum(positions.get(s, 0.0) * px[s] for s in sig_active)
+            per = total / len(sig_active)
+            for sym in sig_active:
+                target = per if weights is None else per * weights[sym][i]
                 held_val = positions.get(sym, 0.0) * px[sym]
-                diff = per - held_val
+                diff = target - held_val
                 if diff > 0:
                     sh = diff / px[sym] * (1 - cost)
                     cash -= sh * px[sym]
@@ -509,6 +514,87 @@ def flags_from_live_leg_ema_series(daily_dates, payload):
         if len(f) != len(daily_dates):
             raise SystemExit(f'P{payload["span"]}w leg flags length mismatch for {sym}')
         flags[sym] = f
+    return flags
+
+
+def fetch_live_leg_ema_staged_series(symbols, profile='ema'):
+    backend = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
+    cmd = ['php', '-d', 'xdebug.mode=off', '-d', 'display_errors=0',
+           'artisan', 'trades:coreew-leg-ema-staged-series',
+           f'--profile={profile}', '--symbols=' + ','.join(symbols)]
+    proc = subprocess.run(cmd, cwd=backend, capture_output=True, text=True, timeout=300)
+    payload = None
+    for line in reversed(proc.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith('{'):
+            try:
+                payload = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+    if payload is None:
+        raise RuntimeError(
+            f'could not parse staged leg-EMA series from `{" ".join(cmd)}`\n'
+            f'stdout: {proc.stdout[-2000:]}\nstderr: {proc.stderr[-2000:]}')
+    if payload.get('error') or not payload.get('series'):
+        raise RuntimeError(
+            f'staged leg-EMA series failed: {payload.get("error") or payload}\n'
+            f'cmd: `{" ".join(cmd)}`')
+    return payload
+
+
+def weights_from_live_leg_ema_staged_series(daily_dates, payload):
+    flags = {}
+    weights = {}
+    for sym in payload['symbols']:
+        pts = payload['series'][sym]
+        wdates = [date.fromisoformat(p['week']) for p in pts]
+        pos = settled_weekly_ref(daily_dates, wdates)
+        w = np.array([float(pts[j]['weight']) if j >= 0 else 0.0 for j in pos])
+        if len(w) != len(daily_dates):
+            raise SystemExit(f'P5/10w staged leg weights length mismatch for {sym}')
+        flags[sym] = w > 0
+        weights[sym] = w
+    return flags, weights
+
+
+def fetch_live_leg_ema_asof_series(symbols, span=20):
+    backend = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
+    cmd = ['php', '-d', 'xdebug.mode=off', '-d', 'display_errors=0',
+           'artisan', 'trades:coreew-leg-ema-asof-series',
+           f'--span={span}', '--symbols=' + ','.join(symbols)]
+    proc = subprocess.run(cmd, cwd=backend, capture_output=True, text=True, timeout=300)
+    payload = None
+    for line in reversed(proc.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith('{'):
+            try:
+                payload = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+    if payload is None:
+        raise RuntimeError(
+            f'could not parse as-of leg-EMA series from `{" ".join(cmd)}`\n'
+            f'stdout: {proc.stdout[-2000:]}\nstderr: {proc.stderr[-2000:]}')
+    if payload.get('error') or not payload.get('series'):
+        raise RuntimeError(
+            f'as-of leg-EMA series failed: {payload.get("error") or payload}\n'
+            f'cmd: `{" ".join(cmd)}`')
+    return payload
+
+
+def flags_from_live_leg_ema_asof_series(daily_dates, payload):
+    flags = {}
+    for sym in payload['symbols']:
+        pts = payload['series'][sym]
+        idx = {date.fromisoformat(p['date']): p for p in pts}
+        missing = [d for d in daily_dates if d not in idx]
+        if missing:
+            raise SystemExit(
+                f'P{payload["span"]}d-asof leg flags missing {len(missing)} daily dates '
+                f'for {sym}: {missing[:3]}')
+        flags[sym] = np.array([bool(idx[d]['long']) for d in daily_dates])
     return flags
 
 
@@ -1123,6 +1209,16 @@ def main():
                          'on each ETF\'s OWN settled closes (e.g. 10), run on BOTH daily '
                          'closes and settled weekly closes. Off legs idle in cash; the ON '
                          'legs re-trim to equal weight weekly exactly like A.')
+    ap.add_argument('--leg-ema-staged', action='store_true',
+                    help='research-only staged per-leg weekly EMA weights; decided by PHP')
+    ap.add_argument('--leg-ema-staged-profile', default='ema',
+                    choices=['ema', 'close-ema5', 'close-ema20'],
+                    help='staged profile: ema = half on EMA5>EMA20 and full on EMA10>EMA20; '
+                         'close-ema5 = half on close>EMA5 and full on EMA5>EMA20; '
+                         'close-ema20 = half on close>EMA20 and full on EMA5>EMA20')
+    ap.add_argument('--leg-ema-asof', type=int, default=0, metavar='SPAN',
+                    help='research-only P{SPAN}d-asof: settle daily close vs the last settled '
+                         'weekly EMA{SPAN}, fill next session; PHP decides the flags')
     ap.add_argument('--sma-gate', type=int, default=0, metavar='N',
                     help='variant M: one index-level N-day SMA gate for the whole trio '
                          '(e.g. 200); decide on a settled close, fill next-day close')
@@ -1299,6 +1395,22 @@ def main():
                 eqPw, dPw, bPw, sPw = run_sim(daily_dates, closes, fW, reb, COST)
                 legP[n_leg] = ((eqP, dP, bP, sP, fD), (eqPw, dPw, bPw, sPw, fW))
 
+        stagedP = None
+        if args.leg_ema_staged:
+            stagedSeries = fetch_live_leg_ema_staged_series(
+                tickers, args.leg_ema_staged_profile)
+            fSt, wSt = weights_from_live_leg_ema_staged_series(daily_dates, stagedSeries)
+            eqSt, dSt, bSt, sSt = run_sim(daily_dates, closes, fSt, reb, COST, weights=wSt)
+            stagedP = (eqSt, dSt, bSt, sSt, fSt, wSt)
+
+        asofP = None
+        if args.leg_ema_asof:
+            asofSeries = fetch_live_leg_ema_asof_series(tickers, args.leg_ema_asof)
+            fAO = flags_from_live_leg_ema_asof_series(daily_dates, asofSeries)
+            eqAO, dAO, bAO, sAO = run_sim(daily_dates, closes, fAO, reb, COST,
+                                          entry_daily=True)
+            asofP = (eqAO, dAO, bAO, sAO, fAO, args.leg_ema_asof)
+
         # M: index-level SMA gate (additive; only with --sma-gate N). Same
         # settled-sim fill rule as S, but the flags come from ONE market signal.
         eqM = dM = bM = sM = flagsM = None
@@ -1439,6 +1551,53 @@ def main():
                 print(f'  A/B:   A {dA_ret*100:+.2f}% vs daily {dP_ret*100:+.2f}% '
                       f'({(dP_ret-dA_ret)*100:+.2f} pts) vs weekly {dPw_ret*100:+.2f}% '
                       f'({(dPw_ret-dA_ret)*100:+.2f} pts)')
+
+        if stagedP is not None:
+            eqSt, dSt, bSt, sSt, fSt, wSt = stagedP
+            tag = args.leg_ema_staged_profile
+            print()
+            stats(eqSt, dSt, f'PSTG[{tag}]. staged weekly EMA per-leg weights')
+            wchg = {s: int(np.sum(wSt[s][1:] != wSt[s][:-1])) for s in tickers}
+            print(f'  PSTG[{tag}]: {bSt} buys / {sSt} sells | per-leg weight changes '
+                  f'{", ".join(f"{s}={wchg[s]}" for s in tickers)} | '
+                  f'avg {100*np.mean([wSt[s].mean() for s in tickers]):.0f}% of full slot')
+            dA_ret = (eqA[-1] - CAPITAL) / CAPITAL
+            dSt_ret = (eqSt[-1] - CAPITAL) / CAPITAL
+            if 20 in legP:
+                eqPw = legP[20][1][0]
+                dPw_ret = (eqPw[-1] - CAPITAL) / CAPITAL
+                print(f'  A/B:   A {dA_ret*100:+.2f}% vs P20w {dPw_ret*100:+.2f}% '
+                      f'({(dPw_ret-dA_ret)*100:+.2f} pts) vs {tag} {dSt_ret*100:+.2f}% '
+                      f'({(dSt_ret-dA_ret)*100:+.2f} pts)')
+            else:
+                print(f'  A/B:   A {dA_ret*100:+.2f}% vs {tag} {dSt_ret*100:+.2f}% '
+                      f'({(dSt_ret-dA_ret)*100:+.2f} pts); run --leg-ema 20 for P20w baseline')
+
+        if asofP is not None:
+            eqAO, dAO, bAO, sAO, fAO, nAO = asofP
+            print()
+            stats(eqAO, dAO, f'P{nAO}d-asof. daily close vs last settled EMA{nAO}')
+            flipsAO = {s: int(np.sum(fAO[s][1:] != fAO[s][:-1])) for s in tickers}
+            print(f'  P{nAO}d-asof: {bAO} buys / {sAO} sells | per-leg flips '
+                  f'{", ".join(f"{s}={flipsAO[s]}" for s in tickers)} | '
+                  f'avg {100*np.mean([fAO[s].mean() for s in tickers]):.0f}% invested')
+            dA_ret = (eqA[-1] - CAPITAL) / CAPITAL
+            dAO_ret = (eqAO[-1] - CAPITAL) / CAPITAL
+            refs = []
+            if 20 in legP:
+                eqPw = legP[20][1][0]
+                refs.append(('P20w', (eqPw[-1] - CAPITAL) / CAPITAL))
+            if 10 in legP:
+                eqPw10 = legP[10][1][0]
+                refs.append(('P10w', (eqPw10[-1] - CAPITAL) / CAPITAL))
+            if refs:
+                tail = ' | '.join(
+                    f'{name} {val*100:+.2f}% ({(val-dAO_ret)*100:+.2f} pts vs asof)'
+                    for name, val in refs)
+                print(f'  A/B:   A {dA_ret*100:+.2f}% vs asof {dAO_ret*100:+.2f}% | {tail}')
+            else:
+                print(f'  A/B:   A {dA_ret*100:+.2f}% vs asof {dAO_ret*100:+.2f}% '
+                      f'({(dAO_ret-dA_ret)*100:+.2f} pts); run --leg-ema 10,20 for baselines')
 
         if eqM is not None:
             stats(eqM, dM, f'M. index SMA{args.sma_gate} +/-{args.sma_band:g}% gate')

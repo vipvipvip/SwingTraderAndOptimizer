@@ -19,6 +19,7 @@ from config import API_KEY, SECRET_KEY, get_db_conn
 
 ALPACA_TRADE_BASE = 'https://paper-api.alpaca.markets'
 
+EXCLUDED_SYMBOLS = {'BKH'}
 
 UNWANTED_FUND_PATTERNS = [
     # Leveraged / inverse products
@@ -130,6 +131,8 @@ def main():
     qualified = []
     etf_skipped = 0
     for sym, price in prices.items():
+        if sym in EXCLUDED_SYMBOLS:
+            continue
         if price < args.min_price:
             continue
         asset = asset_map.get(sym, {})

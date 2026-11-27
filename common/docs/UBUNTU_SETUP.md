@@ -283,11 +283,12 @@ sudo systemctl enable --now <unit>.timer
 | `swingtrader-prices-load` | `mtf/systemd/` | Mon–Fri 09:05 | canonical `tbl_prices_*` load + ATR |
 | `swingtrader-scanner-update` | `scanner/systemd/` | Mon–Fri 09:00 | pre-close legacy bar populate |
 | `swingtrader-legema` | `mtf/systemd/` | Mon–Fri 10:05 | **CoreEW P20w — places orders** |
-| `swingtrader-mtf-executor` | `mtf/systemd/` | Mon–Fri 10:25 | **MTF Top-N — scores and places orders** |
+| `swingtrader-cmo-bounce` | `mtf/systemd/` | Mon–Fri 10:25 | **S1 stocks — daily-entry / settled-weekly-exit; places orders** (same unit/entrypoint, `cmo_live.py` → `s1_live.py` since 2026-11-20) |
+| `swingtrader-mtf-executor` | `mtf/systemd/` | Mon–Fri 10:25 | **S1 ETF — daily-entry / settled-weekly-exit; places orders** (same unit/entrypoint, `executor_retry.py` → `s1_live.py` since 2026-11-20) |
 | `swingtrader-scanner-backfill` | `scanner/systemd/` | Mon–Fri 16:30 | post-close settle of the 16:00 close |
 | `swingtrader-backup` | `swingtrader/systemd/` | daily 16:15 | PostgreSQL backup |
 | `swingtrader-earnings-screener` | `scanner/systemd/` | Mon–Fri every 30 min, 09:30–15:30 | earnings-crossover scan → Slack |
-| `swingtrader-mtf-scorer` | `mtf/systemd/` | Mon–Fri 16:45 | MTF evening recap → Slack, no orders |
+| `swingtrader-mtf-scorer` | `mtf/systemd/` | Mon–Fri 16:45 | S1 ETF evening recap → Slack, no orders (`runner.py` → `s1_live._recap()` since 2026-11-20) |
 | `swingtrader-daily-signal` | `ema_sma_crossover/systemd/` | Mon–Fri 17:00 | Daily Signal → Slack, no orders |
 | `swingtrader-weekly-takeoff` | `weekly_takeoff/systemd/` | Fri 17:15 | take-off scan → Slack, no orders |
 

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import backtest_trio_ew
 import coreew_gate
 import executor
 import runner
@@ -80,6 +81,50 @@ class TestDescribe(unittest.TestCase):
                                   '2026-10-26')
         self.assertIn('INVESTED', on)
         self.assertIn('1/3', on)
+
+
+class TestStagedWeights(unittest.TestCase):
+    def test_weights_align_to_settled_weeks(self):
+        payload = {
+            'symbols': ['QQQ'],
+            'series': {
+                'QQQ': [
+                    {'week': '2026-11-09', 'weight': 0.5},
+                    {'week': '2026-11-16', 'weight': 1.0},
+                ],
+            },
+        }
+        days = [date(2026, 11, 13), date(2026, 11, 16), date(2026, 11, 23)]
+        flags, weights = backtest_trio_ew.weights_from_live_leg_ema_staged_series(days, payload)
+        self.assertEqual(list(weights['QQQ']), [0.0, 0.5, 1.0])
+        self.assertEqual(list(flags['QQQ']), [False, True, True])
+
+
+class TestAsOfFlags(unittest.TestCase):
+    def test_daily_flags_use_exact_settled_date(self):
+        payload = {
+            'span': 20,
+            'symbols': ['QQQ'],
+            'series': {
+                'QQQ': [
+                    {'date': '2026-11-20', 'long': False},
+                    {'date': '2026-11-23', 'long': True},
+                ],
+            },
+        }
+        days = [date(2026, 11, 20), date(2026, 11, 23)]
+        flags = backtest_trio_ew.flags_from_live_leg_ema_asof_series(days, payload)
+        self.assertEqual(list(flags['QQQ']), [False, True])
+
+    def test_missing_settled_date_raises(self):
+        payload = {
+            'span': 20,
+            'symbols': ['QQQ'],
+            'series': {'QQQ': [{'date': '2026-11-20', 'long': False}]},
+        }
+        with self.assertRaises(SystemExit):
+            backtest_trio_ew.flags_from_live_leg_ema_asof_series(
+                [date(2026, 11, 23)], payload)
 
 
 class _FakeConn:

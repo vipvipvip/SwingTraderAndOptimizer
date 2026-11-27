@@ -57,6 +57,8 @@ COVERAGE_TRADE_FLOOR = 0.99
 FRESH_PENDING_MAX_AGE_HOURS = 6
 
 MODE_LABEL = {'stock': 'stocks', 'etf': 'ETFs', 'all': 'stocks+ETFs', 'gate': 'P20w'}
+REGIME_WEEKLY_LOOKBACK = 8
+REGIME_DAILY_LOOKBACK = 20
 CSV_SUFFIX = {'stock': '_stock', 'etf': '_etf'}
 # ETF leg runs the weekly EMA10>SMA40 rotation (EMASMA), not Multi-TF.
 # Stock-leg --strategy emasma also uses the same weekly EMA/SMA rotation
@@ -1125,19 +1127,48 @@ def _settled_slice(data, cutoff):
     return {k: [data[k][i] for i in idx] for k in ('dates', 'close', 'ema', 'sma')}
 
 
-def _regime_block(ticker_data, sym_order, label, date_header, wrap=True, since=None,
+def _last_flip_index(ticker_data, sym_order, all_dates):
+    flip_indices = []
+    for sym in sym_order:
+        series = ticker_data.get(sym)
+        if not series:
+            continue
+        states = {}
+        for d, ema, sma in zip(series['dates'], series['ema'], series['sma']):
+            if ema is None or sma is None or ema != ema or sma != sma:
+                continue
+            states[d] = 'BULL' if ema > sma else 'BEAR'
+        prev = None
+        last = None
+        for i, d in enumerate(all_dates):
+            state = states.get(d)
+            if state is None:
+                continue
+            if prev is not None and state != prev:
+                last = i
+            prev = state
+        if last is not None:
+            flip_indices.append(last)
+    return min(flip_indices) if flip_indices else None
+
+
+def _regime_block(ticker_data, sym_order, label, date_header, wrap=True, lookback=4,
                   show_agree=True):
     """Render one regime table: BULL/bear + settled price per symbol.
 
-    Defaults to the last 4 bars; `since` keeps every bar from that date onward.
-    `show_agree` adds the Agree column and risk-on/off hint (market gates only)."""
+    Anchors on the earliest of each symbol's latest BULL<->BEAR flip so every
+    symbol's switch is visible, with at least `lookback` bars. `show_agree`
+    adds Agree and the risk-on/off hint."""
     all_dates = sorted(set().union(*[set(w['dates']) for w in ticker_data.values()])) if ticker_data else []
     if not all_dates:
         return [f'  No {label.lower()} regime data']
     last_date = all_dates[-1]
-    rows = [d for d in all_dates if d >= since] if since is not None else all_dates[-4:]
-    if not rows:
-        rows = all_dates[-4:]
+    rows = all_dates
+    flip_i = _last_flip_index(ticker_data, sym_order, all_dates)
+    if flip_i is not None:
+        rows = all_dates[max(0, flip_i - 1):]
+    if len(rows) < lookback:
+        rows = all_dates[-lookback:]
 
     lines = [f'*{label} Regime — {last_date}*', '```'] if wrap else []
     hdr = (f'{date_header:<12}' + ''.join(f'{sym:<16}' for sym in sym_order)
@@ -1228,10 +1259,11 @@ def _run_market_regime(conn, now, today):
     if not weekly_data and not daily_data:
         return ['  No market gate ETFs found']
 
-    weekly_last = _last_regime_date(weekly_data)
-    lines = _regime_block(weekly_data, sym_order, 'Weekly', 'Week')
+    lines = _regime_block(weekly_data, sym_order, 'Weekly', 'Week',
+                          lookback=REGIME_WEEKLY_LOOKBACK)
     lines.append('')
-    lines += _regime_block(daily_data, sym_order, 'Daily', 'Date', since=weekly_last)
+    lines += _regime_block(daily_data, sym_order, 'Daily', 'Date',
+                           lookback=REGIME_DAILY_LOOKBACK)
     return lines
 
 
@@ -1248,11 +1280,11 @@ def _run_custom_regime(conn, now, today, symbols):
     lines = [f'*Custom Regime — {last_date}*', '```']
     lines.append('Weekly:')
     lines += _regime_block(weekly_data, sym_order, 'Weekly', 'Week', wrap=False,
-                           show_agree=False)
+                           lookback=REGIME_WEEKLY_LOOKBACK, show_agree=False)
     lines.append('')
     lines.append('Daily:')
     lines += _regime_block(daily_data, sym_order, 'Daily', 'Date', wrap=False,
-                           since=_last_regime_date(weekly_data), show_agree=False)
+                           lookback=REGIME_DAILY_LOOKBACK, show_agree=False)
     missing = [sym for sym in sym_order if sym not in found]
     if missing:
         lines += ['', 'No data: ' + ', '.join(missing)]
@@ -1479,6 +1511,9 @@ if __name__ == '__main__':
     parser.add_argument('--live', action='store_true',
                         help='Deprecated: use --action execute instead')
     args = parser.parse_args()
+    if args.action == 'score' and args.mode == 'etf' and args.strategy == 'emasma':
+        import s1_live
+        sys.exit(0 if s1_live._recap('etf', send_slack=not args.no_slack) else 1)
     live = args.live or args.action == 'execute'
     if args.action == 'custom-regime':
         tickers = ([t.strip() for t in args.tickers.split(',') if t.strip()]

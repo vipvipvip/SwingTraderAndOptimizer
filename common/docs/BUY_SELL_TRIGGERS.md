@@ -1,12 +1,12 @@
 # Buy/Sell Triggers — Current Live Strategies
 
-**As of:** 2026-11-19 (MTF-stock emasma retired 2026-11-18; daily **CMO Bounce40** live on
-`#PA368CPXNS13`; CoreEW **P20w** live since 2026-09-28, replacing CoreEG100). Source of truth is
-always `AGENTS.md` (repo root) + the code cited below — this doc is a readable explanation of
-the same logic, not a separate spec. If it ever disagrees with AGENTS.md or the code, the
-code wins.
+**As of:** 2026-11-20 (S1 full replace LIVE on both paper legs; MTF emasma ETF and
+MTF-stock/CMO Bounce40 retired; CoreEW **P20w** live since 2026-09-28, replacing CoreEG100).
+Source of truth is always `AGENTS.md` (repo root) + the code cited below — this doc is a
+readable explanation of the same logic, not a separate spec. If it ever disagrees with AGENTS.md
+or the code, the code wins.
 
-Four strategies are live. Three place real orders (CoreEW + CMO Bounce40 + MTF ETF) across
+Four strategies are live. Three place real orders (CoreEW + S1 stocks + S1 ETFs) across
 **three** Alpaca paper accounts; the fourth (Daily Signal) is Slack-only. "Decision cadence" is
 how often each **acts**; all three order-placing rows rebalance at **equal weight,
 trim-before-top-up** on every run.
@@ -14,8 +14,8 @@ trim-before-top-up** on every run.
 | Strategy | Decision cadence | Places orders? | Buy trigger | Sell trigger |
 |---|---|---|---|---|
 | **CoreEW P20w** ("LegEMA") | Once/week — Mon–Fri 10:05 ET timer, acts on a **new settled week** only (midweek runs are a DB-claimed NO-OP) | ✅ Yes (Alpaca `#PA3GKZYLVO68`) | A leg's own settled **weekly** close is **above** its own EMA(20) → held LONG. The ON legs are equal-weighted to `equity ÷ #ON`; underweight ON legs are topped up | That leg's weekly close crosses **below** its EMA(20) → sold to cash; plus the weekly **equal-weight rebalance** of the ON legs (over-weights trimmed). Trim-before-top-up; all three OFF → whole book cash |
-| **Daily CMO Bounce40 — stocks** | Once/day, 10:25 ET — last settled **daily** bar; weekly P20w `majority` gate | ✅ Yes (Alpaca `#PA368CPXNS13`) | `CMO(20)` crosses up through **−40** on the settled daily bar, P20w has ≥2/3 of QQQ/VTI/VTV above their weekly EMA20, and `EMA10 ≥ 0.99×Bollinger(20) EMA mid`. All qualifiers are equal-weighted; in-play holdings below target are topped up | `CMO` crosses up through **+30**, or `CMO < −60`; 15% HWM stop on the last settled bar of the week (5-session cooldown); P20w OFF → whole-book liquidation; EW trims on every run |
-| **MTF Top-N — ETF leg** | Once/day, 10:25 ET — weekly signal, daily execution | ✅ Yes (Alpaca `#PA3U8GZ96PEN`) | Enters the top-**3** by settled-weekly score (weekly EMA10 > SMA40), or EW top-up; freed slots backfilled from rank 4+ | Held ETF still scored today drops out of the top-3, or rebalance trim; 25% profit sweep + 20% weekly-close HWM stop; no ATR ratchet |
+| **S1 — stocks** | Once/day, 10:25 ET — last settled **daily** entry; settled weekly risk exit | ✅ Yes (Alpaca `#PA368CPXNS13`) | Daily EMA(10) crosses up EMA(20) on the last settled daily bar → symbol joins the active target set. All active names are equal-weighted; new/underweight names bought after sells | Settled weekly EMA(10) crosses down EMA(20) → full inactive/exit; names outside the active set are sold first; >20%/$500 overweight trims on every run |
+| **S1 — ETFs** | Once/day, 10:25 ET — last settled **daily** entry; settled weekly risk exit | ✅ Yes (Alpaca `#PA3U8GZ96PEN`) | Same S1 rules over all 28 enabled ETFs; one-time handover completed 2026-11-20→11-24, now explicit `--handover` only | Same S1 weekly cross-down exit plus outside-target sells and overweight trims |
 | **Daily Signal** | Once/day, 17:00 ET | ❌ No — Slack alert only | **Both** of weekly + daily EMA(10)>SMA(40) crosses are done (see §3) | N/A — never holds a position |
 
 ---
@@ -102,64 +102,57 @@ retired driver, not the live one.**
 
 ---
 
-## 2. Daily CMO Bounce40 stocks and MTF Top-N ETFs
+## 2. S1 stocks and S1 ETFs
 
-> **Status 2026-11-19:** MTF-stock emasma was retired on 2026-11-18. Stock paper account
-> `#PA368CPXNS13` now runs daily CMO Bounce40 via `cmo_live.py` /
-> `swingtrader-cmo-bounce.timer`. The old stock book was liquidated manually after close on
-> 2026-11-18, and the first clean 10:25 CMO run on 2026-11-19 started flat with
-> `0 sells, 0 buys`. The ETF emasma leg is unchanged and ETF-only.
+> **Status 2026-11-20:** owner-directed full replace. The existing 10:25 ET systemd units and
+> their entrypoint paths are unchanged; the scripts those units call now dispatch to
+> `s1_live.py`. MTF emasma ETF and MTF-stock/CMO Bounce40 are retired. No installed systemd
+> units were changed and no live orders were placed during the code cutover.
 
-**Code:** `swingtrader/services/mtf/{cmo_live.py,cmo_core.py,cmo_universe.py}` for the daily
-stock leg, and `swingtrader/services/mtf/{runner.py,executor.py,config.py}` for the weekly-signal
-ETF leg. Two 10:25 ET timers place orders: `swingtrader-cmo-bounce.timer` and
-`swingtrader-mtf-executor.timer` (the latter passes `--mode etf`). No live unit passes
-`--mode stock` / `--mode all`, so no stock `mtf_pending` row is consumed. Full detail, Slack
-formats, and backtest honesty caveats live in [CMO_STRATEGY.md](CMO_STRATEGY.md) §5k and
-[services_doc/mtf_daily_runner.md](services_doc/mtf_daily_runner.md).
+**Code:** `swingtrader/services/mtf/s1_live.py` is the live runner for both legs;
+`cmo_universe.py` supplies the dynamic stock pool; `executor.py` supplies Alpaca fill/key
+helpers; `backtest_s1_single.py` / `backtest_s1_portfolio.py` are the A/B research scripts.
+Two 10:25 ET timers place orders: `swingtrader-cmo-bounce.timer` (stock entrypoint
+`cmo_live.py` → `s1_live.py --mode stock`) and `swingtrader-mtf-executor.timer` (ETF entrypoint
+`executor_retry.py --mode etf` → `s1_live.py --mode etf`). The 16:45
+`swingtrader-mtf-scorer.timer` still calls `runner.py`, which now calls
+`s1_live._recap('etf')` and exits without orders.
 
-**ETF scoring (settled weekly bar only):** `min(gap_w / 5, 5)`, where `gap_w` is how far the
-weekly close sits above its weekly SMA(40). Long-eligible only while weekly EMA(10) > SMA(40);
-flat otherwise. Ties broken deterministically by `(-score, -gap_w)`. This score is used only
-by the ETF leg; the stock leg no longer consumes it.
+**S1 signal (settled bars only):**
 
-### Daily CMO Bounce40 stock paper (account `#PA368CPXNS13`, live 2026-11-18)
+- **Daily entry:** EMA(10) crosses up EMA(20) on the last settled daily bar (`date < today`);
+  the symbol becomes active and stays in the target set until a settled weekly exit.
+- **Weekly exit:** weekly EMA(10) crosses down EMA(20) on a bar with `bar_date + 7 <= sig_date`.
+  That is the only exit signal; there is no separate recent-down/cross-down carry state.
+- **EMA:** `ewm(span=N, adjust=False, min_periods=N)`; long/flat only; cost 0.05%/side.
+- **Targets:** all active names on `sig_date`, equal-weighted to `equity ÷ #targets`.
 
-**Code:** `cmo_live.py` / `cmo_core.py` / `cmo_universe.py`, driven by
-`swingtrader-cmo-bounce.timer` Mon–Fri 10:25 ET (`Persistent=false`), Slack `[CMO-Bounce40]`.
-The runner scores the last settled daily bar (`date < today`), never the live bar.
+**Sizing and execution:** sell-first — exit outside-target names and trim >20%/$500 overweight
+positions, refresh cash/positions, then buy new/underweight targets with a 0.995 cash cap. Dry-run
+simulates the same cash/position path but places no orders. Live uses 10:25 ET market orders,
+after the data gate and outside the 09:30–10:00 ET warm-up; DB trades are recorded only after
+`waitForOrderFill` confirms `status=filled`.
 
-- **Universe:** five PIT sources (RS / MTF / weekly takeoff / EXPL / Daily Signal), newest
-  valid weekly + daily entries. Latest settled rebuild: 96 names (RS 36 / MTF 25 / TO 25 /
-  EXPL 10 / DS 25).
-- **Buy:** `CMO(20)` crosses up through **−40** on the settled daily bar, P20w `majority` is ON
-  (≥2/3 of QQQ/VTI/VTV above their weekly EMA20), and `EMA10 ≥ 0.99×Bollinger(20) EMA mid`.
-  All qualifiers are bought equal-weight.
-- **Sell:** `CMO` crosses up through **+30**, `CMO < −60`, 15% HWM on the last settled bar of
-  the week (5-session cooldown), or P20w OFF (whole-book liquidation). Held names with no
-  signal data are preserved, never blindly sold.
-- **Sizing:** equal weight across all targets; 20% / $500 trim-before-top-up band; 0.05%/side
-  research cost. Live orders are 10:25 ET market orders (next-open drift accepted by owner).
-- **State:** `cmo_positions` / `cmo_trades` hold strategy state and fills; guard/run state uses
-  `mtf_guard_state` / `mtf_runs` mode `cmo40`. Alpaca remains the source of truth.
-- **Cutover:** the one-time `cmo_live.py --handover` path is retained for verification/rollback
-  only and is **not scheduled**; the scheduled handover was canceled after the owner submitted
-  manual liquidation sells post-close on 2026-11-18 (filled at the 2026-11-19 open).
+### Stock leg (account `#PA368CPXNS13`)
 
-### ETF leg (top-3, account `#PA3U8GZ96PEN`, live 2026-11-18 as ETF-only)
+- **Pool:** current five-source `cmo_universe.active_universe()`; 2026-11-19 dry-run: 96 names,
+  90 S1 targets. Dynamic universe means live counts may differ from the static backtest.
+- **State:** `s1_runs` / `s1_trades`; Slack `[S1-STOCK]`.
+- **Cutover:** account expected flat from the manual 2026-11-18 liquidation; no handover needed.
+  `cmo_live.py --handover` maps to S1 handover for verification/rollback only; normal execute never auto-handovers on either leg.
 
-**Code:** `runner.py` / `executor.py`, driven by `swingtrader-mtf-executor.timer` Mon–Fri 10:25 ET
-via `executor_retry.py --mode etf`. The name signal is the settled weekly bar; execution and
-rebalance run daily.
+### ETF leg (account `#PA3U8GZ96PEN`)
 
-- **Buy (NEW BUY / REBALANCE):** enters the top-**3** by the weekly score above, or EW top-up;
-  freed slots backfilled from rank 4+. Target value is `equity ÷ N` on every run.
-- **Sell:** a held ETF **that is still scored today** drops out of the top-3, or a rebalance
-  trim. There is **no ATR ratchet** on this leg.
-- **Guards:** 25% profit sweep and a 20% weekly-close HWM stop (live since 2026-11-05). The old
-  stock-leg ratchet/cool-off/chase-guard logic is not part of the ETF strategy.
-- **Pending data:** only `mtf_pending` mode `etf` is written/consumed. Stale `stock` rows from
-  before 2026-11-18 are ignored.
+- **Pool:** all enabled ETFs (28 at cutover); 2026-11-19 dry-run: 23 S1 targets.
+- **State:** `s1_runs` / `s1_trades`; Slack `[S1-ETF]`.
+- **Cutover:** the one-time ETF handover completed 2026-11-20→11-24; normal execute no longer
+  claims `handover`, and `--handover` is explicit/manual only.
+
+**Corrected A/B (2016-01-04→2026-11-19, cost 0.0005):** ETF S1 +252.1% / -20.82% MDD / 0.81
+Sharpe vs daily-only +36.9% / -34.00% / 0.27 and EW B&H +283.8% / -34.04% / 0.82. Stock S1
++417.8% / -37.93% / 0.76 vs daily-only +574.6% / -53.76% / 0.73 and EW B&H +1996.2% /
+-36.32% / 0.79. These are relative A/B only, not expected returns (survivorship and idealized
+fills still apply).
 
 Everything on all live legs is evaluated on the last **complete** daily/weekly bar — never an
 in-progress/partial bar.
@@ -193,4 +186,4 @@ in-progress/partial bar.
 - `common/docs/CMO_STRATEGY.md` §5k — CMO live wiring, cutover, and verification detail.
 - `swingtrader/services/mtf/{runner.py,executor.py,config.py}` — MTF ETF Top-N implementation (ETF-only live).
 - `swingtrader/services/ema_sma_crossover/daily_signal_service.py` — Daily Signal implementation.
-- `swingtrader/services/mtf/trigger_levels.py` + [SPEC_trigger_levels.md](SPEC_trigger_levels.md) — Slack report (10:00 / 17:05 ET) of the next buy/sell **price** per ticker for CoreEW P20w and MTF-ETF: the weekly-close level at which each flips (CoreEW = last settled weekly EMA20; MTF-ETF = lowest weekly close that puts the ETF in the top 3).
+- `swingtrader/services/mtf/trigger_levels.py` + [SPEC_trigger_levels.md](SPEC_trigger_levels.md) — Slack report (10:00 / 17:05 ET) of the next buy/sell **price** per ticker for CoreEW P20w only (QQQ/VTI/VTV): the last settled weekly EMA20, at which the leg flips. MTF-ETF rank levels were removed 2026-11-25 (strategy replaced by S1 on 2026-11-20).

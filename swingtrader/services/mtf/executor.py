@@ -188,6 +188,9 @@ def _cancel_all_open_orders():
 
 
 def _place_order(symbol, qty, side):
+    side = str(side).strip().lower()
+    if side not in ('buy', 'sell'):
+        raise ValueError(f'invalid order side: {side!r}')
     url = f'{config.ALPACA_BASE_URL}/v2/orders'
     payload = {
         'symbol': symbol,

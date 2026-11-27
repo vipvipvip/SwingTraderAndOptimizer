@@ -1,7 +1,10 @@
 # SPEC — Trigger Levels (next buy / sell price per ticker)
 
-**Status:** design agreed 2026-10-07, **no code yet.** Scope: ETF strategies only — **CoreEW P20w**
-(QQQ/VTI/VTV) and **MTF-ETF** (28 ETFs, top-3). Delivery: Slack only, no orders.
+**Status:** implemented 2026-10-07; **scope reduced 2026-11-25 — CoreEW P20w only** (QQQ/VTI/VTV).
+The MTF-ETF TOP/NEXT sections below were removed from `trigger_levels.py`: emasma top-3 was replaced
+by S1 on 2026-11-20, so its rank levels and `mtf_positions`-sourced HELD/OUT state were no longer
+actionable. Everything below Sections 2–8 concerning MTF-ETF is retained as the original design
+record, not current behavior. Delivery: Slack only, no orders.
 
 ## 1. Core idea — one flip price per ticker
 

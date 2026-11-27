@@ -1,5 +1,5 @@
 [Unit]
-Description=MTF ETF Daily Scorer (stock leg retired — evening analytics)
+Description=S1 ETF Evening Recap (no orders; 16:45 timer entrypoint)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network-online.target swingtrader-db.service swingtrader-scanner-backfill.service
 Wants=network-online.target

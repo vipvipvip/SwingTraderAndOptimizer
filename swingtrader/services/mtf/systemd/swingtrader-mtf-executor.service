@@ -1,5 +1,5 @@
 [Unit]
-Description=MTF emasma ETF Executor (stock leg retired; score retried until market close, then execute)
+Description=S1 ETF Daily Executor (10:25 timer entrypoint; daily EMA10/20 entry, settled weekly exit)
 Documentation=https://github.com/anomalyco/SwingTraderAndOptimizer
 After=network-online.target swingtrader-db.service swingtrader-scanner-backfill.service
 Wants=network-online.target
@@ -8,11 +8,6 @@ Wants=network-online.target
 Type=oneshot
 User=dikesh
 WorkingDirectory=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf
-# executor_retry.py: retry the ETF-only score step every 30m until it has all
-# the tickers' data or 16:00 ET, then run the execute step once. It exits as soon
-# as it is done, and never starts a new attempt at/after the close, so the 16:45
-# recap scorer and tomorrow's 10:25 trigger are never blocked by a live retry
-# loop (systemd will not re-trigger a unit that is still active).
 ExecStart=/home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/optimizer/venv/bin/python3 /home/dikesh/data/dev/SwingTraderAndOptimizer/swingtrader/services/mtf/executor_retry.py --mode etf
 StandardOutput=journal
 StandardError=journal

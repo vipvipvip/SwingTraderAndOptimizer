@@ -20,6 +20,20 @@ Fill discipline: trim BEFORE top-up, exits via `rebalanceTrim` when a DB trade e
 
 The DAILY-close per-leg CO (P{span}d) is a research dead end (whipsaw vs A) and is intentionally the only piece still computed in Python — it will never go live.
 
+## Research 2026-11-25: staged weekly EMA weights (NOT LIVE)
+
+User-defined staging: per leg, `0` when the settled weekly close is below weekly EMA20, `0.5` of the normal equal-weight slot when weekly EMA5 > EMA20, and `1.0` when weekly EMA10 > EMA20. Cash override is `close < EMA20`. Weights scale the normal equal-weight slot (one active leg at 0.5 = 50% of equity; three active legs at 0.5 = 16.7% each), leaving the rest in cash. Implemented PHP-canonically in `TradeExecutorService::legEmaStagedTrail()` / `replayLegEmaStagedSeries()` and exposed read-only as `trades:coreew-leg-ema-staged-series --profile=ema|close-ema5|close-ema20`; no driver, timer, DB claim, or orders. `backtest_trio_ew.py --leg-ema 20 --leg-ema-staged --leg-ema-staged-profile <profile>` consumes that PHP series and only aligns settled weeks/fills.
+
+Two earlier-entry profiles were also tested: `close-ema5` = half on `close > EMA5`, full on `EMA5 > EMA20`; `close-ema20` = half on `close > EMA20`, full on `EMA5 > EMA20`. Both produced identical results on this data. P5w/P10w binary spans were re-run as cleaner alternatives.
+
+Full 2016-01-04→2026-11-24 (2740d, 5 bp/side, pinned Tuesday-close fill): P20w `+340.92% / MaxDD 19.2% / CAGR 14.6%`; P10w `+294.38% / 14.4% / 13.5%`; `ema` staging `+279.32% / 16.7% / 13.1%`; `close-ema5`/`close-ema20` staging `+309.58% / 18.4% / 13.9%`. Recent 855d: P20w `+70.23% / 9.4% / 17.0%`; P10w `+49.84% / 12.2% / 12.7%`; `ema` `+56.50% / 9.4% / 14.1%`; `close-ema5`/`close-ema20` `+62.43% / 9.4% / 15.4%`. **Decision: no live change.** Staging lowers full-period drawdown but gives up 31–82 pts of terminal return; the user-defined `ema` profile is dominated by plain P10w (lower return and higher drawdown). P20w remains live.
+
+## Research 2026-11-25: as-of daily close vs frozen settled EMA20 (NOT LIVE)
+
+User-approved definition: keep the weekly EMA20 frozen from the last settled week, then act midweek when a **settled daily close** crosses that fixed level; the sim fills at the next session's close. Implemented PHP-canonically in `TradeExecutorService::legEmaAsOfTrail()` (aligned to `replayLegEmaSeries()`) and exposed read-only as `trades:coreew-leg-ema-asof-series --span=20 --symbols=...`; no driver, timer, DB claim, or orders. `backtest_trio_ew.py --leg-ema 10,20 --leg-ema-asof 20` consumes that PHP series and only aligns dates/fills.
+
+Full 2016-01-04→2026-11-24 (2740d, 5 bp/side): P20d-asof `+246.02% / MaxDD 20.5% / CAGR 12.1%`, `912` buys / `857` sells, per-leg flips QQQ=142/VTI=112/VTV=144, avg 81% invested; P20w `+340.92% / 19.2% / 14.6%`; P10w `+294.38% / 14.4% / 13.5%`. Recent 855d: P20d-asof `+46.13% / 10.8% / 11.8%`, `295` buys / `270` sells, flips QQQ=41/VTI=27/VTV=27, avg 87% invested; P20w `+70.23% / 9.4% / 17.0%`; P10w `+49.84% / 12.2% / 12.7%`. **Decision: no live change.** Midweek triggers multiply flips and give up 94.9 pts (full) / 24.1 pts (recent) vs P20w, and still trail P10w. Last settled state at 2026-11-24 (EMA from settled week 2026-11-16) is all OFF; VTV is closest at `220.10` vs `220.24587`.
+
 ## Tried and rejected 2026-09-28: "P20w + 10w half trim" (code removed, not parked)
 
 **The idea:** a long leg that dips below its 10W EMA should cost half the position (16.7% instead of 33%) and be topped back up on a 10W recross, with a close below the 20W still exiting fully — a shallow dip shouldn't cost a whole leg. Built PHP-canonically as a pure overlay (settled weekly closes, freed half held in cash, per-leg base target untouched, exit leg read from the live `replayLegEmaSeries()`) and measured over 2016+ (2699d, cost 0.05%, as-of guard clean). *(Measured under the old `run_sim` sell-only cost model; absolute levels are historical and not comparable to the refreshed sheet. The ordering — trims give up 1.1–1.7 pts of CAGR for a flat MaxDD — is the finding.)*

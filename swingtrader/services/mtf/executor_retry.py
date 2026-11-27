@@ -144,49 +144,37 @@ def _alert_giveup(attempts, mode='all', now=None):
 
 
 def main():
-    p = argparse.ArgumentParser(description='MTF emasma daily executor: score (retrying) + execute')
-    p.add_argument('--dry-run', action='store_true',
-                   help='forward --dry-run to both steps (rotation preview, no orders)')
-    p.add_argument('--no-execute', action='store_true',
-                   help='run/retry the score step only; never place orders')
-    p.add_argument('--stop-at', default='16:00', metavar='HH:MM',
-                   help='ET hard stop for starting a new attempt (default 16:00 = market close)')
-    p.add_argument('--retry-min', type=float, default=DEFAULT_RETRY_MIN,
-                   help=f'minutes between failed attempts (default {DEFAULT_RETRY_MIN})')
-    p.add_argument('--max-attempts', type=int, default=MAX_ATTEMPTS,
-                   help=f'attempt cap (default {MAX_ATTEMPTS})')
-    p.add_argument('--strategy', default='emasma', help='runner strategy (default emasma)')
-    p.add_argument('--mode', choices=('all', 'stock', 'etf'), default='all',
-                   help='runner mode (default all)')
+    p = argparse.ArgumentParser(description='S1 ETF daily executor (10:25 timer entrypoint)')
+    p.add_argument('--dry-run', action='store_true')
+    p.add_argument('--no-execute', action='store_true')
+    p.add_argument('--stop-at', default='16:00', metavar='HH:MM')
+    p.add_argument('--retry-min', type=float, default=DEFAULT_RETRY_MIN)
+    p.add_argument('--max-attempts', type=int, default=MAX_ATTEMPTS)
+    p.add_argument('--strategy', default='emasma')
+    p.add_argument('--mode', choices=('all', 'stock', 'etf'), default='all')
+    p.add_argument('--no-slack', action='store_true')
+    p.add_argument('--skip-gate', action='store_true')
+    p.add_argument('--sig-date')
     args = p.parse_args()
 
-    stop_at = dt_time(*(int(x) for x in args.stop_at.split(':')))
-    print(f'[MTF-RETRY] {datetime.now(NY):%Y-%m-%d %H:%M} ET — score retries every '
-          f'{args.retry_min:g}m until {stop_at:%H:%M} ET, then execute '
-          f'(mode={args.mode}, dry_run={args.dry_run}, no_execute={args.no_execute})', flush=True)
+    import s1_live
 
-    # Score step is silent on Slack: every retry would otherwise post its own
-    # digest, and the (successful) execute step below posts the one message.
-    ok, attempts = retry_score(
-        lambda: _run_step('score', dry_run=args.dry_run, strategy=args.strategy,
-                          no_slack=True, mode=args.mode),
-        stop_at=stop_at, retry_min=args.retry_min, max_attempts=args.max_attempts)
-
-    if not ok:
-        _alert_giveup(attempts, mode=args.mode)
-        return 1
-
-    if args.no_execute:
-        print('[MTF-RETRY] --no-execute: score only, no orders placed', flush=True)
-        return 0
-
-    rc = _run_step('execute', dry_run=args.dry_run, strategy=args.strategy, mode=args.mode)
-    if rc != 0:
-        runner._send_slack_alert(
-            f'execute step exited {rc} after a successful score — check '
-            f'`journalctl -u swingtrader-mtf-executor` and mtf_runs for the leg.', args.mode)
-        return rc
-    return 0
+    modes = ('stock', 'etf') if args.mode == 'all' else (args.mode,)
+    rc = 0
+    for mode in modes:
+        argv = ['--mode', mode]
+        if args.dry_run:
+            argv.append('--dry-run')
+        if args.no_slack:
+            argv.append('--no-slack')
+        if args.skip_gate:
+            argv.append('--skip-gate')
+        if args.sig_date:
+            argv.extend(['--sig-date', args.sig_date])
+        if args.no_execute:
+            argv.append('--recap')
+        rc = s1_live.main(argv) or rc
+    return rc
 
 
 if __name__ == '__main__':
